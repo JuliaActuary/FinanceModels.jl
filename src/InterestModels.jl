@@ -1,15 +1,31 @@
-module YieldModels
+module InterestModels
 
 using Dierckx
 
 export ZeroCurve, rate,forward,TreasuryYieldCurve
 
+"""
+An AbstractInterestCurve is an object which can be called with:
 
-struct YieldCurve
+- `rate` for the spot rate at a given time
+- `disc` for the spot discount rate at a given time
+
+"""
+abstract type AbstractInterestCurve end
+
+struct InterestCurve <: AbstractInterestCurve
     rates
     maturities
     spline
 end
+
+struct ConstantCurve <: AbstractInterestCurve
+    rate
+end
+
+rate(c::ConstantCurve,time) = c.rate
+disc(c::ConstantCurve,time) = 1/ (1 + c.rate) ^ 2
+
 
 function ZeroCurve(rates,maturities)
     return YieldCurve(rates,maturities,Spline1D(maturities,rates))
