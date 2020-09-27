@@ -1,4 +1,4 @@
-# Yields
+# Yields (experimental package)
 
 [![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://alecloudenback.github.io/Yields.jl/stable)
 [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://alecloudenback.github.io/Yields.jl/dev)
@@ -12,8 +12,19 @@
 ## QuickStart
 
 ```julia
+riskfree_maturities = [0.5, 1.0, 1.5, 2.0]
+riskfree    = [5.0, 5.8, 6.4, 6.8] ./ 100 #spot rates
+
+spread_maturities = [0.5, 1.0, 1.5, 3.0] # different maturities
+spread    = [1.0, 1.8, 1.4, 1.8] ./ 100 # spot spreads
+
+rf_curve = ZeroCurve(riskfree,riskfree_maturities)
+spread_curve = ZeroCurve(spread,spread_maturities)
 
 
+yield = rf_curve + spread_curve
+
+disc(yield,1.0) # 1 / (1 + 0.058 + 0.018)
 ```
 
 ## Related Packages 
