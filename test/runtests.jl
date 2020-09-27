@@ -2,6 +2,28 @@ using Yields
 using Test
 
 @testset "Yields.jl" begin
+
+    @testset "constant curve" begin
+        yield = ConstantYield(0.05)
+
+        @testset "constant discount" for  time in [0,0.5,1,10]
+            @test disc(yield,time) ≈ 1 / (1.05) ^ time 
+            @test rate(yield,time) == 0.05
+        end
+
+        yield_2x = yield + yield
+        @testset "constant discount added" for  time in [0,0.5,1,10]
+            @test disc(yield_2x,time) ≈ 1 / (1.1) ^ time 
+            @test rate(yield_2x,time) == 0.1
+        end
+
+        yield_1bps = yield - ConstantYield(0.04)
+        @testset "constant discount subtraction" for  time in [0,0.5,1,10]
+            @test disc(yield_1bps,time) ≈ 1 / (1.01) ^ time 
+            @test rate(yield_1bps,time) ≈ 0.01
+        end
+    end
+    
     @testset "simple rate and forward" begin 
     # Risk Managment and Financial Institutions, 5th ed. Appendix B
 
@@ -25,6 +47,22 @@ using Test
         @test forward(curve,1.5,2.0) ≈ 8.0 / 100
     end
 
+    @testset "base + spread" begin
+        riskfree_maturities = [0.5, 1.0, 1.5, 2.0]
+        riskfree    = [5.0, 5.8, 6.4, 6.8] ./ 100 #spot rates
+
+        spread_maturities = [0.5, 1.0, 1.5, 3.0] # different maturities
+        spread    = [1.0, 1.8, 1.4, 1.8] ./ 100 # spot spreads
+
+        rf_curve = ZeroCurve(riskfree,riskfree_maturities)
+        spread_curve = ZeroCurve(spread,spread_maturities)
+
+        yield = rf_curve + spread_curve 
+
+        @test disc(yield,1.0) ≈ 1 / (1 + riskfree[2] + spread[2]) ^ 1
+        @test disc(yield,1.5) ≈ 1 / (1 + riskfree[3] + spread[3]) ^ 1.5
+    end
+
     @testset "bootstrap treasury" begin
         # https://financetrain.com/bootstrapping-spot-rate-curve-zero-curve/
         maturity = [0.5, 1.0, 1.5, 2.0]
@@ -45,5 +83,6 @@ using Test
         mats =  [1/12,2/12,3/12,6/12,1,2,3,5,7,10,20,30]
 
     end
+
 
 end

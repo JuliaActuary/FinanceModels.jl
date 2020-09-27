@@ -2,7 +2,8 @@ module Yields
 
 using Dierckx
 
-export ZeroCurve, rate,forward,TreasuryYieldCurve
+
+export ZeroCurve,ConstantYield, rate,forward,TreasuryYieldCurve, disc
 
 """
 An AbstractInterestCurve is an object which can be called with:
@@ -11,20 +12,20 @@ An AbstractInterestCurve is an object which can be called with:
 - `disc` for the spot discount rate at a given time
 
 """
-abstract type AbstractInterestCurve end
+abstract type AbstractYieldCurve end
 
-struct InterestCurve <: AbstractInterestCurve
+struct YieldCurve <: AbstractYieldCurve
     rates
     maturities
     spline
 end
 
-struct ConstantCurve <: AbstractInterestCurve
+struct ConstantYield <: AbstractYieldCurve
     rate
 end
 
-rate(c::ConstantCurve,time) = c.rate
-disc(c::ConstantCurve,time) = 1/ (1 + c.rate) ^ 2
+rate(c::ConstantYield,time) = c.rate
+disc(c::ConstantYield,time) = 1/ (1 + c.rate) ^ time
 
 
 function ZeroCurve(rates,maturities)
@@ -71,6 +72,29 @@ disc(yc,time) = 1 / (1 + rate(yc,time)) ^ time
 
 function forward(yc,from,to) 
     (rate(yc,to) * to - rate(yc,from) * from) / (to - from)
+end
+
+struct RateCombination <: AbstractYieldCurve
+    r1
+    r2
+    op
+end
+
+rate(rc::RateCombination,time) = rc.op(rate(rc.r1,time) ,rate(rc.r2,time))
+function disc(rc::RateCombination,time) 
+    r = rc.op(rate(rc.r1,time) ,rate(rc.r2,time))
+    return 1 / (1+r) ^ time
+end
+
+### Curve Manipulations
+
+function Base.:+(a::AbstractYieldCurve,b::AbstractYieldCurve)
+   return RateCombination(a, b,+) 
+end
+
+
+function Base.:-(a::AbstractYieldCurve,b::AbstractYieldCurve)
+    return RateCombination(a, b,-) 
 end
 
 end
