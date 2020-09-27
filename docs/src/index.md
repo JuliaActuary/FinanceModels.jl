@@ -1,12 +1,12 @@
 ```@meta
-CurrentModule = InterestModels
+CurrentModule = Yields
 ```
 
-# InterestModels
+# Yields
 
 ```@index
 ```
 
 ```@autodocs
-Modules = [InterestModels]
+Modules = [Yields]
 ```

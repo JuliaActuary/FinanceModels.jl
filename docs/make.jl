@@ -1,14 +1,14 @@
-using InterestModels
+using Yields
 using Documenter
 
 makedocs(;
-    modules=[InterestModels],
+    modules=[Yields],
     authors="Alec Loudenback <alecloudenback@gmail.com> and contributors",
-    repo="https://github.com/alecloudenback/InterestModels.jl/blob/{commit}{path}#L{line}",
-    sitename="InterestModels.jl",
+    repo="https://github.com/alecloudenback/Yields.jl/blob/{commit}{path}#L{line}",
+    sitename="Yields.jl",
     format=Documenter.HTML(;
         prettyurls=get(ENV, "CI", "false") == "true",
-        canonical="https://alecloudenback.github.io/InterestModels.jl",
+        canonical="https://alecloudenback.github.io/Yields.jl",
         assets=String[],
     ),
     pages=[
@@ -17,5 +17,5 @@ makedocs(;
 )
 
 deploydocs(;
-    repo="github.com/alecloudenback/InterestModels.jl",
+    repo="github.com/alecloudenback/Yields.jl",
 )

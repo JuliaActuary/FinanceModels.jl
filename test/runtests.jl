@@ -1,7 +1,7 @@
-using InterestModels
+using Yields
 using Test
 
-@testset "InterestModels.jl" begin
+@testset "Yields.jl" begin
     @testset "simple rate and forward" begin 
     # Risk Managment and Financial Institutions, 5th ed. Appendix B
 

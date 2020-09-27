@@ -1,4 +1,4 @@
-module InterestModels
+module Yields
 
 using Dierckx
 
