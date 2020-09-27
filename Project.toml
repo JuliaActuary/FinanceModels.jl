@@ -1,5 +1,5 @@
-name = "InterestModels"
-uuid = "fb5eda49-bf26-4a6d-8913-7017bd58700f"
+name = "Yields"
+uuid = "gb5eda49-bf26-4a6d-8913-7017bd58700f"
 authors = ["Alec Loudenback <alecloudenback@gmail.com> and contributors"]
 version = "0.1.0"
 
