@@ -4,7 +4,7 @@ using Dierckx
 
 
 export ZeroCurve,ConstantYield, ForwardYields,
-rate,forward,TreasuryYieldCurve, disc
+rate,forward,TreasuryYieldCurve, disc, AbstractYieldCurve
 
 """
 An AbstractInterestCurve is an object which can be called with:
