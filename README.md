@@ -7,7 +7,9 @@
 [![lifecycle](https://img.shields.io/badge/LifeCycle-Experimental-orange)](https://www.tidyverse.org/lifecycle/)
 
 
-**Yields** provides a simple interface for constructing, manipulating, and using yield curves for modeling purposes. 
+**Yields** provides a simple interface for constructing, manipulating, and using yield curves for modeling purposes.
+
+It's intended to provide common functionality around modeling interest rates, spreads, and miscellaneous yields across the JuliaActuary ecosystem (though not limited to use in JuliaActuary packages.)
 
 ## QuickStart
 
@@ -30,4 +32,4 @@ disc(yield,1.0) # 1 / (1 + 0.058 + 0.018)
 ## Related Packages 
 
 - [**`InterestRates.jl`**](https://github.com/felipenoris/InterestRates.jl) specializes in fast rate calculations aimed at valuing fixed income contracts, with business-day-level accuracy. 
-  - Comparative comments: **`Yields.jl`** does not try to provide as precise controls over the timing, strucutre, and interpolation of the curve.
+  - Comparative comments: **`Yields.jl`** does not try to provide as precise controls over the timing, structure, and interpolation of the curve. Instead, **Yields.jl** provides a minimal interface for common modeling needs.
