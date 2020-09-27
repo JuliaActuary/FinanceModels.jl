@@ -24,6 +24,11 @@ using Test
         end
     end
     
+    @testset "broadcasting" begin
+        yield = ConstantYield(0.05)
+        @test disc.(yield,1:3) == [1/1.05^t for t in 1:3]
+    end
+
     @testset "simple rate and forward" begin 
     # Risk Managment and Financial Institutions, 5th ed. Appendix B
 
@@ -54,7 +59,6 @@ using Test
         curve = ForwardYields(forwards)
 
         @testset "discounts: $t" for (t,r) in enumerate(forwards)
-        @show disc(curve,t)
             @test disc(curve,t) ≈ reduce((v, r) -> v / (1+r), forwards[1:t]; init=1.0)
         end
     end
