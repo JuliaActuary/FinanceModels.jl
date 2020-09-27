@@ -47,6 +47,18 @@ using Test
         @test forward(curve,1.5,2.0) ≈ 8.0 / 100
     end
 
+    @testset "Forward Rates" begin 
+    # Risk Managment and Financial Institutions, 5th ed. Appendix B
+
+        forwards = [0.05, 0.04, 0.03, 0.08]
+        curve = ForwardYields(forwards)
+
+        @testset "discounts: $t" for (t,r) in enumerate(forwards)
+        @show disc(curve,t)
+            @test disc(curve,t) ≈ reduce((v, r) -> v / (1+r), forwards[1:t]; init=1.0)
+        end
+    end
+
     @testset "base + spread" begin
         riskfree_maturities = [0.5, 1.0, 1.5, 2.0]
         riskfree    = [5.0, 5.8, 6.4, 6.8] ./ 100 #spot rates

@@ -3,7 +3,8 @@ module Yields
 using Dierckx
 
 
-export ZeroCurve,ConstantYield, rate,forward,TreasuryYieldCurve, disc
+export ZeroCurve,ConstantYield, ForwardYields,
+rate,forward,TreasuryYieldCurve, disc
 
 """
 An AbstractInterestCurve is an object which can be called with:
@@ -30,6 +31,20 @@ disc(c::ConstantYield,time) = 1/ (1 + c.rate) ^ time
 
 function ZeroCurve(rates,maturities)
     return YieldCurve(rates,maturities,Spline1D(maturities,rates))
+end
+
+"""
+    Forwards(rate_vector)
+
+Takes a vector of 1-period forward rates and constructs a discount curve.
+"""
+function ForwardYields(rate_vector)
+    zeros = similar(rate_vector)
+    zeros[1] = rate_vector[1]
+    for i in 2:length(rate_vector)
+        zeros[i] = (prod(1 .+ rate_vector[1:i]))  ^ (1/i) - 1
+    end
+    return ZeroCurve(zeros,1:length(rate_vector))
 end
 
 function TreasuryYieldCurve(rates,maturities)
