@@ -15,6 +15,9 @@ An AbstractInterestCurve is an object which can be called with:
 """
 abstract type AbstractYieldCurve end
 
+# make interest curve broadcastable so that you can broadcast over multiple`time`s in `interest_rate`
+Base.Broadcast.broadcastable(ic::AbstractYieldCurve) = Ref(ic) 
+
 struct YieldCurve <: AbstractYieldCurve
     rates
     maturities
