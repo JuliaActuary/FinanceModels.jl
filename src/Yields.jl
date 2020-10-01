@@ -5,7 +5,7 @@ using Dierckx
 # don't export type, as the API of Yields.Zero is nicer and 
 # less polluting than Zero and less/equally verbose as ZeroYieldCurve or ZeroCruve
 export rate, disc, forward
-# USTreasury,  AbstractYieldCurve
+# USTreasury,  AbstractYield
 # Zero,Constant, Forward
 """
 An AbstractInterestCurve is an object which can be called with:
@@ -14,18 +14,18 @@ An AbstractInterestCurve is an object which can be called with:
 - `disc` for the spot discount rate at a given time
 
 """
-abstract type AbstractYieldCurve end
+abstract type AbstractYield end
 
 # make interest curve broadcastable so that you can broadcast over multiple`time`s in `interest_rate`
-Base.Broadcast.broadcastable(ic::AbstractYieldCurve) = Ref(ic) 
+Base.Broadcast.broadcastable(ic::AbstractYield) = Ref(ic) 
 
-struct YieldCurve <: AbstractYieldCurve
+struct YieldCurve <: AbstractYield
     rates
     maturities
     spline
 end
 
-struct Constant <: AbstractYieldCurve
+struct Constant <: AbstractYield
     rate
 end
 
@@ -104,7 +104,7 @@ function forward(yc,from,to)
     (rate(yc,to) * to - rate(yc,from) * from) / (to - from)
 end
 
-struct RateCombination <: AbstractYieldCurve
+struct RateCombination <: AbstractYield
     r1
     r2
     op
@@ -118,12 +118,12 @@ end
 
 ### Curve Manipulations
 
-function Base.:+(a::AbstractYieldCurve,b::AbstractYieldCurve)
+function Base.:+(a::AbstractYield,b::AbstractYield)
    return RateCombination(a, b,+) 
 end
 
 
-function Base.:-(a::AbstractYieldCurve,b::AbstractYieldCurve)
+function Base.:-(a::AbstractYield,b::AbstractYield)
     return RateCombination(a, b,-) 
 end
 
