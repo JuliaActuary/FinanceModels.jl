@@ -2,10 +2,11 @@ module Yields
 
 using Dierckx
 
-
-export ZeroCurve,ConstantYield, ForwardYields,
-rate,forward,TreasuryYieldCurve, disc, AbstractYieldCurve
-
+# don't export type, as the API of Yields.Zero is nicer and 
+# less polluting than Zero and less/equally verbose as ZeroYieldCurve or ZeroCruve
+export rate, disc, forward
+# USTreasury,  AbstractYieldCurve
+# Zero,Constant, Forward
 """
 An AbstractInterestCurve is an object which can be called with:
 
@@ -24,33 +25,44 @@ struct YieldCurve <: AbstractYieldCurve
     spline
 end
 
-struct ConstantYield <: AbstractYieldCurve
+struct Constant <: AbstractYieldCurve
     rate
 end
 
-rate(c::ConstantYield,time) = c.rate
-disc(c::ConstantYield,time) = 1/ (1 + c.rate) ^ time
+rate(c::Constant,time) = c.rate
+disc(c::Constant,time) = 1/ (1 + rate(c,time)) ^ time
 
 
-function ZeroCurve(rates,maturities)
-    return YieldCurve(rates,maturities,Spline1D(maturities,rates))
+function Zero(rates,maturities)
+    # bump to a constant yield if only given one rate
+    length(rates) == 1 && return Constant(rate[1])
+
+    return YieldCurve(
+        rates,
+        maturities,
+        Spline1D(
+            maturities,
+            rates; 
+            k=min(3,length(rates)-1) # spline dim has to be less than number of given rates
+            )
+        )
 end
 
 """
-    Forwards(rate_vector)
+    Forward(rate_vector)
 
 Takes a vector of 1-period forward rates and constructs a discount curve.
 """
-function ForwardYields(rate_vector)
+function Forward(rate_vector)
     zeros = similar(rate_vector)
     zeros[1] = rate_vector[1]
     for i in 2:length(rate_vector)
         zeros[i] = (prod(1 .+ rate_vector[1:i]))  ^ (1/i) - 1
     end
-    return ZeroCurve(zeros,1:length(rate_vector))
+    return Zero(zeros,1:length(rate_vector))
 end
 
-function TreasuryYieldCurve(rates,maturities)
+function USTreasury(rates,maturities)
     z = zeros(length(rates))
 
     # use the discount rate for T-Bills with maturities <= 1 year

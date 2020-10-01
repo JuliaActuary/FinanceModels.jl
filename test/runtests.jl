@@ -4,7 +4,7 @@ using Test
 @testset "Yields.jl" begin
 
     @testset "constant curve" begin
-        yield = ConstantYield(0.05)
+        yield = Yields.Constant(0.05)
 
         @testset "constant discount" for  time in [0,0.5,1,10]
             @test disc(yield,time) ≈ 1 / (1.05) ^ time 
@@ -17,7 +17,7 @@ using Test
             @test rate(yield_2x,time) == 0.1
         end
 
-        yield_1bps = yield - ConstantYield(0.04)
+        yield_1bps = yield - Yields.Constant(0.04)
         @testset "constant discount subtraction" for  time in [0,0.5,1,10]
             @test disc(yield_1bps,time) ≈ 1 / (1.01) ^ time 
             @test rate(yield_1bps,time) ≈ 0.01
@@ -25,16 +25,22 @@ using Test
     end
     
     @testset "broadcasting" begin
-        yield = ConstantYield(0.05)
+        yield = Yields.Constant(0.05)
         @test disc.(yield,1:3) == [1/1.05^t for t in 1:3]
     end
 
+    @testset "short curve" begin
+        z = Yields.Zero([0.0,0.05],[1,2])
+        @test rate(z,1) ≈ 0.00
+        @test rate(z,2) ≈ 0.05
+    end
+
     @testset "simple rate and forward" begin 
-    # Risk Managment and Financial Institutions, 5th ed. Appendix B
+    # Risk Managment and Financial In                       stitutions, 5th ed. Appendix B
 
         maturity = [0.5, 1.0, 1.5, 2.0]
         zero    = [5.0, 5.8, 6.4, 6.8] ./ 100
-        curve = ZeroCurve(zero,maturity)
+        curve = Yields.Zero(zero,maturity)
 
         
         @test rate(curve,0.5) ≈ 5.0 / 100
@@ -56,7 +62,7 @@ using Test
     # Risk Managment and Financial Institutions, 5th ed. Appendix B
 
         forwards = [0.05, 0.04, 0.03, 0.08]
-        curve = ForwardYields(forwards)
+        curve = Yields.Forward(forwards)
 
         @testset "discounts: $t" for (t,r) in enumerate(forwards)
             @test disc(curve,t) ≈ reduce((v, r) -> v / (1+r), forwards[1:t]; init=1.0)
@@ -70,8 +76,8 @@ using Test
         spread_maturities = [0.5, 1.0, 1.5, 3.0] # different maturities
         spread    = [1.0, 1.8, 1.4, 1.8] ./ 100 # spot spreads
 
-        rf_curve = ZeroCurve(riskfree,riskfree_maturities)
-        spread_curve = ZeroCurve(spread,spread_maturities)
+        rf_curve = Yields.Zero(riskfree,riskfree_maturities)
+        spread_curve = Yields.Zero(spread,spread_maturities)
 
         yield = rf_curve + spread_curve 
 
@@ -84,7 +90,7 @@ using Test
         maturity = [0.5, 1.0, 1.5, 2.0]
         YTM      = [4.0, 4.3, 4.5, 4.9] ./ 100
 
-        curve = TreasuryYieldCurve(YTM,maturity)
+        curve = Yields.USTreasury(YTM,maturity)
 
         @test rate(curve, 0.5) ≈ 0.04
         @test rate(curve, 1.0) ≈ 0.043
