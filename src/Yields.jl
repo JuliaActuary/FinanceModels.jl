@@ -62,15 +62,14 @@ function Forward(rate_vector)
     return Zero(zeros,1:length(rate_vector))
 end
 
-function Forward(rate_vector,periods)
+function Forward(rate_vector,times)
     disc_v = similar(rate_vector)
-    disc_v[1] = 1/ (1 + rate_vector[1]) ^ periods[1]
+    disc_v[1] = 1/ (1 + rate_vector[1]) ^ times[1]
     for i in 2:length(rate_vector)
-        ∇t = periods[i] - periods[i-1]
+        ∇t = times[i] - times[i-1]
         disc_v[i] = disc_v[i-1] / (1 + rate_vector[i]) ^ ∇t
     end
-    @show disc_v
-    times = cumsum(periods)
+    # times = cumsum(periods)
     return Zero( 1 ./ disc_v .^ (1 ./ times) .- 1,times)
 end
 
