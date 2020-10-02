@@ -9,7 +9,7 @@
 
 **Yields** provides a simple interface for constructing, manipulating, and using yield curves for modeling purposes.
 
-It's intended to provide common functionality around modeling interest rates, spreads, and miscellaneous yields across the JuliaActuary ecosystem (though not limited to use in JuliaActuary packages.)
+It's intended to provide common functionality around modeling interest rates, spreads, and miscellaneous yields across the JuliaActuary ecosystem (though not limited to use in JuliaActuary packages).
 
 ## QuickStart
 
@@ -17,16 +17,16 @@ It's intended to provide common functionality around modeling interest rates, sp
 using Yields
 
 riskfree_maturities = [0.5, 1.0, 1.5, 2.0]
-riskfree    = [5.0, 5.8, 6.4, 6.8] ./ 100 #spot rates
+riskfree    = [5.0, 5.8, 6.4, 6.8] ./ 100     #spot rates
 
-spread_maturities = [0.5, 1.0, 1.5, 3.0] # different maturities
-spread    = [1.0, 1.8, 1.4, 1.8] ./ 100 # spot spreads
+spread_maturities = [0.5, 1.0, 1.5, 3.0]      # different maturities
+spread    = [1.0, 1.8, 1.4, 1.8] ./ 100       # spot spreads
 
 rf_curve = Yields.Zero(riskfree,riskfree_maturities)
 spread_curve = Yields.Zero(spread,spread_maturities)
 
 
-yield = rf_curve + spread_curve
+yield = rf_curve + spread_curve               # additive combination of the two curves
 
 discount(yield,1.0) # 1 / (1 + 0.058 + 0.018)
 ```
