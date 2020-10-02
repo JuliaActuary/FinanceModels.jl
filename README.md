@@ -37,10 +37,10 @@ discount(yield,1.0) # 1 / (1 + 0.058 + 0.018)
 
 There are a few ways to construct a yield curve object:
 
-- `Zero(rates)` or `Zero(rates,maturities)` using a vector of zero, or spot, rates
-- `Forward(rates)` or `Forward(rates,periods) using a vector of one-period (or `periods`-long) forward rates
-- `Constant(rate)` takes a single constant rate for all times
-- `USTreasury(rates)` takes the most commonly presented rate data (e.g. [Treasury.gov](https://www.treasury.gov/resource-center/data-chart-center/interest-rates/Pages/TextView.aspx?data=yield)) and bootstraps the curve given the combination of bills and bonds.
+- `Yields.Zero(rates)` or `Zero(rates,maturities)` using a vector of zero, or spot, rates
+- `Yields.Forward(rates)` or `Forward(rates,periods) using a vector of one-period (or `periods`-long) forward rates
+- `Yields.Constant(rate)` takes a single constant rate for all times
+- `Yields.USTreasury(rates)` takes the most commonly presented rate data (e.g. [Treasury.gov](https://www.treasury.gov/resource-center/data-chart-center/interest-rates/Pages/TextView.aspx?data=yield)) and bootstraps the curve given the combination of bills and bonds.
 
 ### Functions
 
