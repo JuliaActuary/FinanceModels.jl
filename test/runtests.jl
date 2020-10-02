@@ -6,27 +6,28 @@ using Test
     @testset "constant curve" begin
         yield = Yields.Constant(0.05)
 
-        @testset "constant discount" for  time in [0,0.5,1,10]
-            @test disc(yield,time) ≈ 1 / (1.05) ^ time 
+        @testset "constant discount time: $time" for  time in [0,0.5,1,10]
+            @test discount(yield,time) ≈ 1 / (1.05) ^ time 
+            @test accumulate(yield,time) ≈ 1 * 1.05 ^ time
             @test rate(yield,time) == 0.05
         end
 
         yield_2x = yield + yield
         @testset "constant discount added" for  time in [0,0.5,1,10]
-            @test disc(yield_2x,time) ≈ 1 / (1.1) ^ time 
+            @test discount(yield_2x,time) ≈ 1 / (1.1) ^ time 
             @test rate(yield_2x,time) == 0.1
         end
 
         yield_1bps = yield - Yields.Constant(0.04)
         @testset "constant discount subtraction" for  time in [0,0.5,1,10]
-            @test disc(yield_1bps,time) ≈ 1 / (1.01) ^ time 
+            @test discount(yield_1bps,time) ≈ 1 / (1.01) ^ time 
             @test rate(yield_1bps,time) ≈ 0.01
         end
     end
     
     @testset "broadcasting" begin
         yield = Yields.Constant(0.05)
-        @test disc.(yield,1:3) == [1/1.05^t for t in 1:3]
+        @test discount.(yield,1:3) == [1/1.05^t for t in 1:3]
     end
 
     @testset "short curve" begin
@@ -46,8 +47,8 @@ using Test
         @test rate(curve,0.5) ≈ 5.0 / 100
         @test rate(curve,2.0) ≈ 6.8 / 100
 
-        @test disc(curve, 1) ≈ 1 / (1 + zero[2])
-        @test disc(curve, 2) ≈ 1 / (1 + zero[4]) ^2
+        @test discount(curve, 1) ≈ 1 / (1 + zero[2])
+        @test discount(curve, 2) ≈ 1 / (1 + zero[4]) ^2
     
         # extrapolation
         @test rate(curve,0.0) ≈ 5.0 / 100
@@ -65,8 +66,9 @@ using Test
         curve = Yields.Forward(forwards)
 
         @testset "discounts: $t" for (t,r) in enumerate(forwards)
-            @test disc(curve,t) ≈ reduce((v, r) -> v / (1+r), forwards[1:t]; init=1.0)
+            @test discount(curve,t) ≈ reduce((v, r) -> v / (1+r), forwards[1:t]; init=1.0)
         end
+
     end
 
     @testset "base + spread" begin
@@ -81,8 +83,8 @@ using Test
 
         yield = rf_curve + spread_curve 
 
-        @test disc(yield,1.0) ≈ 1 / (1 + riskfree[2] + spread[2]) ^ 1
-        @test disc(yield,1.5) ≈ 1 / (1 + riskfree[3] + spread[3]) ^ 1.5
+        @test discount(yield,1.0) ≈ 1 / (1 + riskfree[2] + spread[2]) ^ 1
+        @test discount(yield,1.5) ≈ 1 / (1 + riskfree[3] + spread[3]) ^ 1.5
     end
 
     @testset "bootstrap treasury" begin
