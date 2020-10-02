@@ -69,6 +69,15 @@ using Test
             @test discount(curve,t) ≈ reduce((v, r) -> v / (1+r), forwards[1:t]; init=1.0)
         end
 
+        @testset "with specified timepoints" begin
+            i = [0.0,0.05]
+            times = [0.5,1.5]
+            y = Yields.Forward(i,times)
+            @test discount(y,0.5) ≈ 1 / 1.0 ^ 0.5  
+            @test discount(y,1.5) ≈ 1 / 1.0 ^ 0.5 / 1.05 ^ 1
+
+        end
+
     end
 
     @testset "base + spread" begin
