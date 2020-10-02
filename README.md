@@ -28,7 +28,7 @@ spread_curve = Yields.Zero(spread,spread_maturities)
 
 yield = rf_curve + spread_curve
 
-disc(yield,1.0) # 1 / (1 + 0.058 + 0.018)
+discount(yield,1.0) # 1 / (1 + 0.058 + 0.018)
 ```
 
 ## Usage
@@ -50,6 +50,9 @@ Most of the above yields have the following defined (goal is to have them all):
 - `accumulate(curve,time)` gives the accumulation factor through `time`
 - `forward(curve,time_from,time_to)` gives the average rate between the two given times
 
+### Combinations
+
+Different yield objects can be combined with addition or subtraction. See the [Quickstart](#quickstart) for an example.
 
 
 ## Related Packages 
