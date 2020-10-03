@@ -102,7 +102,7 @@ function Forward(rate_vector,periods)
         ∇t = periods[i] - periods[i-1]
         disc_v[i] = disc_v[i-1] / (1 + rate_vector[i]) ^ ∇t
     end
-    @show disc_v
+
     times = cumsum(periods)
     return Zero( 1 ./ disc_v .^ (1 ./ times) .- 1,times)
 end
