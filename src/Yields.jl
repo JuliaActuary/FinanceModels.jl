@@ -112,9 +112,14 @@ rate(yc,time) = yc.spline(time)
 
 discount(yc,time) = 1 / (1 + rate(yc,time)) ^ time
 
-function forward(yc,from,to) 
-    (rate(yc,to) * to - rate(yc,from) * from) / (to - from)
+function forward(yc,from,to)
+    return (accumulate(yc,to) / accumulate(yc,from))^(1/(to-from)) - 1
 end
+function forward(yc,from)
+    to = from - 1 
+    return forward(yc,from,to)
+end
+
 
 struct RateCombination <: AbstractYield
     r1
