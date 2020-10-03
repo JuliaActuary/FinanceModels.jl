@@ -83,7 +83,6 @@ function USTreasury(rates,maturities)
         if mat <= 1 
             z[i] = rate
         else
-            i, rate, mat
             curve = Spline1D(maturities,z)
             pmts = [rate / 2 for t in 0.5:0.5:mat] # coupons only
             pmts[end] += 1 # plus principal
