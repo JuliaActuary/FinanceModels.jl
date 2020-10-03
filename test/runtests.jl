@@ -59,7 +59,7 @@ using Test
     end
 
     @testset "simple rate and forward" begin 
-    # Risk Managment and Financial In                       stitutions, 5th ed. Appendix B
+    # Risk Managment and Financial Institutions, 5th ed. Appendix B
 
         maturity = [0.5, 1.0, 1.5, 2.0]
         zero    = [5.0, 5.8, 6.4, 6.8] ./ 100
@@ -76,9 +76,9 @@ using Test
         @test rate(curve,0.0) ≈ 5.0 / 100
         @test rate(curve,4.0) ≈ 6.8 / 100
 
-        @test forward(curve,0.5,1.0) ≈ 6.6 / 100
-        @test forward(curve,1.0,1.5) ≈ 7.6 / 100
-        @test forward(curve,1.5,2.0) ≈ 8.0 / 100
+        @test forward(curve,0.5,1.0) ≈ 6.6 / 100 atol=0.001
+        @test forward(curve,1.0,1.5) ≈ 7.6 / 100 atol=0.001
+        @test forward(curve,1.5,2.0) ≈ 8.0 / 100 atol=0.001
     end
 
     @testset "Forward Rates" begin 
