@@ -52,7 +52,7 @@ end
 """
 Construct a curve given a set of bond yields priced at par with a single coupon per period.
 """
-function Par(rate,maturity)
+function Par(rate,maturity;)
     # bump to a constant yield if only given one rate
     if length(rate) == 1
          return Constant(rate[1])
@@ -116,6 +116,7 @@ function USTreasury(rates,maturities)
         if mat <= 1 
             z[i] = rate
         else
+            # uses spline b/c of common, but uneven maturities often present under 1 year.
             curve = Spline1D(maturities,z)
             pmts = [rate / 2 for t in 0.5:0.5:mat] # coupons only
             pmts[end] += 1 # plus principal
