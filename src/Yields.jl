@@ -48,6 +48,39 @@ function Zero(rates,maturities)
         )
 end
 
+
+"""
+Construct a curve given a set of bond yields priced at par with a single coupon per period.
+"""
+function Par(rate,maturity)
+    # bump to a constant yield if only given one rate
+    if length(rate) == 1
+         return Constant(rate[1])
+    end
+
+    spot = similar(rate) 
+
+    spot[1] = rate[1]
+
+    for i in 2:length(rate)
+        coupon_pv = sum(rate[i] / (1+spot[j])^maturity[j] for j in 1:i-1) # not including the one paid at maturity
+
+        spot[i] = ((1+rate[i]) / (1 - coupon_pv)) ^ (1/maturity[i]) - 1
+    end
+
+
+
+    return YieldCurve(
+        rate,
+        maturity,
+        Spline1D(
+            maturity,
+            spot; 
+            k=min(3,length(rate)-1) # spline dim has to be less than number of given rates
+            )
+        )
+end
+
 """
     Forward(rate_vector)
 

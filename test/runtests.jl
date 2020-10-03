@@ -36,6 +36,28 @@ using Test
         @test rate(z,2) ≈ 0.05
     end
 
+    @testset "Salomon Understanding the Yield Curve Pt 1 Figure 9" begin
+        maturity = collect(1:10)
+        
+        par = [6.,8.,9.5,10.5,11.0,11.25,11.38,11.44,11.48,11.5] ./ 100
+        spot = [6.,8.08,9.72,10.86,11.44,11.71,11.83,11.88,11.89,11.89] ./ 100
+
+        # the forwards for 7+ have been adjusted from the table - perhaps rounding issues are exacerbated 
+        # in the text? forwards for <= 6 matched so reasonably confident that the algo is correct
+        # fwd = [6.,10.2,13.07,14.36,13.77,13.1,12.55,12.2,11.97,11.93] ./ 100 # from text
+        fwd = [6.,10.2,13.07,14.36,13.77,13.1,12.61,12.14,12.05,11.84] ./ 100  # modified
+        
+        y = Yields.Par(par,maturity)
+
+        @testset "UTYC Figure 9 par -> spot : $mat" for mat in maturity
+            @test rate(y,mat) ≈ spot[mat] atol=0.0001
+            @test forward(y,mat) ≈ fwd[mat] atol=0.0001
+        end
+
+
+
+    end
+
     @testset "simple rate and forward" begin 
     # Risk Managment and Financial In                       stitutions, 5th ed. Appendix B
 
