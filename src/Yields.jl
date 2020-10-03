@@ -102,6 +102,15 @@ function USTreasury(rates,maturities)
     return YieldCurve(rates,maturities,Spline1D(maturities,z))
 
 
+    return YieldCurve(
+        rate,
+        maturity,
+        Spline1D(
+            maturity,
+            spot; 
+            k=min(3,length(rate)-1) # spline dim has to be less than number of given rates
+            )
+        )
 end
 
 function ParYieldCurve(rates,maturities)
