@@ -156,8 +156,8 @@ discount(yc,time) = 1 / (1 + rate(yc,time)) ^ time
 function forward(yc,from,to)
     return (accumulate(yc,to) / accumulate(yc,from))^(1/(to-from)) - 1
 end
-function forward(yc,from)
-    to = from - 1 
+function forward(yc,to)
+    from = to - 1 
     return forward(yc,from,to)
 end
 
