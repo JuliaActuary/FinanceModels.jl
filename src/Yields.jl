@@ -25,6 +25,8 @@ struct YieldCurve <: AbstractYield
     spline
 end
 
+# Wrapping a a scalar value in this type allows for dispatch to operate as intended 
+# (otherwise `Base.accumulate(<:Real,<:Real) tries to do something other than accumulate interest)
 struct Constant <: AbstractYield
     rate
 end
