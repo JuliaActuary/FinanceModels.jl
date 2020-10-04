@@ -149,9 +149,13 @@ function ParYieldCurve(rates,maturities)
 
 end
 
+
+## Generic and Fallbacks
 rate(yc,time) = yc.spline(time)
 
 discount(yc,time) = 1 / (1 + rate(yc,time)) ^ time
+
+discount(yc,from,to) = discount(yc,to) / discount(yc,from)
 
 function forward(yc,from,to)
     return (accumulate(yc,to) / accumulate(yc,from))^(1/(to-from)) - 1
@@ -162,6 +166,15 @@ function forward(yc,to)
 end
 
 
+function Base.accumulate(y::T,time) where {T <: AbstractYield}
+    return 1 / discount(y,time)
+end
+
+function Base.accumulate(y::T,from,to) where {T <: AbstractYield}
+    return 1 / accumulate(y,from,to)
+end
+
+### Curve Manipulations
 struct RateCombination <: AbstractYield
     r1
     r2
@@ -173,13 +186,6 @@ function discount(rc::RateCombination,time)
     r = rc.op(rate(rc.r1,time) ,rate(rc.r2,time))
     return 1 / (1+r) ^ time
 end
-
-
-function Base.accumulate(y::T,time) where {T <: AbstractYield}
-    return 1 / discount(y,time)
-end
-
-### Curve Manipulations
 
 function Base.:+(a::AbstractYield,b::AbstractYield)
    return RateCombination(a, b,+) 
