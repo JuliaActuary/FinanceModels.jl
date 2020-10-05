@@ -8,10 +8,10 @@ export rate, discount, forward
 # USTreasury,  AbstractYield
 # Zero,Constant, Forward
 """
-An AbstractInterestCurve is an object which can be called with:
+An AbstractYield is an object which can be called with:
 
-- `rate` for the spot rate at a given time
-- `discount` for the spot discount rate at a given time
+- `rate(yield,time)` for the spot rate at a given time
+- `discount(yield,time)` for the spot discount rate at a given time
 
 """
 abstract type AbstractYield end
@@ -20,7 +20,7 @@ abstract type AbstractYield end
 Base.Broadcast.broadcastable(ic::AbstractYield) = Ref(ic) 
 
 struct YieldCurve <: AbstractYield
-    rates
+    rates # spot rates
     maturities
     spline
 end
@@ -34,6 +34,64 @@ end
 rate(c::Constant,time) = c.rate
 discount(c::Constant,time) = 1/ (1 + rate(c,time)) ^ time
 
+"""
+    Step(rates,times)
+
+Create a yield curve object where the applicable rate is the effective rate of interest applicable until corresponding time.
+
+# Examples
+
+```julia-repl
+julia>y = Yields.Step([0.02,0.05], [1,2])
+
+julia>rate(y,0.5)
+0.02
+
+julia>rate(y,1.5)
+0.05
+
+julia>rate(y,2.5)
+0.05
+```
+"""
+struct Step <: AbstractYield
+    rates
+    times
+end
+
+Step(rates) = Step(rates,collect(1:length(rates)))
+
+function rate(y::Step,time)
+    i = findfirst(t-> time <= t,y.times)
+    if isnothing(i)
+        return y.rates[end]
+    else
+        return y.rates[i]
+    end
+end
+
+function discount(y::Step,time)
+    v = 1 / (1+y.rates[1]) ^ min(y.times[1],time)
+
+    if y.times[1] >= time
+        return v
+    end
+
+    for i in 2:length(y.times)
+
+        if y.times[i] >= time
+            # take partial discount and break
+            v /= (1+y.rates[i]) ^ (time - y.times[i-1])
+            break
+        else
+            # take full discount and continue
+            v /=  (1+y.rates[i]) ^ (y.times[i] - y.times[i-1])
+        end
+
+    end
+
+    return v
+end
 
 function Zero(rates,maturities)
     # bump to a constant yield if only given one rate
