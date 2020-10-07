@@ -45,7 +45,7 @@ struct Constant <: AbstractYield
 end
 
 rate(c::Constant,time) = c.rate
-discount(c::Constant,time) = 1/ (1 + rate(c,time)) ^ time
+discount(c::Constant,time) = 1 / (1 + rate(c, time))^time
 
 """
     Step(rates,times)
@@ -72,10 +72,10 @@ struct Step <: AbstractYield
     times
 end
 
-Step(rates) = Step(rates,collect(1:length(rates)))
+Step(rates) = Step(rates, collect(1:length(rates)))
 
-function rate(y::Step,time)
-    i = findfirst(t-> time <= t,y.times)
+function rate(y::Step, time)
+    i = findfirst(t -> time <= t, y.times)
     if isnothing(i)
         return y.rates[end]
     else
@@ -83,8 +83,8 @@ function rate(y::Step,time)
     end
 end
 
-function discount(y::Step,time)
-    v = 1 / (1+y.rates[1]) ^ min(y.times[1],time)
+function discount(y::Step, time)
+    v = 1 / (1 + y.rates[1])^min(y.times[1], time)
 
     if y.times[1] >= time
         return v
@@ -94,11 +94,11 @@ function discount(y::Step,time)
 
         if y.times[i] >= time
             # take partial discount and break
-            v /= (1+y.rates[i]) ^ (time - y.times[i-1])
+            v /= (1 + y.rates[i])^(time - y.times[i - 1])
             break
         else
             # take full discount and continue
-            v /=  (1+y.rates[i]) ^ (y.times[i] - y.times[i-1])
+            v /=  (1 + y.rates[i])^(y.times[i] - y.times[i - 1])
         end
 
     end
@@ -106,7 +106,7 @@ function discount(y::Step,time)
     return v
 end
 
-function Zero(rates,maturities)
+function Zero(rates, maturities)
     # bump to a constant yield if only given one rate
     length(rates) == 1 && return Constant(rate[1])
 
@@ -116,7 +116,7 @@ function Zero(rates,maturities)
         Spline1D(
             maturities,
             rates; 
-            k=min(3,length(rates)-1) # spline dim has to be less than number of given rates
+            k=min(3, length(rates) - 1) # spline dim has to be less than number of given rates
             )
         )
 end
@@ -125,16 +125,16 @@ end
 function Zero(rates)
     # bump to a constant yield if only given one rate
     maturities = collect(1:length(rates))
-    return Zero(rates,maturities)
+    return Zero(rates, maturities)
 end
 
 """
 Construct a curve given a set of bond yields priced at par with a single coupon per period.
 """
-function Par(rate,maturity;)
+function Par(rate, maturity;)
     # bump to a constant yield if only given one rate
     if length(rate) == 1
-         return Constant(rate[1])
+        return Constant(rate[1])
     end
 
     spot = similar(rate) 
@@ -142,9 +142,9 @@ function Par(rate,maturity;)
     spot[1] = rate[1]
 
     for i in 2:length(rate)
-        coupon_pv = sum(rate[i] / (1+spot[j])^maturity[j] for j in 1:i-1) # not including the one paid at maturity
+        coupon_pv = sum(rate[i] / (1 + spot[j])^maturity[j] for j in 1:i - 1) # not including the one paid at maturity
 
-        spot[i] = ((1+rate[i]) / (1 - coupon_pv)) ^ (1/maturity[i]) - 1
+        spot[i] = ((1 + rate[i]) / (1 - coupon_pv))^(1 / maturity[i]) - 1
     end
 
 
@@ -155,7 +155,7 @@ function Par(rate,maturity;)
         Spline1D(
             maturity,
             spot; 
-            k=min(3,length(rate)-1) # spline dim has to be less than number of given rates
+            k=min(3, length(rate) - 1) # spline dim has to be less than number of given rates
             )
         )
 end
@@ -169,38 +169,38 @@ function Forward(rate_vector)
     zeros = similar(rate_vector)
     zeros[1] = rate_vector[1]
     for i in 2:length(rate_vector)
-        zeros[i] = (prod(1 .+ rate_vector[1:i]))  ^ (1/i) - 1
+        zeros[i] = (prod(1 .+ rate_vector[1:i]))^(1 / i) - 1
     end
-    return Zero(zeros,1:length(rate_vector))
+    return Zero(zeros, 1:length(rate_vector))
 end
 
-function Forward(rate_vector,times)
+function Forward(rate_vector, times)
     disc_v = similar(rate_vector)
-    disc_v[1] = 1/ (1 + rate_vector[1]) ^ times[1]
+    disc_v[1] = 1 / (1 + rate_vector[1])^times[1]
     for i in 2:length(rate_vector)
-        ∇t = times[i] - times[i-1]
-        disc_v[i] = disc_v[i-1] / (1 + rate_vector[i]) ^ ∇t
+        ∇t = times[i] - times[i - 1]
+        disc_v[i] = disc_v[i - 1] / (1 + rate_vector[i])^∇t
     end
 
-    return Zero( 1 ./ disc_v .^ (1 ./ times) .- 1,times)
+    return Zero(1 ./ disc_v.^(1 ./ times) .- 1, times)
 end
 
-function USTreasury(rates,maturities)
+function USTreasury(rates, maturities)
     z = zeros(length(rates))
 
     # use the discount rate for T-Bills with maturities <= 1 year
-    for (i,(rate,mat)) in enumerate(zip(rates,maturities))
+    for (i, (rate, mat)) in enumerate(zip(rates, maturities))
         
         if mat <= 1 
             z[i] = rate
         else
             # uses spline b/c of common, but uneven maturities often present under 1 year.
-            curve = Spline1D(maturities,z)
+            curve = Spline1D(maturities, z)
             pmts = [rate / 2 for t in 0.5:0.5:mat] # coupons only
             pmts[end] += 1 # plus principal
 
             discount =  1 ./ (1 .+ curve.(0.5:0.5:(mat - .5)))
-            z[i] = ((1 - sum(discount .* pmts[1:end-1])) / pmts[end]) ^ - (1/mat) - 1
+            z[i] = ((1 - sum(discount .* pmts[1:end - 1])) / pmts[end])^- (1 / mat) - 1
 
         end
 
@@ -210,7 +210,7 @@ function USTreasury(rates,maturities)
         
     end
 
-    return YieldCurve(rates,maturities,Spline1D(maturities,z))
+    return YieldCurve(rates, maturities, Spline1D(maturities, z))
 
 
     return YieldCurve(
@@ -219,12 +219,12 @@ function USTreasury(rates,maturities)
         Spline1D(
             maturity,
             spot; 
-            k=min(3,length(rate)-1) # spline dim has to be less than number of given rates
+            k=min(3, length(rate) - 1) # spline dim has to be less than number of given rates
             )
         )
 end
 
-function ParYieldCurve(rates,maturities)
+function ParYieldCurve(rates, maturities)
 
 end
 
@@ -242,21 +242,21 @@ rate(yc,time) = yc.spline(time)
 
 The discount factor for the `yield` from time zero through `time`.
 """
-discount(yc,time) = 1 / (1 + rate(yc,time)) ^ time
+discount(yc,time) = 1 / (1 + rate(yc, time))^time
 
 """
     discount(yield,from,to)
 
 The discount factor for the `yield` from time `from` through `to`.
 """
-discount(yc,from,to) = discount(yc,to) / discount(yc,from)
+discount(yc,from,to) = discount(yc, to) / discount(yc, from)
 
-function forward(yc,from,to)
-    return (accumulate(yc,to) / accumulate(yc,from))^(1/(to-from)) - 1
+function forward(yc, from, to)
+    return (accumulate(yc, to) / accumulate(yc, from))^(1 / (to - from)) - 1
 end
-function forward(yc,to)
+function forward(yc, to)
     from = to - 1 
-    return forward(yc,from,to)
+    return forward(yc, from, to)
 end
 
 """
@@ -264,8 +264,8 @@ end
 
 The accumulation factor for the `yield` from time zero through `time`.
 """
-function Base.accumulate(y::T,time) where {T <: AbstractYield}
-    return 1 / discount(y,time)
+function Base.accumulate(y::T, time) where {T <: AbstractYield}
+    return 1 / discount(y, time)
 end
 
 """
@@ -273,8 +273,8 @@ end
 
 The accumulation factor for the `yield` from time `from` through `to`.
 """
-function Base.accumulate(y::T,from,to) where {T <: AbstractYield}
-    return 1 / accumulate(y,from,to)
+function Base.accumulate(y::T, from, to) where {T <: AbstractYield}
+    return 1 / accumulate(y, from, to)
 end
 
 ## Curve Manipulations
@@ -284,22 +284,22 @@ struct RateCombination <: AbstractYield
     op
 end
 
-rate(rc::RateCombination,time) = rc.op(rate(rc.r1,time) ,rate(rc.r2,time))
-function discount(rc::RateCombination,time) 
-    r = rc.op(rate(rc.r1,time) ,rate(rc.r2,time))
-    return 1 / (1+r) ^ time
+rate(rc::RateCombination,time) = rc.op(rate(rc.r1, time), rate(rc.r2, time))
+function discount(rc::RateCombination, time) 
+    r = rc.op(rate(rc.r1, time), rate(rc.r2, time))
+    return 1 / (1 + r)^time
 end
 
 """
     +()
 """
-function Base.:+(a::AbstractYield,b::AbstractYield)
-   return RateCombination(a, b,+) 
+function Base.:+(a::AbstractYield, b::AbstractYield)
+    return RateCombination(a, b, +) 
 end
 
 
-function Base.:-(a::AbstractYield,b::AbstractYield)
-    return RateCombination(a, b,-) 
+function Base.:-(a::AbstractYield, b::AbstractYield)
+    return RateCombination(a, b, -) 
 end
 
 end
