@@ -291,13 +291,19 @@ function discount(rc::RateCombination, time)
 end
 
 """
-    +()
+    Yields.AbstractYield + Yields.AbstractYield
+
+The addition of two yields will create a `RateCombination`. For `rate`, `discount`, and `accumulation` purposes the spot rates of the two curves will be added together.
 """
 function Base.:+(a::AbstractYield, b::AbstractYield)
     return RateCombination(a, b, +) 
 end
 
+"""
+    Yields.AbstractYield - Yields.AbstractYield
 
+The subtraction of two yields will create a `RateCombination`. For `rate`, `discount`, and `accumulation` purposes the spot rates of the second curves will be subtracted from the first.
+"""
 function Base.:-(a::AbstractYield, b::AbstractYield)
     return RateCombination(a, b, -) 
 end
