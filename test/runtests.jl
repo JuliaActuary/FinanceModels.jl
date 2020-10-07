@@ -104,6 +104,12 @@ using Test
         @test forward(curve,0.5,1.0) ≈ 6.6 / 100 atol=0.001
         @test forward(curve,1.0,1.5) ≈ 7.6 / 100 atol=0.001
         @test forward(curve,1.5,2.0) ≈ 8.0 / 100 atol=0.001
+
+        y = Yields.Zero(zero)
+
+        @test discount(y,1) ≈ 1 / 1.05
+        @test discount(y,2) ≈ 1 / 1.058^2
+
     end
 
     @testset "Forward Rates" begin 

@@ -109,6 +109,12 @@ function Zero(rates,maturities)
 end
 
 
+function Zero(rates)
+    # bump to a constant yield if only given one rate
+    maturities = collect(1:length(rates))
+    return Zero(rates,maturities)
+end
+
 """
 Construct a curve given a set of bond yields priced at par with a single coupon per period.
 """
