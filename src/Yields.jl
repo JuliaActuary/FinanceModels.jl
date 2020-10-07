@@ -27,6 +27,19 @@ end
 
 # Wrapping a a scalar value in this type allows for dispatch to operate as intended 
 # (otherwise `Base.accumulate(<:Real,<:Real) tries to do something other than accumulate interest)
+"""
+    Constant(rate)
+
+Construct a yield object where the spot rate is constant for all maturities.
+
+# Examples
+
+```julia-repl
+julia> y = Yields.Constant(0.05)
+julia> discount(y,2)
+0.9070294784580498     # 1 / (1.05) ^ 2
+```
+"""
 struct Constant <: AbstractYield
     rate
 end
@@ -217,10 +230,25 @@ end
 
 
 ## Generic and Fallbacks
+"""
+    rate(yield,time)
+
+The spot rate at `time` for the given `yield`.
+"""
 rate(yc,time) = yc.spline(time)
 
+"""
+    discount(yield,time)
+
+The discount factor for the `yield` from time zero through `time`.
+"""
 discount(yc,time) = 1 / (1 + rate(yc,time)) ^ time
 
+"""
+    discount(yield,from,to)
+
+The discount factor for the `yield` from time `from` through `to`.
+"""
 discount(yc,from,to) = discount(yc,to) / discount(yc,from)
 
 function forward(yc,from,to)
@@ -231,16 +259,25 @@ function forward(yc,to)
     return forward(yc,from,to)
 end
 
+"""
+    accumulate(yield,time)
 
+The accumulation factor for the `yield` from time zero through `time`.
+"""
 function Base.accumulate(y::T,time) where {T <: AbstractYield}
     return 1 / discount(y,time)
 end
 
+"""
+    accumulate(yield,from,to)
+
+The accumulation factor for the `yield` from time `from` through `to`.
+"""
 function Base.accumulate(y::T,from,to) where {T <: AbstractYield}
     return 1 / accumulate(y,from,to)
 end
 
-### Curve Manipulations
+## Curve Manipulations
 struct RateCombination <: AbstractYield
     r1
     r2
@@ -253,6 +290,9 @@ function discount(rc::RateCombination,time)
     return 1 / (1+r) ^ time
 end
 
+"""
+    +()
+"""
 function Base.:+(a::AbstractYield,b::AbstractYield)
    return RateCombination(a, b,+) 
 end
