@@ -122,6 +122,10 @@ using Test
             @test discount(curve,t) ≈ reduce((v, r) -> v / (1+r), forwards[1:t]; init=1.0)
         end
 
+        @test accumulate(curve,0,1) ≈ 1.05
+        @test accumulate(curve,1,2) ≈ 1.04
+        @test accumulate(curve,0,2) ≈ 1.04 * 1.05
+
         @testset "with specified timepoints" begin
             i = [0.0,0.05]
             times = [0.5,1.5]

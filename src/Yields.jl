@@ -237,7 +237,7 @@ function Base.accumulate(y::T,time) where {T <: AbstractYield}
 end
 
 function Base.accumulate(y::T,from,to) where {T <: AbstractYield}
-    return 1 / accumulate(y,from,to)
+    return 1 / discount(y,from,to)
 end
 
 ### Curve Manipulations
