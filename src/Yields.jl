@@ -4,7 +4,7 @@ using Dierckx
 
 # don't export type, as the API of Yields.Zero is nicer and 
 # less polluting than Zero and less/equally verbose as ZeroYieldCurve or ZeroCruve
-export rate, discount, forward
+export rate, discount, forward, Yield
 # USTreasury,  AbstractYield
 # Zero,Constant, Forward
 """
@@ -294,6 +294,18 @@ function Base.:+(a::AbstractYield, b::AbstractYield)
     return RateCombination(a, b, +) 
 end
 
+function Base.:+(a::Constant, b::Constant) where {T<:AbstractYield}
+    return Constant(a.rate + b.rate)
+end
+
+function Base.:+(a::T, b) where {T<:AbstractYield}
+    return a + Yield(b)
+end
+
+function Base.:+(a, b::T) where {T<:AbstractYield}
+    return Yield(a) + b
+end
+
 """
     Yields.AbstractYield - Yields.AbstractYield
 
@@ -301,6 +313,34 @@ The subtraction of two yields will create a `RateCombination`. For `rate`, `disc
 """
 function Base.:-(a::AbstractYield, b::AbstractYield)
     return RateCombination(a, b, -) 
+end
+
+function Base.:-(a::Constant, b::Constant)
+    return Constant(a.rate - b.rate) 
+end
+
+function Base.:-(a::T, b) where {T<:AbstractYield}
+    return a - Yield(b)
+end
+
+function Base.:-(a, b::T) where {T<:AbstractYield}
+    return Yield(a) - b
+end
+
+""" 
+    yield(rate)
+    yield(forwards)
+
+Yields provides a default, convienience construction for an AbstractYield.
+
+"""
+
+function Yield(i::T) where {T<:Real}
+    return Constant(i)
+end
+
+function Yield(i::Vector{T}) where {T<:Real}
+    return Forward(i)
 end
 
 end

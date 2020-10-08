@@ -13,15 +13,27 @@ using Test
         end
 
         yield_2x = yield + yield
+        yield_add = yield + 0.05
+        add_yield = 0.05 + yield
         @testset "constant discount added" for time in [0,0.5,1,10]
             @test discount(yield_2x, time) ≈ 1 / (1.1)^time 
+            @test discount(yield_add, time) ≈ 1 / (1.1)^time 
+            @test discount(add_yield, time) ≈ 1 / (1.1)^time 
             @test rate(yield_2x, time) == 0.1
+            @test rate(yield_add, time) == 0.1
+            @test rate(add_yield, time) == 0.1
         end
 
         yield_1bps = yield - Yields.Constant(0.04)
+        yield_minus = yield - 0.01
+        minus_yield = 0.05 - Yields.Constant(0.01)
         @testset "constant discount subtraction" for time in [0,0.5,1,10]
             @test discount(yield_1bps, time) ≈ 1 / (1.01)^time 
+            @test discount(yield_minus, time) ≈ 1 / (1.04)^time 
+            @test discount(minus_yield, time) ≈ 1 / (1.04)^time 
             @test rate(yield_1bps, time) ≈ 0.01
+            @test rate(yield_minus, time) ≈ 0.04
+            @test rate(minus_yield, time) ≈ 0.04
         end
     end
     
@@ -122,10 +134,16 @@ using Test
             @test discount(curve, t) ≈ reduce((v, r) -> v / (1 + r), forwards[1:t]; init=1.0)
         end
 
-        @test accumulate(curve,0,1) ≈ 1.05
-        @test accumulate(curve,1,2) ≈ 1.04
-        @test accumulate(curve,0,2) ≈ 1.04 * 1.05
-
+        @test accumulate(curve, 0, 1) ≈ 1.05
+        @test accumulate(curve, 1, 2) ≈ 1.04
+        @test accumulate(curve, 0, 2) ≈ 1.04 * 1.05
+        
+        # addition / subtraction
+        @test discount(curve + 0.1,1) ≈ 1 / 1.15
+        @test discount(curve - 0.03,1) ≈ 1 / 1.02
+        
+        
+        
         @testset "with specified timepoints" begin
             i = [0.0,0.05]
             times = [0.5,1.5]
