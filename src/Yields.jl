@@ -268,13 +268,8 @@ function Base.accumulate(y::T, time) where {T <: AbstractYield}
     return 1 / discount(y, time)
 end
 
-"""
-    accumulate(yield,from,to)
-
-The accumulation factor for the `yield` from time `from` through `to`.
-"""
-function Base.accumulate(y::T, from, to) where {T <: AbstractYield}
-    return 1 / accumulate(y, from, to)
+function Base.accumulate(y::T,from,to) where {T <: AbstractYield}
+    return 1 / discount(y,from,to)
 end
 
 ## Curve Manipulations
