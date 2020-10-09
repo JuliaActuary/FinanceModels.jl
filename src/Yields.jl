@@ -1,10 +1,10 @@
 module Yields
 
-using Dierckx
+import Interpolations
 
 # don't export type, as the API of Yields.Zero is nicer and 
 # less polluting than Zero and less/equally verbose as ZeroYieldCurve or ZeroCruve
-export rate, discount, forward
+export rate, discount, forward, Yield
 # USTreasury,  AbstractYield
 # Zero,Constant, Forward
 """
@@ -113,12 +113,8 @@ function Zero(rates, maturities)
     return YieldCurve(
         rates,
         maturities,
-        Spline1D(
-            maturities,
-            rates; 
-            k=min(3, length(rates) - 1) # spline dim has to be less than number of given rates
-            )
-        )
+        linear_interp(maturities,rates)
+    )
 end
 
 
@@ -152,11 +148,7 @@ function Par(rate, maturity;)
     return YieldCurve(
         rate,
         maturity,
-        Spline1D(
-            maturity,
-            spot; 
-            k=min(3, length(rate) - 1) # spline dim has to be less than number of given rates
-            )
+        linear_interp(maturity,spot)
         )
 end
 
@@ -195,7 +187,7 @@ function USTreasury(rates, maturities)
             z[i] = rate
         else
             # uses spline b/c of common, but uneven maturities often present under 1 year.
-            curve = Spline1D(maturities, z)
+            curve = linear_interp(maturities, z)
             pmts = [rate / 2 for t in 0.5:0.5:mat] # coupons only
             pmts[end] += 1 # plus principal
 
@@ -210,17 +202,13 @@ function USTreasury(rates, maturities)
         
     end
 
-    return YieldCurve(rates, maturities, Spline1D(maturities, z))
+    return YieldCurve(rates, maturities, linear_interp(maturities, z))
 
 
     return YieldCurve(
         rate,
         maturity,
-        Spline1D(
-            maturity,
-            spot; 
-            k=min(3, length(rate) - 1) # spline dim has to be less than number of given rates
-            )
+        linear_interp(maturity,rate)
         )
 end
 
@@ -294,6 +282,18 @@ function Base.:+(a::AbstractYield, b::AbstractYield)
     return RateCombination(a, b, +) 
 end
 
+function Base.:+(a::Constant, b::Constant) where {T<:AbstractYield}
+    return Constant(a.rate + b.rate)
+end
+
+function Base.:+(a::T, b) where {T<:AbstractYield}
+    return a + Yield(b)
+end
+
+function Base.:+(a, b::T) where {T<:AbstractYield}
+    return Yield(a) + b
+end
+
 """
     Yields.AbstractYield - Yields.AbstractYield
 
@@ -303,4 +303,36 @@ function Base.:-(a::AbstractYield, b::AbstractYield)
     return RateCombination(a, b, -) 
 end
 
+function Base.:-(a::Constant, b::Constant)
+    return Constant(a.rate - b.rate) 
+end
+
+function Base.:-(a::T, b) where {T<:AbstractYield}
+    return a - Yield(b)
+end
+
+function Base.:-(a, b::T) where {T<:AbstractYield}
+    return Yield(a) - b
+end
+
+""" 
+    yield(rate)
+    yield(forwards)
+
+Yields provides a default, convienience construction for an AbstractYield.
+
+"""
+
+function Yield(i::T) where {T<:Real}
+    return Constant(i)
+end
+
+function Yield(i::Vector{T}) where {T<:Real}
+    return Forward(i)
+end
+
+linear_interp(xs,ys) = Interpolations.extrapolate(
+    Interpolations.interpolate((xs,), ys, Interpolations.Gridded(Interpolations.Linear())), 
+    Interpolations.Flat()
+    ) 
 end
