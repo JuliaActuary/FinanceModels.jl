@@ -28,7 +28,7 @@ spread_curve = Yields.Zero(spread,spread_maturities)
 
 yield = rf_curve + spread_curve               # additive combination of the two curves
 
-discount(yield,1.0) # 1 / (1 + 0.064 + 0.014) ^ 1.5
+discount(yield,1.5) # 1 / (1 + 0.064 + 0.014) ^ 1.5
 ```
 
 ## Usage
