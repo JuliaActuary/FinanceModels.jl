@@ -62,8 +62,24 @@ Most of the above yields have the following defined (goal is to have them all):
 
 ### Combinations
 
-Different yield objects can be combined with addition or subtraction. See the [Quickstart](#quickstart) for an example.
+Different yield objects can be combined with addition or subtraction. See the [Quickstart](#quickstart) for an example. 
 
+When adding a `Yields.AbstractYield` with a scalar or vector, that scalar or vector will be promoted to a yield type via [`Yield()`](#yield). For example:
+
+```
+y1 = Yields.Constant(0.05)
+y2 = y1 + 0.01              # y2 is a yield of 0.06
+```
+
+## Internals
+
+For time-variant yields (ie yield *curves*), the inputs are converted to spot rates and linearly interpolated (using [`Interpolations.jl`](https://github.com/JuliaMath/Interpolations.jl). 
+
+If you want more precise curvature (e.g. cubic spline interpolation) you can pre-process your rates into a greater number of input points before creating the `Yields` representation. `Yields.jl` uses `Interpolations.jl` as it is a pure-Julia interpolations package and enables auto-differentiation (AD) in `Yields.jl` usage. For example, [`ActuaryUtilities.jl`](https://github.com/JuliaActuary/JuliaActuary.org) uses AD for `duration` and `convexity`.
+
+### Combination Implementation
+
+[Combinations](#combinations) track two different curve objects and are not combined into a single underlying data structure. This means that you may achieve better performance if you combine the rates before constructing a `Yields` representation. The exception to this is `Constant` curves, which *do* get combined into a single structure that is as performant as pre-combined rate structure.
 
 ## Related Packages 
 
