@@ -44,6 +44,14 @@ There are a few ways to construct a yield curve object:
 - `Par(rates)` or `Par(rates,maturities)` takes a series of yields for securities priced at par and paying one coupon per period
 - `USTreasury(rates)` takes the most commonly presented rate data (e.g. [Treasury.gov](https://www.treasury.gov/resource-center/data-chart-center/interest-rates/Pages/TextView.aspx?data=yield)) and bootstraps the curve given the combination of bills and bonds.
 
+
+#### `Yield()`
+Additionally, `Yield()` provides a convinience constructor:
+
+- `Yield(0.05)` will construct a `Constant(0.05)` yield.
+- `Yield([0.05,0.06,...])` will construct a `Forward([0.05,0.06,...])` yield.
+
+
 ### Functions
 
 Most of the above yields have the following defined (goal is to have them all):
