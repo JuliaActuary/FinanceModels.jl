@@ -66,9 +66,9 @@ Different yield objects can be combined with addition or subtraction. See the [Q
 
 When adding a `Yields.AbstractYield` with a scalar or vector, that scalar or vector will be promoted to a yield type via [`Yield()`](#yield). For example:
 
-```
+```julia
 y1 = Yields.Constant(0.05)
-y2 = y1 + 0.01              # y2 is a yield of 0.06
+y2 = y1 + 0.01                # y2 is a yield of 0.06
 ```
 
 ## Internals
