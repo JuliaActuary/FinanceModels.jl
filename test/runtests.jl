@@ -8,6 +8,7 @@ using Test
 
         @testset "constant discount time: $time" for time in [0,0.5,1,10]
             @test discount(yield, time) ≈ 1 / (1.05)^time 
+            @test discount(0.05,time) ≈ 1 / (1.05)^time 
             @test accumulate(yield, time) ≈ 1 * 1.05^time
             @test rate(yield, time) == 0.05
         end
