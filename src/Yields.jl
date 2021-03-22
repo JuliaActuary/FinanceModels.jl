@@ -46,6 +46,7 @@ end
 
 rate(c::Constant,time) = c.rate
 discount(c::Constant,time) = 1 / (1 + rate(c, time))^time
+discount(c::T,time) where {T <: Real} = discount(Constant(c),time)
 
 """
     Step(rates,times)
@@ -228,7 +229,7 @@ rate(yc,time) = yc.spline(time)
 """
     discount(yield,time)
 
-The discount factor for the `yield` from time zero through `time`.
+The discount factor for the `yield` from time zero through `time`. If yield is a `Real` number, will assume a `Constant` interest rate.
 """
 discount(yc,time) = 1 / (1 + rate(yc, time))^time
 
