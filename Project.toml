@@ -1,7 +1,7 @@
 name = "Yields"
 uuid = "d7e99b2f-e7f3-4d9e-9f01-2338fc023ad3"
 authors = ["Alec Loudenback <alecloudenback@gmail.com> and contributors"]
-version = "1.0.0"
+version = "0.2.7"
 
 [deps]
 Interpolations = "a98d9a8b-a2ab-59e6-89dd-64a1c18fca59"
