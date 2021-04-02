@@ -201,10 +201,6 @@ function USTreasury(rates, maturities)
             z[i] = ((1 - sum(discount .* pmts[1:end - 1])) / pmts[end])^- (1 / mat) - 1
 
         end
-
-
-
-
         
     end
 
