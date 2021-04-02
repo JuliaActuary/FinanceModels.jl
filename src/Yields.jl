@@ -178,6 +178,11 @@ function Forward(rate_vector, times)
     return Zero(1 ./ disc_v.^(1 ./ times) .- 1, times)
 end
 
+"""
+    USTreasury(rates,maturities)
+
+Takes CMT yields (bond equivalent), and assumes that instruments <= one year maturity pay no coupons and that the rest pay semi-annual.
+"""
 function USTreasury(rates, maturities)
     z = zeros(length(rates))
 
@@ -222,7 +227,7 @@ end
 """
     rate(yield,time)
 
-The spot rate at `time` for the given `yield`.
+The annual effective spot rate at `time` for the given `yield`.
 """
 rate(yc,time) = yc.spline(time)
 
