@@ -127,7 +127,7 @@ end
 
 """
     Par(rates,maturities)
-    
+
 Construct a curve given a set of bond yields priced at par with a single coupon per period.
 """
 function Par(rate, maturity;)
@@ -207,10 +207,6 @@ function USTreasury(rates, maturities)
     end
 
     return YieldCurve(rates, maturities, linear_interp(maturities, z))
-
-end
-
-function ParYieldCurve(rates, maturities)
 
 end
 
