@@ -179,7 +179,7 @@ using Test
 
         curve = Yields.USTreasury(YTM, maturity)
 
-        @test rate(curve, 0.5) ≈ 0.04
+        @test rate(curve, 0.5) ≈ (1 + 0.04/2) ^ 2 - 1
         @test rate(curve, 1.0) ≈ 0.043
 
         # need more future tests, but need validating source...
@@ -187,10 +187,17 @@ using Test
     end
 
     @testset "actual cmt treasury" begin
-        
-        cmt  = [0.12,0.15,0.14,0.17,0.17,0.17,0.19,0.30,0.49,0.64,1.15,1.37] ./ 100
-        mats =  [1 / 12,2 / 12,3 / 12,6 / 12,1,2,3,5,7,10,20,30]
+        # Hull 10th ed, 4.7
+        cmt  = [1.6064,2.0202,2.2495,2.2949,2.4238] ./ 100
+        mats =  [.25,.5,1.,1.5,2.]
+        curve = Yields.USTreasury(cmt,mats)
 
+        # rates in book are continuous, but Yields focuses on annual
+        @test log(rate(curve,0.25)+1) ≈ 0.01603 atol=0.001
+        @test log(rate(curve,0.5 )+1) ≈ 0.02010 atol=0.001
+        @test log(rate(curve,1.0 )+1) ≈ 0.02225 atol=0.001
+        @test log(rate(curve,1.5 )+1) ≈ 0.02284 atol=0.001
+        @test log(rate(curve,2.0 )+1) ≈ 0.02416 atol=0.001
     end
 
 

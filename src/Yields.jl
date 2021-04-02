@@ -178,6 +178,11 @@ function Forward(rate_vector, times)
     return Zero(1 ./ disc_v.^(1 ./ times) .- 1, times)
 end
 
+"""
+    USTreasury(rates,maturities)
+
+Takes CMT yields (bond equivalent), and assumes that instruments <= one year maturity pay no coupons and that the rest pay semi-annual.
+"""
 function USTreasury(rates, maturities)
     z = zeros(length(rates))
 
@@ -185,9 +190,9 @@ function USTreasury(rates, maturities)
     for (i, (rate, mat)) in enumerate(zip(rates, maturities))
         
         if mat <= 1 
-            z[i] = rate
+            z[i] = (1 + rate * mat) ^ (1/mat) -1
         else
-            # uses spline b/c of common, but uneven maturities often present under 1 year.
+            # uses interpolation b/c of common, but uneven maturities often present under 1 year.
             curve = linear_interp(maturities, z)
             pmts = [rate / 2 for t in 0.5:0.5:mat] # coupons only
             pmts[end] += 1 # plus principal
@@ -222,7 +227,7 @@ end
 """
     rate(yield,time)
 
-The spot rate at `time` for the given `yield`.
+The annual effective spot rate at `time` for the given `yield`.
 """
 rate(yc,time) = yc.spline(time)
 
