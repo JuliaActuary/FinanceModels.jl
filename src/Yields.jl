@@ -210,12 +210,6 @@ function USTreasury(rates, maturities)
 
     return YieldCurve(rates, maturities, linear_interp(maturities, z))
 
-
-    return YieldCurve(
-        rate,
-        maturity,
-        linear_interp(maturity,rate)
-        )
 end
 
 function ParYieldCurve(rates, maturities)
