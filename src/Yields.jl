@@ -210,6 +210,41 @@ function USTreasury(rates, maturities)
 
 end
 
+"""
+    OIS(rates,maturities)
+
+Takes Overnight Index Swap rates, and assumes that instruments <= one year maturity are settled once and other agreements are settled quarterly.
+"""
+function OIS(rates, maturities)
+    z = zeros(length(rates))
+
+    # use the discount rate for T-Bills with maturities <= 1 year
+    for (i, (rate, mat)) in enumerate(zip(rates, maturities))
+        @show mat
+        if mat <= 1 
+            z[i] = (1 + rate * mat) ^ (1/mat) -1
+        else
+            # uses interpolation b/c of common, but uneven maturities often present under 1 year.
+            curve = linear_interp(maturities, z)
+            pmts = [rate / 4 for t in 0.25:0.25:mat] # coupons only
+            pmts[end] += 1 # plus principal
+
+            @show discount =  1 ./ (1 .+ curve.(0.25:0.25:(mat - 0.25)))
+            @show pv_all_but_last =  sum(pmts[1:end-1] .* discount[1:end])
+            # solve for v
+            # 1 = pv_all_but_last + pmt[end] * v 
+            @show v = (1 - pv_all_but_last) / pmts[end]
+            z[i] =  1 / v ^ (1/mat) - 1
+
+        end
+        
+    end
+
+    return YieldCurve(rates, maturities, linear_interp(maturities, z))
+
+end
+
+
 
 ## Generic and Fallbacks
 """

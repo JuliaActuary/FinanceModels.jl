@@ -200,5 +200,18 @@ using Test
         @test log(rate(curve,2.0 )+1) ≈ 0.02416 atol=0.001
     end
 
+    @testset "OIS" begin
+        ois =  [1.8 , 2.0, 2.2, 2.5, 3.0, 4.0] ./ 100
+        mats = [1/12, 1/4, 1/2,    1,  2,   5]
+        curve = Yields.OIS(ois,mats)
+
+        @test log(rate(curve,1/12)+1) ≈ 0.017987 atol=0.001
+        @test log(rate(curve,1/4 )+1) ≈ 0.019950 atol=0.001
+        @test log(rate(curve,1/2 )+1) ≈ 0.021880 atol=0.001
+        @test log(rate(curve,1   )+1) ≈ 0.024693 atol=0.001
+        @test log(rate(curve,2   )+1) ≈ 0.029994 atol=0.001
+        @test log(rate(curve,5   )+1) ≈ 0.040401 atol=0.001
+
+    end
 
 end
