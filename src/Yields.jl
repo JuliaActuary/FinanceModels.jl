@@ -185,9 +185,9 @@ function USTreasury(rates, maturities)
     for (i, (rate, mat)) in enumerate(zip(rates, maturities))
         
         if mat <= 1 
-            z[i] = rate
+            z[i] = (1 + rate * mat) ^ (1/mat) -1
         else
-            # uses spline b/c of common, but uneven maturities often present under 1 year.
+            # uses interpolation b/c of common, but uneven maturities often present under 1 year.
             curve = linear_interp(maturities, z)
             pmts = [rate / 2 for t in 0.5:0.5:mat] # coupons only
             pmts[end] += 1 # plus principal
