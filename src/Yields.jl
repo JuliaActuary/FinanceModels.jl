@@ -126,6 +126,8 @@ function Zero(rates)
 end
 
 """
+    Par(rates,maturities)
+    
 Construct a curve given a set of bond yields priced at par with a single coupon per period.
 """
 function Par(rate, maturity;)
