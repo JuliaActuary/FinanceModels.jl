@@ -13,6 +13,25 @@ using Test
             @test rate(yield, time) == 0.05
         end
 
+        @testset "CompoundingFrequency" begin
+            @testset "Continuous" begin
+                cnst = Yields.Constant(Yields.Continuous(),0.05)
+                @test rate(cnst) == 0.05
+                @test accumulation(cnst,1) == exp(0.05)
+                @test accumulation(cnst,2) == exp(0.05*2)
+                @test discount(cnst,2) == 1 / exp(0.05*2)
+            end
+
+            @testset "Periodic" begin
+                p = Yields.Constant(Yields.Periodic(2),0.05)
+                @test rate(p) == 0.05
+                @test accumulation(p,1) == (1 + 0.05/2) ^ (1 * 2)
+                @test accumulation(p,2) == (1 + 0.05/2) ^ (2 * 2)
+                @test discount(p,2) == 1 / (1 + 0.05/2) ^ (2 * 2)
+
+            end
+        end
+
         yield_2x = yield + yield
         yield_add = yield + 0.05
         add_yield = 0.05 + yield

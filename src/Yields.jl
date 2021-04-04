@@ -4,7 +4,7 @@ import Interpolations
 
 # don't export type, as the API of Yields.Zero is nicer and 
 # less polluting than Zero and less/equally verbose as ZeroYieldCurve or ZeroCruve
-export rate, discount, forward, Yield
+export rate, discount, accumulation,forward, Yield
 # USTreasury,  AbstractYield
 # Zero,Constant, Forward
 """
@@ -16,11 +16,19 @@ An AbstractYield is an object which can be called with:
 """
 abstract type AbstractYield end
 
+abstract type CompoundingFrequency end
+
+struct Continuous <: CompoundingFrequency end
+
+struct Periodic <: CompoundingFrequency
+    frequency::Int
+end
+
 # make interest curve broadcastable so that you can broadcast over multiple`time`s in `interest_rate`
 Base.Broadcast.broadcastable(ic::AbstractYield) = Ref(ic) 
 
 struct YieldCurve <: AbstractYield
-    rates # spot rates
+    discount # discount rate knots
     maturities
     spline
 end
@@ -41,12 +49,26 @@ julia> discount(y,2)
 ```
 """
 struct Constant <: AbstractYield
+    compounding::CompoundingFrequency
     rate
 end
 
+function Constant(rate::T) where {T <: Real}
+    return Constant(Periodic(1),rate)
+end
+
+rate(c::Constant) = c.rate
 rate(c::Constant,time) = c.rate
 discount(c::Constant,time) = 1 / (1 + rate(c, time))^time
 discount(c::T,time) where {T <: Real} = discount(Constant(c),time)
+
+discount(r::Constant,time) = 1 / accumulation(r,time)
+
+
+accumulation(r::Constant,time) = accumulation(r.compounding,r,time)
+accumulation(::Continuous,r::Constant,time) = exp(r.rate * time)
+accumulation(::Periodic,r::Constant,time) = (1 + r.rate / r.compounding.frequency) ^ (r.compounding.frequency * time)
+
 
 """
     Step(rates,times)
