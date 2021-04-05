@@ -3,6 +3,14 @@ using Test
 
 @testset "Yields.jl" begin
 
+    @testset "rate conversions" begin
+        m = Rate(Yields.Periodic(2),.1)
+        @test convert(Yields.Continuous(),m) ≈ 0.09758 atol = 1e-5
+        c = Rate(Yields.Continuous(),0.09758)
+        @test convert(Yields.Periodic(2),c) ≈ 0.1 atol = 1e-5
+
+    end
+
     @testset "constant curve" begin
         yield = Yields.Constant(0.05)
 

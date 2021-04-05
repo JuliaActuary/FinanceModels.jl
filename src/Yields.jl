@@ -4,9 +4,36 @@ import Interpolations
 
 # don't export type, as the API of Yields.Zero is nicer and 
 # less polluting than Zero and less/equally verbose as ZeroYieldCurve or ZeroCruve
-export rate, discount, forward, Yield
+export rate, discount, forward, Yield, Rate, Continuous, Periodic
 # USTreasury,  AbstractYield
 # Zero,Constant, Forward
+
+abstract type CompoundingFrequency end
+
+struct Continuous <: CompoundingFrequency end
+
+struct Periodic <: CompoundingFrequency
+    frequency::Int
+end
+
+struct Rate
+    compounding
+    value
+end
+
+Rate(x) = Rate(Periodic(1),x)
+Base.convert(T::CompoundingFrequency,r::Rate) = Base.convert(r.compounding,T,r)
+function Base.convert(from::Continuous,to::Continuous,r)
+    return r.value
+end
+function Base.convert(from::Continuous,to::Periodic,r)
+    to.frequency * (exp(r.value/to.frequency) - 1)
+end
+function Base.convert(from::Periodic,to::Continuous,r)
+    from.frequency * log(1 + r.value / from.frequency)
+end
+
+
 """
 An AbstractYield is an object which can be called with:
 
