@@ -69,28 +69,45 @@ using Test
     end
 
     @testset "Step curve" begin
-        y = Yields.Step([0.02,0.05], [1,2])
+        @testset "periodic" begin
+            y = Yields.Step([0.02,0.05], [1,2])
 
-        @test rate(y, 0.5) == 0.02
+            @test rate(y, 0.5) == 0.02
 
-        @test discount(y, 0.5) ≈ 1 / (1.02)^(0.5)
-        @test discount(y, 1) ≈ 1 / (1.02)^(1)
-        @test rate(y, 1) ≈ 0.02
+            @test discount(y, 0.5) ≈ 1 / (1.02)^(0.5)
+            @test discount(y, 1) ≈ 1 / (1.02)^(1)
+            @test rate(y, 1) ≈ 0.02
 
-        @test discount(y, 2) ≈ 1 / (1.02) / 1.05
-        @test rate(y, 2) ≈ 0.05
-        @test rate(y, 2.5) ≈ 0.05
-
-        @test discount(y, 2) ≈ 1 / (1.02) / 1.05
-
-        @test discount(y, 1.5) ≈ 1 / (1.02) / 1.05^(0.5)
+            @test discount(y, 2) ≈ 1 / (1.02) / 1.05
+            @test discount(y, 1.5) ≈ 1 / (1.02) / 1.05^(0.5)
+            @test rate(y, 2) ≈ 0.05
+            @test rate(y, 2.5) ≈ 0.05
 
 
-        y = Yields.Step([0.02,0.07])
-        @test rate(y, 0.5) ≈ 0.02
-        @test rate(y, 1) ≈ 0.02
-        @test rate(y, 1.5) ≈ 0.07
 
+
+            y = Yields.Step([0.02,0.07])
+            @test rate(y, 0.5) ≈ 0.02
+            @test rate(y, 1) ≈ 0.02
+            @test rate(y, 1.5) ≈ 0.07
+        end
+
+        @testset "Continuous" begin
+            y = Yields.Step(Yields.Continuous(),[0.02,0.05], [1,2])
+
+            @test rate(y, 0.5) == 0.02
+
+            @test discount(y, 0.5) ≈ 1 / exp(.02*0.5)
+            @test discount(y, 1) ≈ 1 / exp(.02*1)
+            @test rate(y, 1) ≈ 0.02
+
+            @test discount(y, 2) ≈ 1 / exp(.02) / exp(.05)
+            @test discount(y, 1.5) ≈ 1 / exp(.02) / exp(.05*0.5)
+            @test rate(y, 2) ≈ 0.05
+            @test rate(y, 2.5) ≈ 0.05
+
+            @test discount(y, 1.5) ≈ 1 / accumulation(y,1.5)
+        end
     end
 
     @testset "Salomon Understanding the Yield Curve Pt 1 Figure 9" begin

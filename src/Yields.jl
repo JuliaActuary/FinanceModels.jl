@@ -91,11 +91,15 @@ julia>rate(y,2.5)
 ```
 """
 struct Step <: AbstractYield
+    compounding
     rates
     times
 end
 
 Step(rates) = Step(rates, collect(1:length(rates)))
+
+Step(rates,times) = Step(Periodic(1),rates,times)
+Step(cf::CompoundingFrequency, rates) = Step(cf,rates,collect(1:length(rates)))
 
 function rate(y::Step, time)
     i = findfirst(t -> time <= t, y.times)
@@ -105,9 +109,13 @@ function rate(y::Step, time)
         return y.rates[i]
     end
 end
+discount(y::Step,time) = 1 / accumulation(y::Step,time)
 
-function discount(y::Step, time)
-    v = 1 / (1 + y.rates[1])^min(y.times[1], time)
+accumulation(y::Step,time) = accumulation(y.compounding,y,time)
+
+function accumulation(::Periodic,y::Step, time)
+    m = y.compounding.frequency
+    v =  (1 + y.rates[1] / m )^ (m * min(y.times[1], time))
 
     if y.times[1] >= time
         return v
@@ -116,12 +124,35 @@ function discount(y::Step, time)
     for i in 2:length(y.times)
 
         if y.times[i] >= time
-            # take partial discount and break
-            v /= (1 + y.rates[i])^(time - y.times[i - 1])
+            # take partial accumulation and break
+            v *= (1 + y.rates[i]/m)^(m*(time - y.times[i - 1]))
             break
         else
-            # take full discount and continue
-            v /=  (1 + y.rates[i])^(y.times[i] - y.times[i - 1])
+            # take full accumulation and continue
+            v *=  (1 + y.rates[i]/m)^(m*(y.times[i] - y.times[i - 1]))
+        end
+
+    end
+
+    return v
+end
+
+function accumulation(::Continuous,y::Step, time)
+    v = exp(y.rates[1] *min(y.times[1], time))
+
+    if y.times[1] >= time
+        return v
+    end
+
+    for i in 2:length(y.times)
+
+        if y.times[i] >= time
+            # take partial accumulation and break
+            v *= exp(y.rates[i]*(time - y.times[i - 1]))
+            break
+        else
+            # take full accumulation and continue
+            v *=  exp(y.rates[i]*(y.times[i] - y.times[i - 1]))
         end
 
     end
