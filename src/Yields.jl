@@ -9,6 +9,7 @@ export rate, discount, forward, Yield, Rate, Continuous, Periodic
 # Zero,Constant, Forward
 
 abstract type CompoundingFrequency end
+Base.Broadcast.broadcastable(x::T) where{T<:CompoundingFrequency} = Ref(x) 
 
 struct Continuous <: CompoundingFrequency end
 

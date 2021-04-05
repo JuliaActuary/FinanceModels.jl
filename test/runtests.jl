@@ -3,6 +3,11 @@ using Test
 
 @testset "Yields.jl" begin
 
+    @testset "rate types" begin
+        rs = Rate.(Continuous(),[0.1,.02])
+        @test rs[1] == Rate(Continuous(),0.1)
+    end
+
     @testset "rate conversions" begin
         m = Rate(Yields.Periodic(2),.1)
         @test convert(Yields.Continuous(),m) ≈ 0.09758 atol = 1e-5
