@@ -14,6 +14,7 @@ using Test
         @test rate(convert(Yields.Continuous(),m)) ≈ rate(Rate(Continuous(),0.09758)) atol = 1e-5
         c = Rate(Yields.Continuous(),0.09758)
         @test rate(convert(Yields.Periodic(2),c)) ≈ rate(Rate(Periodic(2),0.1)) atol = 1e-5
+        @test rate(convert(Yields.Periodic(4),m)) ≈ rate(Rate(Periodic(4),0.09878030638383972)) atol = 1e-5
 
     end
 
