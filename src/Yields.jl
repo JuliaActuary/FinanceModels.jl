@@ -4,7 +4,7 @@ import Interpolations
 
 # don't export type, as the API of Yields.Zero is nicer and 
 # less polluting than Zero and less/equally verbose as ZeroYieldCurve or ZeroCruve
-export rate, discount, forward, Yield, Rate, Continuous, Periodic
+export rate, discount, accumulation,forward, Yield, Rate, Continuous, Periodic, rate
 # USTreasury,  AbstractYield
 # Zero,Constant, Forward
 
@@ -13,9 +13,12 @@ Base.Broadcast.broadcastable(x::T) where{T<:CompoundingFrequency} = Ref(x)
 
 struct Continuous <: CompoundingFrequency end
 
+Continuous(x) = Rate(Continuous(),x)
+
 struct Periodic <: CompoundingFrequency
     frequency::Int
 end
+Periodic(freq,x) = Rate(Periodic(freq),x)
 
 struct Rate
     compounding
@@ -23,16 +26,22 @@ struct Rate
 end
 
 Rate(x) = Rate(Periodic(1),x)
-Base.convert(T::CompoundingFrequency,r::Rate) = Base.convert(r.compounding,T,r)
+Base.convert(T::CompoundingFrequency,r::Rate) = convert(r.compounding,T,r)
 function Base.convert(from::Continuous,to::Continuous,r)
     return r.value
 end
 function Base.convert(from::Continuous,to::Periodic,r)
-    to.frequency * (exp(r.value/to.frequency) - 1)
+    return Rate(to,to.frequency * (exp(r.value/to.frequency) - 1))
 end
 function Base.convert(from::Periodic,to::Continuous,r)
-    from.frequency * log(1 + r.value / from.frequency)
+    return Rate(to,from.frequency * log(1 + r.value / from.frequency))
 end
+function Base.convert(from::Periodic,to::Periodic,r)
+    c = convert(from,Continuous(),r)
+    return convert(Continuous(),to,c)
+end
+rate(r::Rate) = r.value
+
 
 
 """
@@ -45,10 +54,10 @@ An AbstractYield is an object which can be called with:
 abstract type AbstractYield end
 
 # make interest curve broadcastable so that you can broadcast over multiple`time`s in `interest_rate`
-Base.Broadcast.broadcastable(ic::AbstractYield) = Ref(ic) 
+Base.Broadcast.broadcastable(ic::T) where {T<:AbstractYield} = Ref(ic) 
 
 struct YieldCurve <: AbstractYield
-    rates # spot rates
+    rates
     maturities
     spline
 end
@@ -68,13 +77,22 @@ julia> discount(y,2)
 0.9070294784580498     # 1 / (1.05) ^ 2
 ```
 """
-struct Constant <: AbstractYield
-    rate
+struct Constant{T} <: AbstractYield
+    rate::T
 end
 
+function Constant(rate::T) where {T <: Real}
+    return Constant(Rate(Periodic(1),rate))
+end
+
+rate(c::Constant) = c.rate
 rate(c::Constant,time) = c.rate
-discount(c::Constant,time) = 1 / (1 + rate(c, time))^time
 discount(c::T,time) where {T <: Real} = discount(Constant(c),time)
+discount(r::Constant,time) = 1 / accumulation(r,time)
+
+accumulation(r::Constant,time) = accumulation(r.rate.compounding,r,time)
+accumulation(::Continuous,r::Constant,time) = exp(rate(r.rate) * time)
+accumulation(::Periodic,r::Constant,time) = (1 + rate(r.rate) / r.rate.compounding.frequency) ^ (r.rate.compounding.frequency * time)
 
 """
     Step(rates,times)
@@ -303,8 +321,9 @@ end
 
 rate(rc::RateCombination,time) = rc.op(rate(rc.r1, time), rate(rc.r2, time))
 function discount(rc::RateCombination, time) 
-    r = rc.op(rate(rc.r1, time), rate(rc.r2, time))
-    return 1 / (1 + r)^time
+    a1 = discount(rc.r1,time)^(-1/time) - 1  
+    a2 = discount(rc.r2,time)^(-1/time) - 1
+    return 1 / (1 + rc.op(a1,a2)) ^ time
 end
 
 """
@@ -316,8 +335,9 @@ function Base.:+(a::AbstractYield, b::AbstractYield)
     return RateCombination(a, b, +) 
 end
 
-function Base.:+(a::Constant, b::Constant) where {T<:AbstractYield}
-    return Constant(a.rate + b.rate)
+function Base.:+(a::Constant, b::Constant)
+    a_kind = rate(a).compounding
+    return Constant(Rate(a_kind,rate(a.rate) + rate(convert(a_kind,rate(b)))))
 end
 
 function Base.:+(a::T, b) where {T<:AbstractYield}
@@ -328,6 +348,11 @@ function Base.:+(a, b::T) where {T<:AbstractYield}
     return Yield(a) + b
 end
 
+# TODO Notes
+# - Combinations of like CompoundingFrequency should be addable, or convert if different, which is correct and safer
+# - Using Rate as foundation for other curves should make boostrapping more straightforward and support mixed periods in curve (e.g. treasury)
+
+
 """
     Yields.AbstractYield - Yields.AbstractYield
 
@@ -337,8 +362,9 @@ function Base.:-(a::AbstractYield, b::AbstractYield)
     return RateCombination(a, b, -) 
 end
 
-function Base.:-(a::Constant, b::Constant)
-    return Constant(a.rate - b.rate) 
+function Base.:+(a::Constant, b::Constant)
+    a_kind = rate(a).compounding
+    return Constant(Rate(a_kind,rate(a.rate) - rate(convert(a_kind,rate(b)))))
 end
 
 function Base.:-(a::T, b) where {T<:AbstractYield}

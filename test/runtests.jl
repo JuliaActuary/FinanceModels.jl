@@ -6,13 +6,14 @@ using Test
     @testset "rate types" begin
         rs = Rate.(Continuous(),[0.1,.02])
         @test rs[1] == Rate(Continuous(),0.1)
+        @test rate(rs[1]) == 0.1
     end
 
     @testset "rate conversions" begin
         m = Rate(Yields.Periodic(2),.1)
-        @test convert(Yields.Continuous(),m) ≈ 0.09758 atol = 1e-5
+        @test rate(convert(Yields.Continuous(),m)) ≈ rate(Rate(Continuous(),0.09758)) atol = 1e-5
         c = Rate(Yields.Continuous(),0.09758)
-        @test convert(Yields.Periodic(2),c) ≈ 0.1 atol = 1e-5
+        @test rate(convert(Yields.Periodic(2),c)) ≈ rate(Rate(Periodic(2),0.1)) atol = 1e-5
 
     end
 
@@ -21,10 +22,31 @@ using Test
 
         @testset "constant discount time: $time" for time in [0,0.5,1,10]
             @test discount(yield, time) ≈ 1 / (1.05)^time 
-            @test discount(0.05,time) ≈ 1 / (1.05)^time 
-            @test accumulate(yield, time) ≈ 1 * 1.05^time
-            @test rate(yield, time) == 0.05
         end
+        @testset "constant discount scalar time: $time" for time in [0,0.5,1,10]
+            @test discount(0.05,time) ≈ 1 / (1.05)^time 
+        end
+        @testset "constant accumulation time: $time" for time in [0,0.5,1,10]
+            @test accumulation(yield, time) ≈ 1 * 1.05^time
+        end
+
+        @testset "CompoundingFrequency" begin
+            @testset "Continuous" begin
+                cnst = Yields.Constant(Continuous(0.05))
+                @test accumulation(cnst,1) == exp(0.05)
+                @test accumulation(cnst,2) == exp(0.05*2)
+                @test discount(cnst,2) == 1 / exp(0.05*2)
+            end
+
+            @testset "Periodic" begin
+                p = Yields.Constant(Yields.Periodic(2,0.05))
+                @test accumulation(p,1) == (1 + 0.05/2) ^ (1 * 2)
+                @test accumulation(p,2) == (1 + 0.05/2) ^ (2 * 2)
+                @test discount(p,2) == 1 / (1 + 0.05/2) ^ (2 * 2)
+
+            end
+        end
+
 
         yield_2x = yield + yield
         yield_add = yield + 0.05
@@ -33,9 +55,6 @@ using Test
             @test discount(yield_2x, time) ≈ 1 / (1.1)^time 
             @test discount(yield_add, time) ≈ 1 / (1.1)^time 
             @test discount(add_yield, time) ≈ 1 / (1.1)^time 
-            @test rate(yield_2x, time) == 0.1
-            @test rate(yield_add, time) == 0.1
-            @test rate(add_yield, time) == 0.1
         end
 
         yield_1bps = yield - Yields.Constant(0.04)
@@ -45,9 +64,6 @@ using Test
             @test discount(yield_1bps, time) ≈ 1 / (1.01)^time 
             @test discount(yield_minus, time) ≈ 1 / (1.04)^time 
             @test discount(minus_yield, time) ≈ 1 / (1.04)^time 
-            @test rate(yield_1bps, time) ≈ 0.01
-            @test rate(yield_minus, time) ≈ 0.04
-            @test rate(minus_yield, time) ≈ 0.04
         end
     end
     
