@@ -4,17 +4,23 @@ using Test
 @testset "Yields.jl" begin
 
     @testset "rate types" begin
-        rs = Rate.(Continuous(),[0.1,.02])
-        @test rs[1] == Rate(Continuous(),0.1)
+        rs = Rate.([0.1,.02],Continuous())
+        @test rs[1] == Rate(0.1,Continuous())
         @test rate(rs[1]) == 0.1
     end
 
+    @testset "constructor" begin
+        @test Rate(0.02,2) == Rate(0.02,Periodic(2))
+        @test Rate(0.02,Inf) == Rate(0.02,Continuous())
+    end
+
     @testset "rate conversions" begin
-        m = Rate(Yields.Periodic(2),.1)
-        @test rate(convert(Yields.Continuous(),m)) ≈ rate(Rate(Continuous(),0.09758)) atol = 1e-5
-        c = Rate(Yields.Continuous(),0.09758)
-        @test rate(convert(Yields.Periodic(2),c)) ≈ rate(Rate(Periodic(2),0.1)) atol = 1e-5
-        @test rate(convert(Yields.Periodic(4),m)) ≈ rate(Rate(Periodic(4),0.09878030638383972)) atol = 1e-5
+        m = Rate(.1,Yields.Periodic(2),)
+        @test rate(convert(m,Yields.Continuous())) ≈ rate(Rate(0.09758,Continuous())) atol = 1e-5
+        c = Rate(0.09758,Yields.Continuous())
+        @test convert(c,Continuous()) == c
+        @test rate(convert(c,Yields.Periodic(2))) ≈ rate(Rate(0.1,Periodic(2))) atol = 1e-5
+        @test rate(convert(m,Yields.Periodic(4))) ≈ rate(Rate(0.09878030638383972,Periodic(4))) atol = 1e-5
 
     end
 

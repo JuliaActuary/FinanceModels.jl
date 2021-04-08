@@ -21,24 +21,44 @@ end
 Periodic(freq,x) = Rate(Periodic(freq),x)
 
 struct Rate
-    compounding
     value
+    compounding::CompoundingFrequency
 end
 
+# Base.:==(r1::Rate,r2::Rate) = (r1.value == r2.value) && (r1.compounding == r2.compounding)
+
+"""
+    Rate(x,freq=1)
+    Rate(CompoundingFrequency,x)
+
+Rate is a type that indicates the compounding frequency of the rate `x`.
+
+Periodic rates can be constructed via `Rate(x,m)` or `Rate(Periodic(m),x)` where `m` is the periodic frequency.
+
+Continuous rates can be constructed via `Rate(x, Inf)` or `Rate(Continuous(), x)`.
+"""
 Rate(x) = Rate(Periodic(1),x)
-Base.convert(T::CompoundingFrequency,r::Rate) = convert(r.compounding,T,r)
-function Base.convert(from::Continuous,to::Continuous,r)
-    return r.value
+Rate(x,freq::T) where {T<:Real} = isinf(freq) ? Rate(Continuous(),x) : Rate(Periodic(freq),x)
+
+
+"""
+    covert(T::CompoundingFrequency,r::Rate)
+
+Returns a `Rate` with an equivalent discount but represented with a different compounding frequency.
+"""
+Base.convert(r::Rate,T::CompoundingFrequency) = convert(r,r.compounding,T)
+function Base.convert(r,from::Continuous,to::Continuous)
+    return r
 end
-function Base.convert(from::Continuous,to::Periodic,r)
-    return Rate(to,to.frequency * (exp(r.value/to.frequency) - 1))
+function Base.convert(r,from::Continuous,to::Periodic)
+    return Rate(to.frequency * (exp(r.value/to.frequency) - 1),to)
 end
-function Base.convert(from::Periodic,to::Continuous,r)
-    return Rate(to,from.frequency * log(1 + r.value / from.frequency))
+function Base.convert(r,from::Periodic,to::Continuous)
+    return Rate(from.frequency * log(1 + r.value / from.frequency),to)
 end
-function Base.convert(from::Periodic,to::Periodic,r)
-    c = convert(from,Continuous(),r)
-    return convert(Continuous(),to,c)
+function Base.convert(r,from::Periodic,to::Periodic)
+    c = convert(r,from,Continuous())
+    return convert(c,Continuous(),to)
 end
 rate(r::Rate) = r.value
 
@@ -77,12 +97,12 @@ julia> discount(y,2)
 0.9070294784580498     # 1 / (1.05) ^ 2
 ```
 """
-struct Constant{T} <: AbstractYield
-    rate::T
+struct Constant <: AbstractYield
+    rate
 end
 
 function Constant(rate::T) where {T <: Real}
-    return Constant(Rate(Periodic(1),rate))
+    return Constant(Rate(rate,Periodic(1)))
 end
 
 rate(c::Constant) = c.rate
@@ -337,7 +357,7 @@ end
 
 function Base.:+(a::Constant, b::Constant)
     a_kind = rate(a).compounding
-    return Constant(Rate(a_kind,rate(a.rate) + rate(convert(a_kind,rate(b)))))
+    return Constant(Rate(rate(a.rate) + rate(convert(a_kind,rate(b)),a_kind)))
 end
 
 function Base.:+(a::T, b) where {T<:AbstractYield}
@@ -362,9 +382,9 @@ function Base.:-(a::AbstractYield, b::AbstractYield)
     return RateCombination(a, b, -) 
 end
 
-function Base.:+(a::Constant, b::Constant)
+function Base.:-(a::Constant, b::Constant)
     a_kind = rate(a).compounding
-    return Constant(Rate(a_kind,rate(a.rate) - rate(convert(a_kind,rate(b)))))
+    return Constant(Rate(rate(a.rate) - rate(convert(a_kind,rate(b)),a_kind)))
 end
 
 function Base.:-(a::T, b) where {T<:AbstractYield}
