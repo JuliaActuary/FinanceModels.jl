@@ -13,7 +13,7 @@ Base.Broadcast.broadcastable(x::T) where{T<:CompoundingFrequency} = Ref(x)
 
 struct Continuous <: CompoundingFrequency end
 
-Continuous(x) = Rate(Continuous(),x)
+Continuous(x) = Rate(x,Continuous())
 
 struct Periodic <: CompoundingFrequency
     frequency::Int
@@ -38,7 +38,7 @@ Periodic rates can be constructed via `Rate(x,m)` or `Rate(Periodic(m),x)` where
 Continuous rates can be constructed via `Rate(x, Inf)` or `Rate(Continuous(), x)`.
 """
 Rate(x) = Rate(Periodic(1),x)
-Rate(x,freq::T) where {T<:Real} = isinf(freq) ? Rate(Continuous(),x) : Rate(Periodic(freq),x)
+Rate(x,freq::T) where {T<:Real} = isinf(freq) ? Rate(x,Continuous()) : Rate(x,Periodic(freq))
 
 
 """
@@ -50,16 +50,20 @@ Base.convert(r::Rate,T::CompoundingFrequency) = convert(r,r.compounding,T)
 function Base.convert(r,from::Continuous,to::Continuous)
     return r
 end
+
 function Base.convert(r,from::Continuous,to::Periodic)
     return Rate(to.frequency * (exp(r.value/to.frequency) - 1),to)
 end
+
 function Base.convert(r,from::Periodic,to::Continuous)
     return Rate(from.frequency * log(1 + r.value / from.frequency),to)
 end
+
 function Base.convert(r,from::Periodic,to::Periodic)
     c = convert(r,from,Continuous())
     return convert(c,Continuous(),to)
 end
+
 rate(r::Rate) = r.value
 
 
@@ -79,7 +83,7 @@ Base.Broadcast.broadcastable(ic::T) where {T<:AbstractYield} = Ref(ic)
 struct YieldCurve <: AbstractYield
     rates
     maturities
-    spline
+    discount # discount function for time
 end
 
 # Wrapping a a scalar value in this type allows for dispatch to operate as intended 
@@ -357,7 +361,13 @@ end
 
 function Base.:+(a::Constant, b::Constant)
     a_kind = rate(a).compounding
-    return Constant(Rate(rate(a.rate) + rate(convert(a_kind,rate(b)),a_kind)))
+    rate_new_basis = rate(convert(rate(b),a_kind))
+    return Constant(
+        Rate(
+            rate(a.rate) + rate_new_basis,
+            a_kind
+            )
+        )
 end
 
 function Base.:+(a::T, b) where {T<:AbstractYield}
@@ -382,9 +392,15 @@ function Base.:-(a::AbstractYield, b::AbstractYield)
     return RateCombination(a, b, -) 
 end
 
-function Base.:-(a::Constant, b::Constant)
+function Base.:+(a::Constant, b::Constant)
     a_kind = rate(a).compounding
-    return Constant(Rate(rate(a.rate) - rate(convert(a_kind,rate(b)),a_kind)))
+    rate_new_basis = rate(convert(rate(b),a_kind))
+    return Constant(
+        Rate(
+            rate(a.rate) - rate_new_basis,
+            a_kind
+            )
+        )
 end
 
 function Base.:-(a::T, b) where {T<:AbstractYield}

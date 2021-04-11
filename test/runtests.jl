@@ -10,6 +10,7 @@ using Test
     end
 
     @testset "constructor" begin
+        @test Continuous(0.05) == Rate(0.05,Continuous())
         @test Rate(0.02,2) == Rate(0.02,Periodic(2))
         @test Rate(0.02,Inf) == Rate(0.02,Continuous())
     end
@@ -46,7 +47,7 @@ using Test
             end
 
             @testset "Periodic" begin
-                p = Yields.Constant(Yields.Periodic(2,0.05))
+                p = Yields.Constant(Rate(0.05,Periodic(2)))
                 @test accumulation(p,1) == (1 + 0.05/2) ^ (1 * 2)
                 @test accumulation(p,2) == (1 + 0.05/2) ^ (2 * 2)
                 @test discount(p,2) == 1 / (1 + 0.05/2) ^ (2 * 2)
