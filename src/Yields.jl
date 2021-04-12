@@ -1,12 +1,12 @@
+# TODO: accumulalate -> accumulation
 module Yields
 
 import Interpolations
+import ForwardDiff
 
 # don't export type, as the API of Yields.Zero is nicer and 
 # less polluting than Zero and less/equally verbose as ZeroYieldCurve or ZeroCruve
 export rate, discount, accumulation,forward, Yield, Rate, Continuous, Periodic, rate
-# USTreasury,  AbstractYield
-# Zero,Constant, Forward
 
 abstract type CompoundingFrequency end
 Base.Broadcast.broadcastable(x::T) where{T<:CompoundingFrequency} = Ref(x) 
@@ -67,7 +67,6 @@ end
 rate(r::Rate) = r.value
 
 
-
 """
 An AbstractYield is an object which can be called with:
 
@@ -85,6 +84,26 @@ struct YieldCurve <: AbstractYield
     maturities
     discount # discount function for time
 end
+
+"""
+    zero(curve,time)
+    zero(curve,time,CompoundingFrequency)
+
+Return the zero rate for the curve at the given time. If not specified, will use `Periodic(1)` compounding.
+"""
+Base.zero(c::YieldCurve,time) = zero(c,time,Periodic(1))
+function Base.zero(c::YieldCurve,time,cf::CompoundingFrequency=Periodic(1))
+    d = discount(c,time)
+    i = Rate(cf.frequency*(d^(-1/(time*cf.frequency))-1),cf)
+    return i
+end
+
+function Base.zero(c::YieldCurve,time,cf::Continuous)
+    d = discount(c,time)
+    i = log(1/d)/time
+    return Rate(i,cf)
+end
+
 
 # Wrapping a a scalar value in this type allows for dispatch to operate as intended 
 # (otherwise `Base.accumulate(<:Real,<:Real) tries to do something other than accumulate interest)
@@ -180,11 +199,10 @@ end
 function Zero(rates, maturities)
     # bump to a constant yield if only given one rate
     length(rates) == 1 && return Constant(rate[1])
-
     return YieldCurve(
         rates,
         maturities,
-        linear_interp(maturities,rates)
+        linear_interp(maturities,discount.(Constant.(rates),maturities))
     )
 end
 
@@ -196,30 +214,21 @@ function Zero(rates)
 end
 
 """
-Construct a curve given a set of bond yields priced at par with a single coupon per period.
+    Par(rate, maturity)
+
+Construct a curve given a set of bond equivalent yields and the corresponding maturities. Assumes that maturities <= 1 year do not pay coupons and that after one year, pays coupons with frequency equal to the CompoundingFrequency of the corresponding rate.
 """
-function Par(rate, maturity;)
+function Par(rates::Vector{Rate}, maturities)
     # bump to a constant yield if only given one rate
-    if length(rate) == 1
+    if length(rates) == 1
         return Constant(rate[1])
     end
-
-    spot = similar(rate) 
-
-    spot[1] = rate[1]
-
-    for i in 2:length(rate)
-        coupon_pv = sum(rate[i] / (1 + spot[j])^maturity[j] for j in 1:i - 1) # not including the one paid at maturity
-
-        spot[i] = ((1 + rate[i]) / (1 - coupon_pv))^(1 / maturity[i]) - 1
-    end
-
-
-
     return YieldCurve(
-        rate,
-        maturity,
-        linear_interp(maturity,spot)
+            rates,
+            maturities,
+            # assume that maturities less than or equal to 12 months are settled once, otherwise semi-annual
+            # per Hull 4.7
+            bootstrap(rates,maturities,[m <= 1 ? nothing : 1 / r.compounding.frequency for (r,m) in zip(rates,maturities)])
         )
 end
 
@@ -249,64 +258,110 @@ function Forward(rate_vector, times)
 end
 
 """
-    USTreasury(rates,maturities)
-
 Takes CMT yields (bond equivalent), and assumes that instruments <= one year maturity pay no coupons and that the rest pay semi-annual.
 """
-function USTreasury(rates, maturities)
-    z = zeros(length(rates))
-
-    # use the discount rate for T-Bills with maturities <= 1 year
-    for (i, (rate, mat)) in enumerate(zip(rates, maturities))
-        
-        if mat <= 1 
-            z[i] = (1 + rate * mat) ^ (1/mat) -1
+function USCMT(rates::Vector{T}, maturities) where {T<:Real}
+    rs = map(zip(rates,maturities)) do (r,m)
+        if m <= 1
+            Rate(r,Periodic(1 / m))
         else
-            # uses interpolation b/c of common, but uneven maturities often present under 1 year.
-            curve = linear_interp(maturities, z)
-            pmts = [rate / 2 for t in 0.5:0.5:mat] # coupons only
-            pmts[end] += 1 # plus principal
-
-            discount =  1 ./ (1 .+ curve.(0.5:0.5:(mat - .5)))
-            z[i] = ((1 - sum(discount .* pmts[1:end - 1])) / pmts[end])^- (1 / mat) - 1
-
+            Rate(r,Periodic(2))
         end
-
-
-
-
-        
     end
 
-    return YieldCurve(rates, maturities, linear_interp(maturities, z))
+    USCMT(rs,maturities)
+end
 
-
+function USCMT(rates::Vector{Rate}, maturities)
     return YieldCurve(
-        rate,
-        maturity,
-        linear_interp(maturity,rate)
+            rates,
+            maturities,
+            # assume that maturities less than or equal to 12 months are settled once, otherwise semi-annual
+            # per Hull 4.7
+            bootstrap(rates,maturities,[m <= 1 ? nothing : 0.5 for m in maturities])
         )
 end
+    
 
-function ParYieldCurve(rates, maturities)
+"""
+    OIS(rates,maturities)
+Takes Overnight Index Swap rates, and assumes that instruments <= one year maturity are settled once and other agreements are settled quarterly.
+"""
+function OIS(rates::Vector{T}, maturities) where {T<:Real}
+    rs = map(zip(rates,maturities)) do (r,m)
+        if m <= 1
+            Rate(r,Periodic(1 / m))
+        else
+            Rate(r,Periodic(4))
+        end
+    end
 
+    return OIS(rs,maturities)
+end
+function OIS(rates::Vector{Rate}, maturities)
+    return YieldCurve(
+        rates,
+        maturities,
+        # assume that maturities less than or equal to 12 months are settled once, otherwise quarterly
+        # per Hull 4.7
+        bootstrap(rates,maturities,[m <= 1 ? nothing : 1/4 for m in maturities])
+    )
 end
 
 
+# https://github.com/dpsanders/hands_on_julia/blob/master/during_sessions/Fractale%20de%20Newton.ipynb
+newton(f, f′, x) = x - f(x) / f′(x)
+function solve(g, g′, x0, max_iterations=100)
+    x = x0
+
+    tolerance = 2*eps(x0)
+    iteration = 0
+
+    while (abs(g(x) - 0) > tolerance && iteration < max_iterations)
+        x = newton(g, g′, x)        
+        iteration += 1
+    end
+
+    return x
+end
+
+function bootstrap(rates,maturities,settlement_frequency;interp_function=linear_interp)
+    settlement_frequency,maturities,rates
+    discount_vec = zeros(length(rates)) # construct a placeholder discount vector matching maturities
+    # we have to take the first rate as the starting point
+    discount_vec[1] = discount(Constant(rates[1]),maturities[1])
+
+    for t in 2:length(maturities)
+        if isnothing(settlement_frequency[t]) 
+            # no settlment before maturity
+            discount_vec[t] = discount(Constant(rates[t]),maturities[t])
+        else
+            # need to account for the interim cashflows settled
+            times = settlement_frequency[t]:settlement_frequency[t]:maturities[t]
+            cfs = [rate(rates[t]) * settlement_frequency[t] for s in times]
+            cfs[end] += 1
+            
+            function pv(v_guess)
+                v = interp_function(maturities[1:t],[discount_vec[1:t-1];v_guess])
+                return sum(v.(times) .* cfs)
+            end
+            target_pv = sum(map(t2->discount(Constant(rates[t]),t2),times) .* cfs)
+            root_func(v_guess) = pv(v_guess) - target_pv
+            root_func′(v_guess) = ForwardDiff.derivative(root_func,v_guess)
+            discount_vec[t] = solve(root_func,root_func′,rate(rates[t]))
+        end
+
+    end
+    return linear_interp(maturities,discount_vec)
+end
+
 ## Generic and Fallbacks
-"""
-    rate(yield,time)
-
-The annual effective spot rate at `time` for the given `yield`.
-"""
-rate(yc,time) = yc.spline(time)
-
 """
     discount(yield,time)
 
 The discount factor for the `yield` from time zero through `time`. If yield is a `Real` number, will assume a `Constant` interest rate.
 """
-discount(yc,time) = 1 / (1 + rate(yc, time))^time
+discount(yc,time) = yc.discount(time)
 
 """
     discount(yield,from,to)
@@ -377,11 +432,6 @@ end
 function Base.:+(a, b::T) where {T<:AbstractYield}
     return Yield(a) + b
 end
-
-# TODO Notes
-# - Combinations of like CompoundingFrequency should be addable, or convert if different, which is correct and safer
-# - Using Rate as foundation for other curves should make boostrapping more straightforward and support mixed periods in curve (e.g. treasury)
-
 
 """
     Yields.AbstractYield - Yields.AbstractYield
