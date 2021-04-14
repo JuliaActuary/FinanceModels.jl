@@ -92,7 +92,7 @@ end
 Return the zero rate for the curve at the given time. If not specified, will use `Periodic(1)` compounding.
 """
 Base.zero(c::YieldCurve,time) = zero(c,time,Periodic(1))
-function Base.zero(c::YieldCurve,time,cf::CompoundingFrequency=Periodic(1))
+function Base.zero(c::YieldCurve,time,cf::Periodic)
     d = discount(c,time)
     i = Rate(cf.frequency*(d^(-1/(time*cf.frequency))-1),cf)
     return i
@@ -105,8 +105,6 @@ function Base.zero(c::YieldCurve,time,cf::Continuous)
 end
 
 
-# Wrapping a a scalar value in this type allows for dispatch to operate as intended 
-# (otherwise `Base.accumulate(<:Real,<:Real) tries to do something other than accumulate interest)
 """
     Constant(rate)
 
@@ -233,28 +231,23 @@ function Par(rates::Vector{Rate}, maturities)
 end
 
 """
-    Forward(rate_vector)
+    Forward(rate_vector,maturities)
 
 Takes a vector of 1-period forward rates and constructs a discount curve.
 """
-function Forward(rate_vector)
-    zeros = similar(rate_vector)
-    zeros[1] = rate_vector[1]
-    for i in 2:length(rate_vector)
-        zeros[i] = (prod(1 .+ rate_vector[1:i]))^(1 / i) - 1
-    end
-    return Zero(zeros, 1:length(rate_vector))
-end
+function Forward(rates, maturities)
+    # convert to zeros and pass to Zero
+    disc_v = similar(rates)
+    v = 1.
 
-function Forward(rate_vector, times)
-    disc_v = similar(rate_vector)
-    disc_v[1] = 1 / (1 + rate_vector[1])^times[1]
-    for i in 2:length(rate_vector)
-        ∇t = times[i] - times[i - 1]
-        disc_v[i] = disc_v[i - 1] / (1 + rate_vector[i])^∇t
+    for i in 1:length(rates)
+        Δt = maturities[i] - (i == 1 ? 0 : maturities[i-1])
+        v *= discount(Constant(rates[i]),Δt)
+        disc_v[i] = v
     end
 
-    return Zero(1 ./ disc_v.^(1 ./ times) .- 1, times)
+    z = (1. ./ disc_v) .^ ( 1 ./ maturities) # convert disc_v to zero
+    return Zero(z,maturities)
 end
 
 """
@@ -342,7 +335,7 @@ function bootstrap(rates,maturities,settlement_frequency;interp_function=linear_
             cfs[end] += 1
             
             function pv(v_guess)
-                v = interp_function(maturities[1:t],[discount_vec[1:t-1];v_guess])
+                v = interp_function([[0.];maturities[1:t]],vcat(1.,discount_vec[1:t-1],v_guess...))
                 return sum(v.(times) .* cfs)
             end
             target_pv = sum(map(t2->discount(Constant(rates[t]),t2),times) .* cfs)
@@ -352,7 +345,7 @@ function bootstrap(rates,maturities,settlement_frequency;interp_function=linear_
         end
 
     end
-    return linear_interp(maturities,discount_vec)
+    return linear_interp([[0.];maturities],[[1.];discount_vec])
 end
 
 ## Generic and Fallbacks
@@ -371,23 +364,23 @@ The discount factor for the `yield` from time `from` through `to`.
 discount(yc,from,to) = discount(yc, to) / discount(yc, from)
 
 function forward(yc, from, to)
-    return (accumulate(yc, to) / accumulate(yc, from))^(1 / (to - from)) - 1
+    return (accumulation(yc, to) / accumulation(yc, from))^(1 / (to - from)) - 1
 end
-function forward(yc, to)
-    from = to - 1 
+function forward(yc, from)
+    to = from + 1
     return forward(yc, from, to)
 end
 
 """
-    accumulate(yield,time)
+    accumulation(yield,time)
 
 The accumulation factor for the `yield` from time zero through `time`.
 """
-function Base.accumulate(y::T, time) where {T <: AbstractYield}
+function accumulation(y::T, time) where {T <: AbstractYield}
     return 1 / discount(y, time)
 end
 
-function Base.accumulate(y::T,from,to) where {T <: AbstractYield}
+function accumulation(y::T,from,to) where {T <: AbstractYield}
     return 1 / discount(y,from,to)
 end
 
