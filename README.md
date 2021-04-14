@@ -17,7 +17,7 @@ It's intended to provide common functionality around modeling interest rates, sp
 using Yields
 
 riskfree_maturities = [0.5, 1.0, 1.5, 2.0]
-riskfree    = [5.0, 5.8, 6.4, 6.8] ./ 100     #spot rates
+riskfree    = [5.0, 5.8, 6.4, 6.8] ./ 100     #spot rates, annual effective if unspecfied
 
 spread_maturities = [0.5, 1.0, 1.5, 3.0]      # different maturities
 spread    = [1.0, 1.8, 1.4, 1.8] ./ 100       # spot spreads
@@ -33,32 +33,48 @@ discount(yield,1.5) # 1 / (1 + 0.064 + 0.014) ^ 1.5
 
 ## Usage
 
+### Rates
+
+Rates are types that wrap scalar values to provide information about how to determine `discount` and `accumulation` factors.
+
+There are two `CompoundingFrequency` types:
+
+- `Periodic(m)` for rates that compound `m` times per period (e.g. `m` times per year if working with annual rates).
+- `Continuous()` for continuously compounding rates.
+
+#### Examples
+
+```julia
+Rate(0.05,Continuous())       # 5% continuously compounded
+Continuous(0.05)              # alternate constructor
+
+Rate(0.05, Periodic(2))       # 5% compounded twice per period
+Periodic(0.05, 2)             # alternate constructor
+
+# construct a vector of rates with the given compounding
+Rate.(0.02,0.03,0.04,Periodic(2)) 
+```
+
 ### Yields
 
-There are a few ways to construct a yield curve object:
+There are a several ways to construct a yield curve object. `rates` can be a vector of `Rate`s described above, or will assume `Periodic(1)` if the functions are given `Real` number values
 
-- `Zero(rates)` or `Zero(rates,maturities)` using a vector of zero, or spot, rates
-- `Forward(rates)` or `Forward(rates,periods)` using a vector of one-period (or `periods`-long) forward rates
-- `Constant(rate)` takes a single constant rate for all times
-- `Step(rates)` or `Step(rates,times)` doesn't interpolate - the rate is flat up to the corresponding time in `times`
-- `Par(rates)` or `Par(rates,maturities)` takes a series of yields for securities priced at par and paying one coupon per period
-- `USTreasury(rates)` takes the most commonly presented rate data (e.g. [Treasury.gov](https://www.treasury.gov/resource-center/data-chart-center/interest-rates/Pages/TextView.aspx?data=yield)) and bootstraps the curve given the combination of bills and bonds.
-
-
-#### `Yield()`
-Additionally, `Yield()` provides a convinience constructor:
-
-- `Yield(0.05)` will construct a `Constant(0.05)` yield.
-- `Yield([0.05,0.06,...])` will construct a `Forward([0.05,0.06,...])` yield.
-
+- `Yields.Zero(rates,maturities)`  using a vector of zero, or spot, rates
+- `Yields.Forward(rates,maturities)` using a vector of one-period (or `periods`-long) forward rates
+- `Yields.Constant(rate)` takes a single constant rate for all times
+- `Yields.Step(rates,maturities)` doesn't interpolate - the rate is flat up to the corresponding time in `times`
+- `Yields.Par(rates,maturities)` takes a series of yields for securities priced at par.Assumes that maturities <= 1 year do not pay coupons and that after one year, pays coupons with frequency equal to the CompoundingFrequency of the corresponding rate.
+- `Yields.CMT(rates,maturities)` takes the most commonly presented rate data (e.g. [Treasury.gov](https://www.treasury.gov/resource-center/data-chart-center/interest-rates/Pages/TextView.aspx?data=yield)) and bootstraps the curve given the combination of bills and bonds.
+- `Yields.CMT(rates,maturities)` takes the most commonly presented rate data (e.g. [Treasury.gov](https://www.treasury.gov/resource-center/data-chart-center/interest-rates/Pages/TextView.aspx?data=yield)) and bootstraps the curve given the combination of bills and bonds.
 
 ### Functions
 
 Most of the above yields have the following defined (goal is to have them all):
-- `rate(curve,time)` gives the rate at `time` 
-- `discount(curve,time)` gives the discount factor through `time`
-- `accumulate(curve,time)` gives the accumulation factor through `time`
-- `forward(curve,time_from,time_to)` gives the average rate between the two given times
+
+- `discount(curve,from,to)` or `discount(curve,to)` gives the discount factor
+- `accumulation(curve,from,to)` or `accumulation(curve,to)` gives the accumulation factor
+- `forward(curve,from,to)` gives the average rate between the two given times
+- `zero(curve,time)` or `zero(curve,time,CompoundingFrequency)` gives the zero-coupon spot rate for the given time.
 
 ### Combinations
 

@@ -11,6 +11,7 @@ using Test
     
     @testset "constructor" begin
         @test Continuous(0.05) == Rate(0.05,Continuous())
+        @test Periodic(0.02,2) == Rate(0.02,Periodic(2))
         @test Rate(0.02,2) == Rate(0.02,Periodic(2))
         @test Rate(0.02,Inf) == Rate(0.02,Continuous())
     end
@@ -25,17 +26,22 @@ using Test
         
     end
     
-    @testset "constant curve" begin
+    @testset "constant curve and rate -> Constant" begin
         yield = Yields.Constant(0.05)
+        rate = Yields.Rate(0.05,Periodic(1))
         
         @testset "constant discount time: $time" for time in [0,0.5,1,10]
             @test discount(yield, time) ≈ 1 / (1.05)^time 
+            @test discount(rate, time) ≈ 1 / (1.05)^time 
+            @test discount(rate, 0, time) ≈ 1 / (1.05)^time 
         end
         @testset "constant discount scalar time: $time" for time in [0,0.5,1,10]
             @test discount(0.05,time) ≈ 1 / (1.05)^time 
         end
         @testset "constant accumulation time: $time" for time in [0,0.5,1,10]
             @test accumulation(yield, time) ≈ 1 * 1.05^time
+            @test accumulation(rate,time) ≈ 1 * 1.05^time
+            @test accumulation(rate,0,time) ≈ 1 * 1.05^time
         end
         
         @testset "CompoundingFrequency" begin
@@ -92,6 +98,7 @@ using Test
         
         @test rate(y, 0.5) == 0.02
         
+        @test discount(y,0.0) ≈ 1
         @test discount(y, 0.5) ≈ 1 / (1.02)^(0.5)
         @test discount(y, 1) ≈ 1 / (1.02)^(1)
         @test rate(y, 1) ≈ 0.02
@@ -139,7 +146,7 @@ using Test
         zero    = [5.0, 5.8, 6.4, 6.8] ./ 100
         curve = Yields.Zero(zero, maturity)
         
-        
+        @test discount(curve, 0) ≈ 1
         @test discount(curve, 1) ≈ 1 / (1 + zero[2])
         @test discount(curve, 2) ≈ 1 / (1 + zero[4])^2
         
@@ -205,7 +212,7 @@ using Test
         # Fabozzi 5-5,5-6
         cmt  = [5.25,5.5,5.75,6.0,6.25,6.5,6.75,6.8,7.0,7.1,7.15,7.2,7.3,7.35,7.4,7.5,7.6,7.6,7.7,7.8] ./ 100
         mats = collect(0.5:0.5:10.)
-        curve = Yields.USCMT(cmt,mats)
+        curve = Yields.CMT(cmt,mats)
         targets = [5.25,5.5,5.76,6.02,6.28,6.55,6.82,6.87,7.09,7.2,7.26,7.31,7.43,7.48,7.54,7.67,7.8,7.79,7.93,8.07] ./ 100
         target_periodicity = fill(2,length(mats))
         target_periodicity[2] = 1 # 1 year is a no-coupon, BEY yield, the rest are semiannual BEY
@@ -217,7 +224,7 @@ using Test
         adj = ((1 + .051813/2) ^2 -1) * 100
         cmt  = [4.0816,adj,5.4986,5.8620] ./ 100
         mats =  [.5,1.,1.5,2.]
-        curve = Yields.USCMT(cmt,mats)
+        curve = Yields.CMT(cmt,mats)
         targets = [4.0405,5.1293,5.4429,5.8085] ./ 100
         @testset "Hull bootstrapped rates" for (r,mat,target) in zip(cmt,mats,targets)
             @test rate(zero(curve,mat,Continuous())) ≈ target atol=0.001

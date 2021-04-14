@@ -6,19 +6,79 @@ import ForwardDiff
 
 # don't export type, as the API of Yields.Zero is nicer and 
 # less polluting than Zero and less/equally verbose as ZeroYieldCurve or ZeroCruve
-export rate, discount, accumulation,forward, Yield, Rate, Continuous, Periodic, rate
+export rate, discount, accumulation,forward, Yield, Rate, Continuous, Periodic, rate, spot
 
 abstract type CompoundingFrequency end
 Base.Broadcast.broadcastable(x::T) where{T<:CompoundingFrequency} = Ref(x) 
 
+""" 
+    Continuous()
+
+A type representing continuous interest compounding frequency.
+
+# Examples
+
+```julia-repl
+julia> Rate(0.01,Continuous())
+Rate(0.01, Continuous())
+```
+
+See also: [`Periodic`](@ref)
+"""
 struct Continuous <: CompoundingFrequency end
 
-Continuous(x) = Rate(x,Continuous())
 
+""" 
+    Continuous(rate)
+
+A convinience constructor for Rate(x,Continuous())
+
+```julia-repl
+julia> Continuous(0.01)
+Rate(0.01, Continuous())
+```
+
+See also: [`Periodic`](@ref)
+"""
+Continuous(rate) = Rate(rate,Continuous())
+
+""" 
+    Periodic(frequency)
+
+A type representing periodic interest compounding with the given frequency
+
+# Examples
+
+Creating a semi-annual bond equivalent yield:
+
+```julia-repl
+julia> Rate(0.01,Periodic(2))
+Rate(0.01, Periodic(2))
+```
+
+See also: [`Continuous`](@ref)
+"""
 struct Periodic <: CompoundingFrequency
     frequency::Int
 end
-Periodic(freq,x) = Rate(Periodic(freq),x)
+
+""" 
+    Periodic(rate,frequency)
+
+A convinience constructor for Rate(rate,Periodic(frequency)).
+
+# Examples
+
+Creating a semi-annual bond equivalent yield:
+
+```julia-repl
+julia> Periodic(0.01,2)
+Rate(0.01, Periodic(2))
+```
+
+See also: [`Continuous`](@ref)
+"""
+Periodic(x,freq) = Rate(x,Periodic(freq))
 
 struct Rate
     value
@@ -28,23 +88,60 @@ end
 # Base.:==(r1::Rate,r2::Rate) = (r1.value == r2.value) && (r1.compounding == r2.compounding)
 
 """
-    Rate(x,freq=1)
-    Rate(CompoundingFrequency,x)
+    Rate(rate[,frequency=1])
+    Rate(rate,frequency::CompoundingFrequency)
 
-Rate is a type that indicates the compounding frequency of the rate `x`.
+Rate is a type that encapsulates an interest `rate` along wtih its compounding `frequency`.
 
-Periodic rates can be constructed via `Rate(x,m)` or `Rate(Periodic(m),x)` where `m` is the periodic frequency.
+Periodic rates can be constructed via `Rate(rate,frequency)` or `Rate(rate,Periodic(frequency))`.
 
-Continuous rates can be constructed via `Rate(x, Inf)` or `Rate(Continuous(), x)`.
+Continuous rates can be constructed via `Rate(rate, Inf)` or `Rate(rate,Continuous())`.
+
+# Examples
+
+```julia-repl
+julia> Rate(0.01,Continuous())
+Rate(0.01, Continuous())
+
+julia> Rate(0.01,Periodic(2))
+Rate(0.01, Periodic(2))
+
+julia> Rate(0.01)
+Rate(0.01, Periodic(1))
+
+julia> Rate(0.01,2)
+Rate(0.01, Periodic(2))
+
+julia> Rate(0.01,Periodic(4))
+Rate(0.01, Periodic(4))
+
+julia> Rate(0.01,Inf)
+Rate(0.01, Continuous())
+
+julia> Rate(0.01,Continuous())
+Rate(0.01, Continuous())
+```
 """
-Rate(x) = Rate(Periodic(1),x)
-Rate(x,freq::T) where {T<:Real} = isinf(freq) ? Rate(x,Continuous()) : Rate(x,Periodic(freq))
-
+Rate(rate) = Rate(rate,Periodic(1))
+Rate(x,frequency::T) where {T<:Real} = isinf(frequency) ? Rate(x,Continuous()) : Rate(x,Periodic(frequency))
 
 """
-    covert(T::CompoundingFrequency,r::Rate)
+    convert(r::Rate,T::CompoundingFrequency)
 
 Returns a `Rate` with an equivalent discount but represented with a different compounding frequency.
+
+# Examples
+
+```
+julia> r = Rate(0.01,Periodic(12))
+Rate(0.01, Periodic(12))
+
+julia> convert(r,Periodic(1))
+Rate(0.010045960887181016, Periodic(1))
+
+julia> convert(r,Continuous())
+Rate(0.009995835646701251, Continuous())
+```
 """
 Base.convert(r::Rate,T::CompoundingFrequency) = convert(r,r.compounding,T)
 function Base.convert(r,from::Continuous,to::Continuous)
@@ -68,11 +165,19 @@ rate(r::Rate) = r.value
 
 
 """
-An AbstractYield is an object which can be called with:
+An AbstractYield is an object which can be used as an argument to:
 
-- `rate(yield,time)` for the spot rate at a given time
-- `discount(yield,time)` for the spot discount rate at a given time
+- zero-coupon spot rates viea [`zero`](@ref)
+- discount factor via [`discount`](@ref)
+- accumulation factor via [`accumulation`](@ref)
 
+It can be be constructed via:
+
+- zero rate curve with [`Zero`](@ref)
+- forward rate curve with [`Forward`](@ref)
+- par rate curve with [`Par`](@ref)
+- typical OIS curve with [`OIS`](@ref)
+- typical constant maturity treasury (CMT) curve with [`CMT`](@ref)
 """
 abstract type AbstractYield end
 
@@ -108,7 +213,7 @@ end
 """
     Constant(rate)
 
-Construct a yield object where the spot rate is constant for all maturities.
+Construct a yield object where the spot rate is constant for all maturities. If `rate` is not a `Rate` type, will assume `Periodic(1)` for the compounding frequency
 
 # Examples
 
@@ -138,7 +243,7 @@ accumulation(::Periodic,r::Constant,time) = (1 + rate(r.rate) / r.rate.compoundi
 """
     Step(rates,times)
 
-Create a yield curve object where the applicable rate is the effective rate of interest applicable until corresponding time.
+Create a yield curve object where the applicable rate is the effective rate of interest applicable until corresponding time. If `rates` is not a `Vector{Rate}`, will assume `Periodic(1)` type.
 
 # Examples
 
@@ -194,13 +299,19 @@ function discount(y::Step, time)
     return v
 end
 
+
+"""
+    Zero(rates,maturities)
+
+Construct a yield curve with given zero-coupon spot `rates` at the given `maturities`. If `rates` is not a `Vector{Rate}`, will assume `Periodic(1)` type.
+"""
 function Zero(rates, maturities)
     # bump to a constant yield if only given one rate
     length(rates) == 1 && return Constant(rate[1])
     return YieldCurve(
         rates,
         maturities,
-        linear_interp(maturities,discount.(Constant.(rates),maturities))
+        linear_interp([0.;maturities],[1.;discount.(Constant.(rates),maturities)])
     )
 end
 
@@ -215,6 +326,18 @@ end
     Par(rate, maturity)
 
 Construct a curve given a set of bond equivalent yields and the corresponding maturities. Assumes that maturities <= 1 year do not pay coupons and that after one year, pays coupons with frequency equal to the CompoundingFrequency of the corresponding rate.
+
+# Examples
+
+```julia-repl
+
+julia> par = [6.,8.,9.5,10.5,11.0,11.25,11.38,11.44,11.48,11.5] ./ 100
+julia> maturities = [t for t in 1:10]
+julia> curve = Par(par,maturities);
+julia> zero(curve,1)
+Rate(0.06000000000000005, Periodic(1))
+
+```
 """
 function Par(rates::Vector{Rate}, maturities)
     # bump to a constant yield if only given one rate
@@ -229,6 +352,11 @@ function Par(rates::Vector{Rate}, maturities)
             bootstrap(rates,maturities,[m <= 1 ? nothing : 1 / r.compounding.frequency for (r,m) in zip(rates,maturities)])
         )
 end
+
+function Par(rates::Vector{T},maturities) where {T <: Real}
+    return Par(Rate.(rates),maturities)  
+end
+
 
 """
     Forward(rate_vector,maturities)
@@ -246,14 +374,14 @@ function Forward(rates, maturities)
         disc_v[i] = v
     end
 
-    z = (1. ./ disc_v) .^ ( 1 ./ maturities) # convert disc_v to zero
+    z = (1. ./ disc_v) .^ ( 1 ./ maturities) .- 1 # convert disc_v to zero
     return Zero(z,maturities)
 end
 
 """
 Takes CMT yields (bond equivalent), and assumes that instruments <= one year maturity pay no coupons and that the rest pay semi-annual.
 """
-function USCMT(rates::Vector{T}, maturities) where {T<:Real}
+function CMT(rates::Vector{T}, maturities) where {T<:Real}
     rs = map(zip(rates,maturities)) do (r,m)
         if m <= 1
             Rate(r,Periodic(1 / m))
@@ -262,10 +390,10 @@ function USCMT(rates::Vector{T}, maturities) where {T<:Real}
         end
     end
 
-    USCMT(rs,maturities)
+    CMT(rs,maturities)
 end
 
-function USCMT(rates::Vector{Rate}, maturities)
+function CMT(rates::Vector{Rate}, maturities)
     return YieldCurve(
             rates,
             maturities,
@@ -278,7 +406,8 @@ end
 
 """
     OIS(rates,maturities)
-Takes Overnight Index Swap rates, and assumes that instruments <= one year maturity are settled once and other agreements are settled quarterly.
+Takes Overnight Index Swap rates, and assumes that instruments <= one year maturity are settled once and other agreements are settled quarterly with a corresponding CompoundingFrequency
+
 """
 function OIS(rates::Vector{T}, maturities) where {T<:Real}
     rs = map(zip(rates,maturities)) do (r,m)
@@ -350,17 +479,17 @@ end
 
 ## Generic and Fallbacks
 """
-    discount(yield,time)
+    discount(rate,to)
+    discount(rate,from,to)
 
-The discount factor for the `yield` from time zero through `time`. If yield is a `Real` number, will assume a `Constant` interest rate.
+The discount factor for the `rate` for times `from` through `to`. If rate is a `Real` number, will assume a `Constant` interest rate.
 """
 discount(yc,time) = yc.discount(time)
+discount(rate::Rate,from,to) = discount(Constant(rate),from,to)
+discount(rate::Rate,to) = discount(Constant(rate),to)
 
-"""
-    discount(yield,from,to)
 
-The discount factor for the `yield` from time `from` through `to`.
-"""
+
 discount(yc,from,to) = discount(yc, to) / discount(yc, from)
 
 function forward(yc, from, to)
@@ -372,17 +501,19 @@ function forward(yc, from)
 end
 
 """
-    accumulation(yield,time)
+    accumulation(rate,from,to)
 
-The accumulation factor for the `yield` from time zero through `time`.
+The accumulation factor for the `rate` for times `from` through `to`. If rate is a `Real` number, will assume a `Constant` interest rate.
 """
 function accumulation(y::T, time) where {T <: AbstractYield}
     return 1 / discount(y, time)
 end
+accumulation(rate::Rate,to) = accumulation(Constant(rate),to)
 
 function accumulation(y::T,from,to) where {T <: AbstractYield}
     return 1 / discount(y,from,to)
 end
+accumulation(rate::Rate,from,to) = accumulation(Constant(rate),from,to)
 
 ## Curve Manipulations
 struct RateCombination <: AbstractYield
@@ -419,11 +550,11 @@ function Base.:+(a::Constant, b::Constant)
 end
 
 function Base.:+(a::T, b) where {T<:AbstractYield}
-    return a + Yield(b)
+    return a + Constant(b)
 end
 
 function Base.:+(a, b::T) where {T<:AbstractYield}
-    return Yield(a) + b
+    return Constant(a) + b
 end
 
 """
@@ -435,7 +566,7 @@ function Base.:-(a::AbstractYield, b::AbstractYield)
     return RateCombination(a, b, -) 
 end
 
-function Base.:+(a::Constant, b::Constant)
+function Base.:-(a::Constant, b::Constant)
     a_kind = rate(a).compounding
     rate_new_basis = rate(convert(rate(b),a_kind))
     return Constant(
@@ -447,27 +578,11 @@ function Base.:+(a::Constant, b::Constant)
 end
 
 function Base.:-(a::T, b) where {T<:AbstractYield}
-    return a - Yield(b)
+    return a - Constant(b)
 end
 
 function Base.:-(a, b::T) where {T<:AbstractYield}
-    return Yield(a) - b
-end
-
-""" 
-    yield(rate)
-    yield(forwards)
-
-Yields provides a default, convienience construction for an AbstractYield.
-
-"""
-
-function Yield(i::T) where {T<:Real}
-    return Constant(i)
-end
-
-function Yield(i::Vector{T}) where {T<:Real}
-    return Forward(i)
+    return Constant(a) - b
 end
 
 linear_interp(xs,ys) = Interpolations.extrapolate(
