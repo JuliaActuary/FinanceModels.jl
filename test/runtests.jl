@@ -127,10 +127,8 @@ using Test
         
         @testset "UTYC Figure 9 par -> spot : $mat" for mat in maturity
             @test rate(zero(y, mat)) ≈ spot[mat] atol = 0.0001
-            @test forward(y, mat) ≈ fwd[mat] atol = 0.0001
+            @test forward(y, mat-1) ≈ fwd[mat] atol = 0.0001
         end
-        
-        
         
     end
     
@@ -142,15 +140,8 @@ using Test
         curve = Yields.Zero(zero, maturity)
         
         
-        @test rate(curve, 0.5) ≈ 5.0 / 100
-        @test rate(curve, 2.0) ≈ 6.8 / 100
-        
         @test discount(curve, 1) ≈ 1 / (1 + zero[2])
         @test discount(curve, 2) ≈ 1 / (1 + zero[4])^2
-        
-        # extrapolation
-        @test rate(curve, 0.0) ≈ 5.0 / 100
-        @test rate(curve, 4.0) ≈ 6.8 / 100
         
         @test forward(curve, 0.5, 1.0) ≈ 6.6 / 100 atol = 0.001
         @test forward(curve, 1.0, 1.5) ≈ 7.6 / 100 atol = 0.001
@@ -167,15 +158,15 @@ using Test
         # Risk Managment and Financial Institutions, 5th ed. Appendix B
         
         forwards = [0.05, 0.04, 0.03, 0.08]
-        curve = Yields.Forward(forwards)
+        curve = Yields.Forward(forwards,[1,2,3,4])
         
         @testset "discounts: $t" for (t, r) in enumerate(forwards)
             @test discount(curve, t) ≈ reduce((v, r) -> v / (1 + r), forwards[1:t]; init=1.0)
         end
         
-        @test accumulate(curve, 0, 1) ≈ 1.05
-        @test accumulate(curve, 1, 2) ≈ 1.04
-        @test accumulate(curve, 0, 2) ≈ 1.04 * 1.05
+        @test accumulation(curve, 0, 1) ≈ 1.05
+        @test accumulation(curve, 1, 2) ≈ 1.04
+        @test accumulation(curve, 0, 2) ≈ 1.04 * 1.05
         
         # addition / subtraction
         @test discount(curve + 0.1,1) ≈ 1 / 1.15
