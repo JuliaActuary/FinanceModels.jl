@@ -587,6 +587,6 @@ end
 
 linear_interp(xs,ys) = Interpolations.extrapolate(
     Interpolations.interpolate((xs,), ys, Interpolations.Gridded(Interpolations.Linear())), 
-    Interpolations.Flat()
+    Interpolations.Line()
     ) 
 end
