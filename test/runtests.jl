@@ -91,6 +91,12 @@ using Test
         @test rate(zero(z, 1)) ≈ 0.00
         @test discount(z, 1) ≈ 1.00
         @test rate(zero(z, 2)) ≈ 0.05
+
+        # test no times constructor
+        z = Yields.Zero([0.0,0.05])
+        @test rate(zero(z, 1)) ≈ 0.00
+        @test discount(z, 1) ≈ 1.00
+        @test rate(zero(z, 2)) ≈ 0.05
     end
     
     @testset "Step curve" begin
@@ -166,11 +172,19 @@ using Test
         
         forwards = [0.05, 0.04, 0.03, 0.08]
         curve = Yields.Forward(forwards,[1,2,3,4])
+
         
         @testset "discounts: $t" for (t, r) in enumerate(forwards)
             @test discount(curve, t) ≈ reduce((v, r) -> v / (1 + r), forwards[1:t]; init=1.0)
         end
         
+        # test constructor without times
+        curve = Yields.Forward(forwards)
+        
+        @testset "discounts: $t" for (t, r) in enumerate(forwards)
+            @test discount(curve, t) ≈ reduce((v, r) -> v / (1 + r), forwards[1:t]; init=1.0)
+        end
+
         @test accumulation(curve, 0, 1) ≈ 1.05
         @test accumulation(curve, 1, 2) ≈ 1.04
         @test accumulation(curve, 0, 2) ≈ 1.04 * 1.05
