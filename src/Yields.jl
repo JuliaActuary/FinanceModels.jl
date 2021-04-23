@@ -378,6 +378,8 @@ function Forward(rates, maturities)
     return Zero(z,maturities)
 end
 
+Forward(rates) = Forward(rates,collect(1:length(rates)))
+
 """
 Takes CMT yields (bond equivalent), and assumes that instruments <= one year maturity pay no coupons and that the rest pay semi-annual.
 """
