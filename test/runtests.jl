@@ -4,31 +4,31 @@ using Test
 @testset "Yields.jl" begin
     
     @testset "rate types" begin
-        rs = Rate.([0.1,.02],Continuous())
-        @test rs[1] == Rate(0.1,Continuous())
+        rs = Rate.([0.1,.02], Yields.Continuous())
+        @test rs[1] == Rate(0.1, Yields.Continuous())
         @test rate(rs[1]) == 0.1
     end
     
     @testset "constructor" begin
-        @test Continuous(0.05) == Rate(0.05,Continuous())
-        @test Periodic(0.02,2) == Rate(0.02,Periodic(2))
-        @test Rate(0.02,2) == Rate(0.02,Periodic(2))
-        @test Rate(0.02,Inf) == Rate(0.02,Continuous())
+        @test Yields.Continuous(0.05) == Rate(0.05, Yields.Continuous())
+        @test Yields.Periodic(0.02,2) == Rate(0.02, Yields.Periodic(2))
+        @test Rate(0.02,2) == Rate(0.02, Yields.Periodic(2))
+        @test Rate(0.02,Inf) == Rate(0.02, Yields.Continuous())
     end
     
     @testset "rate conversions" begin
         m = Rate(.1,Yields.Periodic(2))
-        @test rate(convert(Yields.Continuous(),m)) ≈ rate(Rate(0.09758,Continuous())) atol = 1e-5
+        @test rate(convert(Yields.Continuous(),m)) ≈ rate(Rate(0.09758, Yields.Continuous())) atol = 1e-5
         c = Rate(0.09758,Yields.Continuous())
-        @test convert(Continuous(),c) == c
-        @test rate(convert(Yields.Periodic(2),c)) ≈ rate(Rate(0.1,Periodic(2))) atol = 1e-5
-        @test rate(convert(Yields.Periodic(4),m)) ≈ rate(Rate(0.09878030638383972,Periodic(4))) atol = 1e-5
+        @test convert(Yields.Continuous(),c) == c
+        @test rate(convert(Yields.Periodic(2),c)) ≈ rate(Rate(0.1, Yields.Periodic(2))) atol = 1e-5
+        @test rate(convert(Yields.Periodic(4),m)) ≈ rate(Rate(0.09878030638383972, Yields.Periodic(4))) atol = 1e-5
         
     end
     
     @testset "constant curve and rate -> Constant" begin
         yield = Yields.Constant(0.05)
-        rate = Yields.Rate(0.05,Periodic(1))
+        rate = Yields.Rate(0.05, Yields.Periodic(1))
         
         @testset "constant discount time: $time" for time in [0,0.5,1,10]
             @test discount(yield, time) ≈ 1 / (1.05)^time 
@@ -46,14 +46,14 @@ using Test
         
         @testset "CompoundingFrequency" begin
             @testset "Continuous" begin
-                cnst = Yields.Constant(Continuous(0.05))
+                cnst = Yields.Constant(Yields.Continuous(0.05))
                 @test accumulation(cnst,1) == exp(0.05)
                 @test accumulation(cnst,2) == exp(0.05*2)
                 @test discount(cnst,2) == 1 / exp(0.05*2)
             end
             
             @testset "Periodic" begin
-                p = Yields.Constant(Rate(0.05,Periodic(2)))
+                p = Yields.Constant(Rate(0.05, Yields.Periodic(2)))
                 @test accumulation(p,1) == (1 + 0.05/2) ^ (1 * 2)
                 @test accumulation(p,2) == (1 + 0.05/2) ^ (2 * 2)
                 @test discount(p,2) == 1 / (1 + 0.05/2) ^ (2 * 2)
@@ -136,7 +136,7 @@ using Test
         # fwd = [6.,10.2,13.07,14.36,13.77,13.1,12.55,12.2,11.97,11.93] ./ 100 # from text
         fwd = [6.,10.2,13.07,14.36,13.77,13.1,12.61,12.14,12.05,11.84] ./ 100  # modified
         
-        y = Yields.Par(Rate.(par,Periodic(1)), maturity)
+        y = Yields.Par(Rate.(par, Yields.Periodic(1)), maturity)
         
         @testset "UTYC Figure 9 par -> spot : $mat" for mat in maturity
             @test rate(zero(y, mat)) ≈ spot[mat] atol = 0.0001
@@ -231,7 +231,7 @@ using Test
         target_periodicity = fill(2,length(mats))
         target_periodicity[2] = 1 # 1 year is a no-coupon, BEY yield, the rest are semiannual BEY
         @testset "Fabozzi bootstrapped rates" for (r,mat,target,tp) in zip(cmt,mats,targets,target_periodicity)
-            @test rate(zero(curve,mat,Periodic(tp))) ≈ target atol=0.0001
+            @test rate(zero(curve,mat, Yields.Periodic(tp))) ≈ target atol=0.0001
         end
 
         # Hull, problem 4.34
@@ -241,7 +241,7 @@ using Test
         curve = Yields.CMT(cmt,mats)
         targets = [4.0405,5.1293,5.4429,5.8085] ./ 100
         @testset "Hull bootstrapped rates" for (r,mat,target) in zip(cmt,mats,targets)
-            @test rate(zero(curve,mat,Continuous())) ≈ target atol=0.001
+            @test rate(zero(curve,mat, Yields.Continuous())) ≈ target atol=0.001
         end
         
     #     # https://www.federalreserve.gov/pubs/feds/2006/200628/200628abs.html
@@ -254,7 +254,7 @@ using Test
     #     @testset "FRB data" for (t,mat,target) in zip(1:length(mats),mats,target)
     #         @show mat
     #         if mat >= 1
-    #             @test rate(zero(curve,mat,Continuous())) ≈ target[mat] atol=0.001
+    #             @test rate(zero(curve,mat, Yields.Continuous())) ≈ target[mat] atol=0.001
     #         end
     #     end
     end
@@ -265,7 +265,7 @@ using Test
         curve = Yields.OIS(ois,mats)
         targets = [0.017987,0.019950,0.021880,0.024693,0.029994,0.040401]
         @testset "bootstrapped rates" for (r,mat,target) in zip(ois,mats,targets)
-            @test rate(zero(curve,mat,Continuous())) ≈ target atol=0.001
+            @test rate(zero(curve,mat, Yields.Continuous())) ≈ target atol=0.001
         end
     end
     
