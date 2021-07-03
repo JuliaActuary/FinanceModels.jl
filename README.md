@@ -39,25 +39,25 @@ Rates are types that wrap scalar values to provide information about how to dete
 
 There are two `CompoundingFrequency` types:
 
-- `Periodic(m)` for rates that compound `m` times per period (e.g. `m` times per year if working with annual rates).
-- `Continuous()` for continuously compounding rates.
+- `Yields.Periodic(m)` for rates that compound `m` times per period (e.g. `m` times per year if working with annual rates).
+- `Yields.Continuous()` for continuously compounding rates.
 
 #### Examples
 
 ```julia
-Rate(0.05,Continuous())       # 5% continuously compounded
-Continuous(0.05)              # alternate constructor
+Rate(0.05,Yields.Continuous())       # 5% continuously compounded
+Yields.Continuous(0.05)              # alternate constructor
 
-Rate(0.05, Periodic(2))       # 5% compounded twice per period
-Periodic(0.05, 2)             # alternate constructor
+Rate(0.05, Yields.Periodic(2))       # 5% compounded twice per period
+Yields.Periodic(0.05, 2)             # alternate constructor
 
 # construct a vector of rates with the given compounding
-Rate.(0.02,0.03,0.04,Periodic(2)) 
+Rate.(0.02,0.03,0.04,Yields.Periodic(2)) 
 ```
 
 ### Yields
 
-There are a several ways to construct a yield curve object. `rates` can be a vector of `Rate`s described above, or will assume `Periodic(1)` if the functions are given `Real` number values
+There are a several ways to construct a yield curve object. `rates` can be a vector of `Rate`s described above, or will assume `Yields.Periodic(1)` if the functions are given `Real` number values
 
 - `Yields.Zero(rates,maturities)`  using a vector of zero, or spot, rates
 - `Yields.Forward(rates,maturities)` using a vector of one-period (or `periods`-long) forward rates
@@ -85,6 +85,17 @@ When adding a `Yields.AbstractYield` with a scalar or vector, that scalar or vec
 ```julia
 y1 = Yields.Constant(0.05)
 y2 = y1 + 0.01                # y2 is a yield of 0.06
+```
+
+### Conversion
+
+Convert rates between different types with `convert`. E.g.:
+
+```julia-repl
+r = Rate(Yields.Periodic(12),0.01)             # rate that compounds 12 times per rate period (ie monthly)
+
+convert(Yields.Periodic(1),r)                  # convert monthly rate to annual effective
+convert(Yields.Continuous(),r)          # convert monthly rate to continuous
 ```
 
 ## Internals

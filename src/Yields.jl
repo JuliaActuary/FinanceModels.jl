@@ -6,7 +6,7 @@ import ForwardDiff
 
 # don't export type, as the API of Yields.Zero is nicer and 
 # less polluting than Zero and less/equally verbose as ZeroYieldCurve or ZeroCruve
-export rate, discount, accumulation,forward, Yield, Rate, Continuous, Periodic, rate, spot
+export rate, discount, accumulation,forward, Yield, Rate, rate, spot
 
 abstract type CompoundingFrequency end
 Base.Broadcast.broadcastable(x::T) where{T<:CompoundingFrequency} = Ref(x) 
