@@ -17,12 +17,12 @@ using Test
     end
     
     @testset "rate conversions" begin
-        m = Rate(.1,Yields.Periodic(2),)
-        @test rate(convert(m,Yields.Continuous())) ≈ rate(Rate(0.09758,Continuous())) atol = 1e-5
+        m = Rate(.1,Yields.Periodic(2))
+        @test rate(convert(Yields.Continuous(),m)) ≈ rate(Rate(0.09758,Continuous())) atol = 1e-5
         c = Rate(0.09758,Yields.Continuous())
-        @test convert(c,Continuous()) == c
-        @test rate(convert(c,Yields.Periodic(2))) ≈ rate(Rate(0.1,Periodic(2))) atol = 1e-5
-        @test rate(convert(m,Yields.Periodic(4))) ≈ rate(Rate(0.09878030638383972,Periodic(4))) atol = 1e-5
+        @test convert(Continuous(),c) == c
+        @test rate(convert(Yields.Periodic(2),c)) ≈ rate(Rate(0.1,Periodic(2))) atol = 1e-5
+        @test rate(convert(Yields.Periodic(4),m)) ≈ rate(Rate(0.09878030638383972,Periodic(4))) atol = 1e-5
         
     end
     
