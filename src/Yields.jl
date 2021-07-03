@@ -237,6 +237,7 @@ discount(c::T,time) where {T <: Real} = discount(Constant(c),time)
 discount(r::Constant,time) = 1 / accumulation(r,time)
 
 accumulation(r::Constant,time) = accumulation(r.rate.compounding,r,time)
+accumulation(c::T,time) where {T >: Real} = accumulation(Constant(c),time)
 accumulation(::Continuous,r::Constant,time) = exp(rate(r.rate) * time)
 accumulation(::Periodic,r::Constant,time) = (1 + rate(r.rate) / r.rate.compounding.frequency) ^ (r.rate.compounding.frequency * time)
 

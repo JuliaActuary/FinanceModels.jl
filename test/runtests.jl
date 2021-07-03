@@ -38,6 +38,11 @@ using Test
         @testset "constant discount scalar time: $time" for time in [0,0.5,1,10]
             @test discount(0.05,time) ≈ 1 / (1.05)^time 
         end
+
+        @testset "constant accumulation scalar time: $time" for time in [0,0.5,1,10]
+            @test accumulation(0.05,time) ≈ 1 *(1.05)^time 
+        end
+
         @testset "constant accumulation time: $time" for time in [0,0.5,1,10]
             @test accumulation(yield, time) ≈ 1 * 1.05^time
             @test accumulation(rate,time) ≈ 1 * 1.05^time
