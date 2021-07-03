@@ -132,7 +132,7 @@ Returns a `Rate` with an equivalent discount but represented with a different co
 
 # Examples
 
-```
+```julia-repl
 julia> r = Rate(Periodic(12),0.01)
 Rate(0.01, Periodic(12))
 
