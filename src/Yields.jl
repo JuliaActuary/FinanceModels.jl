@@ -126,39 +126,39 @@ Rate(rate) = Rate(rate,Periodic(1))
 Rate(x,frequency::T) where {T<:Real} = isinf(frequency) ? Rate(x,Continuous()) : Rate(x,Periodic(frequency))
 
 """
-    convert(r::Rate,T::CompoundingFrequency)
+    convert(T::CompoundingFrequency,r::Rate)
 
 Returns a `Rate` with an equivalent discount but represented with a different compounding frequency.
 
 # Examples
 
-```
-julia> r = Rate(0.01,Periodic(12))
+```julia-repl
+julia> r = Rate(Periodic(12),0.01)
 Rate(0.01, Periodic(12))
 
-julia> convert(r,Periodic(1))
+julia> convert(Periodic(1),r)
 Rate(0.010045960887181016, Periodic(1))
 
-julia> convert(r,Continuous())
+julia> convert(Continuous(),r)
 Rate(0.009995835646701251, Continuous())
 ```
 """
-Base.convert(r::Rate,T::CompoundingFrequency) = convert(r,r.compounding,T)
-function Base.convert(r,from::Continuous,to::Continuous)
+Base.convert(T::CompoundingFrequency,r::Rate) = convert(T,r,r.compounding)
+function Base.convert(to::Continuous,r,from::Continuous)
     return r
 end
 
-function Base.convert(r,from::Continuous,to::Periodic)
+function Base.convert(to::Periodic,r,from::Continuous)
     return Rate(to.frequency * (exp(r.value/to.frequency) - 1),to)
 end
 
-function Base.convert(r,from::Periodic,to::Continuous)
+function Base.convert(to::Continuous,r,from::Periodic)
     return Rate(from.frequency * log(1 + r.value / from.frequency),to)
 end
 
-function Base.convert(r,from::Periodic,to::Periodic)
-    c = convert(r,from,Continuous())
-    return convert(c,Continuous(),to)
+function Base.convert(to::Periodic,r,from::Periodic)
+    c = convert(Continuous(),r,from)
+    return convert(to,c,Continuous())
 end
 
 rate(r::Rate) = r.value
@@ -542,7 +542,7 @@ end
 
 function Base.:+(a::Constant, b::Constant)
     a_kind = rate(a).compounding
-    rate_new_basis = rate(convert(rate(b),a_kind))
+    rate_new_basis = rate(convert(a_kind,rate(b)))
     return Constant(
         Rate(
             rate(a.rate) + rate_new_basis,
@@ -570,7 +570,7 @@ end
 
 function Base.:-(a::Constant, b::Constant)
     a_kind = rate(a).compounding
-    rate_new_basis = rate(convert(rate(b),a_kind))
+    rate_new_basis = rate(convert(a_kind,rate(b)))
     return Constant(
         Rate(
             rate(a.rate) - rate_new_basis,
