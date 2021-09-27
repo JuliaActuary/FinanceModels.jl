@@ -308,7 +308,7 @@ Construct a yield curve with given zero-coupon spot `rates` at the given `maturi
 """
 function Zero(rates, maturities)
     # bump to a constant yield if only given one rate
-    length(rates) == 1 && return Constant(rate[1])
+    length(rates) == 1 && return Constant(first(rates))
     return YieldCurve(
         rates,
         maturities,
