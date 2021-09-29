@@ -592,4 +592,8 @@ linear_interp(xs,ys) = Interpolations.extrapolate(
     Interpolations.interpolate((xs,), ys, Interpolations.Gridded(Interpolations.Linear())), 
     Interpolations.Line()
     ) 
+
+include("smith_wilson.jl")
+
 end
+

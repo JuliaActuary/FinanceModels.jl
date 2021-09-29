@@ -275,3 +275,5 @@ using Test
     end
     
 end
+
+include("smith_wilson_tests.jl")
