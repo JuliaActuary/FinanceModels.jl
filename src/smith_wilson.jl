@@ -1,4 +1,7 @@
+using LinearAlgebra
+
 export SmithWilsonYield, CalibrationInstruments
+export InstrumentQuotes, ZeroCouponQuotes, SwapQuotes, BulletBondQuotes
 
 """
     SmithWilsonYield(ufr,alpha,u,qb)
@@ -40,20 +43,93 @@ function discount(swy::SmithWilsonYield, t)
     return exp(-swy.ufr * t) * (1.0 + sum([H(swy.alpha, swy.u[midx], t) * swy.qb[midx] for midx in 1:length(swy.u)]))
 end
 
+# Utility method - this could be extended to all YieldCurves
+discount(swy::SmithWilsonYield, av::AbstractVector) = [discount(swy, t) for t in av]
 
+"""
+    CalibrationInstruments(t, cf, p)
+
+Cash flows for calibrating a yield curve, along with their prices and payment times.
+"""
 struct CalibrationInstruments
     t    # Column vector of maturities
     cf   # Matrix of cash flow for each [maturity, instrument]
     p    # Row vector of instrument prices
 end
 
+"""
+    SmithWilsonYield(ufr, alpha, aci::CalibrationInstruments)
+
+Calibrate a SmithWilsonYield from CalibrationInstruments
+"""
 function SmithWilsonYield(ufr, alpha, aci::CalibrationInstruments)
     Q = [aci.cf[tIdx, pIdx] * exp(-ufr * aci.t[tIdx]) for tIdx in 1:length(aci.t), pIdx in 1:length(aci.p)]
     Hx = [H(alpha, t1, t2) for t1 in aci.t, t2 in aci.t]
     q = transpose(sum(Q, dims=1))
-    print(q)
     QHQ = Q' * Hx * Q
     b = QHQ \ (aci.p - q)
     Qb = Q * b
     return SmithWilsonYield(ufr, alpha, aci.t, Qb)
 end
+
+"""
+Abstract type for quotes for different cash flow instruments
+"""
+abstract type InstrumentQuotes end
+
+"""
+    ZeroCouponQuotes(prices, maturities)
+
+Quotes for a set of zero coupon bonds.
+"""
+struct ZeroCouponQuotes <: InstrumentQuotes
+    prices
+    maturities
+end
+
+"""
+    SwapQuotes(rates, maturities, freq)
+
+Quotes for a set of interest rate swaps with the given maturites and a given payment frequency.
+"""
+struct SwapQuotes <: InstrumentQuotes
+    rates
+    maturities
+    freq
+end
+
+"""
+
+Quotes for a set of fixed interest bullet bonds with given interests and maturites and a given payment frequency.
+"""
+struct BulletBondQuotes <: InstrumentQuotes
+    interests
+    maturities
+    prices
+    freq
+end
+
+# Convert ZeroCouponQuotes
+function CalibrationInstruments(zcq::ZeroCouponQuotes)
+    n = length(zcq.maturities)
+    return CalibrationInstruments(zcq.maturities, Matrix{Float64}(I, n, n), zcq.prices)
+end
+
+# Convert SwapQuotes
+function CalibrationInstruments(swq::SwapQuotes)
+    n_mat = swq.freq * maximum(swq.maturities)
+    n_instr = length(swq.rates)
+    cf = [(mIdx <= swq.freq * swq.maturities[iIdx] ? swq.rates[iIdx] / swq.freq : 0.0) + (mIdx == swq.freq * swq.maturities[iIdx] ? 1.0 : 0.0) for mIdx in 1:n_mat, iIdx in 1:n_instr]
+    return CalibrationInstruments((1:n_mat) ./ swq.freq, cf, ones(n_instr))
+end
+
+# Convert BulletBondQuotes
+function CalibrationInstruments(bbq::BulletBondQuotes)
+    n_mat = bbq.freq * maximum(bbq.maturities)
+    n_instr = length(bbq.interests)
+    cf = [(mIdx <= bbq.freq * bbq.maturities[iIdx] ? bbq.interests[iIdx] / bbq.freq : 0.0) + (mIdx == bbq.freq * bbq.maturities[iIdx] ? 1.0 : 0.0) for mIdx in 1:n_mat, iIdx in 1:n_instr]
+    return CalibrationInstruments(1:n_mat ./ bbq.freq, cf, bbq.prices)
+end
+
+# Utility method for calibrating Smith-Wilson directly from quotes
+SmithWilsonYield(ufr, alpha, iq::InstrumentQuotes) = SmithWilsonYield(ufr, alpha, CalibrationInstruments(iq))
