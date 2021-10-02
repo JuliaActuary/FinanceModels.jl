@@ -1,4 +1,4 @@
-export SmithWilsonYield
+export SmithWilsonYield, CalibrationInstruments
 
 """
     SmithWilsonYield(ufr,alpha,u,qb)
@@ -33,9 +33,27 @@ end
 
 """
     discount(swy::SmithWilsonYield,t)
-    
+
 Discount factor for a Smith-Wilson yield curve.
 """
 function discount(swy::SmithWilsonYield, t)
     return exp(-swy.ufr * t) * (1.0 + sum([H(swy.alpha, swy.u[midx], t) * swy.qb[midx] for midx in 1:length(swy.u)]))
+end
+
+
+struct CalibrationInstruments
+    t    # Column vector of maturities
+    cf   # Matrix of cash flow for each [maturity, instrument]
+    p    # Row vector of instrument prices
+end
+
+function SmithWilsonYield(ufr, alpha, aci::CalibrationInstruments)
+    Q = [aci.cf[tIdx, pIdx] * exp(-ufr * aci.t[tIdx]) for tIdx in 1:length(aci.t), pIdx in 1:length(aci.p)]
+    Hx = [H(alpha, t1, t2) for t1 in aci.t, t2 in aci.t]
+    q = transpose(sum(Q, dims=1))
+    print(q)
+    QHQ = Q' * Hx * Q
+    b = QHQ \ (aci.p - q)
+    Qb = Q * b
+    return SmithWilsonYield(ufr, alpha, aci.t, Qb)
 end
