@@ -509,12 +509,12 @@ end
 The accumulation factor for the `rate` for times `from` through `to`. If rate is a `Real` number, will assume a `Constant` interest rate.
 """
 function accumulation(y::T, time) where {T <: AbstractYield}
-    return 1 / discount(y, time)
+    return 1 ./ discount(y, time)
 end
 accumulation(rate::Rate,to) = accumulation(Constant(rate),to)
 
 function accumulation(y::T,from,to) where {T <: AbstractYield}
-    return 1 / discount(y,from,to)
+    return 1 ./ discount(y,from,to)
 end
 accumulation(rate::Rate,from,to) = accumulation(Constant(rate),from,to)
 
