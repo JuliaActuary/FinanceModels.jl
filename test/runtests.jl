@@ -43,6 +43,11 @@ using Test
             @test accumulation(0.05,time) ≈ 1 *(1.05)^time 
         end
 
+        @testset "broadcasting" begin
+            @test all(discount.(yield,[1,2,3]) .== 1 ./ 1.05 .^ (1:3))
+            @test all(accumulation.(yield,[1,2,3]) .==  1.05 .^ (1:3))
+        end
+
         @testset "constant accumulation time: $time" for time in [0,0.5,1,10]
             @test accumulation(yield, time) ≈ 1 * 1.05^time
             @test accumulation(rate,time) ≈ 1 * 1.05^time
@@ -85,12 +90,7 @@ using Test
             @test discount(minus_yield, time) ≈ 1 / (1.04)^time 
         end
     end
-    
-    @testset "broadcasting" begin
-        yield = Yields.Constant(0.05)
-        @test discount.(yield, 1:3) == [1 / 1.05^t for t in 1:3]
-    end
-    
+        
     @testset "short curve" begin
         z = Yields.Zero([0.0,0.05], [1,2])
         @test rate(zero(z, 1)) ≈ 0.00
@@ -122,12 +122,16 @@ using Test
         
         @test discount(y, 1.5) ≈ 1 / (1.02) / 1.05^(0.5)
         
+        @testset "broadcasting" begin
+            @test all(discount.(y,[1,2]) .== [1/1.02,1/1.02/1.05])
+            @test all(accumulation.(y,[1,2]) .== [1.02,1.02*1.05])
+        end
         
         y = Yields.Step([0.02,0.07])
         @test rate(y, 0.5) ≈ 0.02
         @test rate(y, 1) ≈ 0.02
         @test rate(y, 1.5) ≈ 0.07
-        
+
     end
     
     @testset "Salomon Understanding the Yield Curve Pt 1 Figure 9" begin
@@ -169,6 +173,11 @@ using Test
         
         @test discount(y, 1) ≈ 1 / 1.05
         @test discount(y, 2) ≈ 1 / 1.058^2
+
+        @testset "broadcasting" begin
+            @test all(discount.(y,[1,2]) .== [1 / 1.05,1 / 1.058^2] )
+            @test all(accumulation.(y,[1,2]) .== [1.05, 1.058^2] )
+        end
         
     end
     
@@ -193,6 +202,11 @@ using Test
         @test accumulation(curve, 0, 1) ≈ 1.05
         @test accumulation(curve, 1, 2) ≈ 1.04
         @test accumulation(curve, 0, 2) ≈ 1.04 * 1.05
+
+        @testset "broadcasting" begin
+            @test all(accumulation.(curve, [1,2]) .≈ [1.05,1.04*1.05])
+            @test all(discount.(curve, [1,2]) .≈ 1 ./ [1.05,1.04*1.05])
+        end
         
         # addition / subtraction
         @test discount(curve + 0.1,1) ≈ 1 / 1.15
