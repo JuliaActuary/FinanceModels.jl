@@ -43,6 +43,11 @@ using Test
             @test accumulation(0.05,time) ≈ 1 *(1.05)^time 
         end
 
+        @testset "broadcasting" begin
+            @test all(discount.(yield,[1,2,3]) .== 1 ./ 1.05 .^ (1:3))
+            @test all(accumulation.(yield,[1,2,3]) .==  1.05 .^ (1:3))
+        end
+
         @testset "constant accumulation time: $time" for time in [0,0.5,1,10]
             @test accumulation(yield, time) ≈ 1 * 1.05^time
             @test accumulation(rate,time) ≈ 1 * 1.05^time
