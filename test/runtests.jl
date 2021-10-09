@@ -122,12 +122,16 @@ using Test
         
         @test discount(y, 1.5) ≈ 1 / (1.02) / 1.05^(0.5)
         
+        @testset "broadcasting" begin
+            @test all(discount.(y,[1,2]) .== [1/1.02,1/1.02/1.05])
+            @test all(accumulation.(y,[1,2]) .== [1.02,1.02*1.05])
+        end
         
         y = Yields.Step([0.02,0.07])
         @test rate(y, 0.5) ≈ 0.02
         @test rate(y, 1) ≈ 0.02
         @test rate(y, 1.5) ≈ 0.07
-        
+
     end
     
     @testset "Salomon Understanding the Yield Curve Pt 1 Figure 9" begin
