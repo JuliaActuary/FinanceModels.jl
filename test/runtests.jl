@@ -173,6 +173,11 @@ using Test
         
         @test discount(y, 1) ≈ 1 / 1.05
         @test discount(y, 2) ≈ 1 / 1.058^2
+
+        @testset "broadcasting" begin
+            @test all(discount.(y,[1,2]) .== [1 / 1.05,1 / 1.058^2] )
+            @test all(accumulation.(y,[1,2]) .== [1.05, 1.058^2] )
+        end
         
     end
     
@@ -197,6 +202,11 @@ using Test
         @test accumulation(curve, 0, 1) ≈ 1.05
         @test accumulation(curve, 1, 2) ≈ 1.04
         @test accumulation(curve, 0, 2) ≈ 1.04 * 1.05
+
+        @testset "broadcasting" begin
+            @test all(accumulation.(curve, [1,2]) .≈ [1.05,1.04*1.05])
+            @test all(discount.(curve, [1,2]) .≈ 1 ./ [1.05,1.04*1.05])
+        end
         
         # addition / subtraction
         @test discount(curve + 0.1,1) ≈ 1 / 1.15
