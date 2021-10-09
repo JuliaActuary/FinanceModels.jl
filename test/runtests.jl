@@ -90,12 +90,7 @@ using Test
             @test discount(minus_yield, time) ≈ 1 / (1.04)^time 
         end
     end
-    
-    @testset "broadcasting" begin
-        yield = Yields.Constant(0.05)
-        @test discount.(yield, 1:3) == [1 / 1.05^t for t in 1:3]
-    end
-    
+        
     @testset "short curve" begin
         z = Yields.Zero([0.0,0.05], [1,2])
         @test rate(zero(z, 1)) ≈ 0.00
