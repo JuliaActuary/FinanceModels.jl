@@ -3,6 +3,7 @@ module Yields
 
 import Interpolations
 import ForwardDiff
+using LinearAlgebra
 
 # don't export type, as the API of Yields.Zero is nicer and 
 # less polluting than Zero and less/equally verbose as ZeroYieldCurve or ZeroCruve
@@ -433,6 +434,181 @@ function OIS(rates::Vector{Rate}, maturities)
     )
 end
 
+"""
+    ZeroCouponQuotes(prices, maturities)
+
+Quotes for a set of zero coupon bonds with given `prices` and `maturities`. `prices` and `maturities` must
+have same length.
+"""
+struct ZeroCouponQuotes{TP<:AbstractVector, TM<:AbstractVector}
+    prices::TP
+    maturities::TM
+
+    # Inner constructor ensures that vector lengths match
+    function ZeroCouponQuotes{TP, TM}(prices::TP, maturities::TM) where {TP<:AbstractVector, TM<:AbstractVector}
+        if length(prices) != length(maturities)
+            throw(DomainError("Vectors of prices and maturities for ZeroCouponQuotes must have equal length"))
+        end
+        return new(prices, maturities)
+    end
+end
+
+ZeroCouponQuotes(prices::TP, maturities::TM) where {TP<:AbstractVector, TM<:AbstractVector} = ZeroCouponQuotes{TP, TM}(prices, maturities)
+
+"""
+    SwapQuotes(rates, maturities, freq)
+
+Quotes for a set of interest rate swaps with the given `rates` and `maturities` and a given payment frequency `freq`.
+`rates` and `maturities` must have same length.
+"""
+struct SwapQuotes{TR<:AbstractVector, TM<:AbstractVector}
+    rates::TR
+    maturities::TM
+    freq::Int
+
+    # Inner constructor ensures that vector lengths match and frequency is positive
+    function SwapQuotes{TR, TM}(rates, maturities, freq) where {TR<:AbstractVector, TM<:AbstractVector}
+        if length(rates) != length(maturities)
+            throw(DomainError("Vectors of rates and maturities for SwapQuotes must have equal length"))
+        end
+        if freq <= 0
+            throw(DomainError("Payment frequency must be positive"))
+        end
+        return new(rates, maturities, freq)
+    end
+end
+
+SwapQuotes(rates::TR, maturities::TM, freq) where {TR<:AbstractVector, TM<:AbstractVector} = SwapQuotes{TR, TM}(rates, maturities, freq)
+
+"""
+    BulletBondQuotes(interests, maturities, prices, freq)
+
+Quotes for a set of fixed interest bullet bonds with given `interests`, `maturities`, and `prices` and a given payment frequency `freq`.
+`interests`, `maturities`, and `prices` must have same length.
+"""
+struct BulletBondQuotes{TI<:AbstractVector, TM<:AbstractVector, TP<:AbstractVector}
+    interests::TI
+    maturities::TM
+    prices::TP
+    freq::Int
+
+    # Inner constructor ensures that vector lengths match and frequency is positive
+    function BulletBondQuotes{TI, TM, TP}(interests, maturities, prices, freq) where
+            {TI<:AbstractVector, TM<:AbstractVector, TP<:AbstractVector}
+        if length(interests) != length(maturities) || length(interests) != length(prices)
+            throw(DomainError("Vectors of interests, maturities, and prices for BulletBondQuotes must have equal length"))
+        end
+        if freq <= 0
+            throw(DomainError("Payment frequency must be positive"))
+        end
+        return new(interests, maturities, prices, freq)
+    end
+end
+
+function BulletBondQuotes(interests::TI, maturities::TM, prices::TP, freq) where
+        {TI<:AbstractVector, TM<:AbstractVector, TP<:AbstractVector}
+    return BulletBondQuotes{TI, TM, TP}(interests, maturities, prices, freq)
+end
+
+"""
+    SmithWilson(ufr, α, u, qb)
+
+Create a yield curve object that implements the Smith-Wilson interpolation/extrapolation scheme.
+"""
+struct SmithWilson{TU<:AbstractVector, TQb<:AbstractVector} <: AbstractYield
+    ufr
+    α
+    u::TU
+    qb::TQb
+
+    # Inner constructor ensures that vector lengths match
+    function SmithWilson{TU, TQb}(ufr, α, u, qb) where {TU<:AbstractVector, TQb<:AbstractVector}
+        if length(u) != length(qb)
+            throw(DomainError("Vectors u and qb in SmithWilson must have equal length"))
+        end
+        return new(ufr, α, u, qb)
+    end
+end
+
+SmithWilson(ufr, α, u::TU, qb::TQb) where {TU<:AbstractVector, TQb<:AbstractVector} = SmithWilson{TU, TQb}(ufr, α, u, qb)
+
+"""
+    H_ordered(α, t_min, t_max)
+
+The Smith-Wilson H function with ordered arguments (for better performance than using min and max).
+"""
+function H_ordered(α, t_min, t_max)
+    return α * t_min + exp(-α * t_max) * sinh(-α * t_min) 
+end
+
+"""
+    H(α, t1, t2)
+
+The Smith-Wilson H function implemented in a faster way.
+"""
+
+function H(α, t1::T, t2::T) where {T}
+    return t1 < t2 ? H_ordered(α, t1, t2) : H_ordered(α, t2, t1)
+end
+
+H(α, t1, t2) = H(α, promote(t1, t2)...)
+
+H(α, t1vec::AbstractVector, t2) = [H(α, t1, t2) for t1 in t1vec]
+H(α, t1vec::AbstractVector, t2vec::AbstractVector) = [H(α, t1, t2) for t1 in t1vec, t2 in t2vec]
+# This can be optimized by going to H_ordered directly, but it might be a bit cumbersome 
+H(α, tvec::AbstractVector) = H(α, tvec, tvec)
+
+
+discount(sw::SmithWilson, t) = exp(-sw.ufr * t) * (1.0 + H(sw.α, sw.u, t) ⋅ sw.qb)
+Base.zero(sw::SmithWilson, t) = Continuous(sw.ufr - log(1.0 + H(sw.α, sw.u, t) ⋅ sw.qb) / t)
+Base.zero(sw::SmithWilson, t, cf::CompoundingFrequency) = convert(cf, zero(sw, t))
+
+"""
+    SmithWilson(ufr, α, times<:AbstractVector, cashflows<:AbstractMatrix, prices<:AbstractVector )
+
+Calibrate a SmithWilson from corresponding payment `times`, `cashflows`, and instrument `prices`.
+"""
+function SmithWilson(ufr, α, times::AbstractVector, cashflows::AbstractMatrix, prices::AbstractVector)
+    Q = Diagonal(exp.(-ufr * times)) * cashflows
+    q = vec(sum(Q, dims=1))  # We want q to be a column vector
+    QHQ = Q' * H(α, times) * Q
+    b = QHQ \ (prices - q)
+    Qb = Q * b
+    return SmithWilson(ufr, α, times, Qb)
+end
+
+
+"""
+    bullet_cashflows(interests, maturities, freq)
+
+Produce a tuple of payment times and cash flow matrix for a set of instruments with given `interests` and `maturities`
+and a given payment frequency `freq`. All instruments are assumed to have their first payment at time 1/`freq`
+and have their last payment at the largest multiple of 1/`freq` less than or equal to the input maturity.
+"""
+function bullet_cashflows(interests::AbstractVector{TI}, maturities::AbstractVector, freq::Int) where {TI}
+    maturity_indices = floor.(freq * maturities)
+    n_times = maximum(maturity_indices)
+    n_instr = length(interests)
+    cashflows = [(tIdx <= maturity_indices[iIdx] ? interests[iIdx] / freq : zero(TI)) + (tIdx == maturity_indices[iIdx] ? one(TI) : zero(TI)) for tIdx in 1:n_times, iIdx in 1:n_instr]
+    times = collect(1:n_times) ./ freq
+    return (times, cashflows)
+end
+
+# Utility methods for calibrating Smith-Wilson directly from quotes
+function SmithWilson(ufr, α, zcq::ZeroCouponQuotes{TM, TP}) where {TM, TP}
+    n = length(zcq.maturities)
+    return SmithWilson(ufr, α, zcq.maturities, Matrix{Float64}(I, n, n), zcq.prices)
+end
+
+function SmithWilson(ufr, α, swq::SwapQuotes{TM, TR}) where {TM, TR}
+    (times, cashflows) = bullet_cashflows(swq.rates, swq.maturities, swq.freq)
+    return SmithWilson(ufr, α, times, cashflows, ones(length(swq.rates)))
+end
+
+function SmithWilson(ufr, α, bbq::BulletBondQuotes{TI, TM, TP}) where {TI, TM, TP}
+    (times, cashflows) = bullet_cashflows(bbq.interests, bbq.maturities, bbq.freq)
+    return SmithWilson(ufr, α, times, cashflows, bbq.prices)
+end
 
 # https://github.com/dpsanders/hands_on_julia/blob/master/during_sessions/Fractale%20de%20Newton.ipynb
 newton(f, f′, x) = x - f(x) / f′(x)
@@ -592,8 +768,6 @@ linear_interp(xs,ys) = Interpolations.extrapolate(
     Interpolations.interpolate((xs,), ys, Interpolations.Gridded(Interpolations.Linear())), 
     Interpolations.Line()
     ) 
-
-include("smith_wilson.jl")
 
 end
 

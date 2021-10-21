@@ -67,6 +67,8 @@ There are a several ways to construct a yield curve object. `rates` can be a vec
 - `Yields.CMT(rates,maturities)` takes the most commonly presented rate data (e.g. [Treasury.gov](https://www.treasury.gov/resource-center/data-chart-center/interest-rates/Pages/TextView.aspx?data=yield)) and bootstraps the curve given the combination of bills and bonds.
 - `Yields.CMT(rates,maturities)` takes the most commonly presented rate data (e.g. [Treasury.gov](https://www.treasury.gov/resource-center/data-chart-center/interest-rates/Pages/TextView.aspx?data=yield)) and bootstraps the curve given the combination of bills and bonds.
 
+A `Yields.SmithWilson` curve (used for [discounting in the EU Solvency II framework](https://www.eiopa.europa.eu/sites/default/files/risk_free_interest_rate/12092019-technical_documentation.pdf)) can be constructed either directly by specifying its inner representation or by calibrating to a set of cashflows with known prices. These cashflows can conveniently be constructed with `Yields.ZeroCouponQuotes`, `Yields.SwapQuotes`, or `Yields.BulletBondQuotes`.
+
 ### Functions
 
 Most of the above yields have the following defined (goal is to have them all):
