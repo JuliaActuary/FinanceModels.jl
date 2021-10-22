@@ -79,7 +79,7 @@ Rate(0.01, Periodic(2))
 
 See also: [`Continuous`](@ref)
 """
-Periodic(x,freq) = Rate(x,Periodic(freq))
+Periodic(x,frequency) = Rate(x,Periodic(frequency))
 
 struct Rate
     value
@@ -456,58 +456,58 @@ end
 ZeroCouponQuotes(prices::TP, maturities::TM) where {TP<:AbstractVector, TM<:AbstractVector} = ZeroCouponQuotes{TP, TM}(prices, maturities)
 
 """
-    SwapQuotes(rates, maturities, freq)
+    SwapQuotes(rates, maturities, frequency)
 
-Quotes for a set of interest rate swaps with the given `rates` and `maturities` and a given payment frequency `freq`.
+Quotes for a set of interest rate swaps with the given `rates` and `maturities` and a given payment frequency `frequency`.
 `rates` and `maturities` must have same length.
 """
 struct SwapQuotes{TR<:AbstractVector, TM<:AbstractVector}
     rates::TR
     maturities::TM
-    freq::Int
+    frequency::Int
 
     # Inner constructor ensures that vector lengths match and frequency is positive
-    function SwapQuotes{TR, TM}(rates, maturities, freq) where {TR<:AbstractVector, TM<:AbstractVector}
+    function SwapQuotes{TR, TM}(rates, maturities, frequency) where {TR<:AbstractVector, TM<:AbstractVector}
         if length(rates) != length(maturities)
             throw(DomainError("Vectors of rates and maturities for SwapQuotes must have equal length"))
         end
-        if freq <= 0
+        if frequency <= 0
             throw(DomainError("Payment frequency must be positive"))
         end
-        return new(rates, maturities, freq)
+        return new(rates, maturities, frequency)
     end
 end
 
-SwapQuotes(rates::TR, maturities::TM, freq) where {TR<:AbstractVector, TM<:AbstractVector} = SwapQuotes{TR, TM}(rates, maturities, freq)
+SwapQuotes(rates::TR, maturities::TM, frequency) where {TR<:AbstractVector, TM<:AbstractVector} = SwapQuotes{TR, TM}(rates, maturities, frequency)
 
 """
-    BulletBondQuotes(interests, maturities, prices, freq)
+    BulletBondQuotes(interests, maturities, prices, frequency)
 
-Quotes for a set of fixed interest bullet bonds with given `interests`, `maturities`, and `prices` and a given payment frequency `freq`.
+Quotes for a set of fixed interest bullet bonds with given `interests`, `maturities`, and `prices` and a given payment frequency `frequency`.
 `interests`, `maturities`, and `prices` must have same length.
 """
 struct BulletBondQuotes{TI<:AbstractVector, TM<:AbstractVector, TP<:AbstractVector}
     interests::TI
     maturities::TM
     prices::TP
-    freq::Int
+    frequency::Int
 
     # Inner constructor ensures that vector lengths match and frequency is positive
-    function BulletBondQuotes{TI, TM, TP}(interests, maturities, prices, freq) where
+    function BulletBondQuotes{TI, TM, TP}(interests, maturities, prices, frequency) where
             {TI<:AbstractVector, TM<:AbstractVector, TP<:AbstractVector}
         if length(interests) != length(maturities) || length(interests) != length(prices)
             throw(DomainError("Vectors of interests, maturities, and prices for BulletBondQuotes must have equal length"))
         end
-        if freq <= 0
+        if frequency <= 0
             throw(DomainError("Payment frequency must be positive"))
         end
-        return new(interests, maturities, prices, freq)
+        return new(interests, maturities, prices, frequency)
     end
 end
 
-function BulletBondQuotes(interests::TI, maturities::TM, prices::TP, freq) where
+function BulletBondQuotes(interests::TI, maturities::TM, prices::TP, frequency) where
         {TI<:AbstractVector, TM<:AbstractVector, TP<:AbstractVector}
-    return BulletBondQuotes{TI, TM, TP}(interests, maturities, prices, freq)
+    return BulletBondQuotes{TI, TM, TP}(interests, maturities, prices, frequency)
 end
 
 """
@@ -579,18 +579,18 @@ end
 
 
 """
-    bullet_cashflows(interests, maturities, freq)
+    bullet_cashflows(interests, maturities, frequency)
 
 Produce a tuple of payment times and cash flow matrix for a set of instruments with given `interests` and `maturities`
-and a given payment frequency `freq`. All instruments are assumed to have their first payment at time 1/`freq`
-and have their last payment at the largest multiple of 1/`freq` less than or equal to the input maturity.
+and a given payment frequency `frequency`. All instruments are assumed to have their first payment at time 1/`frequency`
+and have their last payment at the largest multiple of 1/`frequency` less than or equal to the input maturity.
 """
-function bullet_cashflows(interests::AbstractVector{TI}, maturities::AbstractVector, freq::Int) where {TI}
-    maturity_indices = floor.(freq * maturities)
+function bullet_cashflows(interests::AbstractVector{TI}, maturities::AbstractVector, frequency::Int) where {TI}
+    maturity_indices = floor.(frequency * maturities)
     n_times = maximum(maturity_indices)
     n_instr = length(interests)
-    cashflows = [(tIdx <= maturity_indices[iIdx] ? interests[iIdx] / freq : zero(TI)) + (tIdx == maturity_indices[iIdx] ? one(TI) : zero(TI)) for tIdx in 1:n_times, iIdx in 1:n_instr]
-    times = collect(1:n_times) ./ freq
+    cashflows = [(tIdx <= maturity_indices[iIdx] ? interests[iIdx] / frequency : zero(TI)) + (tIdx == maturity_indices[iIdx] ? one(TI) : zero(TI)) for tIdx in 1:n_times, iIdx in 1:n_instr]
+    times = collect(1:n_times) ./ frequency
     return (times, cashflows)
 end
 
@@ -601,12 +601,12 @@ function SmithWilson(ufr, α, zcq::ZeroCouponQuotes{TM, TP}) where {TM, TP}
 end
 
 function SmithWilson(ufr, α, swq::SwapQuotes{TM, TR}) where {TM, TR}
-    (times, cashflows) = bullet_cashflows(swq.rates, swq.maturities, swq.freq)
+    (times, cashflows) = bullet_cashflows(swq.rates, swq.maturities, swq.frequency)
     return SmithWilson(ufr, α, times, cashflows, ones(length(swq.rates)))
 end
 
 function SmithWilson(ufr, α, bbq::BulletBondQuotes{TI, TM, TP}) where {TI, TM, TP}
-    (times, cashflows) = bullet_cashflows(bbq.interests, bbq.maturities, bbq.freq)
+    (times, cashflows) = bullet_cashflows(bbq.interests, bbq.maturities, bbq.frequency)
     return SmithWilson(ufr, α, times, cashflows, bbq.prices)
 end
 

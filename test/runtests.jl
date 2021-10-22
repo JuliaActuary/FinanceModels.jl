@@ -288,7 +288,7 @@ using Test
         swq = Yields.SwapQuotes(rates, maturities, 3)
         @test swq.rates == rates
         @test swq.maturities == maturities
-        @test swq.freq == 3
+        @test swq.frequency == 3
  
         @test_throws DomainError Yields.SwapQuotes([1.3, 2.4, 0.9], maturities, 3)
         @test_throws DomainError Yields.SwapQuotes(rates, maturities, 0)
@@ -299,7 +299,7 @@ using Test
         @test bbq.interests == rates
         @test bbq.maturities == maturities
         @test bbq.prices == prices
-        @test bbq.freq == 3
+        @test bbq.frequency == 3
  
         @test_throws DomainError Yields.BulletBondQuotes([1.3, 2.4, 0.9], maturities, prices, 3)
         @test_throws DomainError Yields.BulletBondQuotes(rates, [4.3, 5.6, 4.4, 4.4], prices, 3)
@@ -375,9 +375,9 @@ using Test
         # Round-trip swap quotes
         swq_maturities = [1.2, 2.5, 3.6]
         swq_interests = [-0.02, 0.3, 0.04]
-        freq = 2
-        swq = Yields.SwapQuotes(swq_interests, swq_maturities, freq)
-        swq_times = 0.5:0.5:3.5   # Maturities are rounded down to multiples of 1/freq, [1.0, 2.5, 3.5]
+        frequency = 2
+        swq = Yields.SwapQuotes(swq_interests, swq_maturities, frequency)
+        swq_times = 0.5:0.5:3.5   # Maturities are rounded down to multiples of 1/frequency, [1.0, 2.5, 3.5]
         swq_payments = [-0.01 0.15 0.02
                         0.99 0.15 0.02
                         0.0  0.15 0.02
@@ -392,7 +392,7 @@ using Test
     
         # Round-trip bullet bond quotes (reuse data from swap quotes)
         bbq_prices = [1.3, 0.1, 4.5]
-        bbq = Yields.BulletBondQuotes(swq_interests, swq_maturities, bbq_prices, freq)
+        bbq = Yields.BulletBondQuotes(swq_interests, swq_maturities, bbq_prices, frequency)
         sw_bbq = Yields.SmithWilson(ufr, α, bbq)
         @testset "BulletBondQuotes round-trip" for bondIdx in 1:length(swq_interests)
             @test sum(discount.(sw_bbq, swq_times) .* swq_payments[:, bondIdx]) ≈ bbq_prices[bondIdx]
