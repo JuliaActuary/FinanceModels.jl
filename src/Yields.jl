@@ -513,7 +513,14 @@ end
 """
     SmithWilson(ufr, α, u, qb)
 
-Create a yield curve object that implements the Smith-Wilson interpolation/extrapolation scheme.
+Create a yield curve object that implements the Smith-Wilson interpolation/extrapolation scheme. 
+`ufr` is the Ultimate Forward Rate, the forward interest rate to which the yield curve tends, in continuous compounding
+convention. `α` is the parameter that governes the speed of convergence towards the Ultimate Forward Rate.
+`u` is the timepoints coming from the calibration, and `qb` is the internal parameterization of the curve that ensures
+that the calibration is correct.
+
+In practical use, you would seldom use this form of the constructor. Instead, you would use a constructor taking
+instruments to calibrate the Smith-Wilson curve to.
 """
 struct SmithWilson{TU<:AbstractVector, TQb<:AbstractVector} <: AbstractYield
     ufr
@@ -564,11 +571,11 @@ Base.zero(sw::SmithWilson, t) = Continuous(sw.ufr - log(1.0 + H(sw.α, sw.u, t) 
 Base.zero(sw::SmithWilson, t, cf::CompoundingFrequency) = convert(cf, zero(sw, t))
 
 """
-    SmithWilson(ufr, α, times<:AbstractVector, cashflows<:AbstractMatrix, prices<:AbstractVector )
+    SmithWilson(times<:AbstractVector, cashflows<:AbstractMatrix, prices<:AbstractVector; ufr, α)
 
 Calibrate a SmithWilson from corresponding payment `times`, `cashflows`, and instrument `prices`.
 """
-function SmithWilson(ufr, α, times::AbstractVector, cashflows::AbstractMatrix, prices::AbstractVector)
+function SmithWilson(times::AbstractVector, cashflows::AbstractMatrix, prices::AbstractVector; ufr, α)
     Q = Diagonal(exp.(-ufr * times)) * cashflows
     q = vec(sum(Q, dims=1))  # We want q to be a column vector
     QHQ = Q' * H(α, times) * Q
@@ -624,21 +631,21 @@ function cashflows(swq::SwapQuotes{TM, TR}) where {TM,TR}
 end
 
 # Utility methods for calibrating Smith-Wilson directly from quotes
-function SmithWilson(ufr, α, zcq::ZeroCouponQuotes{TM, TP}) where {TM, TP}
+function SmithWilson(zcq::ZeroCouponQuotes{TM, TP}; ufr, α) where {TM, TP}
     n = length(zcq.maturities)
-    return SmithWilson(ufr, α, zcq.maturities, Matrix{Float64}(I, n, n), zcq.prices)
+    return SmithWilson(zcq.maturities, Matrix{Float64}(I, n, n), zcq.prices, ufr=ufr, α=α)
 end
 
-function SmithWilson(ufr, α, swq::SwapQuotes{TM, TR}) where {TM, TR}
+function SmithWilson(swq::SwapQuotes{TM, TR}; ufr, α) where {TM, TR}
     times = timepoints(swq)
     cfs = cashflows(swq)
-    return SmithWilson(ufr, α, times, cfs, ones(length(swq.rates)))
+    return SmithWilson(times, cfs, ones(length(swq.rates)), ufr=ufr, α=α)
 end
 
-function SmithWilson(ufr, α, bbq::BulletBondQuotes{TI, TM, TP}) where {TI, TM, TP}
+function SmithWilson(bbq::BulletBondQuotes{TI, TM, TP}; ufr, α) where {TI, TM, TP}
     times = timepoints(bbq)
     cfs = cashflows(bbq)
-    return SmithWilson(ufr, α, times, cfs, bbq.prices)
+    return SmithWilson(times, cfs, bbq.prices, ufr=ufr, α=α)
 end
 
 # https://github.com/dpsanders/hands_on_julia/blob/master/during_sessions/Fractale%20de%20Newton.ipynb

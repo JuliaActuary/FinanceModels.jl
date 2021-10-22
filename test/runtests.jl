@@ -339,7 +339,7 @@ using Test
         @test discount(ufr_curve, 10.0) == exp(-ufr * 10.0)
     
         # A single payment at time 4, zero interest
-        curve_with_zero_yield = Yields.SmithWilson(ufr, α, [4.0], reshape([1.0], 1, 1), [1.0])
+        curve_with_zero_yield = Yields.SmithWilson([4.0], reshape([1.0], 1, 1), [1.0], ufr=ufr, α=α)
         @test discount(curve_with_zero_yield, 4.0) == 1.0
     
         # In the long end it's still just UFR
@@ -352,7 +352,7 @@ using Test
                 0 1 0
                 0 0 1]
     
-        curve_three = Yields.SmithWilson(ufr, α, times, cfs, prices)
+        curve_three = Yields.SmithWilson(times, cfs, prices, ufr=ufr, α=α)
         @test transpose(cfs) * discount.(curve_three, times) ≈ prices
     
         # Two cash flows with payments at three times
@@ -360,14 +360,14 @@ using Test
         cfs = [0.1 0.1
                 1.0 0.1
                 0.0 1.0]
-        curve_nondiag = Yields.SmithWilson(ufr, α, times, cfs, prices)
+        curve_nondiag = Yields.SmithWilson(times, cfs, prices, ufr=ufr, α=α)
         @test transpose(cfs) * discount.(curve_nondiag, times) ≈ prices
     
         # Round-trip zero coupon quotes
         zcq_times = [1.2, 4.5, 5.6]
         zcq_prices = [1.0, 0.9, 1.2]
         zcq = Yields.ZeroCouponQuotes(zcq_prices, zcq_times)
-        sw_zcq = Yields.SmithWilson(ufr, α, zcq)
+        sw_zcq = Yields.SmithWilson(zcq, ufr=ufr, α=α)
         @testset "ZeroCouponQuotes round-trip" for idx in 1:length(zcq_times)
             @test discount(sw_zcq, zcq_times[idx]) ≈ zcq_prices[idx]
         end
@@ -385,7 +385,7 @@ using Test
                         0.0  1.15 0.02
                         0.0  0.0  0.02
                         0.0  0.0  1.02]
-        sw_swq = Yields.SmithWilson(ufr, α, swq)
+        sw_swq = Yields.SmithWilson(swq, ufr=ufr, α=α)
         @testset "SwapQuotes round-trip" for swapIdx in 1:length(swq_interests)
             @test sum(discount.(sw_swq, swq_times) .* swq_payments[:, swapIdx]) ≈ 1.0
         end
@@ -393,7 +393,7 @@ using Test
         # Round-trip bullet bond quotes (reuse data from swap quotes)
         bbq_prices = [1.3, 0.1, 4.5]
         bbq = Yields.BulletBondQuotes(swq_interests, swq_maturities, bbq_prices, frequency)
-        sw_bbq = Yields.SmithWilson(ufr, α, bbq)
+        sw_bbq = Yields.SmithWilson(bbq, ufr=ufr, α=α)
         @testset "BulletBondQuotes round-trip" for bondIdx in 1:length(swq_interests)
             @test sum(discount.(sw_bbq, swq_times) .* swq_payments[:, bondIdx]) ≈ bbq_prices[bondIdx]
         end
@@ -429,7 +429,7 @@ using Test
         eiopa_eurswap_rates = [-0.00615, -0.00575, -0.00535, -0.00485, -0.00425, -0.00375, -0.003145, 
         -0.00245, -0.00185, -0.00125, -0.000711, -0.00019, 0.00111, 0.00215]   # Reverse engineered from output curve. This is the full precision of market quotes.
         eiopa_eurswap_quotes = Yields.SwapQuotes(eiopa_eurswap_rates, eiopa_eurswap_maturities, 1)
-        sw_eiopa_actual = Yields.SmithWilson(eiopa_ufr, eiopa_α, eiopa_eurswap_quotes)
+        sw_eiopa_actual = Yields.SmithWilson(eiopa_eurswap_quotes, ufr=eiopa_ufr, α=eiopa_α)
     
         @testset "Match EIOPA calculation" begin
             @test sw_eiopa_expected.u ≈ sw_eiopa_actual.u
