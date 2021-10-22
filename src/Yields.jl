@@ -577,21 +577,50 @@ function SmithWilson(ufr, α, times::AbstractVector, cashflows::AbstractMatrix, 
     return SmithWilson(ufr, α, times, Qb)
 end
 
+""" 
+    timepoints(zcq::ZeroCouponQuotes)
+    timepoints(bbq::BulletBondQuotes)
+
+Return the times associated with the `cashflows` of the instruments.
+"""
+function timepoints(bbq::BulletBondQuotes{TI,TM,TP}) where {TI,TM,TP}
+    maturity_indices = floor.(bbq.frequency * bbq.maturities)
+    n_times = maximum(maturity_indices)
+    times = collect(1:n_times) ./ bbq.frequency
+    return times
+end
+
+function timepoints(swq::SwapQuotes{TM, TR}) where {TM,TR} 
+    maturity_indices = floor.(swq.frequency * swq.maturities)
+    n_times = maximum(maturity_indices)
+    times = collect(1:n_times) ./ swq.frequency
+    return times
+end
+
 
 """
-    bullet_cashflows(interests, maturities, frequency)
+    cashflows(interests, maturities, frequency)
+    cashflows(zcq::ZeroCouponQuotes)
+    cashflows(bbq::BulletBondQuotes)
 
-Produce a tuple of payment times and cash flow matrix for a set of instruments with given `interests` and `maturities`
+Produce a cash flow matrix for a set of instruments with given `interests` and `maturities`
 and a given payment frequency `frequency`. All instruments are assumed to have their first payment at time 1/`frequency`
 and have their last payment at the largest multiple of 1/`frequency` less than or equal to the input maturity.
 """
-function bullet_cashflows(interests::AbstractVector{TI}, maturities::AbstractVector, frequency::Int) where {TI}
+function cashflows(interests::AbstractVector{TI}, maturities::AbstractVector, frequency::Int) where {TI}
     maturity_indices = floor.(frequency * maturities)
     n_times = maximum(maturity_indices)
     n_instr = length(interests)
     cashflows = [(tIdx <= maturity_indices[iIdx] ? interests[iIdx] / frequency : zero(TI)) + (tIdx == maturity_indices[iIdx] ? one(TI) : zero(TI)) for tIdx in 1:n_times, iIdx in 1:n_instr]
-    times = collect(1:n_times) ./ frequency
-    return (times, cashflows)
+    return cashflows
+end
+
+function cashflows(bbq::BulletBondQuotes{TI,TM,TP}) where {TI,TM,TP}
+    return cashflows(bbq.interests, bbq.maturities, bbq.frequency)
+end
+
+function cashflows(swq::SwapQuotes{TM, TR}) where {TM,TR} 
+    return cashflows(swq.rates, swq.maturities, swq.frequency)
 end
 
 # Utility methods for calibrating Smith-Wilson directly from quotes
@@ -601,13 +630,15 @@ function SmithWilson(ufr, α, zcq::ZeroCouponQuotes{TM, TP}) where {TM, TP}
 end
 
 function SmithWilson(ufr, α, swq::SwapQuotes{TM, TR}) where {TM, TR}
-    (times, cashflows) = bullet_cashflows(swq.rates, swq.maturities, swq.frequency)
-    return SmithWilson(ufr, α, times, cashflows, ones(length(swq.rates)))
+    times = timepoints(swq)
+    cfs = cashflows(swq)
+    return SmithWilson(ufr, α, times, cfs, ones(length(swq.rates)))
 end
 
 function SmithWilson(ufr, α, bbq::BulletBondQuotes{TI, TM, TP}) where {TI, TM, TP}
-    (times, cashflows) = bullet_cashflows(bbq.interests, bbq.maturities, bbq.frequency)
-    return SmithWilson(ufr, α, times, cashflows, bbq.prices)
+    times = timepoints(bbq)
+    cfs = cashflows(bbq)
+    return SmithWilson(ufr, α, times, cfs, bbq.prices)
 end
 
 # https://github.com/dpsanders/hands_on_julia/blob/master/during_sessions/Fractale%20de%20Newton.ipynb
