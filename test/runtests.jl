@@ -317,17 +317,17 @@ using Test
         qb = [2.3, -1.2]
  
         # Basic behaviour
-        sw = Yields.SmithWilson(ufr, α, u, qb)
+        sw = Yields.SmithWilson(u, qb; ufr=ufr, α=α)
         @test sw.ufr == ufr
         @test sw.α == α
         @test sw.u == u
         @test sw.qb == qb
-        @test_throws DomainError Yields.SmithWilson(ufr, α, u, [2.4, -3.4, 8.9])
+        @test_throws DomainError Yields.SmithWilson(u, [2.4, -3.4, 8.9],ufr=ufr, α=α)
     
         # Empty u and Qb should result in a flat yield curve
         # Use this to test methods expected from <:AbstractYieldCurve
         # Only discount and zero are explicitly implemented, so the others should follow automatically
-        sw_flat = Yields.SmithWilson(ufr, α, Float64[], Float64[])
+        sw_flat = Yields.SmithWilson(Float64[], Float64[],ufr=ufr, α=α)
         @test discount(sw_flat, 10.0) == exp(-ufr * 10.0)
         @test accumulation(sw_flat, 10.0) ≈ exp(ufr * 10.0)
         @test rate(convert(Yields.Continuous(), zero(sw_flat, 8.0))) ≈ ufr
@@ -335,7 +335,7 @@ using Test
         @test rate(convert(Yields.Continuous(), Rate(forward(sw_flat, 5.0, 8.0)))) ≈ ufr
     
         # A trivial Qb vector (=0) should result in a flat yield curve
-        ufr_curve = Yields.SmithWilson(ufr, α, u, [0.0, 0.0])
+        ufr_curve = Yields.SmithWilson(u, [0.0, 0.0],ufr=ufr, α=α)
         @test discount(ufr_curve, 10.0) == exp(-ufr * 10.0)
     
         # A single payment at time 4, zero interest
@@ -423,7 +423,7 @@ using Test
         eiopa_output_u = 1:20
         eiopa_ufr = log(1.036)
         eiopa_α = 0.133394
-        sw_eiopa_expected = Yields.SmithWilson(eiopa_ufr, eiopa_α, eiopa_output_u, eiopa_output_qb)
+        sw_eiopa_expected = Yields.SmithWilson(eiopa_output_u, eiopa_output_qb; ufr=eiopa_ufr, α=eiopa_α)
     
         eiopa_eurswap_maturities = [1:12; 15; 20]
         eiopa_eurswap_rates = [-0.00615, -0.00575, -0.00535, -0.00485, -0.00425, -0.00375, -0.003145, 

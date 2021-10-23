@@ -511,33 +511,43 @@ function BulletBondQuotes(interests::TI, maturities::TM, prices::TP, frequency) 
 end
 
 """
-    SmithWilson(ufr, α, u, qb)
+    SmithWilson(zcq::`ZeroCouponQuotes`; ufr, α)
+    SmithWilson(swq::SwapQuotes; ufr, α)
+    SmithWilson(bbq::BulletBondQuotes; ufr, α)
+    SmithWilson(times<:AbstractVector, cashflows<:AbstractMatrix, prices<:AbstractVector; ufr, α)
+    SmithWilson(u, qb; ufr, α)
+    
+Create a yield curve object that implements the Smith-Wilson interpolation/extrapolation scheme.
 
-Create a yield curve object that implements the Smith-Wilson interpolation/extrapolation scheme. 
-`ufr` is the Ultimate Forward Rate, the forward interest rate to which the yield curve tends, in continuous compounding
-convention. `α` is the parameter that governes the speed of convergence towards the Ultimate Forward Rate.
-`u` is the timepoints coming from the calibration, and `qb` is the internal parameterization of the curve that ensures
-that the calibration is correct.
+Positional arguments to construct a curve:
 
-In practical use, you would seldom use this form of the constructor. Instead, you would use a constructor taking
-instruments to calibrate the Smith-Wilson curve to.
+- Quoted instrument as the first argument: either `ZeroCouponQuotes`, `SwapQuotes`, or `BulletBondQuotes`, or 
+- A set of `times`, `cashflows`, and `prices`, or
+- A curve can be with `u` is the timepoints coming from the calibration, and `qb` is the internal parameterization of the curve that ensures
+that the calibration is correct. Users may prefer the other constructors but this mathematical constructor is also available.
+
+Required keyword arguments:
+
+- `ufr` is the Ultimate Forward Rate, the forward interest rate to which the yield curve tends, in continuous compounding
+convention. 
+- `α` is the parameter that governs the speed of convergence towards the Ultimate Forward Rate. It can be typed with `\\alpha[TAB]`
 """
 struct SmithWilson{TU<:AbstractVector, TQb<:AbstractVector} <: AbstractYield
-    ufr
-    α
     u::TU
     qb::TQb
+    ufr
+    α
 
     # Inner constructor ensures that vector lengths match
-    function SmithWilson{TU, TQb}(ufr, α, u, qb) where {TU<:AbstractVector, TQb<:AbstractVector}
+    function SmithWilson{TU, TQb}(u, qb; ufr, α) where {TU<:AbstractVector, TQb<:AbstractVector}
         if length(u) != length(qb)
             throw(DomainError("Vectors u and qb in SmithWilson must have equal length"))
         end
-        return new(ufr, α, u, qb)
+        return new(u, qb, ufr, α)
     end
 end
 
-SmithWilson(ufr, α, u::TU, qb::TQb) where {TU<:AbstractVector, TQb<:AbstractVector} = SmithWilson{TU, TQb}(ufr, α, u, qb)
+SmithWilson(u::TU, qb::TQb;ufr, α) where {TU<:AbstractVector, TQb<:AbstractVector} = SmithWilson{TU, TQb}(u, qb; ufr=ufr, α=α)
 
 """
     H_ordered(α, t_min, t_max)
@@ -570,18 +580,13 @@ discount(sw::SmithWilson, t) = exp(-sw.ufr * t) * (1.0 + H(sw.α, sw.u, t) ⋅ s
 Base.zero(sw::SmithWilson, t) = Continuous(sw.ufr - log(1.0 + H(sw.α, sw.u, t) ⋅ sw.qb) / t)
 Base.zero(sw::SmithWilson, t, cf::CompoundingFrequency) = convert(cf, zero(sw, t))
 
-"""
-    SmithWilson(times<:AbstractVector, cashflows<:AbstractMatrix, prices<:AbstractVector; ufr, α)
-
-Calibrate a SmithWilson from corresponding payment `times`, `cashflows`, and instrument `prices`.
-"""
 function SmithWilson(times::AbstractVector, cashflows::AbstractMatrix, prices::AbstractVector; ufr, α)
     Q = Diagonal(exp.(-ufr * times)) * cashflows
     q = vec(sum(Q, dims=1))  # We want q to be a column vector
     QHQ = Q' * H(α, times) * Q
     b = QHQ \ (prices - q)
     Qb = Q * b
-    return SmithWilson(ufr, α, times, Qb)
+    return SmithWilson(times, Qb; ufr=ufr, α=α)
 end
 
 """ 
@@ -633,7 +638,7 @@ end
 # Utility methods for calibrating Smith-Wilson directly from quotes
 function SmithWilson(zcq::ZeroCouponQuotes{TM, TP}; ufr, α) where {TM, TP}
     n = length(zcq.maturities)
-    return SmithWilson(zcq.maturities, Matrix{Float64}(I, n, n), zcq.prices, ufr=ufr, α=α)
+    return SmithWilson(zcq.maturities, Matrix{Float64}(I, n, n), zcq.prices; ufr=ufr, α=α)
 end
 
 function SmithWilson(swq::SwapQuotes{TM, TR}; ufr, α) where {TM, TR}
