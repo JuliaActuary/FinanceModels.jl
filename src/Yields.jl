@@ -29,9 +29,7 @@ struct Continuous <: CompoundingFrequency end
 
 
 """ 
-    Continuous(rate)
 
-A convenience constructor for Rate(x,Continuous())
 
 ```julia-repl
 julia> Continuous(0.01)
@@ -510,7 +508,7 @@ function BulletBondQuotes(interests::TI, maturities::TM, prices::TP, frequency) 
 end
 
 """
-    SmithWilson(zcq::`ZeroCouponQuotes`; ufr, α)
+    SmithWilson(zcq::ZeroCouponQuotes; ufr, α)
     SmithWilson(swq::SwapQuotes; ufr, α)
     SmithWilson(bbq::BulletBondQuotes; ufr, α)
     SmithWilson(times<:AbstractVector, cashflows<:AbstractMatrix, prices<:AbstractVector; ufr, α)
