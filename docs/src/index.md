@@ -101,7 +101,7 @@ y2 = y1 + 0.01                # y2 is a yield of 0.06
 
 ## Internals
 
-For time-variant yields (ie yield *curves*), the inputs are converted to spot rates and linearly interpolated (using [`Interpolations.jl`](https://github.com/JuliaMath/Interpolations.jl)). 
+For time-variant yields (ie yield *curves*), the inputs are converted to spot rates and linearly interpolated (using [`Interpolations.jl`](https://github.com/JuliaMath/Interpolations.jl)).
 
 If you want more precise curvature (e.g. cubic spline interpolation) you can pre-process your rates into a greater number of input points before creating the `Yields` representation. `Yields.jl` uses `Interpolations.jl` as it is a pure-Julia interpolations package and enables auto-differentiation (AD) in `Yields.jl` usage. For example, [`ActuaryUtilities.jl`](https://github.com/JuliaActuary/ActuaryUtilities.jl) uses AD for `duration` and `convexity`.
 
