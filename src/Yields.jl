@@ -523,13 +523,11 @@ Positional arguments to construct a curve:
 
 - Quoted instrument as the first argument: either `ZeroCouponQuotes`, `SwapQuotes`, or `BulletBondQuotes`, or 
 - A set of `times`, `cashflows`, and `prices`, or
-- A curve can be with `u` is the timepoints coming from the calibration, and `qb` is the internal parameterization of the curve that ensures
-that the calibration is correct. Users may prefer the other constructors but this mathematical constructor is also available.
+- A curve can be with `u` is the timepoints coming from the calibration, and `qb` is the internal parameterization of the curve that ensures that the calibration is correct. Users may prefer the other constructors but this mathematical constructor is also available.
 
 Required keyword arguments:
 
-- `ufr` is the Ultimate Forward Rate, the forward interest rate to which the yield curve tends, in continuous compounding
-convention. 
+- `ufr` is the Ultimate Forward Rate, the forward interest rate to which the yield curve tends, in continuous compounding convention. 
 - `α` is the parameter that governs the speed of convergence towards the Ultimate Forward Rate. It can be typed with `\\alpha[TAB]`
 """
 struct SmithWilson{TU<:AbstractVector, TQb<:AbstractVector} <: AbstractYield
@@ -563,7 +561,6 @@ end
 
 The Smith-Wilson H function implemented in a faster way.
 """
-
 function H(α, t1::T, t2::T) where {T}
     return t1 < t2 ? H_ordered(α, t1, t2) : H_ordered(α, t2, t1)
 end
