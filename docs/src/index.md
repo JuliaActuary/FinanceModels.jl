@@ -1,14 +1,14 @@
 ```@meta
 CurrentModule = Yields
 ```
-# Yields
+
+# Yields.jl
 
 [![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://JuliaActuary.github.io/Yields.jl/stable)
 [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://JuliaActuary.github.io/Yields.jl/dev)
 [![Build Status](https://github.com/JuliaActuary/Yields.jl/workflows/CI/badge.svg)](https://github.com/JuliaActuary/Yields.jl/actions)
 [![Coverage](https://codecov.io/gh/JuliaActuary/Yields.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/JuliaActuary/Yields.jl)
 [![lifecycle](https://img.shields.io/badge/LifeCycle-Developing-blue)](https://www.tidyverse.org/lifecycle/)
-
 
 **Yields** provides a simple interface for constructing, manipulating, and using yield curves for modeling purposes.
 
@@ -20,7 +20,7 @@ It's intended to provide common functionality around modeling interest rates, sp
 using Yields
 
 riskfree_maturities = [0.5, 1.0, 1.5, 2.0]
-riskfree    = [5.0, 5.8, 6.4, 6.8] ./ 100     #spot rates, annual effective if unspecfied
+riskfree    = [5.0, 5.8, 6.4, 6.8] ./ 100     #spot rates, annual effective if unspecified
 
 spread_maturities = [0.5, 1.0, 1.5, 3.0]      # different maturities
 spread    = [1.0, 1.8, 1.4, 1.8] ./ 100       # spot spreads
@@ -60,7 +60,7 @@ Rate.(0.02,0.03,0.04,Periodic(2))
 
 ### Yields
 
-There are a several ways to construct a yield curve object. 
+There are a several ways to construct a yield curve object.
 
 #### Bootstrapping Methods
 
@@ -76,8 +76,9 @@ There are a several ways to construct a yield curve object.
 
 #### Kernel Methods
 
-- `Yields.SmithWilson` curve (used for [discounting in the EU Solvency II framework](https://www.eiopa.europa.eu/sites/default/files/risk_free_interest_rate/12092019-technical_documentation.pdf)) can be constructed either directly by specifying its inner representation or by calibrating to a set of cashflows with known prices. 
+- `Yields.SmithWilson` curve (used for [discounting in the EU Solvency II framework](https://www.eiopa.europa.eu/sites/default/files/risk_free_interest_rate/12092019-technical_documentation.pdf)) can be constructed either directly by specifying its inner representation or by calibrating to a set of cashflows with known prices.
   - These cashflows can conveniently be constructed with `Yields.ZeroCouponQuotes`, `Yields.SwapQuotes`, or `Yields.BulletBondQuotes`.
+
 ### Functions
 
 Most of the above yields have the following defined (goal is to have them all):
@@ -89,7 +90,7 @@ Most of the above yields have the following defined (goal is to have them all):
 
 ### Combinations
 
-Different yield objects can be combined with addition or subtraction. See the [Quickstart](#quickstart) for an example. 
+Different yield objects can be combined with addition or subtraction. See the [Quickstart](#quickstart) for an example.
 
 When adding a `Yields.AbstractYield` with a scalar or vector, that scalar or vector will be promoted to a yield type via [`Yield()`](#yield). For example:
 
@@ -108,7 +109,7 @@ If you want more precise curvature (e.g. cubic spline interpolation) you can pre
 
 [Combinations](#combinations) track two different curve objects and are not combined into a single underlying data structure. This means that you may achieve better performance if you combine the rates before constructing a `Yields` representation. The exception to this is `Constant` curves, which *do* get combined into a single structure that is as performant as pre-combined rate structure.
 
-## Related Packages 
+## Related Packages
 
-- [**`InterestRates.jl`**](https://github.com/felipenoris/InterestRates.jl) specializes in fast rate calculations aimed at valuing fixed income contracts, with business-day-level accuracy. 
+- [**`InterestRates.jl`**](https://github.com/felipenoris/InterestRates.jl) specializes in fast rate calculations aimed at valuing fixed income contracts, with business-day-level accuracy.
   - Comparative comments: **`Yields.jl`** does not try to provide as precise controls over the timing, structure, and interpolation of the curve. Instead, **`Yields.jl`** provides a minimal interface for common modeling needs.
