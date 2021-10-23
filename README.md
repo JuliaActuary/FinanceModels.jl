@@ -57,7 +57,11 @@ Rate.(0.02,0.03,0.04,Yields.Periodic(2))
 
 ### Yields
 
-There are a several ways to construct a yield curve object. `rates` can be a vector of `Rate`s described above, or will assume `Yields.Periodic(1)` if the functions are given `Real` number values
+There are a several ways to construct a yield curve object. 
+
+#### Bootstrapping Methods
+
+`rates` can be a vector of `Rate`s described above, or will assume `Yields.Periodic(1)` if the functions are given `Real` number values
 
 - `Yields.Zero(rates,maturities)`  using a vector of zero, or spot, rates
 - `Yields.Forward(rates,maturities)` using a vector of one-period (or `periods`-long) forward rates
@@ -66,6 +70,11 @@ There are a several ways to construct a yield curve object. `rates` can be a vec
 - `Yields.Par(rates,maturities)` takes a series of yields for securities priced at par.Assumes that maturities <= 1 year do not pay coupons and that after one year, pays coupons with frequency equal to the CompoundingFrequency of the corresponding rate.
 - `Yields.CMT(rates,maturities)` takes the most commonly presented rate data (e.g. [Treasury.gov](https://www.treasury.gov/resource-center/data-chart-center/interest-rates/Pages/TextView.aspx?data=yield)) and bootstraps the curve given the combination of bills and bonds.
 - `Yields.CMT(rates,maturities)` takes the most commonly presented rate data (e.g. [Treasury.gov](https://www.treasury.gov/resource-center/data-chart-center/interest-rates/Pages/TextView.aspx?data=yield)) and bootstraps the curve given the combination of bills and bonds.
+
+#### Kernel Methods
+
+- `Yields.SmithWilson` curve (used for [discounting in the EU Solvency II framework](https://www.eiopa.europa.eu/sites/default/files/risk_free_interest_rate/12092019-technical_documentation.pdf)) can be constructed either directly by specifying its inner representation or by calibrating to a set of cashflows with known prices. 
+  - These cashflows can conveniently be constructed with `Yields.ZeroCouponQuotes`, `Yields.SwapQuotes`, or `Yields.BulletBondQuotes`.
 
 ### Functions
 
