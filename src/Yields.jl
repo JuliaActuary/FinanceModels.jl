@@ -1,4 +1,3 @@
-# TODO: accumulalate -> accumulation
 module Yields
 
 import Interpolations
@@ -6,7 +5,7 @@ import ForwardDiff
 using LinearAlgebra
 
 # don't export type, as the API of Yields.Zero is nicer and 
-# less polluting than Zero and less/equally verbose as ZeroYieldCurve or ZeroCruve
+# less polluting than Zero and less/equally verbose as ZeroYieldCurve or ZeroCurve
 export rate, discount, accumulation,forward, Yield, Rate, rate, spot
 
 abstract type CompoundingFrequency end
@@ -32,7 +31,7 @@ struct Continuous <: CompoundingFrequency end
 """ 
     Continuous(rate)
 
-A convinience constructor for Rate(x,Continuous())
+A convenience constructor for Rate(x,Continuous())
 
 ```julia-repl
 julia> Continuous(0.01)
@@ -66,7 +65,7 @@ end
 """ 
     Periodic(rate,frequency)
 
-A convinience constructor for Rate(rate,Periodic(frequency)).
+A convenience constructor for Rate(rate,Periodic(frequency)).
 
 # Examples
 
@@ -92,7 +91,7 @@ end
     Rate(rate[,frequency=1])
     Rate(rate,frequency::CompoundingFrequency)
 
-Rate is a type that encapsulates an interest `rate` along wtih its compounding `frequency`.
+Rate is a type that encapsulates an interest `rate` along with its compounding `frequency`.
 
 Periodic rates can be constructed via `Rate(rate,frequency)` or `Rate(rate,Periodic(frequency))`.
 
@@ -168,7 +167,7 @@ rate(r::Rate) = r.value
 """
 An AbstractYield is an object which can be used as an argument to:
 
-- zero-coupon spot rates viea [`zero`](@ref)
+- zero-coupon spot rates via [`zero`](@ref)
 - discount factor via [`discount`](@ref)
 - accumulation factor via [`accumulation`](@ref)
 
@@ -674,7 +673,7 @@ function bootstrap(rates,maturities,settlement_frequency;interp_function=linear_
 
     for t in 2:length(maturities)
         if isnothing(settlement_frequency[t]) 
-            # no settlment before maturity
+            # no settlement before maturity
             discount_vec[t] = discount(Constant(rates[t]),maturities[t])
         else
             # need to account for the interim cashflows settled
