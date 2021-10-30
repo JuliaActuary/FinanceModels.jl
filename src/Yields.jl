@@ -431,8 +431,6 @@ function OIS(rates::Vector{Rate}, maturities)
     )
 end
 
-abstract type ObservableQuote end
-
 """
     ZeroCouponQuotes(price, maturity)
 
@@ -440,16 +438,7 @@ Quotes for a set of zero coupon bonds with given `price` and `maturity`.
 
 # Examples
 
-```julia-repl
-julia> prices = [1.3, 0.1, 4.5]
-julia> maturities = [1.2, 2.5, 3.6]
-julia> swq = Yields.ZeroCouponQuote.(prices, maturities)
-```
-"""
-struct ZeroCouponQuote <: ObservableQuote
-    price
-    maturity
-end
+ZeroCouponQuotes(prices::TP, maturities::TM) where {TP <: AbstractVector,TM <: AbstractVector} = ZeroCouponQuotes{TP,TM}(prices, maturities)
 
 """
     SwapQuote(yield, maturity, frequency)
@@ -458,24 +447,7 @@ Quotes for a set of interest rate swaps with the given `yield` and `maturity` an
 
 # Examples
 
-```julia-repl
-julia> maturities = [1.2, 2.5, 3.6]
-julia> interests = [-0.02, 0.3, 0.04]
-julia> prices = [1.3, 0.1, 4.5]
-julia> frequencies = [2,1,2]
-julia> swq = Yields.SwapQuote.(interests, maturities, frequencies)
-```
-"""
-struct SwapQuote <: ObservableQuote
-    yield
-    maturity
-    frequency
-    function SwapQuote(yield,maturity,frequency)
-        frequency <= 0 && throw(DomainError("Payment frequency must be positive"))
-        return new(yield,maturity,frequency)
-    end
-end
-
+SwapQuotes(rates::TR, maturities::TM, frequency) where {TR <: AbstractVector,TM <: AbstractVector} = SwapQuotes{TR,TM}(rates, maturities, frequency)
 
 """
     BulletBondQuote(yield, price, maturity, frequency)
@@ -484,28 +456,10 @@ Quote for a set of fixed interest bullet bonds with given `yield`, `price`, `mat
 
 Construct a vector of quotes for use with SmithWilson methods, e.g. by broadcasting over an array of inputs.
 
-# Examples
-
-```julia-repl
-julia> maturities = [1.2, 2.5, 3.6]
-julia> interests = [-0.02, 0.3, 0.04]
-julia> prices = [1.3, 0.1, 4.5]
-julia> frequencies = [2,1,2]
-julia> bbq = Yields.BulletBondQuote.(interests, maturities, prices, frequencies)
-```
-"""
-struct BulletBondQuote <: ObservableQuote
-    yield
-    price
-    maturity
-    frequency
-
-    function BulletBondQuote(yield,maturity,price,frequency)
-        frequency <= 0 && throw(DomainError("Payment frequency must be positive"))
-        return new(yield,maturity,price,frequency)
-    end
+function BulletBondQuotes(interests::TI, maturities::TM, prices::TP, frequency) where
+        {TI <: AbstractVector,TM <: AbstractVector,TP <: AbstractVector}
+    return BulletBondQuotes{TI,TM,TP}(interests, maturities, prices, frequency)
 end
-
 
 """
     SmithWilson(zcq::Vector{ZeroCouponQuote}; ufr, α)

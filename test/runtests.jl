@@ -292,30 +292,34 @@ using Test
        
         maturities = [1.3, 2.7]
         prices = [1.1, 0.8]
-        zcq = Yields.ZeroCouponQuote.(prices, maturities)
-        @test isa(first(zcq),Yields.ZeroCouponQuote)
+        zcq = Yields.ZeroCouponQuotes(prices, maturities)
+        @test zcq.prices == prices
+        @test zcq.maturities == maturities
  
-        @test_throws DimensionMismatch Yields.ZeroCouponQuote.([1.3, 2.4, 0.9], maturities)
- 
-        rates = [0.4, -0.7]
-        swq = Yields.SwapQuote.(rates, maturities, 3)
-        @test first(swq).frequency == 3
- 
-        @test_throws DimensionMismatch Yields.SwapQuote.([1.3, 2.4, 0.9], maturities, 3)
-        @test_throws DomainError Yields.SwapQuote.(rates, maturities, 0)
-        @test_throws DomainError Yields.SwapQuote.(rates, maturities, -2)
+        @test_throws DomainError Yields.ZeroCouponQuotes([1.3, 2.4, 0.9], maturities)
  
         rates = [0.4, -0.7]
-        bbq = Yields.BulletBondQuote.(rates, prices,maturities, 3)
-        @test first(bbq).frequency == 3
-        @test first(bbq).yield == first(rates)
-        
+        swq = Yields.SwapQuotes(rates, maturities, 3)
+        @test swq.rates == rates
+        @test swq.maturities == maturities
+        @test swq.frequency == 3
  
-        @test_throws DimensionMismatch Yields.BulletBondQuote.([1.3, 2.4, 0.9], prices, maturities, 3)
-        @test_throws DimensionMismatch Yields.BulletBondQuote.(rates, prices, [4.3, 5.6, 4.4, 4.4], 3)
-        @test first(Yields.BulletBondQuote.(rates, [5.7], maturities, 3)).price == 5.7
-        @test_throws DomainError Yields.BulletBondQuote.(rates, prices, maturities, 0)
-        @test_throws DomainError Yields.BulletBondQuote.(rates, prices, maturities, -4)
+        @test_throws DomainError Yields.SwapQuotes([1.3, 2.4, 0.9], maturities, 3)
+        @test_throws DomainError Yields.SwapQuotes(rates, maturities, 0)
+        @test_throws DomainError Yields.SwapQuotes(rates, maturities, -2)
+ 
+        rates = [0.4, -0.7]
+        bbq = Yields.BulletBondQuotes(rates, maturities, prices, 3)
+        @test bbq.interests == rates
+        @test bbq.maturities == maturities
+        @test bbq.prices == prices
+        @test bbq.frequency == 3
+ 
+        @test_throws DomainError Yields.BulletBondQuotes([1.3, 2.4, 0.9], maturities, prices, 3)
+        @test_throws DomainError Yields.BulletBondQuotes(rates, [4.3, 5.6, 4.4, 4.4], prices, 3)
+        @test_throws DomainError Yields.BulletBondQuotes(rates, maturities, [5.7], 3)
+        @test_throws DomainError Yields.BulletBondQuotes(rates, maturities, prices, 0)
+        @test_throws DomainError Yields.BulletBondQuotes(rates, maturities, prices, -4)
  
     end
  
