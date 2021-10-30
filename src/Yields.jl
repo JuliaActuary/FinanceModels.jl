@@ -50,8 +50,8 @@ A type representing periodic interest compounding with the given frequency
 Creating a semi-annual bond equivalent yield:
 
 ```julia-repl
-julia> Rate(0.01,Periodic(2))
-Rate(0.01, Periodic(2))
+julia> BondEquivalent(0.01)
+BondEquivalent(0.01)
 ```
 
 See also: [`Continuous`](@ref)
@@ -71,7 +71,7 @@ Creating a semi-annual bond equivalent yield:
 
 ```julia-repl
 julia> Periodic(0.01,2)
-Rate(0.01, Periodic(2))
+BondEquivalent(0.01)
 ```
 
 See also: [`Continuous`](@ref)
@@ -101,14 +101,14 @@ Continuous rates can be constructed via `Rate(rate, Inf)` or `Rate(rate,Continuo
 julia> Rate(0.01,Continuous())
 Rate(0.01, Continuous())
 
-julia> Rate(0.01,Periodic(2))
-Rate(0.01, Periodic(2))
+julia> BondEquivalent(0.01)
+BondEquivalent(0.01)
 
 julia> Rate(0.01)
 Rate(0.01, Periodic(1))
 
 julia> Rate(0.01,2)
-Rate(0.01, Periodic(2))
+BondEquivalent(0.01)
 
 julia> Rate(0.01,Periodic(4))
 Rate(0.01, Periodic(4))
