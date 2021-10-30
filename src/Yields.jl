@@ -431,6 +431,8 @@ function OIS(rates::Vector{Rate}, maturities)
     )
 end
 
+abstract type ObservableQuote end
+
 """
     ZeroCouponQuotes(prices, maturities)
 
@@ -448,6 +450,11 @@ struct ZeroCouponQuotes{TP <: AbstractVector,TM <: AbstractVector}
         end
         return new(prices, maturities)
     end
+end
+
+struct ZeroCouponQuote <: ObservableQuote
+    price
+    maturity
 end
 
 ZeroCouponQuotes(prices::TP, maturities::TM) where {TP <: AbstractVector,TM <: AbstractVector} = ZeroCouponQuotes{TP,TM}(prices, maturities)
@@ -475,7 +482,16 @@ struct SwapQuotes{TR <: AbstractVector,TM <: AbstractVector}
     end
 end
 
-SwapQuotes(rates::TR, maturities::TM, frequency) where {TR <: AbstractVector,TM <: AbstractVector} = SwapQuotes{TR,TM}(rates, maturities, frequency)
+struct SwapQuote <: ObservableQuote
+    yield
+    maturity
+    frequency
+    function SwapQuote(yield,maturity,frequency)
+        frequency <= 0 && throw(DomainError("Payment frequency must be positive"))
+        return new(yield,maturity,frequency)
+    end
+end
+
 
 """
     BulletBondQuotes(interests, maturities, prices, frequency)
@@ -499,6 +515,18 @@ struct BulletBondQuotes{TI <: AbstractVector,TM <: AbstractVector,TP <: Abstract
             throw(DomainError("Payment frequency must be positive"))
         end
         return new(interests, maturities, prices, frequency)
+    end
+end
+
+struct BulletBondQuote
+    yield
+    maturity
+    price
+    frequency
+
+    function BulletBondQuote(yield,maturity,price,frequency)
+        frequency <= 0 && throw(DomainError("Payment frequency must be positive"))
+        return new(yield,maturity,price,frequency)
     end
 end
 
