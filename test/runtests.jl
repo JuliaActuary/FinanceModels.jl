@@ -306,16 +306,16 @@ using Test
         @test_throws DomainError Yields.SwapQuote.(rates, maturities, -2)
  
         rates = [0.4, -0.7]
-        bbq = Yields.BulletBondQuote.(rates, maturities, prices, 3)
+        bbq = Yields.BulletBondQuote.(rates, prices,maturities, 3)
         @test first(bbq).frequency == 3
         @test first(bbq).yield == first(rates)
         
  
-        @test_throws DimensionMismatch Yields.BulletBondQuote.([1.3, 2.4, 0.9], maturities, prices, 3)
-        @test_throws DimensionMismatch Yields.BulletBondQuote.(rates, [4.3, 5.6, 4.4, 4.4], prices, 3)
-        @test first(Yields.BulletBondQuote.(rates, maturities, [5.7], 3)).price == 5.7
-        @test_throws DomainError Yields.BulletBondQuote.(rates, maturities, prices, 0)
-        @test_throws DomainError Yields.BulletBondQuote.(rates, maturities, prices, -4)
+        @test_throws DimensionMismatch Yields.BulletBondQuote.([1.3, 2.4, 0.9], prices, maturities, 3)
+        @test_throws DimensionMismatch Yields.BulletBondQuote.(rates, prices, [4.3, 5.6, 4.4, 4.4], 3)
+        @test first(Yields.BulletBondQuote.(rates, [5.7], maturities, 3)).price == 5.7
+        @test_throws DomainError Yields.BulletBondQuote.(rates, prices, maturities, 0)
+        @test_throws DomainError Yields.BulletBondQuote.(rates, prices, maturities, -4)
  
     end
  
@@ -376,17 +376,33 @@ using Test
         # Round-trip zero coupon quotes
         zcq_times = [1.2, 4.5, 5.6]
         zcq_prices = [1.0, 0.9, 1.2]
-        zcq = Yields.ZeroCouponQuotes(zcq_prices, zcq_times)
+        zcq = Yields.ZeroCouponQuote.(zcq_prices, zcq_times)
         sw_zcq = Yields.SmithWilson(zcq, ufr=ufr, α=α)
         @testset "ZeroCouponQuotes round-trip" for idx in 1:length(zcq_times)
             @test discount(sw_zcq, zcq_times[idx]) ≈ zcq_prices[idx]
         end
+
+        # uneven frequencies
+        swq_maturities = [1.2, 2.5, 3.6]
+        swq_interests = [-0.02, 0.3, 0.04]
+        frequency = [2,1,2]
+        swq = Yields.SwapQuote.(swq_interests, swq_maturities, frequency)
+        swq_times = 0.5:0.5:3.5   # Maturities are rounded down to multiples of 1/frequency, [1.0, 2.5, 3.5]
+        swq_payments = [
+           -0.01  0.3     0.02
+            0.99  0     0.02
+            0     0.3   0.02
+            0     0     0.02
+            0     1.3   0.02
+            0     0     0.02
+            0     0     1.02
+        ]
     
         # Round-trip swap quotes
         swq_maturities = [1.2, 2.5, 3.6]
         swq_interests = [-0.02, 0.3, 0.04]
         frequency = 2
-        swq = Yields.SwapQuotes(swq_interests, swq_maturities, frequency)
+        swq = Yields.SwapQuote.(swq_interests, swq_maturities, frequency)
         swq_times = 0.5:0.5:3.5   # Maturities are rounded down to multiples of 1/frequency, [1.0, 2.5, 3.5]
         swq_payments = [-0.01 0.15 0.02
                         0.99 0.15 0.02
@@ -402,7 +418,7 @@ using Test
     
         # Round-trip bullet bond quotes (reuse data from swap quotes)
         bbq_prices = [1.3, 0.1, 4.5]
-        bbq = Yields.BulletBondQuotes(swq_interests, swq_maturities, bbq_prices, frequency)
+        bbq = Yields.BulletBondQuote.(swq_interests, bbq_prices, swq_maturities, frequency)
         sw_bbq = Yields.SmithWilson(bbq, ufr=ufr, α=α)
         @testset "BulletBondQuotes round-trip" for bondIdx in 1:length(swq_interests)
             @test sum(discount.(sw_bbq, swq_times) .* swq_payments[:, bondIdx]) ≈ bbq_prices[bondIdx]
@@ -438,7 +454,7 @@ using Test
         eiopa_eurswap_maturities = [1:12; 15; 20]
         eiopa_eurswap_rates = [-0.00615, -0.00575, -0.00535, -0.00485, -0.00425, -0.00375, -0.003145, 
         -0.00245, -0.00185, -0.00125, -0.000711, -0.00019, 0.00111, 0.00215]   # Reverse engineered from output curve. This is the full precision of market quotes.
-        eiopa_eurswap_quotes = Yields.SwapQuotes(eiopa_eurswap_rates, eiopa_eurswap_maturities, 1)
+        eiopa_eurswap_quotes = Yields.SwapQuote.(eiopa_eurswap_rates, eiopa_eurswap_maturities, 1)
         sw_eiopa_actual = Yields.SmithWilson(eiopa_eurswap_quotes, ufr=eiopa_ufr, α=eiopa_α)
     
         @testset "Match EIOPA calculation" begin

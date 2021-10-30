@@ -434,54 +434,38 @@ end
 abstract type ObservableQuote end
 
 """
-    ZeroCouponQuotes(prices, maturities)
+    ZeroCouponQuotes(price, maturity)
 
-Quotes for a set of zero coupon bonds with given `prices` and `maturities`. `prices` and `maturities` must
-have same length.
+Quotes for a set of zero coupon bonds with given `price` and `maturity`. 
+
+# Examples
+
+```julia-repl
+julia> prices = [1.3, 0.1, 4.5]
+julia> maturities = [1.2, 2.5, 3.6]
+julia> swq = Yields.ZeroCouponQuote.(prices, maturities)
+```
 """
-struct ZeroCouponQuotes{TP <: AbstractVector,TM <: AbstractVector}
-    prices::TP
-    maturities::TM
-
-    # Inner constructor ensures that vector lengths match
-    function ZeroCouponQuotes{TP,TM}(prices::TP, maturities::TM) where {TP <: AbstractVector,TM <: AbstractVector}
-        if length(prices) != length(maturities)
-        throw(DomainError("Vectors of prices and maturities for ZeroCouponQuotes must have equal length"))
-        end
-        return new(prices, maturities)
-    end
-end
-
 struct ZeroCouponQuote <: ObservableQuote
     price
     maturity
 end
 
-ZeroCouponQuotes(prices::TP, maturities::TM) where {TP <: AbstractVector,TM <: AbstractVector} = ZeroCouponQuotes{TP,TM}(prices, maturities)
-
 """
-    SwapQuotes(rates, maturities, frequency)
+    SwapQuote(yield, maturity, frequency)
 
-Quotes for a set of interest rate swaps with the given `rates` and `maturities` and a given payment frequency `frequency`.
-`rates` and `maturities` must have same length.
+Quotes for a set of interest rate swaps with the given `yield` and `maturity` and a given payment `frequency`.
+
+# Examples
+
+```julia-repl
+julia> maturities = [1.2, 2.5, 3.6]
+julia> interests = [-0.02, 0.3, 0.04]
+julia> prices = [1.3, 0.1, 4.5]
+julia> frequencies = [2,1,2]
+julia> swq = Yields.SwapQuote.(interests, maturities, frequencies)
+```
 """
-struct SwapQuotes{TR <: AbstractVector,TM <: AbstractVector}
-    rates::TR
-    maturities::TM
-    frequency::Int
-
-    # Inner constructor ensures that vector lengths match and frequency is positive
-    function SwapQuotes{TR,TM}(rates, maturities, frequency) where {TR <: AbstractVector,TM <: AbstractVector}
-        if length(rates) != length(maturities)
-            throw(DomainError("Vectors of rates and maturities for SwapQuotes must have equal length"))
-        end
-        if frequency <= 0
-            throw(DomainError("Payment frequency must be positive"))
-        end
-        return new(rates, maturities, frequency)
-    end
-end
-
 struct SwapQuote <: ObservableQuote
     yield
     maturity
@@ -494,34 +478,26 @@ end
 
 
 """
-    BulletBondQuotes(interests, maturities, prices, frequency)
+    BulletBondQuote(yield, price, maturity, frequency)
 
-Quotes for a set of fixed interest bullet bonds with given `interests`, `maturities`, and `prices` and a given payment frequency `frequency`.
-`interests`, `maturities`, and `prices` must have same length.
+Quote for a set of fixed interest bullet bonds with given `yield`, `price`, `maturity` and a given payment frequency `frequency`.
+
+Construct a vector of quotes for use with SmithWilson methods, e.g. by broadcasting over an array of inputs.
+
+# Examples
+
+```julia-repl
+julia> maturities = [1.2, 2.5, 3.6]
+julia> interests = [-0.02, 0.3, 0.04]
+julia> prices = [1.3, 0.1, 4.5]
+julia> frequencies = [2,1,2]
+julia> bbq = Yields.BulletBondQuote.(interests, maturities, prices, frequencies)
+```
 """
-struct BulletBondQuotes{TI <: AbstractVector,TM <: AbstractVector,TP <: AbstractVector}
-    interests::TI
-    maturities::TM
-    prices::TP
-    frequency::Int
-
-    # Inner constructor ensures that vector lengths match and frequency is positive
-    function BulletBondQuotes{TI,TM,TP}(interests, maturities, prices, frequency) where
-            {TI <: AbstractVector,TM <: AbstractVector,TP <: AbstractVector}
-        if length(interests) != length(maturities) || length(interests) != length(prices)
-            throw(DomainError("Vectors of interests, maturities, and prices for BulletBondQuotes must have equal length"))
-        end
-        if frequency <= 0
-            throw(DomainError("Payment frequency must be positive"))
-        end
-        return new(interests, maturities, prices, frequency)
-    end
-end
-
-struct BulletBondQuote
+struct BulletBondQuote <: ObservableQuote
     yield
-    maturity
     price
+    maturity
     frequency
 
     function BulletBondQuote(yield,maturity,price,frequency)
@@ -530,15 +506,11 @@ struct BulletBondQuote
     end
 end
 
-function BulletBondQuotes(interests::TI, maturities::TM, prices::TP, frequency) where
-        {TI <: AbstractVector,TM <: AbstractVector,TP <: AbstractVector}
-    return BulletBondQuotes{TI,TM,TP}(interests, maturities, prices, frequency)
-end
 
 """
-    SmithWilson(zcq::ZeroCouponQuotes; ufr, α)
-    SmithWilson(swq::SwapQuotes; ufr, α)
-    SmithWilson(bbq::BulletBondQuotes; ufr, α)
+    SmithWilson(zcq::Vector{ZeroCouponQuote}; ufr, α)
+    SmithWilson(swq::Vector{SwapQuote}; ufr, α)
+    SmithWilson(bbq::Vector{BulletBondQuote}; ufr, α)
     SmithWilson(times<:AbstractVector, cashflows<:AbstractMatrix, prices<:AbstractVector; ufr, α)
     SmithWilson(u, qb; ufr, α)
     
@@ -546,7 +518,7 @@ Create a yield curve object that implements the Smith-Wilson interpolation/extra
 
 Positional arguments to construct a curve:
 
-- Quoted instrument as the first argument: either `ZeroCouponQuotes`, `SwapQuotes`, or `BulletBondQuotes`, or 
+- Quoted instrument as the first argument: either a `Vector` of `ZeroCouponQuote`s, `SwapQuote`s, or `BulletBondQuote`s, or 
 - A set of `times`, `cashflows`, and `prices`, or
 - A curve can be with `u` is the timepoints coming from the calibration, and `qb` is the internal parameterization of the curve that ensures that the calibration is correct. Users may prefer the other constructors but this mathematical constructor is also available.
 
@@ -617,18 +589,11 @@ end
 
 Return the times associated with the `cashflows` of the instruments.
 """
-function timepoints(bbq::BulletBondQuotes{TI,TM,TP}) where {TI,TM,TP}
-    maturity_indices = floor.(bbq.frequency * bbq.maturities)
-    n_times = maximum(maturity_indices)
-    times = collect(1:n_times) ./ bbq.frequency
-    return times
-end
-
-function timepoints(swq::SwapQuotes{TM,TR}) where {TM,TR} 
-    maturity_indices = floor.(swq.frequency * swq.maturities)
-    n_times = maximum(maturity_indices)
-    times = collect(1:n_times) ./ swq.frequency
-    return times
+function timepoints(qs::Vector{Q}) where {Q<:ObservableQuote}
+    frequency = maximum(q.frequency for q in qs)
+    timestep = 1 / frequency
+    maturity = maximum(q.maturity for q in qs)
+    return [timestep:timestep:maturity...]
 end
 
 
@@ -641,38 +606,52 @@ Produce a cash flow matrix for a set of instruments with given `interests` and `
 and a given payment frequency `frequency`. All instruments are assumed to have their first payment at time 1/`frequency`
 and have their last payment at the largest multiple of 1/`frequency` less than or equal to the input maturity.
 """
-function cashflows(interests::AbstractVector{TI}, maturities::AbstractVector, frequency::Int) where {TI}
-    maturity_indices = floor.(frequency * maturities)
-    n_times = maximum(maturity_indices)
-n_instr = length(interests)
-    cashflows = [(tIdx <= maturity_indices[iIdx] ? interests[iIdx] / frequency : zero(TI)) + (tIdx == maturity_indices[iIdx] ? one(TI) : zero(TI)) for tIdx in 1:n_times, iIdx in 1:n_instr]
+function cashflows(interests, maturities, frequencies)
+    frequency = lcm(frequencies)
+    fq = inv.(frequencies)
+    timestep = 1 / frequency
+    floored_mats = floor.(maturities ./ timestep) .* timestep
+    times = timestep:timestep:maximum(floored_mats)
+    # we need to determine the coupons in relation to the payment date, not time zero
+    time_adj =  floored_mats .% fq 
+
+    cashflows = [
+        # if on a coupon date and less than maturity, pay coupon
+        ((((t + time_adj[instrument]) % fq[instrument] ≈ 0) && t <= floored_mats[instrument]) ? interests[instrument] / frequencies[instrument]  : 0.) + 
+        (t ≈ floored_mats[instrument] ? 1.0 : 0.) # add maturity payment
+        for t in times, instrument in 1:length(interests)
+    ]
+
     return cashflows
 end
 
-function cashflows(bbq::BulletBondQuotes{TI,TM,TP}) where {TI,TM,TP}
-    return cashflows(bbq.interests, bbq.maturities, bbq.frequency)
-end
-
-function cashflows(swq::SwapQuotes{TM,TR}) where {TM,TR} 
-    return cashflows(swq.rates, swq.maturities, swq.frequency)
+function cashflows(qs::Vector{Q}) where {Q<:ObservableQuote}
+    yield = [q.yield for q in qs]
+    maturity = [q.maturity for q in qs]
+    frequency = [q.frequency for q in qs]
+    return cashflows(yield, maturity, frequency)
 end
 
 # Utility methods for calibrating Smith-Wilson directly from quotes
-function SmithWilson(zcq::ZeroCouponQuotes{TM,TP}; ufr, α) where {TM,TP}
-    n = length(zcq.maturities)
-    return SmithWilson(zcq.maturities, Matrix{Float64}(I, n, n), zcq.prices; ufr=ufr, α=α)
+function SmithWilson(zcq::Vector{ZeroCouponQuote}; ufr, α)
+    n = length(zcq)
+    maturities = [q.maturity for q in zcq]
+    prices = [q.price for q in zcq]
+    return SmithWilson(maturities, Matrix{Float64}(I, n, n), prices; ufr=ufr, α=α)
 end
 
-function SmithWilson(swq::SwapQuotes{TM,TR}; ufr, α) where {TM,TR}
+function SmithWilson(swq::Vector{SwapQuote}; ufr, α)
     times = timepoints(swq)
     cfs = cashflows(swq)
-    return SmithWilson(times, cfs, ones(length(swq.rates)), ufr=ufr, α=α)
+    ones(length(swq))
+    return SmithWilson(times, cfs, ones(length(swq)), ufr=ufr, α=α)
 end
 
-function SmithWilson(bbq::BulletBondQuotes{TI,TM,TP}; ufr, α) where {TI,TM,TP}
+function SmithWilson(bbq::Vector{BulletBondQuote}; ufr, α)
     times = timepoints(bbq)
     cfs = cashflows(bbq)
-    return SmithWilson(times, cfs, bbq.prices, ufr=ufr, α=α)
+    prices = [q.price for q in bbq]
+    return SmithWilson(times, cfs, prices, ufr=ufr, α=α)
 end
 
 # https://github.com/dpsanders/hands_on_julia/blob/master/during_sessions/Fractale%20de%20Newton.ipynb

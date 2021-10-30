@@ -73,7 +73,7 @@ There are a several ways to construct a yield curve object.
 #### Kernel Methods
 
 - `Yields.SmithWilson` curve (used for [discounting in the EU Solvency II framework](https://www.eiopa.europa.eu/sites/default/files/risk_free_interest_rate/12092019-technical_documentation.pdf)) can be constructed either directly by specifying its inner representation or by calibrating to a set of cashflows with known prices.
-  - These cashflows can conveniently be constructed with `Yields.ZeroCouponQuotes`, `Yields.SwapQuotes`, or `Yields.BulletBondQuotes`.
+  - These cashflows can conveniently be constructed with a Vector of `Yields.ZeroCouponQuote`s, `Yields.SwapQuote`s, or `Yields.BulletBondQuote`s.
 
 ### Functions
 
