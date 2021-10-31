@@ -434,9 +434,9 @@ end
 abstract type ObservableQuote end
 
 """
-    ZeroCouponQuotes(price, maturity)
+    ZeroCouponQuote(price, maturity)
 
-Quotes for a set of zero coupon bonds with given `price` and `maturity`. 
+Quote for a set of zero coupon bonds with given `price` and `maturity`. 
 
 # Examples
 
@@ -454,7 +454,7 @@ end
 """
     SwapQuote(yield, maturity, frequency)
 
-Quotes for a set of interest rate swaps with the given `yield` and `maturity` and a given payment `frequency`.
+Quote for a set of interest rate swaps with the given `yield` and `maturity` and a given payment `frequency`.
 
 # Examples
 
@@ -584,8 +584,8 @@ function SmithWilson(times::AbstractVector, cashflows::AbstractMatrix, prices::A
 end
 
 """ 
-    timepoints(zcq::ZeroCouponQuotes)
-    timepoints(bbq::BulletBondQuotes)
+    timepoints(zcq::Vector{ZeroCouponQuote})
+    timepoints(bbq::Vector{BulletBondQuote})
 
 Return the times associated with the `cashflows` of the instruments.
 """
@@ -599,8 +599,8 @@ end
 
 """
     cashflows(interests, maturities, frequency)
-    cashflows(zcq::ZeroCouponQuotes)
-    cashflows(bbq::BulletBondQuotes)
+    timepoints(zcq::Vector{ZeroCouponQuote})
+    timepoints(bbq::Vector{BulletBondQuote})
 
 Produce a cash flow matrix for a set of instruments with given `interests` and `maturities`
 and a given payment frequency `frequency`. All instruments are assumed to have their first payment at time 1/`frequency`
