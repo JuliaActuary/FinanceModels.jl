@@ -434,9 +434,9 @@ end
 abstract type ObservableQuote end
 
 """
-    ZeroCouponQuotes(price, maturity)
+    ZeroCouponQuote(price, maturity)
 
-Quotes for a set of zero coupon bonds with given `price` and `maturity`. 
+Quote for a set of zero coupon bonds with given `price` and `maturity`. 
 
 # Examples
 
