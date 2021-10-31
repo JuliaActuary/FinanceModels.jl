@@ -584,8 +584,8 @@ function SmithWilson(times::AbstractVector, cashflows::AbstractMatrix, prices::A
 end
 
 """ 
-    timepoints(zcq::ZeroCouponQuotes)
-    timepoints(bbq::BulletBondQuotes)
+    timepoints(zcq::ZeroCouponQuote)
+    timepoints(bbq::BulletBondQuote)
 
 Return the times associated with the `cashflows` of the instruments.
 """
@@ -599,8 +599,8 @@ end
 
 """
     cashflows(interests, maturities, frequency)
-    cashflows(zcq::ZeroCouponQuotes)
-    cashflows(bbq::BulletBondQuotes)
+    cashflows(zcq::ZeroCouponQuote)
+    cashflows(bbq::BulletBondQuote)
 
 Produce a cash flow matrix for a set of instruments with given `interests` and `maturities`
 and a given payment frequency `frequency`. All instruments are assumed to have their first payment at time 1/`frequency`
