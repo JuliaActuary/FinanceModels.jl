@@ -6,7 +6,8 @@ using Test
     @testset "rate types" begin
         rs = Rate.([0.1,.02], Yields.Continuous())
         @test rs[1] == Rate(0.1, Yields.Continuous())
-        @test rate(rs[1]) == 0.1
+        @test Yields.value(rs[1]) == 0.1
+        @test Yields.value(rs[1]) == 0.1
     end
     
     @testset "constructor" begin
@@ -93,15 +94,15 @@ using Test
             
     @testset "short curve" begin
         z = Yields.Zero([0.0,0.05], [1,2])
-        @test rate(zero(z, 1)) ≈ 0.00
+        @test rate(zero(z, 1)) ≈ Yields.Periodic(0.00,1)
         @test discount(z, 1) ≈ 1.00
-        @test rate(zero(z, 2)) ≈ 0.05
+        @test rate(zero(z, 2)) ≈ Yields.Periodic(0.05,1)
 
         # test no times constructor
         z = Yields.Zero([0.0,0.05])
-        @test rate(zero(z, 1)) ≈ 0.00
+        @test rate(zero(z, 1)) ≈ Yields.Periodic(0.00,1)
         @test discount(z, 1) ≈ 1.00
-        @test rate(zero(z, 2)) ≈ 0.05
+        @test rate(zero(z, 2)) ≈ Yields.Periodic(0.05,1)
     end
     
     @testset "Step curve" begin
@@ -148,7 +149,7 @@ using Test
         y = Yields.Par(Rate.(par, Yields.Periodic(1)), maturity)
         
         @testset "UTYC Figure 9 par -> spot : $mat" for mat in maturity
-            @test rate(zero(y, mat)) ≈ spot[mat] atol = 0.0001
+            @test Yields.value(rate(zero(y, mat))) ≈ spot[mat] atol = 0.0001
             @test forward(y, mat - 1) ≈ fwd[mat] atol = 0.0001
         end
         
@@ -168,6 +169,8 @@ using Test
         @test forward(curve, 0.5, 1.0) ≈ 6.6 / 100 atol = 0.001
         @test forward(curve, 1.0, 1.5) ≈ 7.6 / 100 atol = 0.001
         @test forward(curve, 1.5, 2.0) ≈ 8.0 / 100 atol = 0.001
+
+        @test rate(curve,1) ≈ Yields.Periodic(0.058,1)
         
         y = Yields.Zero(zero)
         
@@ -250,7 +253,7 @@ using Test
         target_periodicity = fill(2, length(mats))
         target_periodicity[2] = 1 # 1 year is a no-coupon, BEY yield, the rest are semiannual BEY
         @testset "Fabozzi bootstrapped rates" for (r, mat, target, tp) in zip(cmt, mats, targets, target_periodicity)
-            @test rate(zero(curve, mat, Yields.Periodic(tp))) ≈ target atol = 0.0001
+            @test rate(zero(curve, mat, Yields.Periodic(tp))) ≈ Yields.Periodic(target,tp) atol = 0.0001
         end
 
         # Hull, problem 4.34
@@ -260,7 +263,7 @@ using Test
         curve = Yields.CMT(cmt, mats)
         targets = [4.0405,5.1293,5.4429,5.8085] ./ 100
         @testset "Hull bootstrapped rates" for (r, mat, target) in zip(cmt, mats, targets)
-            @test rate(zero(curve, mat, Yields.Continuous())) ≈ target atol = 0.001
+            @test rate(zero(curve, mat, Yields.Continuous())) ≈ Yields.Continuous(target) atol = 0.001
         end
         
     #     # https://www.federalreserve.gov/pubs/feds/2006/200628/200628abs.html
@@ -284,7 +287,7 @@ using Test
         curve = Yields.OIS(ois, mats)
         targets = [0.017987,0.019950,0.021880,0.024693,0.029994,0.040401]
         @testset "bootstrapped rates" for (r, mat, target) in zip(ois, mats, targets)
-            @test rate(zero(curve, mat, Yields.Continuous())) ≈ target atol = 0.001
+            @test rate(zero(curve, mat, Yields.Continuous())) ≈ Yields.Continuous(target) atol = 0.001
         end
     end
     
@@ -340,9 +343,9 @@ using Test
         sw_flat = Yields.SmithWilson(Float64[], Float64[], ufr=ufr, α=α)
         @test discount(sw_flat, 10.0) == exp(-ufr * 10.0)
         @test accumulation(sw_flat, 10.0) ≈ exp(ufr * 10.0)
-        @test rate(convert(Yields.Continuous(), zero(sw_flat, 8.0))) ≈ ufr
+        @test Yields.value(convert(Yields.Continuous(), zero(sw_flat, 8.0))) ≈ ufr
         @test discount.(sw_flat, [5.0, 10.0]) ≈ exp.(-ufr .* [5.0, 10.0])
-        @test rate(convert(Yields.Continuous(), Rate(forward(sw_flat, 5.0, 8.0)))) ≈ ufr
+        @test Yields.value(convert(Yields.Continuous(), Rate(forward(sw_flat, 5.0, 8.0)))) ≈ ufr
     
         # A trivial Qb vector (=0) should result in a flat yield curve
         ufr_curve = Yields.SmithWilson(u, [0.0, 0.0], ufr=ufr, α=α)
@@ -353,7 +356,7 @@ using Test
         @test discount(curve_with_zero_yield, 4.0) == 1.0
     
         # In the long end it's still just UFR
-        @test rate(convert(Yields.Continuous(), Rate(forward(curve_with_zero_yield, 1000.0, 2000.0)))) ≈ ufr
+        @test Yields.value(convert(Yields.Continuous(), Rate(forward(curve_with_zero_yield, 1000.0, 2000.0)))) ≈ ufr
     
         # Three maturities have known discount factors
         times = [1.0, 2.5, 5.6]

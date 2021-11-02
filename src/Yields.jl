@@ -3,6 +3,7 @@ module Yields
 import Interpolations
 import ForwardDiff
 using LinearAlgebra
+import Base: convert, isapprox
 
 # don't export type, as the API of Yields.Zero is nicer and 
 # less polluting than Zero and less/equally verbose as ZeroYieldCurve or ZeroCurve
@@ -78,9 +79,9 @@ See also: [`Continuous`](@ref)
 """
 Periodic(x,frequency) = Rate(x, Periodic(frequency))
 
-struct Rate
+struct Rate{T<:CompoundingFrequency}
     value
-    compounding::CompoundingFrequency
+    compounding::T
 end
 
 # Base.:==(r1::Rate,r2::Rate) = (r1.value == r2.value) && (r1.compounding == r2.compounding)
@@ -159,8 +160,36 @@ function Base.convert(to::Periodic, r, from::Periodic)
 return convert(to, c, Continuous())
 end
 
-rate(r::Rate) = r.value
+"""
+    rate(r::Rate)
 
+Returns itself. 
+
+To extract the scalar rate without the corresponding `CompoundingFrequency`, call `convert(T,rate)` or Yields.value(rate); e.g. `convert(Float64,Rate(0.03,Periodic(2))`  or `value(Rate(0.03,Periodic(2)`will return `0.03`.
+"""
+rate(r::Rate) = r
+
+"""
+    value(r::Rate)
+
+Return the underlying scalar rate value without the corresponding CompoundingFrequency information.
+
+# Examples
+julia> value(Rate(0.03,Periodic(2)))
+0.03
+
+"""
+value(r::Rate) = r.value
+
+Base.isapprox(x::Rate{Continuous},y::Rate{Periodic};kwargs...) = false
+function Base.isapprox(x::Rate{Continuous},y::Rate{Continuous};kwargs...) 
+   return isapprox(value(x),value(y);kwargs...)
+end
+function Base.isapprox(x::Rate{Periodic},y::Rate{Periodic};kwargs...) 
+    return isapprox(value(x),value(y); kwargs...) && (x.compounding == y.compounding)
+end
+# reverse args if not matching above
+Base.isapprox(x::Rate,y::Rate; kwargs...) = isapprox(y, x; kwargs...) 
 
 """
 An AbstractYield is an object which can be used as an argument to:
@@ -236,8 +265,8 @@ discount(r::Constant,time) = 1 / accumulation(r, time)
 
 accumulation(r::Constant,time) = accumulation(r.rate.compounding, r, time)
 accumulation(c::T,time) where {T >: Real} = accumulation(Constant(c), time)
-accumulation(::Continuous,r::Constant,time) = exp(rate(r.rate) * time)
-accumulation(::Periodic,r::Constant,time) = (1 + rate(r.rate) / r.rate.compounding.frequency)^(r.rate.compounding.frequency * time)
+accumulation(::Continuous,r::Constant,time) = exp(value(r.rate) * time)
+accumulation(::Periodic,r::Constant,time) = (1 + value(r.rate) / r.rate.compounding.frequency)^(r.rate.compounding.frequency * time)
 
 """
     Step(rates,times)
@@ -250,13 +279,13 @@ Create a yield curve object where the applicable rate is the effective rate of i
 julia>y = Yields.Step([0.02,0.05], [1,2])
 
 julia>rate(y,0.5)
-0.02
+Periodic(0.02,1)
 
 julia>rate(y,1.5)
-0.05
+Periodic(0.05,1)
 
 julia>rate(y,2.5)
-0.05
+Periodic(0.05,1)
 ```
 """
 struct Step <: AbstractYield
@@ -338,7 +367,7 @@ Rate(0.06000000000000005, Periodic(1))
 
 ```
 """
-function Par(rates::Vector{Rate}, maturities)
+function Par(rates::Vector{Rate{T}}, maturities) where {T<:CompoundingFrequency}
     # bump to a constant yield if only given one rate
     if length(rates) == 1
         return Constant(rate[1])
@@ -394,7 +423,7 @@ function CMT(rates::Vector{T}, maturities) where {T <: Real}
     CMT(rs, maturities)
 end
 
-function CMT(rates::Vector{Rate}, maturities)
+function CMT(rates::Vector{Rate{T}}, maturities) where {T<: CompoundingFrequency}
     return YieldCurve(
             rates,
             maturities,
@@ -421,7 +450,7 @@ function OIS(rates::Vector{T}, maturities) where {T <: Real}
 
     return OIS(rs, maturities)
 end
-function OIS(rates::Vector{Rate}, maturities)
+function OIS(rates::Vector{Rate{T}}, maturities) where {T<:CompoundingFrequency}
     return YieldCurve(
         rates,
         maturities,
@@ -683,7 +712,7 @@ function bootstrap(rates, maturities, settlement_frequency;interp_function=linea
         else
             # need to account for the interim cashflows settled
             times = settlement_frequency[t]:settlement_frequency[t]:maturities[t]
-            cfs = [rate(rates[t]) * settlement_frequency[t] for s in times]
+            cfs = [value(rates[t]) * settlement_frequency[t] for s in times]
             cfs[end] += 1
             
             function pv(v_guess)
@@ -693,7 +722,7 @@ function bootstrap(rates, maturities, settlement_frequency;interp_function=linea
             target_pv = sum(map(t2 -> discount(Constant(rates[t]), t2), times) .* cfs)
             root_func(v_guess) = pv(v_guess) - target_pv
             root_func′(v_guess) = ForwardDiff.derivative(root_func, v_guess)
-            discount_vec[t] = solve(root_func, root_func′, rate(rates[t]))
+            discount_vec[t] = solve(root_func, root_func′, value(rates[t]))
         end
 
     end
@@ -785,10 +814,10 @@ end
 
 function Base.:+(a::Constant, b::Constant)
     a_kind = rate(a).compounding
-    rate_new_basis = rate(convert(a_kind, rate(b)))
+    rate_new_basis = value(convert(a_kind, rate(b)))
     return Constant(
         Rate(
-            rate(a.rate) + rate_new_basis,
+            value(a.rate) + rate_new_basis,
             a_kind
             )
         )
@@ -813,10 +842,10 @@ end
 
 function Base.:-(a::Constant, b::Constant)
     a_kind = rate(a).compounding
-    rate_new_basis = rate(convert(a_kind, rate(b)))
+    rate_new_basis = value(convert(a_kind, rate(b)))
     return Constant(
         Rate(
-            rate(a.rate) - rate_new_basis,
+            value(a.rate) - rate_new_basis,
             a_kind
             )
         )
