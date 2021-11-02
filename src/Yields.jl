@@ -738,6 +738,28 @@ function accumulation(y::T, from, to) where {T <: AbstractYield}
 end
 accumulation(rate::Rate,from,to) = accumulation(Constant(rate), from, to)
 
+
+""" 
+    rate(curve,time)
+    rate(CompoundingFrequency,curve,time)
+
+Return the rate for the curve at the given timepoint. If a `CompoundingFrequency` (e.g. `Yields.Continuous()` or `Yields.Periodic(2)`) not given, will assume periodic compounding of `Yields.Periodic(1)` frequency
+"""
+rate(curve,time) = rate(Periodic(1),curve,time)
+function rate(cf::Periodic,curve,time)
+    v = discount(curve,time)
+    f = cf.frequency
+    i = -f*v^(-1/(f*time))*(-1 + v^(1/(f*time)))
+    return Rate(i,cf)
+end
+function rate(cf::Continuous,curve,time)
+    v = discount(curve,time)
+    v = 1 / exp(r*time)
+    r = log(1/v)/time
+    return Rate(r,cf)
+end
+
+
 ## Curve Manipulations
 struct RateCombination <: AbstractYield
     r1
