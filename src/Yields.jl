@@ -78,9 +78,9 @@ See also: [`Continuous`](@ref)
 """
 Periodic(x,frequency) = Rate(x, Periodic(frequency))
 
-struct Rate
-    value
-    compounding::CompoundingFrequency
+struct Rate{N<:Real,T<:CompoundingFrequency}
+    value::N
+    compounding::T
 end
 
 # Base.:==(r1::Rate,r2::Rate) = (r1.value == r2.value) && (r1.compounding == r2.compounding)
@@ -141,7 +141,9 @@ julia> convert(Continuous(),r)
 Rate(0.009995835646701251, Continuous())
 ```
 """
-Base.convert(T::CompoundingFrequency,r::Rate) = convert(T, r, r.compounding)
+function Base.convert(T::CompoundingFrequency,r::Rate{<:Real,<:CompoundingFrequency}) 
+    convert(T, r, r.compounding)
+end
 function Base.convert(to::Continuous, r, from::Continuous)
     return r
 end
@@ -159,8 +161,9 @@ function Base.convert(to::Periodic, r, from::Periodic)
 return convert(to, c, Continuous())
 end
 
-rate(r::Rate) = r.value
-
+function rate(r::Rate{<:Real,<:CompoundingFrequency}) 
+    r.value
+end
 
 """
 An AbstractYield is an object which can be used as an argument to:
@@ -221,8 +224,8 @@ julia> discount(y,2)
 0.9070294784580498     # 1 / (1.05) ^ 2
 ```
 """
-struct Constant <: AbstractYield
-    rate
+struct Constant{T} <: AbstractYield
+    rate::T
 end
 
 function Constant(rate::T) where {T <: Real}
@@ -338,7 +341,7 @@ Rate(0.06000000000000005, Periodic(1))
 
 ```
 """
-function Par(rates::Vector{Rate}, maturities)
+function Par(rates::Vector{<:Rate}, maturities)
     # bump to a constant yield if only given one rate
     if length(rates) == 1
         return Constant(rate[1])
@@ -394,7 +397,7 @@ function CMT(rates::Vector{T}, maturities) where {T <: Real}
     CMT(rs, maturities)
 end
 
-function CMT(rates::Vector{Rate}, maturities)
+function CMT(rates::Vector{<:Rate}, maturities)
     return YieldCurve(
             rates,
             maturities,
@@ -421,7 +424,7 @@ function OIS(rates::Vector{T}, maturities) where {T <: Real}
 
     return OIS(rs, maturities)
 end
-function OIS(rates::Vector{Rate}, maturities)
+function OIS(rates::Vector{<:Rate}, maturities)
     return YieldCurve(
         rates,
         maturities,
@@ -708,8 +711,8 @@ end
 The discount factor for the `rate` for times `from` through `to`. If rate is a `Real` number, will assume a `Constant` interest rate.
 """
 discount(yc,time) = yc.discount(time)
-discount(rate::Rate,from,to) = discount(Constant(rate), from, to)
-discount(rate::Rate,to) = discount(Constant(rate), to)
+discount(rate::Rate{<:Real,<:CompoundingFrequency},from,to) = discount(Constant(rate), from, to)
+discount(rate::Rate{<:Real,<:CompoundingFrequency},to) = discount(Constant(rate), to)
 
 
 
@@ -731,12 +734,12 @@ The accumulation factor for the `rate` for times `from` through `to`. If rate is
 function accumulation(y::T, time) where {T <: AbstractYield}
     return 1 ./ discount(y, time)
 end
-accumulation(rate::Rate,to) = accumulation(Constant(rate), to)
+accumulation(rate::Rate{<:Real,<:CompoundingFrequency},to) = accumulation(Constant(rate), to)
 
 function accumulation(y::T, from, to) where {T <: AbstractYield}
     return 1 ./ discount(y, from, to)
 end
-accumulation(rate::Rate,from,to) = accumulation(Constant(rate), from, to)
+accumulation(rate::Rate{<:Real,<:CompoundingFrequency},from,to) = accumulation(Constant(rate), from, to)
 
 ## Curve Manipulations
 struct RateCombination <: AbstractYield
