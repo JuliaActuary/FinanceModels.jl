@@ -166,6 +166,31 @@ function rate(r::Rate{<:Real,<:CompoundingFrequency})
 end
 
 """
+    accumulation(r::Rate, t)
+    accumulation(r::Real, t)
+    accumulation(r::Union{Rate, Real}, from, to)
+
+Returns the accumulation factor for the rate `r` over the time `t`, or over the interval between `from` and `to`.
+"""
+
+accumulation(r::Rate{<:Real, <:Continuous}, t) = exp(r.value * t)
+accumulation(r::Rate{T, <:Periodic}, t) where {T<:Real} = (oneunit(T) + r.value / r.compounding.frequency)^(r.compounding.frequency * t)
+accumulation(r::Real, t) = accumulation(Rate(r), t) 
+accumulation(r::Union{Rate, Real}, from, to) = accumulation(r, to - from)
+
+"""
+    discount(r::Rate, t)
+    discount(r::Real, t)
+    discount(r::Union{Rate, Real}, from, to)
+
+Returns the discount factor for the rate `r` over the time `t`, or over the interval between `from` and `to`.
+"""
+
+discount(r::Rate, t) = 1 / accumulation(r, t)
+discount(r::Real, t) = discount(Rate(r), t)
+discount(r::Union{Rate, Real}, from, to) = discount(r, to - from)
+
+"""
 An AbstractYield is an object which can be used as an argument to:
 
 - zero-coupon spot rates via [`zero`](@ref)
@@ -234,13 +259,8 @@ end
 
 rate(c::Constant) = c.rate
 rate(c::Constant,time) = c.rate
-discount(c::T,time) where {T <: Real} = discount(Constant(c), time)
-discount(r::Constant,time) = 1 / accumulation(r, time)
-
-accumulation(r::Constant,time) = accumulation(r.rate.compounding, r, time)
-accumulation(c::T,time) where {T >: Real} = accumulation(Constant(c), time)
-accumulation(::Continuous,r::Constant,time) = exp(rate(r.rate) * time)
-accumulation(::Periodic,r::Constant,time) = (1 + rate(r.rate) / r.rate.compounding.frequency)^(r.rate.compounding.frequency * time)
+discount(r::Constant{<:Rate},time) = discount(r.rate, time)
+discount(cf::CompoundingFrequency, r::Constant,time) = discount(Rate(r.rate, cf) , time)
 
 """
     Step(rates,times)
@@ -705,23 +725,18 @@ end
 
 ## Generic and Fallbacks
 """
-    discount(rate,to)
-    discount(rate,from,to)
+    discount(yc::AbstractYield,to)
+    discount(yc::AbstractYield,from,to)
 
-The discount factor for the `rate` for times `from` through `to`. If rate is a `Real` number, will assume a `Constant` interest rate.
+The discount factor for the yield curve `yc` for times `from` through `to`.
 """
-discount(yc,time) = yc.discount(time)
-discount(rate::Rate{<:Real,<:CompoundingFrequency},from,to) = discount(Constant(rate), from, to)
-discount(rate::Rate{<:Real,<:CompoundingFrequency},to) = discount(Constant(rate), to)
+discount(yc::AbstractYield,time) = yc.discount(time)
+discount(yc::AbstractYield,from,to) = discount(yc, to) / discount(yc, from)
 
-
-
-discount(yc,from,to) = discount(yc, to) / discount(yc, from)
-
-    function forward(yc, from, to)
+function forward(yc::AbstractYield, from, to)
     return (accumulation(yc, to) / accumulation(yc, from))^(1 / (to - from)) - 1
 end
-function forward(yc, from)
+function forward(yc::AbstractYield, from)
     to = from + 1
     return forward(yc, from, to)
 end
@@ -734,12 +749,10 @@ The accumulation factor for the `rate` for times `from` through `to`. If rate is
 function accumulation(y::T, time) where {T <: AbstractYield}
     return 1 ./ discount(y, time)
 end
-accumulation(rate::Rate{<:Real,<:CompoundingFrequency},to) = accumulation(Constant(rate), to)
 
 function accumulation(y::T, from, to) where {T <: AbstractYield}
     return 1 ./ discount(y, from, to)
 end
-accumulation(rate::Rate{<:Real,<:CompoundingFrequency},from,to) = accumulation(Constant(rate), from, to)
 
 ## Curve Manipulations
 struct RateCombination <: AbstractYield
