@@ -6,10 +6,10 @@ using LinearAlgebra
 
 # don't export type, as the API of Yields.Zero is nicer and 
 # less polluting than Zero and less/equally verbose as ZeroYieldCurve or ZeroCurve
-export rate, discount, accumulation,forward, Yield, Rate, rate, spot
+export rate, discount, accumulation, forward, Yield, Rate, rate, spot
 
 abstract type CompoundingFrequency end
-Base.Broadcast.broadcastable(x::T) where {T <: CompoundingFrequency} = Ref(x) 
+Base.Broadcast.broadcastable(x::T) where {T<:CompoundingFrequency} = Ref(x)
 
 """ 
     Continuous()
@@ -76,7 +76,7 @@ Rate(0.01, Periodic(2))
 
 See also: [`Continuous`](@ref)
 """
-Periodic(x,frequency) = Rate(x, Periodic(frequency))
+Periodic(x, frequency) = Rate(x, Periodic(frequency))
 
 struct Rate{N<:Real,T<:CompoundingFrequency}
     value::N
@@ -121,7 +121,7 @@ Rate(0.01, Continuous())
 ```
 """
 Rate(rate) = Rate(rate, Periodic(1))
-Rate(x,frequency::T) where {T <: Real} = isinf(frequency) ? Rate(x, Continuous()) : Rate(x, Periodic(frequency))
+Rate(x, frequency::T) where {T<:Real} = isinf(frequency) ? Rate(x, Continuous()) : Rate(x, Periodic(frequency))
 
 """
     convert(T::CompoundingFrequency,r::Rate)
@@ -141,7 +141,7 @@ julia> convert(Continuous(),r)
 Rate(0.009995835646701251, Continuous())
 ```
 """
-function Base.convert(T::CompoundingFrequency,r::Rate{<:Real,<:CompoundingFrequency}) 
+function Base.convert(T::CompoundingFrequency, r::Rate{<:Real,<:CompoundingFrequency})
     convert(T, r, r.compounding)
 end
 function Base.convert(to::Continuous, r, from::Continuous)
@@ -158,11 +158,24 @@ end
 
 function Base.convert(to::Periodic, r, from::Periodic)
     c = convert(Continuous(), r, from)
-return convert(to, c, Continuous())
+    return convert(to, c, Continuous())
 end
 
-function rate(r::Rate{<:Real,<:CompoundingFrequency}) 
+function rate(r::Rate{<:Real,<:CompoundingFrequency})
     r.value
+end
+
+function Base.isapprox(a::Rate{N,T}, b::Rate{N,T}; atol::Real = 0, rtol::Real = atol > 0 ? 0 : √eps()) where {T<:Periodic,N<:Real}
+    return (a.compounding.frequency == b.compounding.frequency) && isapprox(rate(a), rate(b); atol, rtol)
+end
+
+function Base.isapprox(a::Rate{N,T}, b::Rate{N,T}; atol::Real = 0, rtol::Real = atol > 0 ? 0 : √eps()) where {T<:Continuous,N<:Real}
+    return isapprox(rate(a), rate(b); atol, rtol)
+end
+
+# the fallback for rates not of the same type
+function Base.isapprox(a::T, b::N; atol::Real = 0, rtol::Real = atol > 0 ? 0 : √eps()) where {T<:Rate,N<:Rate}
+    return isapprox(convert(b.compounding, a), b; atol, rtol)
 end
 
 """
@@ -183,7 +196,7 @@ It can be be constructed via:
 abstract type AbstractYield end
 
 # make interest curve broadcastable so that you can broadcast over multiple`time`s in `interest_rate`
-Base.Broadcast.broadcastable(ic::T) where {T <: AbstractYield} = Ref(ic) 
+Base.Broadcast.broadcastable(ic::T) where {T<:AbstractYield} = Ref(ic)
 
 struct YieldCurve <: AbstractYield
     rates
@@ -197,7 +210,7 @@ end
 
 Return the zero rate for the curve at the given time. If not specified, will use `Periodic(1)` compounding.
 """
-Base.zero(c::YieldCurve,time) = zero(c, time, Periodic(1))
+Base.zero(c::YieldCurve, time) = zero(c, time, Periodic(1))
 function Base.zero(c::YieldCurve, time, cf::Periodic)
     d = discount(c, time)
     i = Rate(cf.frequency * (d^(-1 / (time * cf.frequency)) - 1), cf)
@@ -228,19 +241,19 @@ struct Constant{T} <: AbstractYield
     rate::T
 end
 
-function Constant(rate::T) where {T <: Real}
+function Constant(rate::T) where {T<:Real}
     return Constant(Rate(rate, Periodic(1)))
 end
 
 rate(c::Constant) = c.rate
-rate(c::Constant,time) = c.rate
-discount(c::T,time) where {T <: Real} = discount(Constant(c), time)
-discount(r::Constant,time) = 1 / accumulation(r, time)
+rate(c::Constant, time) = c.rate
+discount(c::T, time) where {T<:Real} = discount(Constant(c), time)
+discount(r::Constant, time) = 1 / accumulation(r, time)
 
-accumulation(r::Constant,time) = accumulation(r.rate.compounding, r, time)
-accumulation(c::T,time) where {T >: Real} = accumulation(Constant(c), time)
-accumulation(::Continuous,r::Constant,time) = exp(rate(r.rate) * time)
-accumulation(::Periodic,r::Constant,time) = (1 + rate(r.rate) / r.rate.compounding.frequency)^(r.rate.compounding.frequency * time)
+accumulation(r::Constant, time) = accumulation(r.rate.compounding, r, time)
+accumulation(c::T, time) where {T>:Real} = accumulation(Constant(c), time)
+accumulation(::Continuous, r::Constant, time) = exp(rate(r.rate) * time)
+accumulation(::Periodic, r::Constant, time) = (1 + rate(r.rate) / r.rate.compounding.frequency)^(r.rate.compounding.frequency * time)
 
 """
     Step(rates,times)
@@ -285,15 +298,15 @@ function discount(y::Step, time)
         return v
     end
 
-        for i in 2:length(y.times)
+    for i = 2:length(y.times)
 
         if y.times[i] >= time
             # take partial discount and break
-            v /= (1 + y.rates[i])^(time - y.times[i - 1])
+            v /= (1 + y.rates[i])^(time - y.times[i-1])
             break
         else
             # take full discount and continue
-            v /=  (1 + y.rates[i])^(y.times[i] - y.times[i - 1])
+            v /= (1 + y.rates[i])^(y.times[i] - y.times[i-1])
         end
 
     end
@@ -313,7 +326,7 @@ function Zero(rates, maturities)
     return YieldCurve(
         rates,
         maturities,
-        linear_interp([0.;maturities], [1.;discount.(Constant.(rates), maturities)])
+        linear_interp([0.0; maturities], [1.0; discount.(Constant.(rates), maturities)])
     )
 end
 
@@ -347,16 +360,16 @@ function Par(rates::Vector{<:Rate}, maturities)
         return Constant(rate[1])
     end
     return YieldCurve(
-            rates,
-            maturities,
-            # assume that maturities less than or equal to 12 months are settled once, otherwise semi-annual
-            # per Hull 4.7
-            bootstrap(rates, maturities, [m <= 1 ? nothing : 1 / r.compounding.frequency for (r, m) in zip(rates, maturities)])
-        )
+        rates,
+        maturities,
+        # assume that maturities less than or equal to 12 months are settled once, otherwise semi-annual
+        # per Hull 4.7
+        bootstrap(rates, maturities, [m <= 1 ? nothing : 1 / r.compounding.frequency for (r, m) in zip(rates, maturities)])
+    )
 end
 
-function Par(rates::Vector{T}, maturities) where {T <: Real}
-    return Par(Rate.(rates), maturities)  
+function Par(rates::Vector{T}, maturities) where {T<:Real}
+    return Par(Rate.(rates), maturities)
 end
 
 
@@ -368,15 +381,15 @@ Takes a vector of 1-period forward rates and constructs a discount curve.
 function Forward(rates, maturities)
     # convert to zeros and pass to Zero
     disc_v = similar(rates)
-    v = 1.
-    
-    for i in 1:length(rates)
-        Δt = maturities[i] - (i == 1 ? 0 : maturities[i - 1])
+    v = 1.0
+
+    for i = 1:length(rates)
+        Δt = maturities[i] - (i == 1 ? 0 : maturities[i-1])
         v *= discount(Constant(rates[i]), Δt)
         disc_v[i] = v
     end
 
-    z = (1. ./ disc_v).^( 1 ./ maturities) .- 1 # convert disc_v to zero
+    z = (1.0 ./ disc_v) .^ (1 ./ maturities) .- 1 # convert disc_v to zero
     return Zero(z, maturities)
 end
 
@@ -385,7 +398,7 @@ Forward(rates) = Forward(rates, collect(1:length(rates)))
 """
 Takes CMT yields (bond equivalent), and assumes that instruments <= one year maturity pay no coupons and that the rest pay semi-annual.
 """
-function CMT(rates::Vector{T}, maturities) where {T <: Real}
+function CMT(rates::Vector{T}, maturities) where {T<:Real}
     rs = map(zip(rates, maturities)) do (r, m)
         if m <= 1
             Rate(r, Periodic(1 / m))
@@ -399,21 +412,21 @@ end
 
 function CMT(rates::Vector{<:Rate}, maturities)
     return YieldCurve(
-            rates,
-            maturities,
-            # assume that maturities less than or equal to 12 months are settled once, otherwise semi-annual
-            # per Hull 4.7
-            bootstrap(rates, maturities, [m <= 1 ? nothing : 0.5 for m in maturities])
-        )
+        rates,
+        maturities,
+        # assume that maturities less than or equal to 12 months are settled once, otherwise semi-annual
+        # per Hull 4.7
+        bootstrap(rates, maturities, [m <= 1 ? nothing : 0.5 for m in maturities])
+    )
 end
-    
+
 
 """
     OIS(rates,maturities)
 Takes Overnight Index Swap rates, and assumes that instruments <= one year maturity are settled once and other agreements are settled quarterly with a corresponding CompoundingFrequency
 
 """
-function OIS(rates::Vector{T}, maturities) where {T <: Real}
+function OIS(rates::Vector{T}, maturities) where {T<:Real}
     rs = map(zip(rates, maturities)) do (r, m)
         if m <= 1
             Rate(r, Periodic(1 / m))
@@ -473,9 +486,9 @@ struct SwapQuote <: ObservableQuote
     yield
     maturity
     frequency
-    function SwapQuote(yield,maturity,frequency)
+    function SwapQuote(yield, maturity, frequency)
         frequency <= 0 && throw(DomainError("Payment frequency must be positive"))
-        return new(yield,maturity,frequency)
+        return new(yield, maturity, frequency)
     end
 end
 
@@ -503,9 +516,9 @@ struct BulletBondQuote <: ObservableQuote
     maturity
     frequency
 
-    function BulletBondQuote(yield,maturity,price,frequency)
+    function BulletBondQuote(yield, maturity, price, frequency)
         frequency <= 0 && throw(DomainError("Payment frequency must be positive"))
-        return new(yield,maturity,price,frequency)
+        return new(yield, maturity, price, frequency)
     end
 end
 
@@ -530,14 +543,14 @@ Required keyword arguments:
 - `ufr` is the Ultimate Forward Rate, the forward interest rate to which the yield curve tends, in continuous compounding convention. 
 - `α` is the parameter that governs the speed of convergence towards the Ultimate Forward Rate. It can be typed with `\\alpha[TAB]`
 """
-    struct SmithWilson{TU <: AbstractVector,TQb <: AbstractVector} <: AbstractYield
+struct SmithWilson{TU<:AbstractVector,TQb<:AbstractVector} <: AbstractYield
     u::TU
     qb::TQb
     ufr
     α
 
     # Inner constructor ensures that vector lengths match
-    function SmithWilson{TU,TQb}(u, qb; ufr, α) where {TU <: AbstractVector,TQb <: AbstractVector}
+    function SmithWilson{TU,TQb}(u, qb; ufr, α) where {TU<:AbstractVector,TQb<:AbstractVector}
         if length(u) != length(qb)
             throw(DomainError("Vectors u and qb in SmithWilson must have equal length"))
         end
@@ -545,7 +558,7 @@ Required keyword arguments:
     end
 end
 
-SmithWilson(u::TU, qb::TQb;ufr, α) where {TU <: AbstractVector,TQb <: AbstractVector} = SmithWilson{TU,TQb}(u, qb; ufr=ufr, α=α)
+SmithWilson(u::TU, qb::TQb; ufr, α) where {TU<:AbstractVector,TQb<:AbstractVector} = SmithWilson{TU,TQb}(u, qb; ufr = ufr, α = α)
 
 """
     H_ordered(α, t_min, t_max)
@@ -553,7 +566,7 @@ SmithWilson(u::TU, qb::TQb;ufr, α) where {TU <: AbstractVector,TQb <: AbstractV
 The Smith-Wilson H function with ordered arguments (for better performance than using min and max).
 """
 function H_ordered(α, t_min, t_max)
-    return α * t_min + exp(-α * t_max) * sinh(-α * t_min) 
+    return α * t_min + exp(-α * t_max) * sinh(-α * t_min)
 end
 
 """
@@ -579,11 +592,11 @@ Base.zero(sw::SmithWilson, t, cf::CompoundingFrequency) = convert(cf, zero(sw, t
 
 function SmithWilson(times::AbstractVector, cashflows::AbstractMatrix, prices::AbstractVector; ufr, α)
     Q = Diagonal(exp.(-ufr * times)) * cashflows
-    q = vec(sum(Q, dims=1))  # We want q to be a column vector
+    q = vec(sum(Q, dims = 1))  # We want q to be a column vector
     QHQ = Q' * H(α, times) * Q
     b = QHQ \ (prices - q)
     Qb = Q * b
-    return SmithWilson(times, Qb; ufr=ufr, α=α)
+    return SmithWilson(times, Qb; ufr = ufr, α = α)
 end
 
 """ 
@@ -616,13 +629,13 @@ function cashflows(interests, maturities, frequencies)
     floored_mats = floor.(maturities ./ timestep) .* timestep
     times = timestep:timestep:maximum(floored_mats)
     # we need to determine the coupons in relation to the payment date, not time zero
-    time_adj =  floored_mats .% fq 
+    time_adj = floored_mats .% fq
 
     cashflows = [
         # if on a coupon date and less than maturity, pay coupon
-        ((((t + time_adj[instrument]) % fq[instrument] ≈ 0) && t <= floored_mats[instrument]) ? interests[instrument] / frequencies[instrument]  : 0.) + 
-        (t ≈ floored_mats[instrument] ? 1.0 : 0.) # add maturity payment
-        for t in times, instrument in 1:length(interests)
+        ((((t + time_adj[instrument]) % fq[instrument] ≈ 0) && t <= floored_mats[instrument]) ? interests[instrument] / frequencies[instrument] : 0.0) +
+        (t ≈ floored_mats[instrument] ? 1.0 : 0.0) # add maturity payment
+        for t in times, instrument = 1:length(interests)
     ]
 
     return cashflows
@@ -640,47 +653,47 @@ function SmithWilson(zcq::Vector{ZeroCouponQuote}; ufr, α)
     n = length(zcq)
     maturities = [q.maturity for q in zcq]
     prices = [q.price for q in zcq]
-    return SmithWilson(maturities, Matrix{Float64}(I, n, n), prices; ufr=ufr, α=α)
+    return SmithWilson(maturities, Matrix{Float64}(I, n, n), prices; ufr = ufr, α = α)
 end
 
 function SmithWilson(swq::Vector{SwapQuote}; ufr, α)
     times = timepoints(swq)
     cfs = cashflows(swq)
     ones(length(swq))
-    return SmithWilson(times, cfs, ones(length(swq)), ufr=ufr, α=α)
+    return SmithWilson(times, cfs, ones(length(swq)), ufr = ufr, α = α)
 end
 
 function SmithWilson(bbq::Vector{BulletBondQuote}; ufr, α)
     times = timepoints(bbq)
     cfs = cashflows(bbq)
     prices = [q.price for q in bbq]
-    return SmithWilson(times, cfs, prices, ufr=ufr, α=α)
+    return SmithWilson(times, cfs, prices, ufr = ufr, α = α)
 end
 
 # https://github.com/dpsanders/hands_on_julia/blob/master/during_sessions/Fractale%20de%20Newton.ipynb
 newton(f, f′, x) = x - f(x) / f′(x)
-function solve(g, g′, x0, max_iterations=100)
+function solve(g, g′, x0, max_iterations = 100)
     x = x0
 
     tolerance = 2 * eps(x0)
     iteration = 0
 
     while (abs(g(x) - 0) > tolerance && iteration < max_iterations)
-        x = newton(g, g′, x)        
+        x = newton(g, g′, x)
         iteration += 1
     end
 
     return x
 end
 
-function bootstrap(rates, maturities, settlement_frequency;interp_function=linear_interp)
+function bootstrap(rates, maturities, settlement_frequency; interp_function = linear_interp)
     settlement_frequency, maturities, rates
     discount_vec = zeros(length(rates)) # construct a placeholder discount vector matching maturities
     # we have to take the first rate as the starting point
     discount_vec[1] = discount(Constant(rates[1]), maturities[1])
 
-    for t in 2:length(maturities)
-        if isnothing(settlement_frequency[t]) 
+    for t = 2:length(maturities)
+        if isnothing(settlement_frequency[t])
             # no settlement before maturity
             discount_vec[t] = discount(Constant(rates[t]), maturities[t])
         else
@@ -688,9 +701,9 @@ function bootstrap(rates, maturities, settlement_frequency;interp_function=linea
             times = settlement_frequency[t]:settlement_frequency[t]:maturities[t]
             cfs = [rate(rates[t]) * settlement_frequency[t] for s in times]
             cfs[end] += 1
-            
+
             function pv(v_guess)
-                v = interp_function([[0.];maturities[1:t]], vcat(1., discount_vec[1:t - 1], v_guess...))
+                v = interp_function([[0.0]; maturities[1:t]], vcat(1.0, discount_vec[1:t-1], v_guess...))
                 return sum(v.(times) .* cfs)
             end
             target_pv = sum(map(t2 -> discount(Constant(rates[t]), t2), times) .* cfs)
@@ -700,7 +713,7 @@ function bootstrap(rates, maturities, settlement_frequency;interp_function=linea
         end
 
     end
-    return linear_interp([[0.];maturities], [[1.];discount_vec])
+    return linear_interp([[0.0]; maturities], [[1.0]; discount_vec])
 end
 
 ## Generic and Fallbacks
@@ -710,17 +723,29 @@ end
 
 The discount factor for the `rate` for times `from` through `to`. If rate is a `Real` number, will assume a `Constant` interest rate.
 """
-discount(yc,time) = yc.discount(time)
-discount(rate::Rate{<:Real,<:CompoundingFrequency},from,to) = discount(Constant(rate), from, to)
-discount(rate::Rate{<:Real,<:CompoundingFrequency},to) = discount(Constant(rate), to)
+discount(yc, time) = yc.discount(time)
+discount(rate::Rate{<:Real,<:CompoundingFrequency}, from, to) = discount(Constant(rate), from, to)
+discount(rate::Rate{<:Real,<:CompoundingFrequency}, to) = discount(Constant(rate), to)
 
 
 
-discount(yc,from,to) = discount(yc, to) / discount(yc, from)
+discount(yc, from, to) = discount(yc, to) / discount(yc, from)
 
-    function forward(yc, from, to)
-    return (accumulation(yc, to) / accumulation(yc, from))^(1 / (to - from)) - 1
+"""
+    forward(curve,from,to,CompoundingFrequency=Periodic(1))
+
+The forward `Rate` implied by the curve between times `from` and `to`.
+"""
+function forward(yc, from, to)
+    return forward(yc, from, to, Periodic(1))
 end
+
+function forward(yc, from, to, cf::T) where {T<:CompoundingFrequency}
+
+    r = Periodic((accumulation(yc, to) / accumulation(yc, from))^(1 / (to - from)) - 1, 1)
+    return convert(cf, r)
+end
+
 function forward(yc, from)
     to = from + 1
     return forward(yc, from, to)
@@ -731,15 +756,15 @@ end
 
 The accumulation factor for the `rate` for times `from` through `to`. If rate is a `Real` number, will assume a `Constant` interest rate.
 """
-function accumulation(y::T, time) where {T <: AbstractYield}
+function accumulation(y::T, time) where {T<:AbstractYield}
     return 1 ./ discount(y, time)
 end
-accumulation(rate::Rate{<:Real,<:CompoundingFrequency},to) = accumulation(Constant(rate), to)
+accumulation(rate::Rate{<:Real,<:CompoundingFrequency}, to) = accumulation(Constant(rate), to)
 
-function accumulation(y::T, from, to) where {T <: AbstractYield}
+function accumulation(y::T, from, to) where {T<:AbstractYield}
     return 1 ./ discount(y, from, to)
 end
-accumulation(rate::Rate{<:Real,<:CompoundingFrequency},from,to) = accumulation(Constant(rate), from, to)
+accumulation(rate::Rate{<:Real,<:CompoundingFrequency}, from, to) = accumulation(Constant(rate), from, to)
 
 ## Curve Manipulations
 struct RateCombination <: AbstractYield
@@ -748,9 +773,9 @@ struct RateCombination <: AbstractYield
     op
 end
 
-rate(rc::RateCombination,time) = rc.op(rate(rc.r1, time), rate(rc.r2, time))
-function discount(rc::RateCombination, time) 
-    a1 = discount(rc.r1, time)^(-1 / time) - 1  
+rate(rc::RateCombination, time) = rc.op(rate(rc.r1, time), rate(rc.r2, time))
+function discount(rc::RateCombination, time)
+    a1 = discount(rc.r1, time)^(-1 / time) - 1
     a2 = discount(rc.r2, time)^(-1 / time) - 1
     return 1 / (1 + rc.op(a1, a2))^time
 end
@@ -761,7 +786,7 @@ end
 The addition of two yields will create a `RateCombination`. For `rate`, `discount`, and `accumulation` purposes the spot rates of the two curves will be added together.
 """
 function Base.:+(a::AbstractYield, b::AbstractYield)
-    return RateCombination(a, b, +) 
+    return RateCombination(a, b, +)
 end
 
 function Base.:+(a::Constant, b::Constant)
@@ -771,15 +796,15 @@ function Base.:+(a::Constant, b::Constant)
         Rate(
             rate(a.rate) + rate_new_basis,
             a_kind
-            )
         )
+    )
 end
 
-function Base.:+(a::T, b) where {T <: AbstractYield}
+function Base.:+(a::T, b) where {T<:AbstractYield}
     return a + Constant(b)
 end
 
-function Base.:+(a, b::T) where {T <: AbstractYield}
+function Base.:+(a, b::T) where {T<:AbstractYield}
     return Constant(a) + b
 end
 
@@ -789,7 +814,7 @@ end
 The subtraction of two yields will create a `RateCombination`. For `rate`, `discount`, and `accumulation` purposes the spot rates of the second curves will be subtracted from the first.
 """
 function Base.:-(a::AbstractYield, b::AbstractYield)
-    return RateCombination(a, b, -) 
+    return RateCombination(a, b, -)
 end
 
 function Base.:-(a::Constant, b::Constant)
@@ -799,22 +824,22 @@ function Base.:-(a::Constant, b::Constant)
         Rate(
             rate(a.rate) - rate_new_basis,
             a_kind
-            )
         )
+    )
 end
 
-function Base.:-(a::T, b) where {T <: AbstractYield}
+function Base.:-(a::T, b) where {T<:AbstractYield}
     return a - Constant(b)
 end
 
-function Base.:-(a, b::T) where {T <: AbstractYield}
+function Base.:-(a, b::T) where {T<:AbstractYield}
     return Constant(a) - b
 end
 
-linear_interp(xs,ys) = Interpolations.extrapolate(
-    Interpolations.interpolate((xs,), ys, Interpolations.Gridded(Interpolations.Linear())), 
+linear_interp(xs, ys) = Interpolations.extrapolate(
+    Interpolations.interpolate((xs,), ys, Interpolations.Gridded(Interpolations.Linear())),
     Interpolations.Line()
-    ) 
+)
 
 end
 
