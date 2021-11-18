@@ -198,10 +198,10 @@ abstract type AbstractYield end
 # make interest curve broadcastable so that you can broadcast over multiple`time`s in `interest_rate`
 Base.Broadcast.broadcastable(ic::T) where {T<:AbstractYield} = Ref(ic)
 
-struct YieldCurve <: AbstractYield
-    rates
-    maturities
-    discount # discount function for time
+struct YieldCurve{T,U,V} <: AbstractYield
+    rates::T
+    maturities::U
+    discount::V # discount function for time
 end
 
 """
@@ -767,10 +767,10 @@ end
 accumulation(rate::Rate{<:Real,<:CompoundingFrequency}, from, to) = accumulation(Constant(rate), from, to)
 
 ## Curve Manipulations
-struct RateCombination <: AbstractYield
-    r1
-    r2
-    op
+struct RateCombination{T,U,V} <: AbstractYield
+    r1::T
+    r2::U
+    op::V
 end
 
 rate(rc::RateCombination, time) = rc.op(rate(rc.r1, time), rate(rc.r2, time))
