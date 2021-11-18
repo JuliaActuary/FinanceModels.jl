@@ -165,6 +165,19 @@ function rate(r::Rate{<:Real,<:CompoundingFrequency})
     r.value
 end
 
+function Base.isapprox(a::Rate{N,T},b::Rate{N,T};atol::Real=0, rtol::Real=atol>0 ? 0 : √eps()) where {T<:Periodic,N<:Real}
+    return (a.compounding.frequency == b.compounding.frequency) && isapprox(rate(a), rate(b);atol,rtol)
+end
+
+function Base.isapprox(a::Rate{N,T},b::Rate{N,T};atol::Real=0, rtol::Real=atol>0 ? 0 : √eps()) where {T<:Continuous,N<:Real}
+    return isapprox(rate(a), rate(b);atol,rtol)
+end
+
+# the fallback for rates not of the same type
+function Base.isapprox(a::T,b::N;atol::Real=0, rtol::Real=atol>0 ? 0 : √eps()) where {T<:Rate,N<:Rate}
+    return isapprox(convert(b.compounding,a),b;atol,rtol)
+end
+
 """
 An AbstractYield is an object which can be used as an argument to:
 

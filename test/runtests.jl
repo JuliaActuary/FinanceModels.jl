@@ -26,6 +26,19 @@ using Test
         
     end
     
+    @testset "rate equality" begin
+        a = Yields.Periodic(.02,2)
+        b = Yields.Periodic(.03,2)
+        c = Yields.Continuous(.02)
+    
+        @test a == a
+        @test a != b
+        @test ~(a ≈ b)
+        @test ~(a ≈ a)
+        @test ~(a ≈ c)
+
+    end
+
     @testset "constant curve and rate -> Constant" begin
         yield = Yields.Constant(0.05)
         rate = Yields.Rate(0.05, Yields.Periodic(1))
