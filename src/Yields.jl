@@ -731,9 +731,21 @@ discount(rate::Rate{<:Real,<:CompoundingFrequency},to) = discount(Constant(rate)
 
 discount(yc,from,to) = discount(yc, to) / discount(yc, from)
 
+"""
+    forward(curve,from,to,CompoundingFrequency=Periodic(1))
+
+The forward `Rate` implied by the curve between times `from` and `to`.
+"""
     function forward(yc, from, to)
-    return (accumulation(yc, to) / accumulation(yc, from))^(1 / (to - from)) - 1
+    return forward(yc,from,to,Periodic(1))
 end
+
+function forward(yc,from,to,cf::T) where {T<:CompoundingFrequency}
+
+    r  = Periodic((accumulation(yc, to) / accumulation(yc, from))^(1 / (to - from)) - 1,1)
+    return convert(cf,r)
+end
+
 function forward(yc, from)
     to = from + 1
     return forward(yc, from, to)

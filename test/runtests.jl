@@ -25,7 +25,7 @@ using Test
         @test rate(convert(Yields.Periodic(4), m)) ≈ rate(Rate(0.09878030638383972, Yields.Periodic(4))) atol = 1e-5
         
     end
-    
+
     @testset "rate equality" begin
         a = Yields.Periodic(.02,2)
         b = Yields.Periodic(.03,2)
@@ -162,7 +162,7 @@ using Test
         
         @testset "UTYC Figure 9 par -> spot : $mat" for mat in maturity
             @test rate(zero(y, mat)) ≈ spot[mat] atol = 0.0001
-            @test forward(y, mat - 1) ≈ fwd[mat] atol = 0.0001
+            @test forward(y, mat - 1) ≈ Yields.Periodic(fwd[mat],1) atol = 0.0001
         end
         
     end
@@ -178,9 +178,9 @@ using Test
         @test discount(curve, 1) ≈ 1 / (1 + zero[2])
         @test discount(curve, 2) ≈ 1 / (1 + zero[4])^2
         
-        @test forward(curve, 0.5, 1.0) ≈ 6.6 / 100 atol = 0.001
-        @test forward(curve, 1.0, 1.5) ≈ 7.6 / 100 atol = 0.001
-        @test forward(curve, 1.5, 2.0) ≈ 8.0 / 100 atol = 0.001
+        @test forward(curve, 0.5, 1.0) ≈ Yields.Periodic(6.6 / 100,1) atol = 0.001
+        @test forward(curve, 1.0, 1.5) ≈ Yields.Periodic(7.6 / 100,1) atol = 0.001
+        @test forward(curve, 1.5, 2.0) ≈ Yields.Periodic(8.0 / 100,1) atol = 0.001
         
         y = Yields.Zero(zero)
         
@@ -355,7 +355,7 @@ using Test
         @test accumulation(sw_flat, 10.0) ≈ exp(ufr * 10.0)
         @test rate(convert(Yields.Continuous(), zero(sw_flat, 8.0))) ≈ ufr
         @test discount.(sw_flat, [5.0, 10.0]) ≈ exp.(-ufr .* [5.0, 10.0])
-        @test rate(convert(Yields.Continuous(), Rate(forward(sw_flat, 5.0, 8.0)))) ≈ ufr
+        @test rate(convert(Yields.Continuous(), forward(sw_flat, 5.0, 8.0))) ≈ ufr
     
         # A trivial Qb vector (=0) should result in a flat yield curve
         ufr_curve = Yields.SmithWilson(u, [0.0, 0.0], ufr=ufr, α=α)
@@ -366,7 +366,7 @@ using Test
         @test discount(curve_with_zero_yield, 4.0) == 1.0
     
         # In the long end it's still just UFR
-        @test rate(convert(Yields.Continuous(), Rate(forward(curve_with_zero_yield, 1000.0, 2000.0)))) ≈ ufr
+        @test rate(convert(Yields.Continuous(), forward(curve_with_zero_yield, 1000.0, 2000.0))) ≈ ufr
     
         # Three maturities have known discount factors
         times = [1.0, 2.5, 5.6]
