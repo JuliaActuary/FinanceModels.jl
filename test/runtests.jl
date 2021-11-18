@@ -34,7 +34,7 @@ using Test
         @test a == a
         @test a != b
         @test ~(a ≈ b)
-        @test ~(a ≈ a)
+        @test (a ≈ a)
         @test ~(a ≈ c)
 
     end
