@@ -3,6 +3,7 @@ module Yields
 import Interpolations
 import ForwardDiff
 using LinearAlgebra
+using UnicodePlots
 
 # don't export type, as the API of Yields.Zero is nicer and 
 # less polluting than Zero and less/equally verbose as ZeroYieldCurve or ZeroCurve
@@ -840,6 +841,12 @@ linear_interp(xs, ys) = Interpolations.extrapolate(
     Interpolations.interpolate((xs,), ys, Interpolations.Gridded(Interpolations.Linear())),
     Interpolations.Line()
 )
+
+function Base.show(io::IO, curve::T) where {T<:AbstractYield}
+    r = zero(curve, 1)
+    ylabel = isa(r.compounding, Continuous) ? "Continuous" : "Periodic($(r.compounding.frequency))"
+    display(lineplot(t -> rate(zero(curve, t)), 0.01, 5, xlabel = "time", ylabel = ylabel, compact = true, name = "Zero rates"))
+end
 
 end
 
