@@ -238,6 +238,18 @@ using Test
 
     end
 
+    @testset "forwardcurve" begin
+        maturity = [0.5, 1.0, 1.5, 2.0]
+        zero = [5.0, 5.8, 6.4, 6.8] ./ 100
+        curve = Yields.Zero(zero, maturity)
+
+        fwd = Yields.ForwardStarting(curve, 1.0)
+        @test discount(fwd, 0) ≈ 1
+        @test discount(fwd, 0.5) ≈ discount(curve, 1, 1.5)
+        @test discount(fwd, 1) ≈ discount(curve, 1, 2)
+        @test accumulation(fwd, 1) ≈ accumulation(curve, 1, 2)
+    end
+
     @testset "base + spread" begin
         riskfree_maturities = [0.5, 1.0, 1.5, 2.0]
         riskfree = [5.0, 5.8, 6.4, 6.8] ./ 100 # spot rates
@@ -427,6 +439,13 @@ using Test
         sw_swq = Yields.SmithWilson(swq, ufr = ufr, α = α)
         @testset "SwapQuotes round-trip" for swapIdx = 1:length(swq_interests)
             @test sum(discount.(sw_swq, swq_times) .* swq_payments[:, swapIdx]) ≈ 1.0
+        end
+
+        @testset "SW ForwardStarting" begin
+            fwd_time = 1.0
+            fwd = Yields.ForwardStarting(sw_swq, fwd_time)
+
+            @test discount(fwd, 3.7) ≈ discount(sw_swq, fwd_time, fwd_time + 3.7)
         end
 
         # Round-trip bullet bond quotes (reuse data from swap quotes)
