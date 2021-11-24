@@ -441,19 +441,19 @@ using Test
             @test sum(discount.(sw_swq, swq_times) .* swq_payments[:, swapIdx]) ≈ 1.0
         end
 
-        @testset "SW ForwardStarting" begin
-            fwd_time = 1.0
-            fwd = Yields.ForwardStarting(sw_swq, fwd_time)
-
-            @test discount(fwd, 3.7) ≈ discount(sw_swq, fwd_time, fwd_time + 3.7)
-        end
-
         # Round-trip bullet bond quotes (reuse data from swap quotes)
         bbq_prices = [1.3, 0.1, 4.5]
         bbq = Yields.BulletBondQuote.(swq_interests, bbq_prices, swq_maturities, frequency)
         sw_bbq = Yields.SmithWilson(bbq, ufr = ufr, α = α)
         @testset "BulletBondQuotes round-trip" for bondIdx = 1:length(swq_interests)
             @test sum(discount.(sw_bbq, swq_times) .* swq_payments[:, bondIdx]) ≈ bbq_prices[bondIdx]
+        end
+
+        @testset "SW ForwardStarting" begin
+            fwd_time = 1.0
+            fwd = Yields.ForwardStarting(sw_swq, fwd_time)
+
+            @test discount(fwd, 3.7) ≈ discount(sw_swq, fwd_time, fwd_time + 3.7)
         end
 
         # EIOPA risk free rate (no VA), 31 August 2021.
