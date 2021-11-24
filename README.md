@@ -95,6 +95,23 @@ y1 = Yields.Constant(0.05)
 y2 = y1 + 0.01                # y2 is a yield of 0.06
 ```
 
+### Forward Starting Curves
+
+Constructed curves can be shifted so that a future timepoint becomes the effective time-zero for a said curve.
+
+```julia-repl
+julia> zero = [5.0, 5.8, 6.4, 6.8] ./ 100
+julia> maturity = [0.5, 1.0, 1.5, 2.0]
+julia> curve = Yields.Zero(zero, maturity)
+julia> fwd = Yields.ForwardStarting(curve, 1.0)
+
+julia> discount(curve,1,2)
+0.9275624570410582
+
+julia> discount(fwd,1) # `curve` has effectively been reindexed to `1.0`
+0.9275624570410582
+```
+
 ### Conversion
 
 Convert rates between different types with `convert`. E.g.:
