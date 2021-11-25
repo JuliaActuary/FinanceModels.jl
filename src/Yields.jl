@@ -889,4 +889,5 @@ function Base.show(io::IO, curve::T) where {T<:AbstractYield}
     display(lineplot(t -> rate(zero(curve, t)), 0.01, 5, xlabel = "time", ylabel = ylabel, compact = true, name = "Zero rates"))
 end
 
+
 end
