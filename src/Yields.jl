@@ -201,7 +201,7 @@ Base.Broadcast.broadcastable(ic::T) where {T<:AbstractYield} = Ref(ic)
 struct YieldCurve{T,U,V} <: AbstractYield
     rates::T
     maturities::U
-    discount::V # discount function for time
+    zero::V # function time -> continuous zero rate
 end
 
 # Forward curves
@@ -247,17 +247,15 @@ end
 
 Return the zero rate for the curve at the given time. If not specified, will use `Periodic(1)` compounding.
 """
-Base.zero(c::YieldCurve, time) = zero(c, time, Periodic(1))
+Base.zero(c::YieldCurve, time) = convert(Periodic(1), Continuous(c.zero(time)))
 function Base.zero(c::YieldCurve, time, cf::Periodic)
-    d = discount(c, time)
-    i = Rate(cf.frequency * (d^(-1 / (time * cf.frequency)) - 1), cf)
+    z = Continuous(c.zero(time))
+    i = convert(cf, z)
     return i
 end
 
 function Base.zero(c::YieldCurve, time, cf::Continuous)
-    d = discount(c, time)
-    i = log(1 / d) / time
-    return Rate(i, cf)
+    return Continuous(c.zero(time))
 end
 
 
@@ -357,16 +355,22 @@ end
 
 Construct a yield curve with given zero-coupon spot `rates` at the given `maturities`. If `rates` is not a `Vector{Rate}`, will assume `Periodic(1)` type.
 """
-function Zero(rates, maturities)
+function Zero(rates::Vector{<:Rate}, maturities)
     # bump to a constant yield if only given one rate
     length(rates) == 1 && return Constant(first(rates))
+
+    continuous_zeros = rate.(convert.(Continuous(), rates))
     return YieldCurve(
         rates,
         maturities,
-        linear_interp([0.0; maturities], [1.0; discount.(Constant.(rates), maturities)])
+        linear_interp([0.0; maturities], [first(continuous_zeros); continuous_zeros])
     )
 end
 
+#fallback if `rates` aren't `Rate`s. Assume `Periodic(1)` per Zero docstring
+function Zero(rates, maturities)
+    Zero(Periodic.(rates, 1), maturities)
+end
 
 function Zero(rates)
     # bump to a constant yield if only given one rate
@@ -724,7 +728,6 @@ function solve(g, g′, x0, max_iterations = 100)
 end
 
 function bootstrap(rates, maturities, settlement_frequency; interp_function = linear_interp)
-    settlement_frequency, maturities, rates
     discount_vec = zeros(length(rates)) # construct a placeholder discount vector matching maturities
     # we have to take the first rate as the starting point
     discount_vec[1] = discount(Constant(rates[1]), maturities[1])
@@ -750,7 +753,8 @@ function bootstrap(rates, maturities, settlement_frequency; interp_function = li
         end
 
     end
-    return linear_interp([[0.0]; maturities], [[1.0]; discount_vec])
+    zero_vec = -log.(discount_vec) ./ maturities
+    return linear_interp([0.0; maturities], [first(zero_vec); zero_vec])
 end
 
 ## Generic and Fallbacks
@@ -760,7 +764,7 @@ end
 
 The discount factor for the `rate` for times `from` through `to`. If rate is a `Real` number, will assume a `Constant` interest rate.
 """
-discount(yc, time) = yc.discount(time)
+discount(yc, time) = exp(-yc.zero(time) * time)
 discount(rate::Rate{<:Real,<:CompoundingFrequency}, from, to) = discount(Constant(rate), from, to)
 discount(rate::Rate{<:Real,<:CompoundingFrequency}, to) = discount(Constant(rate), to)
 
