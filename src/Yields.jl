@@ -903,7 +903,7 @@ function Base.show(io::IO, curve::T) where {T<:AbstractYield}
         width = 60,
         title = "Yield Curve ($kind)"
     )
-    display(l)
+    show(io, l)
 end
 
 
