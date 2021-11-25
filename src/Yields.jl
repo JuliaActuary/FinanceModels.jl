@@ -883,10 +883,27 @@ linear_interp(xs, ys) = Interpolations.extrapolate(
     Interpolations.Line()
 )
 
+# used to display simple type name in show method
+# https://stackoverflow.com/questions/70043313/get-simple-name-of-type-in-julia?noredirect=1#comment123823820_70043313
+name(::Type{T}) where {T} = (isempty(T.parameters) ? T : T.name.wrapper)
+
 function Base.show(io::IO, curve::T) where {T<:AbstractYield}
+    println() # blank line for padding
     r = zero(curve, 1)
     ylabel = isa(r.compounding, Continuous) ? "Continuous" : "Periodic($(r.compounding.frequency))"
-    display(lineplot(t -> rate(zero(curve, t)), 0.01, 5, xlabel = "time", ylabel = ylabel, compact = true, name = "Zero rates"))
+    kind = name(typeof(curve))
+    l = lineplot(
+        t -> rate(zero(curve, t)),
+        0.0, #from 
+        30.0,  # to
+        xlabel = "time",
+        ylabel = ylabel,
+        compact = true,
+        name = "Zero rates",
+        width = 60,
+        title = "Yield Curve ($kind)"
+    )
+    display(l)
 end
 
 
