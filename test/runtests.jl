@@ -188,8 +188,8 @@ using Test
         @test discount(y, 2) ≈ 1 / 1.058^2
 
         @testset "broadcasting" begin
-            @test all(discount.(y, [1, 2]) .== [1 / 1.05, 1 / 1.058^2])
-            @test all(accumulation.(y, [1, 2]) .== [1.05, 1.058^2])
+            @test all(discount.(y, [1, 2]) .≈ [1 / 1.05, 1 / 1.058^2])
+            @test all(accumulation.(y, [1, 2]) .≈ [1.05, 1.058^2])
         end
 
     end
