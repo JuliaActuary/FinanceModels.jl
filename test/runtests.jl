@@ -45,7 +45,7 @@ using Test
 
         @test Yields.zero(yield, 1) == Rate(0.05, Yields.Periodic(1))
         @test Yields.zero(Yields.Constant(0.05, Yields.Periodic(2)), 10) == Rate(0.05, Yields.Periodic(2))
-        @test Yields.zero(yield, Yields.Periodic(2), 5) == convert(Yields.Periodic(2), Rate(0.05, Yields.Periodic(1)))
+        @test Yields.zero(yield, 5, Yields.Periodic(2)) == convert(Yields.Periodic(2), Rate(0.05, Yields.Periodic(1)))
 
         @testset "constant discount time: $time" for time in [0, 0.5, 1, 10]
             @test discount(yield, time) ≈ 1 / (1.05)^time
