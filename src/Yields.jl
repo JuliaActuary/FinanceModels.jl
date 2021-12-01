@@ -261,7 +261,8 @@ end
 
 
 """
-    Constant(rate)
+    Constant(rate::Real, cf::CompoundingFrequency=Periodic(1))
+    Constant(r::Rate)
 
 Construct a yield object where the spot rate is constant for all maturities. If `rate` is not a `Rate` type, will assume `Periodic(1)` for the compounding frequency
 
@@ -277,10 +278,12 @@ struct Constant{T} <: AbstractYield
     rate::T
 end
 
-function Constant(rate::T) where {T<:Real}
-    return Constant(Rate(rate, Periodic(1)))
+function Constant(rate::T, cf::C = Periodic(1)) where {T<:Real,C<:CompoundingFrequency}
+    return Constant(Rate(rate, cf))
 end
 
+zero(c::Constant, time) = c.rate
+zero(c::Constant, time, cf::C) where {C<:CompoundingFrequency} = convert(cf, c.rate)
 rate(c::Constant) = c.rate
 rate(c::Constant, time) = c.rate
 discount(c::T, time) where {T<:Real} = discount(Constant(c), time)
