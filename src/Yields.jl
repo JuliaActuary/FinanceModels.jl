@@ -282,8 +282,8 @@ function Constant(rate::T, cf::C = Periodic(1)) where {T<:Real,C<:CompoundingFre
     return Constant(Rate(rate, cf))
 end
 
-zero(c::Constant, time) = c.rate
-zero(c::Constant, time, cf::C) where {C<:CompoundingFrequency} = convert(cf, c.rate)
+Base.zero(c::Constant, time) = c.rate
+Base.zero(c::Constant, time, cf::C) where {C<:CompoundingFrequency} = convert(cf, c.rate)
 rate(c::Constant) = c.rate
 rate(c::Constant, time) = c.rate
 discount(c::T, time) where {T<:Real} = discount(Constant(c), time)
