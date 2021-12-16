@@ -292,6 +292,9 @@ using Test
             @test rate(zero(curve, mat, Yields.Continuous())) ≈ target atol = 0.001
         end
 
+        # test that showing the curve doesn't error
+        @test isnothing(show(devnull, curve))
+
         #     # https://www.federalreserve.gov/pubs/feds/2006/200628/200628abs.html
         #     # 2020-04-02 data
         #     cmt = [0.0945,0.2053,0.4431,0.7139,0.9724,1.2002,1.3925,1.5512,1.6805,1.7853,1.8704,1.9399,1.9972,2.045,2.0855,2.1203,2.1509,2.1783,2.2031,2.2261,2.2477,2.2683,2.2881,2.3074,2.3262,2.3447,2.3629,2.3809,2.3987,2.4164] ./ 100
