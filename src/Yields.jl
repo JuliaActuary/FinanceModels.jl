@@ -421,16 +421,27 @@ end
 """
     Forward(rate_vector,maturities)
 
-Takes a vector of 1-period forward rates and constructs a discount curve.
+Takes a vector of 1-period forward rates and constructs a discount curve. If rate_vector is not a vector of `Rates` (ie is just a vector of `Float64` values), then
+the assumption is that each value is `Periodic` rate compounded once per period.
+
+# Examples
+
+```julia-repl
+julia> Yields.Forward( [0.01,0.02,0.03] );
+
+julia> Yields.Forward( Yields.Continuous.([0.01,0.02,0.03]) );
+
+```
 """
-function Forward(rates, maturities)
+function Forward(rates::Vector{<:Rate}, maturities)
     # convert to zeros and pass to Zero
-    disc_v = similar(rates)
+    disc_v = Vector{Float64}(undef, length(rates))
+
     v = 1.0
 
     for i = 1:length(rates)
         Δt = maturities[i] - (i == 1 ? 0 : maturities[i-1])
-        v *= discount(Constant(rates[i]), Δt)
+        v *= discount(rates[i], Δt)
         disc_v[i] = v
     end
 
@@ -438,10 +449,27 @@ function Forward(rates, maturities)
     return Zero(z, maturities)
 end
 
+# if rates isn't a vector of Rates, then we assume periodic rates compounded once per period.
+function Forward(rates, maturities)
+    return Forward(Yields.Periodic.(rates, 1), maturities)
+end
+
 Forward(rates) = Forward(rates, collect(1:length(rates)))
 
 """
-Takes CMT yields (bond equivalent), and assumes that instruments <= one year maturity pay no coupons and that the rest pay semi-annual.
+    Yields.CMT(rates,maturities)
+
+Takes constant maturity (treasury) yields (bond equivalent), and assumes that instruments <= one year maturity pay no coupons and that the rest pay semi-annual.
+
+# Examples
+
+```
+# 2021-03-31 rates from Treasury.gov
+rates =[0.01, 0.01, 0.03, 0.05, 0.07, 0.16, 0.35, 0.92, 1.40, 1.74, 2.31, 2.41] ./ 100
+mats = [1/12, 2/12, 3/12, 6/12, 1, 2, 3, 5, 7, 10, 20, 30]
+	
+Yields.CMT(rates,mats)
+```
 """
 function CMT(rates::Vector{T}, maturities) where {T<:Real}
     rs = map(zip(rates, maturities)) do (r, m)

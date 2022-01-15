@@ -220,6 +220,9 @@ using Test
         @test accumulation(curve, 1, 2) ≈ 1.04
         @test accumulation(curve, 0, 2) ≈ 1.04 * 1.05
 
+        # test construction using vector of reals and of Rates
+        @test discount(Yields.Forward(forwards), 1) > discount(Yields.Forward(Yields.Continuous.(forwards)), 1)
+
         @testset "broadcasting" begin
             @test all(accumulation.(curve, [1, 2]) .≈ [1.05, 1.04 * 1.05])
             @test all(discount.(curve, [1, 2]) .≈ 1 ./ [1.05, 1.04 * 1.05])
