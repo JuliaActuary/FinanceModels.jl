@@ -457,7 +457,19 @@ end
 Forward(rates) = Forward(rates, collect(1:length(rates)))
 
 """
-Takes CMT yields (bond equivalent), and assumes that instruments <= one year maturity pay no coupons and that the rest pay semi-annual.
+    Yields.CMT(rates,maturities)
+
+Takes constant maturity (treasury) yields (bond equivalent), and assumes that instruments <= one year maturity pay no coupons and that the rest pay semi-annual.
+
+# Examples
+
+```
+# 2021-03-31 rates from Treasury.gov
+rates =[0.01, 0.01, 0.03, 0.05, 0.07, 0.16, 0.35, 0.92, 1.40, 1.74, 2.31, 2.41] ./ 100
+mats = [1/12, 2/12, 3/12, 6/12, 1, 2, 3, 5, 7, 10, 20, 30]
+	
+Yields.CMT(rates,mats)
+```
 """
 function CMT(rates::Vector{T}, maturities) where {T<:Real}
     rs = map(zip(rates, maturities)) do (r, m)
