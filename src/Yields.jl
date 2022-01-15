@@ -421,21 +421,37 @@ end
 """
     Forward(rate_vector,maturities)
 
-Takes a vector of 1-period forward rates and constructs a discount curve.
+Takes a vector of 1-period forward rates and constructs a discount curve. If rate_vector is not a vector of `Rates` (ie is just a vector of `Float64` values), then
+the assumption is that each value is `Periodic` rate compounded once per period.
+
+# Examples
+
+```julia-repl
+julia> Yields.Forward( [0.01,0.02,0.03] );
+
+julia> Yields.Forward( Yields.Continuous.([0.01,0.02,0.03]) );
+
+```
 """
-function Forward(rates, maturities)
+function Forward(rates::Vector{<:Rate}, maturities)
     # convert to zeros and pass to Zero
-    disc_v = similar(rates)
+    disc_v = Vector{Float64}(undef, length(rates))
+
     v = 1.0
 
     for i = 1:length(rates)
         Δt = maturities[i] - (i == 1 ? 0 : maturities[i-1])
-        v *= discount(Constant(rates[i]), Δt)
+        v *= discount(rates[i], Δt)
         disc_v[i] = v
     end
 
     z = (1.0 ./ disc_v) .^ (1 ./ maturities) .- 1 # convert disc_v to zero
     return Zero(z, maturities)
+end
+
+# if rates isn't a vector of Rates, then we assume periodic rates compounded once per period.
+function Forward(rates, maturities)
+    return Forward(Yields.Periodic.(rates, 1), maturities)
 end
 
 Forward(rates) = Forward(rates, collect(1:length(rates)))
