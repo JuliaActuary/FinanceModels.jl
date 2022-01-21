@@ -269,6 +269,8 @@ using Test
 
         yield = rf_curve + spread_curve
 
+        @test rate(zero(yield,0.5)) ≈ first(riskfree)  + first(spread)
+
         @test discount(yield, 1.0) ≈ 1 / (1 + riskfree[2] + spread[2])^1
         @test discount(yield, 1.5) ≈ 1 / (1 + riskfree[3] + spread[3])^1.5
     end

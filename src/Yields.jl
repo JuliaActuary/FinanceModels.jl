@@ -248,17 +248,10 @@ end
 
 Return the zero rate for the curve at the given time. If not specified, will use `Periodic(1)` compounding.
 """
-Base.zero(c::YieldCurve, time) = convert(Periodic(1), Continuous(c.zero(time)))
-function Base.zero(c::YieldCurve, time, cf::Periodic)
-    z = Continuous(c.zero(time))
-    i = convert(cf, z)
-    return i
+Base.zero(c::YC, time) where {YC<:AbstractYield} = zero(c,time,Periodic(1)) 
+function Base.zero(c::YC, time, cf::C) where {YC<:AbstractYield,C<:CompoundingFrequency}
+    return convert(cf, Continuous(c.zero(time))) # c.zero is a curve of continuous rates represented as floats. explicitly wrap in continuous before converting
 end
-
-function Base.zero(c::YieldCurve, time, cf::Continuous)
-    return Continuous(c.zero(time))
-end
-
 
 """
     Constant(rate::Real, cf::CompoundingFrequency=Periodic(1))
@@ -851,6 +844,13 @@ function discount(rc::RateCombination, time)
     a1 = discount(rc.r1, time)^(-1 / time) - 1
     a2 = discount(rc.r2, time)^(-1 / time) - 1
     return 1 / (1 + rc.op(a1, a2))^time
+end
+
+Base.zero(rc::RateCombination, time) = zero(rc,time,Periodic(1))
+function Base.zero(rc::RateCombination, time, cf::C) where {C<:CompoundingFrequency}
+    d = discount(rc,time)
+    i = Periodic(1/d^(1/time)-1,1)
+    return convert(cf, i) # c.zero is a curve of continuous rates represented as floats. explicitly wrap in continuous before converting
 end
 
 """
