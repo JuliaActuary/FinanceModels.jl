@@ -11,8 +11,8 @@
 
         @testset "constant discount time: $time" for time in [0, 0.5, 1, 10]
             @test discount(yield, time) ≈ 1 / (1.05)^time
-            @test discount(rate, time) ≈ 1 / (1.05)^time
-            @test discount(rate, 0, time) ≈ 1 / (1.05)^time
+            @test discount(yield, 0, time) ≈ 1 / (1.05)^time
+            @test discount(yield, 3, time + 3) ≈ 1 / (1.05)^time
         end
         @testset "constant discount scalar time: $time" for time in [0, 0.5, 1, 10]
             @test discount(0.05, time) ≈ 1 / (1.05)^time
@@ -29,25 +29,8 @@
 
         @testset "constant accumulation time: $time" for time in [0, 0.5, 1, 10]
             @test accumulation(yield, time) ≈ 1 * 1.05^time
-            @test accumulation(rate, time) ≈ 1 * 1.05^time
-            @test accumulation(rate, 0, time) ≈ 1 * 1.05^time
-        end
-
-        @testset "CompoundingFrequency" begin
-            @testset "Continuous" begin
-                cnst = Yields.Constant(Yields.Continuous(0.05))
-                @test accumulation(cnst, 1) == exp(0.05)
-                @test accumulation(cnst, 2) == exp(0.05 * 2)
-                @test discount(cnst, 2) == 1 / exp(0.05 * 2)
-            end
-
-            @testset "Periodic" begin
-                p = Yields.Constant(Rate(0.05, Yields.Periodic(2)))
-                @test accumulation(p, 1) == (1 + 0.05 / 2)^(1 * 2)
-                @test accumulation(p, 2) == (1 + 0.05 / 2)^(2 * 2)
-                @test discount(p, 2) == 1 / (1 + 0.05 / 2)^(2 * 2)
-
-            end
+            @test accumulation(yield, 0, time) ≈ 1 * 1.05^time
+            @test accumulation(yield, 3, time + 3) ≈ 1 * 1.05^time
         end
 
 
@@ -154,8 +137,8 @@
         @test discount(y, 2) ≈ 1 / 1.058^2
 
         @testset "broadcasting" begin
-            @test all(discount.(y, [1, 2]) .≈ [1 / 1.05, 1 / 1.058^2])
-            @test all(accumulation.(y, [1, 2]) .≈ [1.05, 1.058^2])
+            @test all(isapprox.(discount.(y, [1, 2]), [1 / 1.05, 1 / 1.058^2], rtol = 1e-14))
+            @test all(isapprox.(accumulation.(y, [1, 2]), [1.05, 1.058^2], rtol = 1e-14))
         end
 
     end

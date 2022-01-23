@@ -35,8 +35,8 @@
 
     end
 
-    @testset "discounting and accumulation" begin
-        t = 2.46
+    @testset "discounting and accumulation" for t in [-1.3, 2.46, 6.7]
+        
         unspecified_rate = 0.035
         periodic_rate = Yields.Periodic(0.02, 2)
         continuous_rate = Yields.Continuous(0.03)
