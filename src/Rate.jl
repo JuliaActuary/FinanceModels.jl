@@ -168,3 +168,59 @@ end
 function Base.isapprox(a::T, b::N; atol::Real = 0, rtol::Real = atol > 0 ? 0 : √eps()) where {T<:Rate,N<:Rate}
     return isapprox(convert(b.compounding, a), b; atol, rtol)
 end
+
+"""
+    discount(rate, t)
+    discount(rate, from, to)
+
+Discount `rate` for a time `t` or for an interval `(from, to)`. If `rate` is not a `Rate` it is converted to it. 
+
+# Examples
+
+```julia-repl
+julia> discount(0.03, 10)
+0.7440939148967249
+
+julia> discount(Periodic(0.03, 2), 10)
+0.7424704182237725
+
+julia> discount(Continuous(0.03), 10)
+0.7408182206817179
+
+julia> discount(0.03, 5, 10)
+0.8626087843841639
+```
+"""
+
+discount(rate, t) = discount(Rate(rate), t)
+discount(rate::Rate{<:Real, <:Continuous}, t) = exp(-rate.value * t)
+discount(rate::Rate{<:Real, <:Periodic}, t) = (1 + rate.value / rate.compounding.frequency)^(-rate.compounding.frequency * t)
+discount(rate, from, to) = discount(rate, to - from)
+
+"""
+    accumulation(rate, t)
+    accumulation(rate, from, to)
+
+Accumulate `rate` for a time `t` or for an interval `(from, to)`. If `rate` is not a `Rate` it is converted to it. 
+
+    # Examples
+
+```julia-repl
+julia> accumulation(0.03, 10)
+1.3439163793441222
+
+julia> accumulation(Periodic(0.03, 2), 10)
+1.3468550065500535
+
+julia> accumulation(Continuous(0.03), 10)
+1.3498588075760032
+
+julia> accumulation(0.03, 5, 10)
+1.1592740743
+```
+"""
+
+accumulation(rate, t) = accumulation(Rate(rate), t)
+accumulation(rate::Rate{<:Real, <:Continuous}, t) = exp(rate.value * t)
+accumulation(rate::Rate{<:Real, <:Periodic}, t) = (1 + rate.value / rate.compounding.frequency)^(rate.compounding.frequency * t)
+accumulation(rate, from, to) = accumulation(rate, to - from)

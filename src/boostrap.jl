@@ -71,16 +71,13 @@ function Constant(rate::T, cf::C = Periodic(1)) where {T<:Real,C<:CompoundingFre
 end
 
 Base.zero(c::Constant, time) = c.rate
-Base.zero(c::Constant, time, cf::C) where {C<:CompoundingFrequency} = convert(cf, c.rate)
+Base.zero(c::Constant, time, cf::CompoundingFrequency) = convert(cf, c.rate)
 rate(c::Constant) = c.rate
 rate(c::Constant, time) = c.rate
-discount(c::T, time) where {T<:Real} = discount(Constant(c), time)
-discount(r::Constant, time) = 1 / accumulation(r, time)
-
-accumulation(r::Constant, time) = accumulation(r.rate.compounding, r, time)
-accumulation(c::T, time) where {T>:Real} = accumulation(Constant(c), time)
-accumulation(::Continuous, r::Constant, time) = exp(rate(r.rate) * time)
-accumulation(::Periodic, r::Constant, time) = (1 + rate(r.rate) / r.rate.compounding.frequency)^(r.rate.compounding.frequency * time)
+discount(r::Constant, time) = discount(r.rate, time)
+discount(r::Constant, from, to) = discount(r.rate, to - from)
+accumulation(r::Constant, time) = accumulation(r.rate, time)
+accumulation(r::Constant, from, to) = accumulation(r.rate, to - from)
 
 """
     Step(rates,times)
