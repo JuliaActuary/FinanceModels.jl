@@ -23,8 +23,8 @@
         end
 
         @testset "broadcasting" begin
-            @test all(discount.(yield, [1, 2, 3]) .== 1 ./ 1.05 .^ (1:3))
-            @test all(accumulation.(yield, [1, 2, 3]) .== 1.05 .^ (1:3))
+            @test all(discount.(yield, [1, 2, 3]) .≈ 1 ./ 1.05 .^ (1:3))
+            @test all(accumulation.(yield, [1, 2, 3]) .≈ 1.05 .^ (1:3))
         end
 
         @testset "constant accumulation time: $time" for time in [0, 0.5, 1, 10]
@@ -137,8 +137,8 @@
         @test discount(y, 2) ≈ 1 / 1.058^2
 
         @testset "broadcasting" begin
-            @test all(isapprox.(discount.(y, [1, 2]), [1 / 1.05, 1 / 1.058^2], rtol = 1e-14))
-            @test all(isapprox.(accumulation.(y, [1, 2]), [1.05, 1.058^2], rtol = 1e-14))
+            @test all(discount.(y, [1, 2]) .≈ [1 / 1.05, 1 / 1.058^2])
+            @test all(accumulation.(y, [1, 2]) .≈ [1.05, 1.058^2])
         end
 
     end
