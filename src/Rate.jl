@@ -82,7 +82,7 @@ end
 
 Rate is a type that encapsulates an interest `rate` along with its compounding `frequency`.
 
-Periodic rates can be constructed via `Rate(rate,frequency)` or `Rate(rate,Periodic(frequency))`.
+Periodic rates can be constructed via `Rate(rate,frequency)` or `Rate(rate,Periodic(frequency))`. If not given a second argument, `Rate(rate)` is equivalent to `Rate(rate,Periodic(1))`.
 
 Continuous rates can be constructed via `Rate(rate, Inf)` or `Rate(rate,Continuous())`.
 
@@ -173,7 +173,7 @@ end
     discount(rate, t)
     discount(rate, from, to)
 
-Discount `rate` for a time `t` or for an interval `(from, to)`. If `rate` is not a `Rate` it is converted to it. 
+Discount `rate` for a time `t` or for an interval `(from, to)`. If `rate` is not a `Rate`, it will be assumed to be a `Periodic` rate compounded once per period, i.e. `Periodic(rate,1)`. 
 
 # Examples
 
@@ -201,7 +201,7 @@ discount(rate, from, to) = discount(rate, to - from)
     accumulation(rate, t)
     accumulation(rate, from, to)
 
-Accumulate `rate` for a time `t` or for an interval `(from, to)`. If `rate` is not a `Rate` it is converted to it. 
+Accumulate `rate` for a time `t` or for an interval `(from, to)`. If `rate` is not a `Rate`, it will be assumed to be a `Periodic` rate compounded once per period, i.e. `Periodic(rate,1)`. 
 
     # Examples
 
