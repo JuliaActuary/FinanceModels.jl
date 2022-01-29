@@ -74,7 +74,6 @@ struct Rate{N<:Real,T<:CompoundingFrequency}
     compounding::T
 end
 
-# Base.:==(r1::Rate,r2::Rate) = (r1.value == r2.value) && (r1.compounding == r2.compounding)
 
 """
     Rate(rate[,frequency=1])
