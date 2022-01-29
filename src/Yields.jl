@@ -7,7 +7,7 @@ using UnicodePlots
 
 # don't export type, as the API of Yields.Zero is nicer and 
 # less polluting than Zero and less/equally verbose as ZeroYieldCurve or ZeroCurve
-export rate, discount, accumulation, forward, Yield, Rate, rate, spot
+export rate, discount, accumulation, forward, rate, spot
 
 include("Rate.jl")
 include("AbstractYield.jl")

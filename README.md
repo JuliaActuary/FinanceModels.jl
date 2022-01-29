@@ -44,14 +44,22 @@ There are two `CompoundingFrequency` types:
 #### Examples
 
 ```julia
-Rate(0.05,Yields.Continuous())       # 5% continuously compounded
-Yields.Continuous(0.05)              # alternate constructor
+Yields.Continuous(0.05)       # 5% continuously compounded
+Yields.Periodic(0.05,2)       # 5% compounded twice per period
+```
 
-Rate(0.05, Yields.Periodic(2))       # 5% compounded twice per period
-Yields.Periodic(0.05, 2)             # alternate constructor
+These are both subtypes of the parent `Rate` type and are instantiated as:
 
-# construct a vector of rates with the given compounding
-Rate.([0.02,0.03,0.04],Yields.Periodic(2)) 
+```julia
+Yields.Rate(0.05,Continuous())       # 5% continuously compounded
+Yields.Rate(0.05,Periodic(2))        # 5% compounded twice per period
+```
+
+Broadcast over a vector to create `Rates` with the given compounding:
+
+```
+Yields.Periodic.([0.02,0.03,0.04],2) 
+Yields.Continuous.([0.02,0.03,0.04]) 
 ```
 
 ### Yields

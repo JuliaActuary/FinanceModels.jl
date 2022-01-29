@@ -3,11 +3,11 @@
 
     @testset "constant curve and rate -> Constant" begin
         yield = Yields.Constant(0.05)
-        rate = Yields.Rate(0.05, Yields.Periodic(1))
+        rate = Yields.Yields.Rate(0.05, Yields.Periodic(1))
 
-        @test Yields.zero(yield, 1) == Rate(0.05, Yields.Periodic(1))
-        @test Yields.zero(Yields.Constant(0.05, Yields.Periodic(2)), 10) == Rate(0.05, Yields.Periodic(2))
-        @test Yields.zero(yield, 5, Yields.Periodic(2)) == convert(Yields.Periodic(2), Rate(0.05, Yields.Periodic(1)))
+        @test Yields.zero(yield, 1) == Yields.Rate(0.05, Yields.Periodic(1))
+        @test Yields.zero(Yields.Constant(0.05, Yields.Periodic(2)), 10) == Yields.Rate(0.05, Yields.Periodic(2))
+        @test Yields.zero(yield, 5, Yields.Periodic(2)) == convert(Yields.Periodic(2), Yields.Rate(0.05, Yields.Periodic(1)))
 
         @testset "constant discount time: $time" for time in [0, 0.5, 1, 10]
             @test discount(yield, time) ≈ 1 / (1.05)^time
@@ -107,7 +107,7 @@
         # fwd = [6.,10.2,13.07,14.36,13.77,13.1,12.55,12.2,11.97,11.93] ./ 100 # from text
         fwd = [6.0, 10.2, 13.07, 14.36, 13.77, 13.1, 12.61, 12.14, 12.05, 11.84] ./ 100  # modified
 
-        y = Yields.Par(Rate.(par, Yields.Periodic(1)), maturity)
+        y = Yields.Par(Yields.Rate.(par, Yields.Periodic(1)), maturity)
 
         @testset "UTYC Figure 9 par -> spot : $mat" for mat in maturity
             @test rate(zero(y, mat)) ≈ spot[mat] atol = 0.0001
