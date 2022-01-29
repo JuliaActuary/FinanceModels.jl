@@ -51,7 +51,7 @@ Rate(0.05, Yields.Periodic(2))       # 5% compounded twice per period
 Yields.Periodic(0.05, 2)             # alternate constructor
 
 # construct a vector of rates with the given compounding
-Rate.(0.02,0.03,0.04,Yields.Periodic(2)) 
+Rate.([0.02,0.03,0.04],Yields.Periodic(2)) 
 ```
 
 ### Yields

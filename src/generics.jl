@@ -1,50 +1,42 @@
 
 ## Generic and Fallbacks
 """
-    discount(rate,to)
-    discount(rate,from,to)
+    discount(yc, to)
+    discount(yc, from,to)
 
-The discount factor for the `rate` for times `from` through `to`. If rate is a `Real` number, will assume a `Constant` interest rate.
+The discount factor for the yield curve `yc` for times `from` through `to`.
 """
-discount(yc, time) = exp(-yc.zero(time) * time)
-discount(rate::Rate{<:Real,<:CompoundingFrequency}, from, to) = discount(Constant(rate), from, to)
-discount(rate::Rate{<:Real,<:CompoundingFrequency}, to) = discount(Constant(rate), to)
-
-
-
-discount(yc, from, to) = discount(yc, to) / discount(yc, from)
+discount(yc::YieldCurve, time) = exp(-yc.zero(time) * time)
+discount(yc::AbstractYield, from, to) = discount(yc, to) / discount(yc, from)
 
 """
-    forward(curve,from,to,CompoundingFrequency=Periodic(1))
+    forward(yc, from, to, CompoundingFrequency=Periodic(1))
 
-The forward `Rate` implied by the curve between times `from` and `to`.
+The forward `Rate` implied by the yield curve `yc` between times `from` and `to`.
 """
-function forward(yc, from, to)
+function forward(yc::AbstractYield, from, to)
     return forward(yc, from, to, Periodic(1))
 end
 
-function forward(yc, from, to, cf::T) where {T<:CompoundingFrequency}
-
+function forward(yc::AbstractYield, from, to, cf::CompoundingFrequency)
     r = Periodic((accumulation(yc, to) / accumulation(yc, from))^(1 / (to - from)) - 1, 1)
     return convert(cf, r)
 end
 
-function forward(yc, from)
+function forward(yc::AbstractYield, from)
     to = from + 1
     return forward(yc, from, to)
 end
 
 """
-    accumulation(rate,from,to)
+    accumulation(yc, from, to)
 
-The accumulation factor for the `rate` for times `from` through `to`. If rate is a `Real` number, will assume a `Constant` interest rate.
+The accumulation factor for the yield curve `yc` for times `from` through `to`.
 """
-function accumulation(y::T, time) where {T<:AbstractYield}
-    return 1 ./ discount(y, time)
+function accumulation(yc::AbstractYield, time)
+    return 1 ./ discount(yc, time)
 end
-accumulation(rate::Rate{<:Real,<:CompoundingFrequency}, to) = accumulation(Constant(rate), to)
 
-function accumulation(y::T, from, to) where {T<:AbstractYield}
-    return 1 ./ discount(y, from, to)
+function accumulation(yc::AbstractYield, from, to)
+    return 1 ./ discount(yc, from, to)
 end
-accumulation(rate::Rate{<:Real,<:CompoundingFrequency}, from, to) = accumulation(Constant(rate), from, to)
