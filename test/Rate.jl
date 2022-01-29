@@ -24,10 +24,13 @@
 
     @testset "rate equality" begin
         a = Yields.Periodic(0.02, 2)
+        a_eq = Yields.Periodic((1+.02/2)^2-1, 1)
         b = Yields.Periodic(0.03, 2)
         c = Yields.Continuous(0.02)
 
         @test a == a
+        @test !(a == a_eq) # not equal due to floating point error
+        @test_broken a ≈ a_eq
         @test a != b
         @test ~(a ≈ b)
         @test (a ≈ a)
