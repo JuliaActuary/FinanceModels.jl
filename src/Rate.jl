@@ -74,6 +74,8 @@ struct Rate{N<:Real,T<:CompoundingFrequency}
     compounding::T
 end
 
+# make rate a broadcastable type
+Base.Broadcast.broadcastable(ic::T) where {T<:Rate} = Ref(ic)
 
 """
     Rate(rate[,frequency=1])
@@ -223,3 +225,46 @@ accumulation(rate, t) = accumulation(Rate(rate), t)
 accumulation(rate::Rate{<:Real, <:Continuous}, t) = exp(rate.value * t)
 accumulation(rate::Rate{<:Real, <:Periodic}, t) = (1 + rate.value / rate.compounding.frequency)^(rate.compounding.frequency * t)
 accumulation(rate, from, to) = accumulation(rate, to - from)
+
+
+"""
+    +(Yields.Rate, T<:Real)
+    +(T<:Real, Yields.Rate)
+
+
+The addition of a rate with a number will inherit the type of the `Rate`.
+"""
+function Base.:+(a::Rate{N,T}, b::Real) where {N<:Real,T<:Continuous}
+    return Continuous(a.value + b)
+end
+function Base.:+(a::Real, b::Rate{N,T}) where {N<:Real,T<:Continuous}
+    return Continuous(b.value + a)
+end
+
+function Base.:+(a::Rate{N,T}, b::Real) where {N<:Real, T<:Periodic}
+    return Periodic(a.value + b,a.compounding.frequency)
+end
+function Base.:+(a::Real, b::Rate{N,T}) where {N<:Real, T<:Periodic}
+    return Periodic(b.value + a,b.compounding.frequency)
+end
+
+"""
+    -(Yields.Rate, T<:Real)
+    -(T<:Real, Yields.Rate)
+
+
+The addition of a rate with a number will inherit the type of the `Rate`.
+"""
+function Base.:-(a::Rate{N,T}, b::Real) where {N<:Real,T<:Continuous}
+    return Continuous(a.value - b)
+end
+function Base.:-(a::Real, b::Rate{N,T}) where {N<:Real,T<:Continuous}
+    return Continuous( a - b.value)
+end
+
+function Base.:-(a::Rate{N,T}, b::Real) where {N<:Real, T<:Periodic}
+    return Periodic(a.value - b, a.compounding.frequency)
+end
+function Base.:-(a::Real, b::Rate{N,T}) where {N<:Real, T<:Periodic}
+    return Periodic(a - b.value, b.compounding.frequency)
+end

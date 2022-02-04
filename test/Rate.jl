@@ -65,4 +65,33 @@
         @test accumulation(rate, from, to) ≈ accumulation(rate, to - from)
         
     end
+
+    @testset "rate addition/subtraction" begin
+
+        a = 0.03
+        b = 0.02
+        
+        @testset "addition" begin
+            c(x) = Yields.Continuous(x)
+            p(x) = Yields.Periodic(x, 1)
+
+            @test c(a) + b ≈ Yields.Continuous(0.05)
+            @test a + c(b) ≈ Yields.Continuous(0.05)
+            
+            @test p(a) + b ≈ Yields.Periodic(0.05,1)
+            @test a + p(b) ≈ Yields.Periodic(0.05,1)
+        end
+
+        @testset "subtraction" begin
+            c(x) = Yields.Continuous(x)
+            p(x) = Yields.Periodic(x, 1)
+
+            @test c(a) - b ≈ Yields.Continuous(0.01)
+            @test a - c(b) ≈ Yields.Continuous(0.01)
+            
+            @test p(a) - b ≈ Yields.Periodic(0.01,1)
+            @test a - p(b) ≈ Yields.Periodic(0.01,1)
+        end
+    end
+
 end
