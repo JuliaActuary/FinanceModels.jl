@@ -14,7 +14,47 @@ function solve(g, g′, x0, max_iterations = 100)
     return x
 end
 
-function bootstrap(rates, maturities, settlement_frequency; interp_function = linear_interp)
+abstract type InterpolationKind end
+
+struct CubicSpline <: InterpolationKind end
+struct LinearSpline <: InterpolationKind end
+
+"""
+    bootstrap(rates, maturities, settlement_frequency, interpolation::CubicSpline())
+
+Bootstrap the rates with the given maturities, treating the rates according to the periodic frequencies in settlement_frequency. 
+
+`interpolator` is any function that will take two vectors of inputs and output points and return a function that will estimate an output given a scalar input. That is
+`interpolator` should be: `interpolator(xs, ys) -> f(x)` where `f(x)` is the interpolated value of `y` at `x`. 
+
+Built in `interpolator`s in Yields are: 
+- `CubicSpline()`: Cubic spline interpolation.
+- `LinearSpline()`: Linear spline interpolation.
+
+The default is `CubicSpline()`.
+"""
+function bootstrap(rates, maturities, settlement_frequency, interpolation::InterpolationKind=CubicSpline())
+    return _bootstrap_choose_interp(rates, maturities, settlement_frequency, interpolation)
+end
+
+# the fall-back if user provides own interpolation function
+function bootstrap(rates, maturities, settlement_frequency, interpolation)
+    return _bootstrap_inner(rates, maturities, settlement_frequency, interpolation)
+end
+
+# dispatch on the user-exposed InterpolationKind to the right 
+# internally named interpolation function
+function _bootstrap_choose_interp(rates, maturities, settlement_frequency, i::CubicSpline)
+    return _bootstrap_inner(rates, maturities, settlement_frequency, cubic_interp)
+end
+
+function _bootstrap_choose_interp(rates, maturities, settlement_frequency, i::LinearSpline)
+    return _bootstrap_inner(rates, maturities, settlement_frequency, linear_interp)
+end
+
+
+
+function _bootstrap_inner(rates, maturities, settlement_frequency, interpolation_function)
     discount_vec = zeros(length(rates)) # construct a placeholder discount vector matching maturities
     # we have to take the first rate as the starting point
     discount_vec[1] = discount(Constant(rates[1]), maturities[1])
@@ -30,7 +70,7 @@ function bootstrap(rates, maturities, settlement_frequency; interp_function = li
             cfs[end] += 1
 
             function pv(v_guess)
-                v = interp_function([[0.0]; maturities[1:t]], vcat(1.0, discount_vec[1:t-1], v_guess...))
+                v = interpolation_function([[0.0]; maturities[1:t]], vcat(1.0, discount_vec[1:t-1], v_guess...))
                 return sum(v.(times) .* cfs)
             end
             target_pv = sum(map(t2 -> discount(Constant(rates[t]), t2), times) .* cfs)
@@ -43,10 +83,55 @@ function bootstrap(rates, maturities, settlement_frequency; interp_function = li
     zero_vec = -log.(discount_vec) ./ maturities
     return linear_interp([0.0; maturities], [first(zero_vec); zero_vec])
 end
-linear_interp(xs, ys) = Interpolations.extrapolate(
-    Interpolations.interpolate((xs,), ys, Interpolations.Gridded(Interpolations.Linear())),
-    Interpolations.Line()
-)
+
+# the ad-hoc approach to extrapoliatons is based on suggestion by author of 
+# BSplineKit at https://github.com/jipolanco/BSplineKit.jl/issues/19
+# this should not be exposed directly to user
+struct _Extrap{I,L,R}
+	int::I # the BSplineKit interpolation
+	left::L # a tuple of (boundary, extrapolation function)
+	right::R # a tuple of (boundary, extrapolation function)
+end
+
+function _wrap_spline(itp)
+
+	S = BSplineKit.spline(itp)  # spline passing through data points
+	B = BSplineKit.basis(S)     # B-spline basis
+	
+	a, b = BSplineKit.boundaries(B)  # left and right boundaries
+	
+	# For now, we construct the full spline S′(x).
+	# There are faster ways of doing this that should be implemented...
+	S′ = diff(S, BSplineKit.Derivative(1))
+	
+	return _Extrap(itp,
+		(boundary = a, func = x->S(a) + S′(a)*(x-a)),
+		(boundary = b, func = x->S(b) + S′(b)*(x-b)),
+		
+	)
+end
+
+function _interp(e::_Extrap,x)
+	if x <= e.left.boundary
+		return e.left.func(x)
+	elseif x >= e.right.boundary
+		return e.right.func(x)
+	else
+		return e.int(x)
+	end
+end
+
+function linear_interp(xs, ys)
+    int = BSplineKit.interpolate(xs, ys, BSplineKit.BSplineOrder(2))
+    e = _wrap_spline(int)
+    return x -> _interp(e, x)
+end
+
+function cubic_interp(xs, ys)
+    int = BSplineKit.interpolate(xs, ys, BSplineKit.BSplineOrder(2))
+    e = _wrap_spline(int)
+    return x -> _interp(e, x)
+end
 
 # used to display simple type name in show method
 # https://stackoverflow.com/questions/70043313/get-simple-name-of-type-in-julia?noredirect=1#comment123823820_70043313
