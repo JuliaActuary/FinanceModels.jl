@@ -43,10 +43,47 @@ function bootstrap(rates, maturities, settlement_frequency; interp_function = li
     zero_vec = -log.(discount_vec) ./ maturities
     return linear_interp([0.0; maturities], [first(zero_vec); zero_vec])
 end
-linear_interp(xs, ys) = Interpolations.extrapolate(
-    Interpolations.interpolate((xs,), ys, Interpolations.Gridded(Interpolations.Linear())),
-    Interpolations.Line()
-)
+
+struct Extrap{I,L,R}
+	int::I
+	left::L
+	right::R
+end
+
+function wrap_spline(itp)
+
+	S = BSplineKit.spline(itp)  # spline passing through data points
+	B = BSplineKit.basis(S)     # B-spline basis
+	
+	a, b = BSplineKit.boundaries(B)  # left and right boundaries
+	
+	# For now, we construct the full spline S′(x).
+	# There are faster ways of doing this that should be implemented...
+	S′ = diff(S, BSplineKit.Derivative(1))
+	
+	return Extrap(itp,
+		(boundary = a, func = x->S(a) + S′(a)*(x-a)),
+		(boundary = b, func = x->S(b) + S′(b)*(x-b)),
+		
+	)
+end
+
+function interp(e::Extrap,x)
+	if x <= e.left.boundary
+		return e.left.func(x)
+	elseif x >= e.right.boundary
+		return e.right.func(x)
+	else
+		return e.int(x)
+	end
+end
+
+function linear_interp(xs, ys)
+    int = BSplineKit.interpolate(xs, ys, BSplineKit.BSplineOrder(2))
+    e = wrap_spline(int)
+    return x -> interp(e, x)
+end
+
 
 # used to display simple type name in show method
 # https://stackoverflow.com/questions/70043313/get-simple-name-of-type-in-julia?noredirect=1#comment123823820_70043313

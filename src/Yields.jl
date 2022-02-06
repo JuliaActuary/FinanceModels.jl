@@ -1,6 +1,6 @@
 module Yields
 
-import Interpolations
+import BSplineKit
 import ForwardDiff
 using LinearAlgebra
 using UnicodePlots
@@ -11,7 +11,7 @@ export rate, discount, accumulation, forward, spot
 
 include("Rate.jl")
 include("AbstractYield.jl")
-include("boostrap.jl")
+include("bootstrap.jl")
 include("SmithWilson.jl")
 include("generics.jl")
 include("RateCombination.jl")
