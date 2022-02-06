@@ -168,9 +168,11 @@ function Zero(rates)
 end
 
 """
-    Par(rate, maturity)
+    Par(rates, maturities; interpolation=CubicSpline())
 
 Construct a curve given a set of bond equivalent yields and the corresponding maturities. Assumes that maturities <= 1 year do not pay coupons and that after one year, pays coupons with frequency equal to the CompoundingFrequency of the corresponding rate.
+
+See [`bootstrap`](@ref) for more on the `interpolation` parameter, which is set to `CubicSpline()` by default.
 
 # Examples
 
@@ -184,7 +186,7 @@ Rate(0.06000000000000005, Periodic(1))
 
 ```
 """
-function Par(rates::Vector{<:Rate}, maturities)
+function Par(rates::Vector{<:Rate}, maturities; interpolation=CubicSpline())
     # bump to a constant yield if only given one rate
     if length(rates) == 1
         return Constant(rate[1])
@@ -194,7 +196,7 @@ function Par(rates::Vector{<:Rate}, maturities)
         maturities,
         # assume that maturities less than or equal to 12 months are settled once, otherwise semi-annual
         # per Hull 4.7
-        bootstrap(rates, maturities, [m <= 1 ? nothing : 1 / r.compounding.frequency for (r, m) in zip(rates, maturities)])
+        bootstrap(rates, maturities, [m <= 1 ? nothing : 1 / r.compounding.frequency for (r, m) in zip(rates, maturities)], interpolation)
     )
 end
 
@@ -242,9 +244,11 @@ end
 Forward(rates) = Forward(rates, collect(1:length(rates)))
 
 """
-    Yields.CMT(rates,maturities)
+    Yields.CMT(rates, maturities; interpolation=CubicSpline())
 
 Takes constant maturity (treasury) yields (bond equivalent), and assumes that instruments <= one year maturity pay no coupons and that the rest pay semi-annual.
+
+See [`bootstrap`](@ref) for more on the `interpolation` parameter, which is set to `CubicSpline()` by default.
 
 # Examples
 
@@ -268,20 +272,22 @@ function CMT(rates::Vector{T}, maturities) where {T<:Real}
     CMT(rs, maturities)
 end
 
-function CMT(rates::Vector{<:Rate}, maturities)
+function CMT(rates::Vector{<:Rate}, maturities; interpolation=CubicSpline())
     return YieldCurve(
         rates,
         maturities,
         # assume that maturities less than or equal to 12 months are settled once, otherwise semi-annual
         # per Hull 4.7
-        bootstrap(rates, maturities, [m <= 1 ? nothing : 0.5 for m in maturities])
+        bootstrap(rates, maturities, [m <= 1 ? nothing : 0.5 for m in maturities], interpolation)
     )
 end
 
 
 """
     OIS(rates,maturities)
-Takes Overnight Index Swap rates, and assumes that instruments <= one year maturity are settled once and other agreements are settled quarterly with a corresponding CompoundingFrequency
+Takes Overnight Index Swap rates, and assumes that instruments <= one year maturity are settled once and other agreements are settled quarterly with a corresponding CompoundingFrequency.
+
+See [`bootstrap`](@ref) for more on the `interpolation` parameter, which is set to `CubicSpline()` by default.
 
 """
 function OIS(rates::Vector{T}, maturities) where {T<:Real}
@@ -295,12 +301,12 @@ function OIS(rates::Vector{T}, maturities) where {T<:Real}
 
     return OIS(rs, maturities)
 end
-function OIS(rates::Vector{<:Rate}, maturities)
+function OIS(rates::Vector{<:Rate}, maturities ; interpolation=CubicSpline())
     return YieldCurve(
         rates,
         maturities,
         # assume that maturities less than or equal to 12 months are settled once, otherwise quarterly
         # per Hull 4.7
-        bootstrap(rates, maturities, [m <= 1 ? nothing : 1 / 4 for m in maturities])
+        bootstrap(rates, maturities, [m <= 1 ? nothing : 1 / 4 for m in maturities], interpolation)
     )
 end
