@@ -37,6 +37,11 @@ function discount(c::ForwardStarting, to)
     discount(c.curve, c.forwardstart, to + c.forwardstart)
 end
 
+function Base.zero(c::ForwardStarting, to,cf::C) where {C<:CompoundingFrequency}
+    z = forward(c.curve,c.forwardstart,to+c.forwardstart)
+    return convert(cf,z)
+end
+
 """
     zero(curve,time)
     zero(curve,time,CompoundingFrequency)
