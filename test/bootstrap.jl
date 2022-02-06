@@ -114,6 +114,13 @@
             @test forward(y, mat - 1) ≈ Yields.Periodic(fwd[mat], 1) atol = 0.0001
         end
 
+        y = Yields.Par(Yields.Rate.(par, Yields.Periodic(1)), maturity; interpolation = LinearSpline())
+
+        @testset "UTYC Figure 9 par -> spot : $mat" for mat in maturity
+            @test rate(zero(y, mat)) ≈ spot[mat] atol = 0.0001
+            @test forward(y, mat - 1) ≈ Yields.Periodic(fwd[mat], 1) atol = 0.0001
+        end
+
     end
 
     @testset "simple rate and forward" begin
@@ -123,14 +130,16 @@
         zero = [5.0, 5.8, 6.4, 6.8] ./ 100
         curve = Yields.Zero(zero, maturity)
 
-        @test discount(curve, 0) ≈ 1
-        @test discount(curve, 1) ≈ 1 / (1 + zero[2])
-        @test discount(curve, 2) ≈ 1 / (1 + zero[4])^2
+        for curve in [Yields.Zero(zero, maturity),Yields.Zero(zero, maturity;interpolation=LinearSpline())]
+            @test discount(curve, 0) ≈ 1
+            @test discount(curve, 1) ≈ 1 / (1 + zero[2])
+            @test discount(curve, 2) ≈ 1 / (1 + zero[4])^2
 
-        @test forward(curve, 0.5, 1.0) ≈ Yields.Periodic(6.6 / 100, 1) atol = 0.001
-        @test forward(curve, 1.0, 1.5) ≈ Yields.Periodic(7.6 / 100, 1) atol = 0.001
-        @test forward(curve, 1.5, 2.0) ≈ Yields.Periodic(8.0 / 100, 1) atol = 0.001
-
+            @test forward(curve, 0.5, 1.0) ≈ Yields.Periodic(6.6 / 100, 1) atol = 0.001
+            @test forward(curve, 1.0, 1.5) ≈ Yields.Periodic(7.6 / 100, 1) atol = 0.001
+            @test forward(curve, 1.5, 2.0) ≈ Yields.Periodic(8.0 / 100, 1) atol = 0.001
+        end
+        
         y = Yields.Zero(zero)
 
         @test discount(y, 1) ≈ 1 / 1.05
@@ -216,6 +225,16 @@
             @test rate(zero(curve, mat, Yields.Periodic(tp))) ≈ target atol = 0.0001
         end
 
+        curve = Yields.CMT(cmt, mats; interpolation=LinearSpline())
+        @testset "Fabozzi bootstrapped rates" for (r, mat, target, tp) in zip(cmt, mats, targets, target_periodicity)
+            @test rate(zero(curve, mat, Yields.Periodic(tp))) ≈ target atol = 0.0001
+        end
+
+        curve = Yields.CMT(cmt, mats; interpolation=CubicSpline())
+        @testset "Fabozzi bootstrapped rates" for (r, mat, target, tp) in zip(cmt, mats, targets, target_periodicity)
+            @test rate(zero(curve, mat, Yields.Periodic(tp))) ≈ target atol = 0.0001
+        end
+
         # Hull, problem 4.34
         adj = ((1 + 0.051813 / 2)^2 - 1) * 100
         cmt = [4.0816, adj, 5.4986, 5.8620] ./ 100
@@ -247,8 +266,13 @@
     @testset "OIS" begin
         ois = [1.8, 2.0, 2.2, 2.5, 3.0, 4.0] ./ 100
         mats = [1 / 12, 1 / 4, 1 / 2, 1, 2, 5]
-        curve = Yields.OIS(ois, mats)
         targets = [0.017987, 0.019950, 0.021880, 0.024693, 0.029994, 0.040401]
+
+        curve = Yields.OIS(ois, mats)
+        @testset "bootstrapped rates" for (r, mat, target) in zip(ois, mats, targets)
+            @test rate(zero(curve, mat, Yields.Continuous())) ≈ target atol = 0.001
+        end
+        curve = Yields.OIS(ois, mats;interpolation=LinearSpline())
         @testset "bootstrapped rates" for (r, mat, target) in zip(ois, mats, targets)
             @test rate(zero(curve, mat, Yields.Continuous())) ≈ target atol = 0.001
         end

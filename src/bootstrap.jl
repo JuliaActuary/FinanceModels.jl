@@ -140,31 +140,58 @@ end
 
 
 """
-    Zero(rates,maturities)
+    Zero(rates, maturities; interpolation=CubicSpline())
 
 Construct a yield curve with given zero-coupon spot `rates` at the given `maturities`. If `rates` is not a `Vector{Rate}`, will assume `Periodic(1)` type.
+
+See [`bootstrap`](@ref) for more on the `interpolation` parameter, which is set to `CubicSpline()` by default.
 """
-function Zero(rates::Vector{<:Rate}, maturities)
+function Zero(rates::Vector{<:Rate}, maturities; interpolation=CubicSpline())
     # bump to a constant yield if only given one rate
     length(rates) == 1 && return Constant(first(rates))
+    return _zero_inner(rates,maturities,interpolation)
+end
 
+# zero is different than the other boostrapped curves in that it doesn't actually need to bootstrap 
+# because the rate are already zero rates. Instead, we just cut straight to the 
+# appropriate interpolation function based on the type dispatch.
+function _zero_inner(rates::Vector{<:Rate}, maturities, interp::CubicSpline)
     continuous_zeros = rate.(convert.(Continuous(), rates))
     return YieldCurve(
         rates,
         maturities,
-        linear_interp([0.0; maturities], [first(continuous_zeros); continuous_zeros])
+        cubic_interp([0.0; maturities],[first(continuous_zeros); continuous_zeros])
+    )
+end
+
+function _zero_inner(rates::Vector{<:Rate}, maturities, interp::LinearSpline)
+    continuous_zeros = rate.(convert.(Continuous(), rates))
+    return YieldCurve(
+        rates,
+        maturities,
+        linear_interp([0.0; maturities],[first(continuous_zeros); continuous_zeros])
+    )
+end
+
+# fallback for user provied interpolation function
+function _zero_inner(rates::Vector{<:Rate}, maturities, interp)
+    continuous_zeros = rate.(convert.(Continuous(), rates))
+    return YieldCurve(
+        rates,
+        maturities,
+        interp([0.0; maturities],[first(continuous_zeros); continuous_zeros])
     )
 end
 
 #fallback if `rates` aren't `Rate`s. Assume `Periodic(1)` per Zero docstring
-function Zero(rates, maturities)
-    Zero(Periodic.(rates, 1), maturities)
+function Zero(rates, maturities; interpolation=CubicSpline())
+    Zero(Periodic.(rates, 1), maturities; interpolation)
 end
 
-function Zero(rates)
+function Zero(rates; interpolation=CubicSpline())
     # bump to a constant yield if only given one rate
     maturities = collect(1:length(rates))
-    return Zero(rates, maturities)
+    return Zero(rates, maturities; interpolation)
 end
 
 """
@@ -200,8 +227,8 @@ function Par(rates::Vector{<:Rate}, maturities; interpolation=CubicSpline())
     )
 end
 
-function Par(rates::Vector{T}, maturities) where {T<:Real}
-    return Par(Rate.(rates), maturities)
+function Par(rates::Vector{T}, maturities; interpolation=CubicSpline()) where {T<:Real}
+    return Par(Rate.(rates), maturities; interpolation)
 end
 
 
@@ -260,7 +287,7 @@ mats = [1/12, 2/12, 3/12, 6/12, 1, 2, 3, 5, 7, 10, 20, 30]
 Yields.CMT(rates,mats)
 ```
 """
-function CMT(rates::Vector{T}, maturities) where {T<:Real}
+function CMT(rates::Vector{T}, maturities; interpolation=CubicSpline()) where {T<:Real}
     rs = map(zip(rates, maturities)) do (r, m)
         if m <= 1
             Rate(r, Periodic(1 / m))
@@ -269,7 +296,7 @@ function CMT(rates::Vector{T}, maturities) where {T<:Real}
         end
     end
 
-    CMT(rs, maturities)
+    CMT(rs, maturities;interpolation)
 end
 
 function CMT(rates::Vector{<:Rate}, maturities; interpolation=CubicSpline())
@@ -290,7 +317,7 @@ Takes Overnight Index Swap rates, and assumes that instruments <= one year matur
 See [`bootstrap`](@ref) for more on the `interpolation` parameter, which is set to `CubicSpline()` by default.
 
 """
-function OIS(rates::Vector{T}, maturities) where {T<:Real}
+function OIS(rates::Vector{T}, maturities; interpolation=CubicSpline()) where {T<:Real}
     rs = map(zip(rates, maturities)) do (r, m)
         if m <= 1
             Rate(r, Periodic(1 / m))
@@ -299,7 +326,7 @@ function OIS(rates::Vector{T}, maturities) where {T<:Real}
         end
     end
 
-    return OIS(rs, maturities)
+    return OIS(rs, maturities; interpolation)
 end
 function OIS(rates::Vector{<:Rate}, maturities ; interpolation=CubicSpline())
     return YieldCurve(
