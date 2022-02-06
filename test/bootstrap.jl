@@ -201,14 +201,17 @@
 
     @testset "forwardcurve" begin
         maturity = [0.5, 1.0, 1.5, 2.0]
-        zero = [5.0, 5.8, 6.4, 6.8] ./ 100
-        curve = Yields.Zero(zero, maturity)
+        zeros = [5.0, 5.8, 6.4, 6.8] ./ 100
+        curve = Yields.Zero(zeros, maturity)
 
         fwd = Yields.ForwardStarting(curve, 1.0)
         @test discount(fwd, 0) ≈ 1
         @test discount(fwd, 0.5) ≈ discount(curve, 1, 1.5)
         @test discount(fwd, 1) ≈ discount(curve, 1, 2)
         @test accumulation(fwd, 1) ≈ accumulation(curve, 1, 2)
+
+        @test zero(fwd,1) ≈ forward(curve,1,2)
+        @test zero(fwd,1,Yields.Continuous()) ≈ convert(Yields.Continuous(),forward(curve,1,2))
     end
 
 
