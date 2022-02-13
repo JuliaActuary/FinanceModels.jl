@@ -31,7 +31,7 @@
 
         @test a == a
         @test !(a == a_eq) # not equal due to floating point error
-        @test_broken a ≈ a_eq
+        @test a ≈ a_eq
         @test a != b
         @test ~(a ≈ b)
         @test (a ≈ a)

@@ -158,7 +158,8 @@ function rate(r::Rate{<:Real,<:CompoundingFrequency})
 end
 
 function Base.isapprox(a::Rate{N,T}, b::Rate{N,T}; atol::Real = 0, rtol::Real = atol > 0 ? 0 : √eps()) where {T<:Periodic,N<:Real}
-    return (a.compounding.frequency == b.compounding.frequency) && isapprox(rate(a), rate(b); atol, rtol)
+    c = convert(a.compounding,b)
+    return (a.compounding.frequency == c.compounding.frequency) && isapprox(rate(a), rate(c); atol, rtol)
 end
 
 function Base.isapprox(a::Rate{N,T}, b::Rate{N,T}; atol::Real = 0, rtol::Real = atol > 0 ? 0 : √eps()) where {T<:Continuous,N<:Real}
