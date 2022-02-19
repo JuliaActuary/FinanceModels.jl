@@ -4,4 +4,4 @@ Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 Yields = "d7e99b2f-e7f3-4d9e-9f01-2338fc023ad3"
 
 [compat]
-ActuaryUtilities = "~2"
+ActuaryUtilities = "^2,^3"
