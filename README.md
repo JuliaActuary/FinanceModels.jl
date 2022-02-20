@@ -4,7 +4,6 @@
 [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://JuliaActuary.github.io/Yields.jl/dev)
 [![Build Status](https://github.com/JuliaActuary/Yields.jl/workflows/CI/badge.svg)](https://github.com/JuliaActuary/Yields.jl/actions)
 [![Coverage](https://codecov.io/gh/JuliaActuary/Yields.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/JuliaActuary/Yields.jl)
-[![lifecycle](https://img.shields.io/badge/LifeCycle-Developing-blue)](https://www.tidyverse.org/lifecycle/)
 
 **Yields** provides a simple interface for constructing, manipulating, and using yield curves for modeling purposes.
 
