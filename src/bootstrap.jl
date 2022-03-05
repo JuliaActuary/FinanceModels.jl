@@ -342,3 +342,23 @@ function OIS(rates::Vector{<:Rate}, maturities ; interpolation=CubicSpline())
         bootstrap(rates, maturities, [m <= 1 ? nothing : 1 / 4 for m in maturities], interpolation)
     )
 end
+
+
+"""
+    par(curve,time;frequency=2)
+
+Calculate the par yield for maturity `time` for the given `curve` and `frequency`. Returns a `Rate` object with periodicity corresponding to the `frequency`. The exception to this is if `time` is less than what the payments allowed by frequency (e.g. a time `0.5` but with frequency `1`) will effectively assume frequency equal to 1 over `time`.
+"""
+function par(curve, time; frequency=2)
+    @show par_pv = discount(curve, 0, time)
+
+    # when the time is less than otherwise allowed by the frequency (e.g. )
+    Δt = min(1 / frequency,time)
+    @show start = max(rem(time,Δt),Δt)
+    frequency_inner = max(1 / Δt, frequency)
+    @show start:Δt:time, length(start:Δt:time)
+    @show coupon_pv = sum(discount(curve,0,t) for t in start:Δt:time)
+    @show r = Periodic((1-par_pv) * frequency_inner / coupon_pv,frequency_inner)
+    r = convert(Periodic(frequency),r)
+    return r
+end

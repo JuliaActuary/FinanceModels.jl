@@ -280,6 +280,19 @@
         end
     end
 
+    @testset "par" begin
+        
+        # https://quant.stackexchange.com/questions/57608/how-to-compute-par-yield-from-zero-rate-curve
+        c = Yields.Zero(Yields.Continuous.([0.02,0.025,0.03,0.035]),0.5:0.5:2)
+        @test Yields.par(c,2) ≈ Yields.Periodic(0.03508591,2) atol = 0.000001
 
+        c = Yields.Constant(0.04)
+        for t in 0.5:0.5:5 
+            @show t
+            @test Yields.par(c,t;frequency=1) ≈ Yields.Periodic(0.04,1)
+            @test Yields.par(c,t) ≈ Yields.Periodic(0.04,1)
+            @test Yields.par(c,t,frequency=4) ≈ Yields.Periodic(0.04,1)
+        end
+    end
 
 end
