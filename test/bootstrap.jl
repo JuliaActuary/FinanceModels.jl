@@ -281,13 +281,23 @@
     end
 
     @testset "par" begin
+        @testset "first payment logic" begin
+            ct = Yields.coupon_times
+            @test ct(0.5,1) ≈ 0.5:1:0.5
+            @test ct(1.5,1) ≈ 0.5:1:1.5
+            @test ct(0.75,1) ≈ 0.75:1:0.75
+            @test ct(1,1) ≈ 1:1:1
+            @test ct(1,2) ≈ 0.5:0.5:1.0
+            @test ct(0.5,2) ≈ 0.5:0.5:0.5
+            @test ct(1.5,2) ≈ 0.5:0.5:1.5
+        end
         
         # https://quant.stackexchange.com/questions/57608/how-to-compute-par-yield-from-zero-rate-curve
         c = Yields.Zero(Yields.Continuous.([0.02,0.025,0.03,0.035]),0.5:0.5:2)
         @test Yields.par(c,2) ≈ Yields.Periodic(0.03508591,2) atol = 0.000001
 
         c = Yields.Constant(0.04)
-        for t in 0.5:0.5:5 
+        @testset "misc combinations" for t in 0.5:0.5:5 
             @show t
             @test Yields.par(c,t;frequency=1) ≈ Yields.Periodic(0.04,1)
             @test Yields.par(c,t) ≈ Yields.Periodic(0.04,1)

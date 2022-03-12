@@ -350,15 +350,22 @@ end
 Calculate the par yield for maturity `time` for the given `curve` and `frequency`. Returns a `Rate` object with periodicity corresponding to the `frequency`. The exception to this is if `time` is less than what the payments allowed by frequency (e.g. a time `0.5` but with frequency `1`) will effectively assume frequency equal to 1 over `time`.
 """
 function par(curve, time; frequency=2)
-    @show par_pv = discount(curve, 0, time)
-
-    # when the time is less than otherwise allowed by the frequency (e.g. )
-    Δt = min(1 / frequency,time)
-    @show start = max(rem(time,Δt),Δt)
+    mat_disc = discount(curve, 0, time)
+    coup_times = coupon_times(time,frequency)
+    coupon_pv = sum(discount(curve,0,t) for t in coup_times)
+    Δt = step(coup_times)
     frequency_inner = max(1 / Δt, frequency)
-    @show start:Δt:time, length(start:Δt:time)
-    @show coupon_pv = sum(discount(curve,0,t) for t in start:Δt:time)
-    @show r = Periodic((1-par_pv) * frequency_inner / coupon_pv,frequency_inner)
+    r = Periodic((1-mat_disc) * frequency_inner / coupon_pv,frequency_inner)
     r = convert(Periodic(frequency),r)
     return r
 end
+
+function coupon_times(time,frequency)
+    Δt = min(1 / frequency,time)
+    times = time:-Δt:0
+    f = last(times)
+    f += iszero(f) ? Δt : zero(f)
+    l = first(times)
+    return f:Δt:l
+end
+
