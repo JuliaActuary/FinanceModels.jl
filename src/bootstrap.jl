@@ -348,6 +348,26 @@ end
     par(curve,time;frequency=2)
 
 Calculate the par yield for maturity `time` for the given `curve` and `frequency`. Returns a `Rate` object with periodicity corresponding to the `frequency`. The exception to this is if `time` is less than what the payments allowed by frequency (e.g. a time `0.5` but with frequency `1`) will effectively assume frequency equal to 1 over `time`.
+
+# Examples
+julia> c = Yields.Constant(0.04);
+
+julia> Yields.par(c,4)
+Yields.Rate{Float64, Yields.Periodic}(0.03960780543711406, Yields.Periodic(2))
+
+julia> Yields.par(c,4;frequency=1)
+Yields.Rate{Float64, Yields.Periodic}(0.040000000000000036, Yields.Periodic(1))
+
+julia> Yields.par(c,0.6;frequency=4)
+Yields.Rate{Float64, Yields.Periodic}(0.039413626195875295, Yields.Periodic(4))
+
+julia> Yields.par(c,0.2;frequency=4)
+Yields.Rate{Float64, Yields.Periodic}(0.039374942589460726, Yields.Periodic(5))
+
+julia> Yields.par(c,2.5)
+Yields.Rate{Float64, Yields.Periodic}(0.03960780543711406, Yields.Periodic(2))
+
+
 """
 function par(curve, time; frequency=2)
     mat_disc = discount(curve, 0, time)
