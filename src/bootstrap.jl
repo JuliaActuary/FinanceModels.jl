@@ -367,7 +367,6 @@ Yields.Rate{Float64, Yields.Periodic}(0.039374942589460726, Yields.Periodic(5))
 julia> Yields.par(c,2.5)
 Yields.Rate{Float64, Yields.Periodic}(0.03960780543711406, Yields.Periodic(2))
 
-
 """
 function par(curve, time; frequency=2)
     mat_disc = discount(curve, 0, time)
@@ -396,7 +395,6 @@ function irr_newton(cashflows, times)
     # use newton's method with hand-coded derivative
     f(r) =  sum(cf * exp(-r*t) for (cf,t) in zip(cashflows,times))
     f′(r) = sum(-t*cf * exp(-r*t) for (cf,t) in zip(cashflows,times) if t > 0)
-    # r = Roots.solve(Roots.ZeroProblem((f,f′), 0.0), Roots.Newton())
     r = Roots.newton(x->(f(x),f(x)/f′(x)),0.0)
     return Yields.Periodic(exp(r)-1,1)
 
