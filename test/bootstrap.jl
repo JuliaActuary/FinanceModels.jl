@@ -298,7 +298,6 @@
 
         c = Yields.Constant(0.04)
         @testset "misc combinations" for t in 0.5:0.5:5 
-            @show t
             @test Yields.par(c,t;frequency=1) ≈ Yields.Periodic(0.04,1)
             @test Yields.par(c,t) ≈ Yields.Periodic(0.04,1)
             @test Yields.par(c,t,frequency=4) ≈ Yields.Periodic(0.04,1)
