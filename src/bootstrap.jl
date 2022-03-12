@@ -350,6 +350,7 @@ end
 Calculate the par yield for maturity `time` for the given `curve` and `frequency`. Returns a `Rate` object with periodicity corresponding to the `frequency`. The exception to this is if `time` is less than what the payments allowed by frequency (e.g. a time `0.5` but with frequency `1`) will effectively assume frequency equal to 1 over `time`.
 
 # Examples
+
 julia> c = Yields.Constant(0.04);
 
 julia> Yields.par(c,4)
