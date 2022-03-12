@@ -358,7 +358,7 @@ function par(curve, time; frequency=2)
     cfs = [t == last(coup_times) ? 1+r : r for t in coup_times]
     cfs = [-1;cfs]
     r = irr_newton(cfs,[0;coup_times])
-    frequency_inner = min(1,max(1 / Δt, frequency))
+    frequency_inner = min(1/Δt,max(1 / Δt, frequency))
     r = convert(Periodic(frequency_inner),r)
     return r
 end
