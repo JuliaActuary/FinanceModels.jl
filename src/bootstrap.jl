@@ -354,12 +354,12 @@ function par(curve, time; frequency=2)
     coup_times = coupon_times(time,frequency)
     coupon_pv = sum(discount(curve,0,t) for t in coup_times)
     Δt = step(coup_times)
-    frequency_inner = max(1 / Δt, frequency)
     r = (1-mat_disc) / coupon_pv
     cfs = [t == last(coup_times) ? 1+r : r for t in coup_times]
     cfs = [-1;cfs]
     r = irr_newton(cfs,[0;coup_times])
-    r = convert(Periodic(frequency),r)
+    frequency_inner = min(1,max(1 / Δt, frequency))
+    r = convert(Periodic(frequency_inner),r)
     return r
 end
 
