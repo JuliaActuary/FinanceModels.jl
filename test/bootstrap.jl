@@ -303,6 +303,8 @@
             @test Yields.par(c,t) ≈ Yields.Periodic(0.04,1)
             @test Yields.par(c,t,frequency=4) ≈ Yields.Periodic(0.04,1)
         end
+
+        @test Yields.par(c,0.6) ≈ Yields.Periodic(0.04,1)
     end
 
 end
