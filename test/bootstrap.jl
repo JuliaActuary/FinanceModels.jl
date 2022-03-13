@@ -123,6 +123,15 @@
 
     end
 
+    @testset "Hull" begin
+        # Par Yield, pg 85
+
+        c = Yields.Par(Yields.Periodic.([0.0687,0.0687],2), [2,3])
+
+        @test Yields.par(c,2) ≈ Yields.Periodic(0.0687,2)
+
+    end
+
     @testset "simple rate and forward" begin
         # Risk Managment and Financial Institutions, 5th ed. Appendix B
 
@@ -304,6 +313,20 @@
         end
 
         @test Yields.par(c,0.6) ≈ Yields.Periodic(0.04,1)
+
+        @testset "round trip" begin
+            maturity = collect(1:10)
+
+            par = [6.0, 8.0, 9.5, 10.5, 11.0, 11.25, 11.38, 11.44, 11.48, 11.5] ./ 100
+
+            curve = Yields.Par(par,maturity)
+
+            for (p,m) in zip(par,maturity)
+                @test Yields.par(curve,m) ≈ Yields.Periodic(p,2) atol = 0.0001
+            end
+        end
+
+
     end
 
 end
