@@ -202,7 +202,7 @@ end
 """
     Par(rates, maturities; interpolation=CubicSpline())
 
-Construct a curve given a set of bond equivalent yields and the corresponding maturities. Assumes that maturities <= 1 year do not pay coupons and that after one year, pays coupons with frequency equal to the CompoundingFrequency of the corresponding rate.
+Construct a curve given a set of bond equivalent yields and the corresponding maturities. Assumes that maturities <= 1 year do not pay coupons and that after one year, pays coupons with frequency equal to the CompoundingFrequency of the corresponding rate (normally the default for a `Rate` is `1`, but when constructed via `Par` the default compounding Frequency is `2`).
 
 See [`bootstrap`](@ref) for more on the `interpolation` parameter, which is set to `CubicSpline()` by default.
 
@@ -233,7 +233,7 @@ function Par(rates::Vector{<:Rate}, maturities; interpolation=CubicSpline())
 end
 
 function Par(rates::Vector{T}, maturities; interpolation=CubicSpline()) where {T<:Real}
-    return Par(Rate.(rates), maturities; interpolation)
+    return Par(Yields.Periodic.(rates,2), maturities; interpolation)
 end
 
 
