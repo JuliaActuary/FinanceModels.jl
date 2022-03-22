@@ -231,9 +231,19 @@ accumulation(rate, from, to) = accumulation(rate, to - from)
 """
     +(Yields.Rate, T<:Real)
     +(T<:Real, Yields.Rate)
+    +(Yields.Rate,Yields.Rate)
 
+The addition of a rate with a number will inherit the type of the `Rate`, or the first argument's type if both are `Rate`s.
 
-The addition of a rate with a number will inherit the type of the `Rate`.
+# Examples
+
+```julia-repl
+julia> Yields.Periodic(0.01,2) + Yields.Periodic(0.04,2)
+Yields.Rate{Float64, Yields.Periodic}(0.05000000000000004, Yields.Periodic(2))
+
+julia> Yields.Periodic(0.04,2) + 0.01
+Yields.Rate{Float64, Yields.Periodic}(0.05, Yields.Periodic(2))
+```
 """
 function Base.:+(a::Rate{N,T}, b::Real) where {N<:Real,T<:Continuous}
     return Continuous(a.value + b)
@@ -249,12 +259,31 @@ function Base.:+(a::Real, b::Rate{N,T}) where {N<:Real, T<:Periodic}
     return Periodic(b.value + a,b.compounding.frequency)
 end
 
+function Base.:+(a::Rate{N,T},b::Rate{N,T}) where {N<:Real,T<:CompoundingFrequency}
+    a_rate = rate(a)
+    b_rate = rate(convert(a.compounding,b))
+    r = Rate(a_rate + b_rate,a.compounding)
+    return r
+end
+
 """
     -(Yields.Rate, T<:Real)
     -(T<:Real, Yields.Rate)
+    -(Yields.Rate, Yields.Rate)
 
 
-The addition of a rate with a number will inherit the type of the `Rate`.
+The addition of a rate with a number will inherit the type of the `Rate`, or the first argument's type if both are `Rate`s.
+
+# Examples
+
+```julia-repl
+julia> Yields.Periodic(0.04,2) - Yields.Periodic(0.01,2)
+Yields.Rate{Float64, Yields.Periodic}(0.030000000000000214, Yields.Periodic(2))
+
+julia> Yields.Periodic(0.04,2) - 0.01
+Yields.Rate{Float64, Yields.Periodic}(0.03, Yields.Periodic(2))
+
+```
 """
 function Base.:-(a::Rate{N,T}, b::Real) where {N<:Real,T<:Continuous}
     return Continuous(a.value - b)
@@ -268,4 +297,10 @@ function Base.:-(a::Rate{N,T}, b::Real) where {N<:Real, T<:Periodic}
 end
 function Base.:-(a::Real, b::Rate{N,T}) where {N<:Real, T<:Periodic}
     return Periodic(a - b.value, b.compounding.frequency)
+end
+function Base.:-(a::Rate{N,T},b::Rate{N,T}) where {N<:Real,T<:CompoundingFrequency}
+    a_rate = rate(a)
+    b_rate = rate(convert(a.compounding,b))
+    r = Rate(a_rate - b_rate,a.compounding)
+    return r
 end
