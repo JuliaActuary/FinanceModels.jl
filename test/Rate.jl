@@ -92,6 +92,13 @@
             @test p(a) - b ≈ Yields.Periodic(0.01,1)
             @test a - p(b) ≈ Yields.Periodic(0.01,1)
         end
+
+        @testset "Rate and Rate" begin
+            r = Yields.Periodic(0.04,2) - Yields.Periodic(0.01,2) 
+            @test r ≈ Yields.Periodic(0.03,2)
+            r = Yields.Periodic(0.04,2) + Yields.Periodic(0.01,2) 
+            @test r ≈ Yields.Periodic(0.05,2)
+        end
     end
 
 end
