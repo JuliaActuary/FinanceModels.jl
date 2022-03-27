@@ -304,3 +304,37 @@ function Base.:-(a::Rate{N,T},b::Rate{N,T}) where {N<:Real,T<:CompoundingFrequen
     r = Rate(a_rate - b_rate,a.compounding)
     return r
 end
+
+"""
+    <(Rate,Rate)
+
+Convert the second argument to the periodicity of the first and compare the scalar rate values to determine if the first argument has a lower force of interest than the second.
+
+# Examples
+
+```julia-repl
+julia> Yields.Periodic(0.03,100) < Yields.Continuous(0.03)
+true
+```
+"""
+function Base.:<(a::Rate{N,T},b::Rate{N,U}) where {N<:Real,T<:CompoundingFrequency,U<:CompoundingFrequency}
+    bc = convert(a.compounding,b)
+    return rate(a) < rate(bc)
+end
+
+"""
+    >(Rate,Rate)
+
+Convert the second argument to the periodicity of the first and compare the scalar rate values to determine if the first argument has a greater force of interest than the second.
+
+# Examples
+
+```julia-repl
+julia> Yields.Periodic(0.03,100) > Yields.Continuous(0.03)
+false
+```
+"""
+function Base.:>(a::Rate{N,T},b::Rate{N,U}) where {N<:Real,T<:CompoundingFrequency,U<:CompoundingFrequency}
+    bc = convert(a.compounding,b)
+    return rate(a) > rate(bc)
+end
