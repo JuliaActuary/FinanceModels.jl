@@ -202,7 +202,7 @@ end
 """
     Par(rates, maturities; interpolation=CubicSpline())
 
-Construct a curve given a set of bond equivalent yields and the corresponding maturities. Assumes that maturities <= 1 year do not pay coupons and that after one year, pays coupons with frequency equal to the CompoundingFrequency of the corresponding rate.
+Construct a curve given a set of bond equivalent yields and the corresponding maturities. Assumes that maturities <= 1 year do not pay coupons and that after one year, pays coupons with frequency equal to the CompoundingFrequency of the corresponding rate (normally the default for a `Rate` is `1`, but when constructed via `Par` the default compounding Frequency is `2`).
 
 See [`bootstrap`](@ref) for more on the `interpolation` parameter, which is set to `CubicSpline()` by default.
 
@@ -233,7 +233,7 @@ function Par(rates::Vector{<:Rate}, maturities; interpolation=CubicSpline())
 end
 
 function Par(rates::Vector{T}, maturities; interpolation=CubicSpline()) where {T<:Real}
-    return Par(Rate.(rates), maturities; interpolation)
+    return Par(Yields.Periodic.(rates,2), maturities; interpolation)
 end
 
 
@@ -341,4 +341,62 @@ function OIS(rates::Vector{<:Rate}, maturities ; interpolation=CubicSpline())
         # per Hull 4.7
         bootstrap(rates, maturities, [m <= 1 ? nothing : 1 / 4 for m in maturities], interpolation)
     )
+end
+
+
+"""
+    par(curve,time;frequency=2)
+
+Calculate the par yield for maturity `time` for the given `curve` and `frequency`. Returns a `Rate` object with periodicity corresponding to the `frequency`. The exception to this is if `time` is less than what the payments allowed by frequency (e.g. a time `0.5` but with frequency `1`) will effectively assume frequency equal to 1 over `time`.
+
+# Examples
+
+julia> c = Yields.Constant(0.04);
+
+julia> Yields.par(c,4)
+Yields.Rate{Float64, Yields.Periodic}(0.03960780543711406, Yields.Periodic(2))
+
+julia> Yields.par(c,4;frequency=1)
+Yields.Rate{Float64, Yields.Periodic}(0.040000000000000036, Yields.Periodic(1))
+
+julia> Yields.par(c,0.6;frequency=4)
+Yields.Rate{Float64, Yields.Periodic}(0.039413626195875295, Yields.Periodic(4))
+
+julia> Yields.par(c,0.2;frequency=4)
+Yields.Rate{Float64, Yields.Periodic}(0.039374942589460726, Yields.Periodic(5))
+
+julia> Yields.par(c,2.5)
+Yields.Rate{Float64, Yields.Periodic}(0.03960780543711406, Yields.Periodic(2))
+
+"""
+function par(curve, time; frequency=2)
+    mat_disc = discount(curve, 0, time)
+    coup_times = coupon_times(time,frequency)
+    coupon_pv = sum(discount(curve,0,t) for t in coup_times)
+    Δt = step(coup_times)
+    r = (1-mat_disc) / coupon_pv
+    cfs = [t == last(coup_times) ? 1+r : r for t in coup_times]
+    cfs = [-1;cfs]
+    r = irr_newton(cfs,[0;coup_times])
+    frequency_inner = min(1/Δt,max(1 / Δt, frequency))
+    r = convert(Periodic(frequency_inner),r)
+    return r
+end
+
+function coupon_times(time,frequency)
+    Δt = min(1 / frequency,time)
+    times = time:-Δt:0
+    f = last(times)
+    f += iszero(f) ? Δt : zero(f)
+    l = first(times)
+    return f:Δt:l
+end
+
+function irr_newton(cashflows, times)
+    # use newton's method with hand-coded derivative
+    f(r) =  sum(cf * exp(-r*t) for (cf,t) in zip(cashflows,times))
+    f′(r) = sum(-t*cf * exp(-r*t) for (cf,t) in zip(cashflows,times) if t > 0)
+    r = Roots.newton(x->(f(x),f(x)/f′(x)),0.0)
+    return Yields.Periodic(exp(r)-1,1)
+
 end

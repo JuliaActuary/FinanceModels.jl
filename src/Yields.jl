@@ -4,6 +4,7 @@ import BSplineKit
 import ForwardDiff
 using LinearAlgebra
 using UnicodePlots
+using Roots
 
 # don't export type, as the API of Yields.Zero is nicer and 
 # less polluting than Zero and less/equally verbose as ZeroYieldCurve or ZeroCurve
