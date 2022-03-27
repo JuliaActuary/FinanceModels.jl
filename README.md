@@ -61,7 +61,22 @@ Yields.Periodic.([0.02,0.03,0.04],2)
 Yields.Continuous.([0.02,0.03,0.04]) 
 ```
 
-### Yields
+#### Conversion
+
+Convert rates between different types with `convert`. E.g.:
+
+```julia-repl
+r = Rate(Yields.Periodic(12),0.01)             # rate that compounds 12 times per rate period (ie monthly)
+
+convert(Yields.Periodic(1),r)                  # convert monthly rate to annual effective
+convert(Yields.Continuous(),r)          # convert monthly rate to continuous
+```
+
+#### Arithmetic
+
+Adding, substracting, and comparing rates is supported.
+
+### Curves
 
 There are a several ways to construct a yield curve object.
 
@@ -90,6 +105,7 @@ Most of the above yields have the following defined (goal is to have them all):
 - `accumulation(curve,from,to)` or `accumulation(curve,to)` gives the accumulation factor
 - `forward(curve,from,to)` gives the average rate between the two given times
 - `zero(curve,time)` or `zero(curve,time,CompoundingFrequency)` gives the zero-coupon spot rate for the given time.
+- `par(curve,time` gives the coupon-paying par equivalent rate for the given time.
 
 ### Combinations
 
@@ -119,16 +135,7 @@ julia> discount(fwd,1) # `curve` has effectively been reindexed to `1.0`
 0.9275624570410582
 ```
 
-### Conversion
 
-Convert rates between different types with `convert`. E.g.:
-
-```julia-repl
-r = Rate(Yields.Periodic(12),0.01)             # rate that compounds 12 times per rate period (ie monthly)
-
-convert(Yields.Periodic(1),r)                  # convert monthly rate to annual effective
-convert(Yields.Continuous(),r)          # convert monthly rate to continuous
-```
 
 ## Internals
 

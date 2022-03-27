@@ -8,7 +8,6 @@ CurrentModule = Yields
 [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://JuliaActuary.github.io/Yields.jl/dev)
 [![Build Status](https://github.com/JuliaActuary/Yields.jl/workflows/CI/badge.svg)](https://github.com/JuliaActuary/Yields.jl/actions)
 [![Coverage](https://codecov.io/gh/JuliaActuary/Yields.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/JuliaActuary/Yields.jl)
-[![lifecycle](https://img.shields.io/badge/LifeCycle-Developing-blue)](https://www.tidyverse.org/lifecycle/)
 
 **Yields** provides a simple interface for constructing, manipulating, and using yield curves for modeling purposes.
 
@@ -42,8 +41,8 @@ Rates are types that wrap scalar values to provide information about how to dete
 
 There are two `CompoundingFrequency` types:
 
-- `Periodic(m)` for rates that compound `m` times per period (e.g. `m` times per year if working with annual rates).
-- `Continuous()` for continuously compounding rates.
+- `Yields.Periodic(m)` for rates that compound `m` times per period (e.g. `m` times per year if working with annual rates).
+- `Yields.Continuous()` for continuously compounding rates.
 
 #### Examples
 
@@ -66,7 +65,22 @@ Yields.Periodic.([0.02,0.03,0.04],2)
 Yields.Continuous.([0.02,0.03,0.04]) 
 ```
 
-### Yields
+#### Conversion
+
+Convert rates between different types with `convert`. E.g.:
+
+```julia-repl
+r = Rate(Yields.Periodic(12),0.01)             # rate that compounds 12 times per rate period (ie monthly)
+
+convert(Yields.Periodic(1),r)                  # convert monthly rate to annual effective
+convert(Yields.Continuous(),r)          # convert monthly rate to continuous
+```
+
+#### Arithmetic
+
+Adding, substracting, and comparing rates is supported.
+
+### Curves
 
 There are a several ways to construct a yield curve object.
 
@@ -95,6 +109,7 @@ Most of the above yields have the following defined (goal is to have them all):
 - `accumulation(curve,from,to)` or `accumulation(curve,to)` gives the accumulation factor
 - `forward(curve,from,to)` gives the average rate between the two given times
 - `zero(curve,time)` or `zero(curve,time,CompoundingFrequency)` gives the zero-coupon spot rate for the given time.
+- `par(curve,time` gives the coupon-paying par equivalent rate for the given time.
 
 ### Combinations
 
@@ -135,4 +150,4 @@ For time-variant yields (ie yield *curves*), the inputs are converted to spot ra
 ## Related Packages
 
 - [**`InterestRates.jl`**](https://github.com/felipenoris/InterestRates.jl) specializes in fast rate calculations aimed at valuing fixed income contracts, with business-day-level accuracy.
-  - Comparative comments: **`Yields.jl`** does not try to provide as precise controls over the timing, structure, and interpolation of the curve. Instead, **`Yields.jl`** provides a minimal interface for common modeling needs.
+  - Comparative comments: **`Yields.jl`** does not try to provide as precise controls over the timing, structure, and interpolation of the curve. Instead, **`Yields.jl`** provides a minimal, but flexible and intuitive interface for common modeling needs.
