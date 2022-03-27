@@ -257,7 +257,7 @@
         end
 
         # test that showing the curve doesn't error
-        @test isnothing(show(devnull, curve))
+        @test length(repr(curve)) > 0
 
         #     # https://www.federalreserve.gov/pubs/feds/2006/200628/200628abs.html
         #     # 2020-04-02 data
