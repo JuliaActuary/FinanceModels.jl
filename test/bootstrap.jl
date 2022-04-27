@@ -128,7 +128,7 @@
 
         c = Yields.Par(Yields.Periodic.([0.0687,0.0687],2), [2,3])
 
-        @test Yields.par(c,2) ≈ Yields.Periodic(0.0687,2)
+        @test Yields.par(c,2) ≈ Yields.Periodic(0.0687,2) atol = 0.00001
 
     end
 
@@ -322,7 +322,7 @@
             curve = Yields.Par(par,maturity)
 
             for (p,m) in zip(par,maturity)
-                @test Yields.par(curve,m) ≈ Yields.Periodic(p,2) atol = 0.0001
+                @test Yields.par(curve,m) ≈ Yields.Periodic(p,2) atol = 0.001
             end
         end
 

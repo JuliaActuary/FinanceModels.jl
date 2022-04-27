@@ -81,7 +81,7 @@ function _bootstrap_inner(rates, maturities, settlement_frequency, interpolation
 
     end
     zero_vec = -log.(discount_vec) ./ maturities
-    return linear_interp([0.0; maturities], [first(zero_vec); zero_vec])
+    return interpolation_function([0.0; maturities], [first(zero_vec); zero_vec])
 end
 
 # the ad-hoc approach to extrapoliatons is based on suggestion by author of 
@@ -128,7 +128,8 @@ function linear_interp(xs, ys)
 end
 
 function cubic_interp(xs, ys)
-    int = BSplineKit.interpolate(xs, ys, BSplineKit.BSplineOrder(2))
+    order = min(length(xs),3) # in case the length of xs is less than the spline order
+    int = BSplineKit.interpolate(xs, ys, BSplineKit.BSplineOrder(order))
     e = _wrap_spline(int)
     return x -> _interp(e, x)
 end
