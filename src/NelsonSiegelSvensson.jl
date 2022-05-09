@@ -59,16 +59,16 @@ struct NelsonSiegelSvensson <: ParametricModel
 end
 
 Base.zero(ns::NelsonSiegel, t) = Continuous(ns.β₀ .+ ns.β₁ .* (1.0 .- exp.(-t ./ ns.τ₁)) ./ (t ./ ns.τ₁) .+ ns.β₂ .* ((1.0 .- exp.(-t ./ ns.τ₁)) ./ (t ./ ns.τ₁) .- exp.(-t ./ ns.τ₁)))
-spot(ns::NelsonSiegel, t) = ns.β₀ .+ ns.β₁ .* (1.0 .- exp.(-t ./ ns.τ₁)) ./ (t ./ ns.τ₁) .+ ns.β₂ .* ((1.0 .- exp.(-t ./ ns.τ₁)) ./ (t ./ ns.τ₁) .- exp.(-t ./ ns.τ₁))
-discount(ns::NelsonSiegel, t) = exp.(-t .* zero(ns, t))
+zero_disc(ns::NelsonSiegel, t) = ns.β₀ .+ ns.β₁ .* (1.0 .- exp.(-t ./ ns.τ₁)) ./ (t ./ ns.τ₁) .+ ns.β₂ .* ((1.0 .- exp.(-t ./ ns.τ₁)) ./ (t ./ ns.τ₁) .- exp.(-t ./ ns.τ₁))
+discount(ns::NelsonSiegel, t) = exp.(-t .* spot(ns, t))
 
 Base.zero(nss::NelsonSiegelSvensson, t) = Continuous(nss.β₀ .+ nss.β₁ .* (1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .+ nss.β₂ .* ((1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .- exp.(-t ./ nss.τ₁)) .+ nss.β₃ .* ((1.0 .- exp.(-t ./ nss.τ₂)) ./ (t ./ nss.τ₂) .- exp.(-t ./ nss.τ₂)))
-spot(nss::NelsonSiegelSvensson, t) = nss.β₀ .+ nss.β₁ .* (1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .+ nss.β₂ .* ((1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .- exp.(-t ./ nss.τ₁)) .+ nss.β₃ .* ((1.0 .- exp.(-t ./ nss.τ₂)) ./ (t ./ nss.τ₂) .- exp.(-t ./ nss.τ₂))
-discount(nss::NelsonSiegel, t) = exp.(-t .* zero(nss, t))
+zero_disc(nss::NelsonSiegelSvensson, t) = nss.β₀ .+ nss.β₁ .* (1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .+ nss.β₂ .* ((1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .- exp.(-t ./ nss.τ₁)) .+ nss.β₃ .* ((1.0 .- exp.(-t ./ nss.τ₂)) ./ (t ./ nss.τ₂) .- exp.(-t ./ nss.τ₂))
+discount(nss::NelsonSiegel, t) = exp.(-t .* spot(nss, t))
 
 using LsqFit
 
-""" 
+#=""" 
     est_ns_params(swq::Vector{SwapQuote}, τₐₗₗ::Array{Float, 1})
 
 Return the NelsonSiegel fitted parameters.
@@ -83,8 +83,8 @@ function est_ns_params(swq::Vector{SwapQuote}, τₐₗₗ::Array{Float64, 1} = 
     ns_param = NelsonSiegel(1.0, 0.0, 0.0, 1)
 
     for τ in τₐₗₗ
-        spot(m, param) = spot(NelsonSiegel(param[1], param[2], param[3], param[4]), m)
-        param₀ = [1.0, 0.0, 0.0]
+        spot(m, param) = zero_disc(NelsonSiegel(param[1], param[2], param[3], param[4]), m)
+        param₀ = [1.0, 0.0, 0.0, 1.0]
         res = LsqFit.curve_fit(spot, maturities, yields, Δₘ, param₀)
         sr = sum(res.resid .* res.resid)
         if sr < total_resid # take the smallest sum of squares of residuals
@@ -95,7 +95,7 @@ function est_ns_params(swq::Vector{SwapQuote}, τₐₗₗ::Array{Float64, 1} = 
     end
 
     return ns_param
-end
+end=#
 
 """ 
     est_ns_params(yields::AbstractVector, maturities::AbstractVector, τₐₗₗ::Array{Float64, 1})
@@ -110,8 +110,8 @@ function est_ns_params(yields::AbstractVector, maturities::AbstractVector, τₐ
     ns_param = NelsonSiegel(1.0, 0.0, 0.0, 1)
 
     for τ in τₐₗₗ
-        spot(m, param) = spot(NelsonSiegel(param[1], param[2], param[3], param[4]), m)
-        param₀ = [1.0, 0.0, 0.0]
+        spot(m, param) = zero_disc(NelsonSiegel(param[1], param[2], param[3], param[4]), m)
+        param₀ = [1.0, 0.0, 0.0, 1.0]
         res = LsqFit.curve_fit(spot, maturities, yields, Δₘ, param₀)
         sr = sum(res.resid .* res.resid)
         if sr < total_resid # take the smallest sum of squares of residuals
@@ -124,7 +124,7 @@ function est_ns_params(yields::AbstractVector, maturities::AbstractVector, τₐ
     return ns_param
 end
 
-""" 
+#=""" 
     est_nss_params(swq::Vector{SwapQuote}, τₐₗₗ::Array{Float64, 1})
 
 Return the NelsonSiegelSvensson fitted parameters.
@@ -139,8 +139,8 @@ function est_nss_params(swq::Vector{SwapQuote}, τₐₗₗ::Array{Float64, 1} =
     nss_param = NelsonSiegelSvensson(1.0, 0.0, 0.0, 0.0, 1, 1)
 
     for τ₁ in τₐₗₗ, τ₂ in τₐₗₗ
-        spot(m, param) = spot(NelsonSiegelSvensson(param[1], param[2], param[3], param[4], τ₁, τ₂), m)
-        param₀ = [1.0, 0.0, 0.0, 0.0]
+        spot(m, param) = zero_disc(NelsonSiegelSvensson(param[1], param[2], param[3], param[4], τ₁, τ₂), m)
+        param₀ = [1.0, 0.0, 0.0, 0.0, 1.0, 1.0]
         res = LsqFit.curve_fit(spot, maturities, yields, Δₘ, param₀)
         sr = sum(res.resid .* res.resid)
         if sr < total_resid # take the smallest sum of squares of residuals
@@ -151,7 +151,7 @@ function est_nss_params(swq::Vector{SwapQuote}, τₐₗₗ::Array{Float64, 1} =
     end
 
     return nss_param
-end
+end=#
 
 """ 
     est_nss_params(yields::AbstractVector, maturities::AbstractVector, τₐₗₗ::Array{Float64, 1})
@@ -166,8 +166,8 @@ function est_nss_params(yields::AbstractVector, maturities::AbstractVector, τ�
     nss_param = NelsonSiegelSvensson(1.0, 0.0, 0.0, 0.0, 1, 1)
 
     for τ₁ in τₐₗₗ, τ₂ in τₐₗₗ
-        spot(m, param) = spot(NelsonSiegelSvensson(param[1], param[2], param[3], param[4], τ₁, τ₂), m)
-        param₀ = [1.0, 0.0, 0.0, 0.0]
+        spot(m, param) = zero_disc(NelsonSiegelSvensson(param[1], param[2], param[3], param[4], τ₁, τ₂), m)
+        param₀ = [1.0, 0.0, 0.0, 0.0, 1.0, 1.0]
         res = LsqFit.curve_fit(spot, maturities, yields, Δₘ, param₀)
         sr = sum(res.resid .* res.resid)
         if sr < total_resid # take the smallest sum of squares of residuals
