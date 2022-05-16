@@ -1,4 +1,4 @@
-abstract type ParametricModel end
+abstract type ParametricModel <: AbstractYield end
 
 """
     NelsonSiegel(β₀, β₁, β₂, τ₁)
@@ -60,18 +60,19 @@ end
 
 Base.zero(ns::NelsonSiegel, t) = Continuous(ns.β₀ .+ ns.β₁ .* (1.0 .- exp.(-t ./ ns.τ₁)) ./ (t ./ ns.τ₁) .+ ns.β₂ .* ((1.0 .- exp.(-t ./ ns.τ₁)) ./ (t ./ ns.τ₁) .- exp.(-t ./ ns.τ₁)))
 zero_disc(ns::NelsonSiegel, t) = ns.β₀ .+ ns.β₁ .* (1.0 .- exp.(-t ./ ns.τ₁)) ./ (t ./ ns.τ₁) .+ ns.β₂ .* ((1.0 .- exp.(-t ./ ns.τ₁)) ./ (t ./ ns.τ₁) .- exp.(-t ./ ns.τ₁))
-discount(ns::NelsonSiegel, t) = exp.(-t .* spot(ns, t))
+discount(ns::NelsonSiegel, t) = exp.(-t .* zero_disc(ns, t))
 
 Base.zero(nss::NelsonSiegelSvensson, t) = Continuous(nss.β₀ .+ nss.β₁ .* (1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .+ nss.β₂ .* ((1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .- exp.(-t ./ nss.τ₁)) .+ nss.β₃ .* ((1.0 .- exp.(-t ./ nss.τ₂)) ./ (t ./ nss.τ₂) .- exp.(-t ./ nss.τ₂)))
 zero_disc(nss::NelsonSiegelSvensson, t) = nss.β₀ .+ nss.β₁ .* (1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .+ nss.β₂ .* ((1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .- exp.(-t ./ nss.τ₁)) .+ nss.β₃ .* ((1.0 .- exp.(-t ./ nss.τ₂)) ./ (t ./ nss.τ₂) .- exp.(-t ./ nss.τ₂))
-discount(nss::NelsonSiegel, t) = exp.(-t .* spot(nss, t))
+discount(nss::NelsonSiegel, t) = exp.(-t .* zero_disc(nss, t))
 
-using LsqFit
+import LsqFit
+#using LsqFit
 
 #=""" 
     est_ns_params(swq::Vector{SwapQuote}, τₐₗₗ::Array{Float, 1})
 
-Return the NelsonSiegel fitted parameters.
+Return the NelsonSiegel fitted parameters. Please note there must be no 0's in maturities.
 """
 function est_ns_params(swq::Vector{SwapQuote}, τₐₗₗ::Array{Float64, 1} = [0.1, 0.15, 0.2, 0.3, 0.5, 0.75, 1, 1.5, 2, 3, 5, 7.5, 10]) where {Q<:ObservableQuote}
     # τₐₗₗ = [0.1, 0.15, 0.2, 0.3, 0.5, 0.75, 1, 1.5, 2, 3, 5, 7.5, 10] move to parameter to allow more freedom
@@ -100,7 +101,7 @@ end=#
 """ 
     est_ns_params(yields::AbstractVector, maturities::AbstractVector, τₐₗₗ::Array{Float64, 1})
 
-Return the NelsonSiegel fitted parameters.
+Return the NelsonSiegel fitted parameters. Please note there must be no 0's in maturities.
 """
 function est_ns_params(yields::AbstractVector, maturities::AbstractVector, τₐₗₗ::Array{Float64, 1} = [0.1, 0.15, 0.2, 0.3, 0.5, 0.75, 1, 1.5, 2, 3, 5, 7.5, 10])
     # τₐₗₗ = [0.1, 0.15, 0.2, 0.3, 0.5, 0.75, 1, 1.5, 2, 3, 5, 7.5, 10] move to parameter to allow more freedom
@@ -110,7 +111,7 @@ function est_ns_params(yields::AbstractVector, maturities::AbstractVector, τₐ
     ns_param = NelsonSiegel(1.0, 0.0, 0.0, 1)
 
     for τ in τₐₗₗ
-        spot(m, param) = zero_disc(NelsonSiegel(param[1], param[2], param[3], param[4]), m)
+        spot(m, param) = zero_disc(NelsonSiegel(param[1], param[2], param[3], τ), m)
         param₀ = [1.0, 0.0, 0.0, 1.0]
         res = LsqFit.curve_fit(spot, maturities, yields, Δₘ, param₀)
         sr = sum(res.resid .* res.resid)
@@ -127,7 +128,7 @@ end
 #=""" 
     est_nss_params(swq::Vector{SwapQuote}, τₐₗₗ::Array{Float64, 1})
 
-Return the NelsonSiegelSvensson fitted parameters.
+Return the NelsonSiegelSvensson fitted parameters. Please note there must be no 0's in maturities.
 """
 function est_nss_params(swq::Vector{SwapQuote}, τₐₗₗ::Array{Float64, 1} = [0.1, 0.15, 0.2, 0.3, 0.5, 0.75, 1, 1.5, 2, 3, 5, 7.5, 10]) where {Q<:ObservableQuote}
     # τₐₗₗ = [0.1, 0.15, 0.2, 0.3, 0.5, 0.75, 1, 1.5, 2, 3, 5, 7.5, 10] move to parameter to allow more freedom
@@ -156,7 +157,7 @@ end=#
 """ 
     est_nss_params(yields::AbstractVector, maturities::AbstractVector, τₐₗₗ::Array{Float64, 1})
 
-Return the NelsonSiegelSvensson fitted parameters.
+Return the NelsonSiegelSvensson fitted parameters. Please note there must be no 0's in maturities.
 """
 function est_nss_params(yields::AbstractVector, maturities::AbstractVector, τₐₗₗ::Array{Float64, 1} = [0.1, 0.15, 0.2, 0.3, 0.5, 0.75, 1, 1.5, 2, 3, 5, 7.5, 10])
     # τₐₗₗ = [0.1, 0.15, 0.2, 0.3, 0.5, 0.75, 1, 1.5, 2, 3, 5, 7.5, 10] more to parameter to allow more freedom
