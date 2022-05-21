@@ -145,13 +145,13 @@ end
 
 
 """
-    Zero(rates, maturities; interpolation=CubicSpline())
+    Zero(rates, maturities; interpolation=QuadraticSpline())
 
 Construct a yield curve with given zero-coupon spot `rates` at the given `maturities`. If `rates` is not a `Vector{Rate}`, will assume `Periodic(1)` type.
 
-See [`bootstrap`](@ref) for more on the `interpolation` parameter, which is set to `CubicSpline()` by default.
+See [`bootstrap`](@ref) for more on the `interpolation` parameter, which is set to `QuadraticSpline()` by default.
 """
-function Zero(rates::Vector{<:Rate}, maturities; interpolation=CubicSpline())
+function Zero(rates::Vector{<:Rate}, maturities; interpolation=QuadraticSpline())
     # bump to a constant yield if only given one rate
     length(rates) == 1 && return Constant(first(rates))
     return _zero_inner(rates,maturities,interpolation)
@@ -160,7 +160,7 @@ end
 # zero is different than the other boostrapped curves in that it doesn't actually need to bootstrap 
 # because the rate are already zero rates. Instead, we just cut straight to the 
 # appropriate interpolation function based on the type dispatch.
-function _zero_inner(rates::Vector{<:Rate}, maturities, interp::CubicSpline)
+function _zero_inner(rates::Vector{<:Rate}, maturities, interp::QuadraticSpline)
     continuous_zeros = rate.(convert.(Continuous(), rates))
     return YieldCurve(
         rates,
@@ -189,22 +189,22 @@ function _zero_inner(rates::Vector{<:Rate}, maturities, interp)
 end
 
 #fallback if `rates` aren't `Rate`s. Assume `Periodic(1)` per Zero docstring
-function Zero(rates, maturities; interpolation=CubicSpline())
+function Zero(rates, maturities; interpolation=QuadraticSpline())
     Zero(Periodic.(rates, 1), maturities; interpolation)
 end
 
-function Zero(rates; interpolation=CubicSpline())
+function Zero(rates; interpolation=QuadraticSpline())
     # bump to a constant yield if only given one rate
     maturities = collect(1:length(rates))
     return Zero(rates, maturities; interpolation)
 end
 
 """
-    Par(rates, maturities; interpolation=CubicSpline())
+    Par(rates, maturities; interpolation=QuadraticSpline())
 
 Construct a curve given a set of bond equivalent yields and the corresponding maturities. Assumes that maturities <= 1 year do not pay coupons and that after one year, pays coupons with frequency equal to the CompoundingFrequency of the corresponding rate (normally the default for a `Rate` is `1`, but when constructed via `Par` the default compounding Frequency is `2`).
 
-See [`bootstrap`](@ref) for more on the `interpolation` parameter, which is set to `CubicSpline()` by default.
+See [`bootstrap`](@ref) for more on the `interpolation` parameter, which is set to `QuadraticSpline()` by default.
 
 # Examples
 
@@ -218,7 +218,7 @@ Rate(0.06000000000000005, Periodic(1))
 
 ```
 """
-function Par(rates::Vector{<:Rate}, maturities; interpolation=CubicSpline())
+function Par(rates::Vector{<:Rate}, maturities; interpolation=QuadraticSpline())
     # bump to a constant yield if only given one rate
     if length(rates) == 1
         return Constant(rate[1])
@@ -232,7 +232,7 @@ function Par(rates::Vector{<:Rate}, maturities; interpolation=CubicSpline())
     )
 end
 
-function Par(rates::Vector{T}, maturities; interpolation=CubicSpline()) where {T<:Real}
+function Par(rates::Vector{T}, maturities; interpolation=QuadraticSpline()) where {T<:Real}
     return Par(Yields.Periodic.(rates,2), maturities; interpolation)
 end
 
@@ -276,11 +276,11 @@ end
 Forward(rates) = Forward(rates, collect(1:length(rates)))
 
 """
-    Yields.CMT(rates, maturities; interpolation=CubicSpline())
+    Yields.CMT(rates, maturities; interpolation=QuadraticSpline())
 
 Takes constant maturity (treasury) yields (bond equivalent), and assumes that instruments <= one year maturity pay no coupons and that the rest pay semi-annual.
 
-See [`bootstrap`](@ref) for more on the `interpolation` parameter, which is set to `CubicSpline()` by default.
+See [`bootstrap`](@ref) for more on the `interpolation` parameter, which is set to `QuadraticSpline()` by default.
 
 # Examples
 
@@ -292,7 +292,7 @@ mats = [1/12, 2/12, 3/12, 6/12, 1, 2, 3, 5, 7, 10, 20, 30]
 Yields.CMT(rates,mats)
 ```
 """
-function CMT(rates::Vector{T}, maturities; interpolation=CubicSpline()) where {T<:Real}
+function CMT(rates::Vector{T}, maturities; interpolation=QuadraticSpline()) where {T<:Real}
     rs = map(zip(rates, maturities)) do (r, m)
         if m <= 1
             Rate(r, Periodic(1 / m))
@@ -304,7 +304,7 @@ function CMT(rates::Vector{T}, maturities; interpolation=CubicSpline()) where {T
     CMT(rs, maturities;interpolation)
 end
 
-function CMT(rates::Vector{<:Rate}, maturities; interpolation=CubicSpline())
+function CMT(rates::Vector{<:Rate}, maturities; interpolation=QuadraticSpline())
     return YieldCurve(
         rates,
         maturities,
@@ -319,10 +319,10 @@ end
     OIS(rates,maturities)
 Takes Overnight Index Swap rates, and assumes that instruments <= one year maturity are settled once and other agreements are settled quarterly with a corresponding CompoundingFrequency.
 
-See [`bootstrap`](@ref) for more on the `interpolation` parameter, which is set to `CubicSpline()` by default.
+See [`bootstrap`](@ref) for more on the `interpolation` parameter, which is set to `QuadraticSpline()` by default.
 
 """
-function OIS(rates::Vector{T}, maturities; interpolation=CubicSpline()) where {T<:Real}
+function OIS(rates::Vector{T}, maturities; interpolation=QuadraticSpline()) where {T<:Real}
     rs = map(zip(rates, maturities)) do (r, m)
         if m <= 1
             Rate(r, Periodic(1 / m))
@@ -333,7 +333,7 @@ function OIS(rates::Vector{T}, maturities; interpolation=CubicSpline()) where {T
 
     return OIS(rs, maturities; interpolation)
 end
-function OIS(rates::Vector{<:Rate}, maturities ; interpolation=CubicSpline())
+function OIS(rates::Vector{<:Rate}, maturities ; interpolation=QuadraticSpline())
     return YieldCurve(
         rates,
         maturities,

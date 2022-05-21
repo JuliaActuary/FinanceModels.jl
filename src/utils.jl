@@ -16,11 +16,11 @@ end
 
 abstract type InterpolationKind end
 
-struct CubicSpline <: InterpolationKind end
+struct QuadraticSpline <: InterpolationKind end
 struct LinearSpline <: InterpolationKind end
 
 """
-    bootstrap(rates, maturities, settlement_frequency, interpolation::CubicSpline())
+    bootstrap(rates, maturities, settlement_frequency, interpolation::QuadraticSpline())
 
 Bootstrap the rates with the given maturities, treating the rates according to the periodic frequencies in settlement_frequency. 
 
@@ -28,12 +28,12 @@ Bootstrap the rates with the given maturities, treating the rates according to t
 `interpolator` should be: `interpolator(xs, ys) -> f(x)` where `f(x)` is the interpolated value of `y` at `x`. 
 
 Built in `interpolator`s in Yields are: 
-- `CubicSpline()`: Cubic spline interpolation.
+- `QuadraticSpline()`: Quadratic spline interpolation.
 - `LinearSpline()`: Linear spline interpolation.
 
-The default is `CubicSpline()`.
+The default is `QuadraticSpline()`.
 """
-function bootstrap(rates, maturities, settlement_frequency, interpolation::InterpolationKind=CubicSpline())
+function bootstrap(rates, maturities, settlement_frequency, interpolation::InterpolationKind=QuadraticSpline())
     return _bootstrap_choose_interp(rates, maturities, settlement_frequency, interpolation)
 end
 
@@ -44,7 +44,7 @@ end
 
 # dispatch on the user-exposed InterpolationKind to the right 
 # internally named interpolation function
-function _bootstrap_choose_interp(rates, maturities, settlement_frequency, i::CubicSpline)
+function _bootstrap_choose_interp(rates, maturities, settlement_frequency, i::QuadraticSpline)
     return _bootstrap_inner(rates, maturities, settlement_frequency, cubic_interp)
 end
 
