@@ -232,7 +232,7 @@
         targets = [5.25, 5.5, 5.76, 6.02, 6.28, 6.55, 6.82, 6.87, 7.09, 7.2, 7.26, 7.31, 7.43, 7.48, 7.54, 7.67, 7.8, 7.79, 7.93, 8.07] ./ 100
         target_periodicity = fill(2, length(mats))
         target_periodicity[2] = 1 # 1 year is a no-coupon, BEY yield, the rest are semiannual BEY
-        @testset "curve bootstrapping choices" for curve in [Yields.CMT(cmt, mats), Yields.CMT(cmt, mats; interpolation=LinearSpline()), Yields.CMT(cmt, mats; interpolation=CubicSpline()), Yields.CMT(cmt, mats; interpolation=Yields.cubic_interp)]
+        @testset "curve bootstrapping choices" for curve in [Yields.CMT(cmt, mats), Yields.CMT(cmt, mats; interpolation=LinearSpline()), Yields.CMT(cmt, mats; interpolation=QuadraticSpline()), Yields.CMT(cmt, mats; interpolation=Yields.cubic_interp)]
             @testset "Fabozzi bootstrapped rates" for (r, mat, target, tp) in zip(cmt, mats, targets, target_periodicity)
                 @test rate(zero(curve, mat, Yields.Periodic(tp))) ≈ target atol = 0.0001
             end
