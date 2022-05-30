@@ -5,6 +5,7 @@ import ForwardDiff
 using LinearAlgebra
 using UnicodePlots
 using Roots
+import LsqFit
 
 
 # don't export type, as the API of Yields.Zero is nicer and 
@@ -21,6 +22,7 @@ include("bootstrap.jl")
 include("SmithWilson.jl")
 include("generics.jl")
 include("RateCombination.jl")
+include("NelsonSiegelSvensson.jl")
 
 
 end
