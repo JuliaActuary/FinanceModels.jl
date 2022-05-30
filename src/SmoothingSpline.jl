@@ -18,8 +18,6 @@ mutable struct SmoothingSpline
     end
 end
 
-using LinearAlgebra
-
 """ 
     createBasisMatrix(maturities::AbstractVector, df)
 Create the basis function matrix with a degree of freedom.

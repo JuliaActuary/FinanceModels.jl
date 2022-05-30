@@ -66,9 +66,6 @@ Base.zero(nss::NelsonSiegelSvensson, t) = Continuous(nss.β₀ .+ nss.β₁ .* (
 zero_disc(nss::NelsonSiegelSvensson, t) = nss.β₀ .+ nss.β₁ .* (1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .+ nss.β₂ .* ((1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .- exp.(-t ./ nss.τ₁)) .+ nss.β₃ .* ((1.0 .- exp.(-t ./ nss.τ₂)) ./ (t ./ nss.τ₂) .- exp.(-t ./ nss.τ₂))
 discount(nss::NelsonSiegel, t) = exp.(-t .* zero_disc(nss, t))
 
-import LsqFit
-#using LsqFit
-
 #=""" 
     est_ns_params(swq::Vector{SwapQuote}, τₐₗₗ::Array{Float, 1})
 
