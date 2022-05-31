@@ -6,18 +6,22 @@
         @testset "EURAAA_20191111" begin
             euraaa_yields = [-0.602, -0.6059, -0.6096, -0.613, -0.6215, -0.6279, -0.6341, -0.6327, -0.6106, -0.5694, -0.5161, -0.456, -0.3932, -0.3305, -0.2698, -0.2123, -0.1091, 0.0159, 0.0818, 0.1601, 0.2524, 0.315]
             euraaa_maturities = [0.25, 0.333, 0.417, 0.5, 0.75, 1, 1.5, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 17, 20, 25, 30]
-            ns_param = NelsonSiegel(0.6210824417258745, -1.1643900433363834, -1.9296519258565294, 3.0)
-            ns = est_ns_params(euraaa_yields, euraaa_maturities)
-            @test ns = ns_param
+            ns_param = Yields.NelsonSiegel(0.6210824417258745, -1.1643900433363834, -1.9296519258565294, 3.0)
+            ns = Yields.est_ns_params(euraaa_yields, euraaa_maturities)
+            @testset "parameter: $param" for param in [:β₀,:β₁,:β₂,:τ₁]
+                @test getfield(ns,param) ≈ getfield(ns_param,param)
+            end
         end
 
         # Nelson-Siegel-Svensson package example at https://nelson-siegel-svensson.readthedocs.io/en/latest/usage.html
         @testset "pack" begin
             pack_yields = [10e-5, 0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 10.0, 15.0, 20.0, 25.0, 30.0]
             pack_maturities = [0.01, 0.011, 0.013, 0.016, 0.019, 0.021, 0.026, 0.03, 0.035, 0.037, 0.038, 0.04]
-            ns_param = NelsonSiegel(0.04495841387198023, -0.03537510042719209, 0.0031561222355027227, 5.0)
-            ns = est_ns_params(pack_yields, pack_maturities)
-            @test ns = ns_param
+            ns_param = Yields.NelsonSiegel(0.04495841387198023, -0.03537510042719209, 0.0031561222355027227, 5.0)
+            ns = Yields.est_ns_params(pack_yields, pack_maturities)
+            @testset "parameter: $param" for param in [:β₀,:β₁,:β₂,:τ₁]
+                @test getfield(ns,param) ≈ getfield(ns_param,param)
+            end
         end
     end
 
@@ -27,9 +31,16 @@
         @testset "EURAAA_20191111" begin
             euraaa_yields = [-0.602, -0.6059, -0.6096, -0.613, -0.6215, -0.6279, -0.6341, -0.6327, -0.6106, -0.5694, -0.5161, -0.456, -0.3932, -0.3305, -0.2698, -0.2123, -0.1091, 0.0159, 0.0818, 0.1601, 0.2524, 0.315]
             euraaa_maturities = [0.25, 0.333, 0.417, 0.5, 0.75, 1, 1.5, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 17, 20, 25, 30]
-            nss_param = NelsonSiegelSvensson(0.6343710125821183, -1.225225531496011, -2.107914746999533, 0.2892748213968784, 3.0, 1.5)
-            nss = est_nss_params(euraaa_yields, euraaa_maturities)
-            @test nss = nss_param
+            nss_param = Yields.NelsonSiegelSvensson(0.6343710125821183, -1.225225531496011, -2.107914746999533, 0.2892748213968784, 3.0, 1.5)
+            nss = Yields.est_nss_params(euraaa_yields, euraaa_maturities)
+            @testset "parameter: $param" for param in [:β₀,:β₁,:β₂,:β₃,:τ₁,:τ₂]
+                @test getfield(nss,param) ≈ getfield(nss_param,param)
+            end
+            target_maturities = vcat([0.25, 0.5, 0.7], 1:30)
+            target_zeros = [-0.602009,-0.612954,-0.621543,-0.627864,-0.632655,-0.610565,-0.569424,-0.516078,-0.455969,-0.39315,-0.33047,-0.269814,-0.21234,-0.158674,-0.109075,-0.063552,-0.021963,0.015929,0.050407,0.081771,0.110319,0.136335,0.160083,0.181804,0.201715,0.220009,0.23686,0.252419,0.26682,0.280182,0.292608,0.304191,0.31501]
+            @testset "zero rates: $t" for (t, r) in zip(target_maturities,target_zeros)
+                @test Yields.zero(ns,t) ≈ Yields.Continuous(r)   atol = 0.00001
+            end
         end
     end
 
