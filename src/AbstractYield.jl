@@ -23,3 +23,7 @@ struct YieldCurve{T,U,V} <: AbstractYield
     maturities::U
     zero::V # function time -> continuous zero rate
 end
+
+# internal function (will be used in EconomicScenarioGenerators)
+# defines the rate output given just the type of curve
+__ratetype(::YieldCurve{T,U,V}) where {T,U,V}= eltype(T)

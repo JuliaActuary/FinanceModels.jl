@@ -4,6 +4,7 @@ struct RateCombination{T,U,V} <: AbstractYield
     r2::U
     op::V
 end
+__ratetype(::RateCombination{T,U,V}) where {T,U,V}= __ratetype(T)
 
 rate(rc::RateCombination, time) = rc.op(rate(rc.r1, time), rate(rc.r2, time))
 function discount(rc::RateCombination, time)

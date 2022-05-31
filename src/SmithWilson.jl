@@ -111,6 +111,8 @@ end
 
 SmithWilson(u::TU, qb::TQb; ufr, α) where {TU<:AbstractVector,TQb<:AbstractVector} = SmithWilson{TU,TQb}(u, qb; ufr = ufr, α = α)
 
+__ratetype(::SmithWilson{TU,TQb}) where {TU,TQb}= Yields.Rate{Float64, Yields.Continuous}
+
 """
     H_ordered(α, t_min, t_max)
 
