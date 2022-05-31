@@ -110,7 +110,7 @@ struct Step{R,T} <: AbstractYield
     rates::R
     times::T
 end
-__ratetype(::YieldCurve{R,T}) where {R}= eltype(R)
+__ratetype(::Step{R,T}) where {R,T}= eltype(R)
 
 Step(rates) = Step(rates, collect(1:length(rates)))
 
