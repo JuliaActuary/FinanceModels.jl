@@ -32,7 +32,7 @@ struct ForwardStarting{T,U} <: AbstractYield
     curve::U
     forwardstart::T
 end
-__ratetype(::ForwardStarting{T,U}) where {T,U}= __ratetype(U)
+__ratetype(::Type{ForwardStarting{T,U}}) where {T,U}= __ratetype(U)
 
 function discount(c::ForwardStarting, to)
     discount(c.curve, c.forwardstart, to + c.forwardstart)
@@ -71,7 +71,7 @@ julia> discount(y,2)
 struct Constant{T} <: AbstractYield
     rate::T
 end
-__ratetype(::Constant{T}) where {T} = T
+__ratetype(::Type{Constant{T}}) where {T} = T
 
 function Constant(rate::T, cf::C = Periodic(1)) where {T<:Real,C<:CompoundingFrequency}
     return Constant(Rate(rate, cf))
@@ -110,7 +110,7 @@ struct Step{R,T} <: AbstractYield
     rates::R
     times::T
 end
-__ratetype(::Step{R,T}) where {R,T}= eltype(R)
+__ratetype(::Type{Step{R,T}}) where {R,T}= eltype(R)
 
 Step(rates) = Step(rates, collect(1:length(rates)))
 

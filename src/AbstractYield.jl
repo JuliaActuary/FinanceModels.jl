@@ -26,4 +26,4 @@ end
 
 # internal function (will be used in EconomicScenarioGenerators)
 # defines the rate output given just the type of curve
-__ratetype(::YieldCurve{T,U,V}) where {T,U,V}= eltype(T)
+__ratetype(::Type{YieldCurve{T,U,V}}) where {T,U,V}= eltype(T)
