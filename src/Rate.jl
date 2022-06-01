@@ -306,6 +306,48 @@ function Base.:-(a::Rate{N,T},b::Rate{N,T}) where {N<:Real,T<:CompoundingFrequen
 end
 
 """
+    *(Yields.Rate, T<:Real)
+    *(T<:Real, Yields.Rate)
+
+The multiplication of a Rate with a scalar will inherit the type of the `Rate`, or the first argument's type if both are `Rate`s.
+"""
+function Base.:*(a::Rate{N,T}, b::Real) where {N<:Real,T<:Continuous}
+    return Continuous(a.value * b)
+end
+function Base.:*(a::Real, b::Rate{N,T}) where {N<:Real,T<:Continuous}
+    return Continuous( a * b.value)
+end
+
+function Base.:*(a::Rate{N,T}, b::Real) where {N<:Real, T<:Periodic}
+    return Periodic(a.value * b, a.compounding.frequency)
+end
+function Base.:*(a::Real, b::Rate{N,T}) where {N<:Real, T<:Periodic}
+    return Periodic(a * b.value, b.compounding.frequency)
+end
+
+
+"""
+    /(Yields.Rate, T<:Real)
+    /(T<:Real, Yields.Rate)
+
+The division of a Rate with a scalar will inherit the type of the `Rate`, or the first argument's type if both are `Rate`s.
+"""
+function Base.:/(a::Rate{N,T}, b::Real) where {N<:Real,T<:Continuous}
+    return Continuous(a.value / b)
+end
+function Base.:/(a::Real, b::Rate{N,T}) where {N<:Real,T<:Continuous}
+    return Continuous( a / b.value)
+end
+
+function Base.:/(a::Rate{N,T}, b::Real) where {N<:Real, T<:Periodic}
+    return Periodic(a.value / b, a.compounding.frequency)
+end
+function Base.:/(a::Real, b::Rate{N,T}) where {N<:Real, T<:Periodic}
+    return Periodic(a / b.value, b.compounding.frequency)
+end
+
+
+"""
     <(Rate,Rate)
 
 Convert the second argument to the periodicity of the first and compare the scalar rate values to determine if the first argument has a lower force of interest than the second.
