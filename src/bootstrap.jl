@@ -162,7 +162,7 @@ end
 # appropriate interpolation function based on the type dispatch.
 function _zero_inner(rates::Vector{<:Rate}, maturities, interp::QuadraticSpline)
     continuous_zeros = rate.(convert.(Continuous(), rates))
-    return YieldCurve(
+    return BootrappedYieldCurve(
         rates,
         maturities,
         cubic_interp([0.0; maturities],[first(continuous_zeros); continuous_zeros])
@@ -171,7 +171,7 @@ end
 
 function _zero_inner(rates::Vector{<:Rate}, maturities, interp::LinearSpline)
     continuous_zeros = rate.(convert.(Continuous(), rates))
-    return YieldCurve(
+    return BootrappedYieldCurve(
         rates,
         maturities,
         linear_interp([0.0; maturities],[first(continuous_zeros); continuous_zeros])
@@ -181,7 +181,7 @@ end
 # fallback for user provied interpolation function
 function _zero_inner(rates::Vector{<:Rate}, maturities, interp)
     continuous_zeros = rate.(convert.(Continuous(), rates))
-    return YieldCurve(
+    return BootrappedYieldCurve(
         rates,
         maturities,
         interp([0.0; maturities],[first(continuous_zeros); continuous_zeros])
@@ -223,7 +223,7 @@ function Par(rates::Vector{<:Rate}, maturities; interpolation=QuadraticSpline())
     if length(rates) == 1
         return Constant(rate[1])
     end
-    return YieldCurve(
+    return BootrappedYieldCurve(
         rates,
         maturities,
         # assume that maturities less than or equal to 12 months are settled once, otherwise semi-annual
@@ -305,7 +305,7 @@ function CMT(rates::Vector{T}, maturities; interpolation=QuadraticSpline()) wher
 end
 
 function CMT(rates::Vector{<:Rate}, maturities; interpolation=QuadraticSpline())
-    return YieldCurve(
+    return BootrappedYieldCurve(
         rates,
         maturities,
         # assume that maturities less than or equal to 12 months are settled once, otherwise semi-annual
@@ -334,7 +334,7 @@ function OIS(rates::Vector{T}, maturities; interpolation=QuadraticSpline()) wher
     return OIS(rs, maturities; interpolation)
 end
 function OIS(rates::Vector{<:Rate}, maturities ; interpolation=QuadraticSpline())
-    return YieldCurve(
+    return BootrappedYieldCurve(
         rates,
         maturities,
         # assume that maturities less than or equal to 12 months are settled once, otherwise quarterly

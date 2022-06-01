@@ -6,7 +6,7 @@
 
 The discount factor for the yield curve `yc` for times `from` through `to`.
 """
-discount(yc::YieldCurve, time) = exp(-yc.zero(time) * time)
+discount(yc::BootrappedYieldCurve, time) = exp(-yc.zero(time) * time)
 discount(yc::AbstractYield, from, to) = discount(yc, to) / discount(yc, from)
 
 """
