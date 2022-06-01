@@ -255,15 +255,15 @@ julia> Yields.Forward( Yields.Continuous.([0.01,0.02,0.03]) );
 
 ```
 """
-function Forward(rates::Vector{<:Rate}, maturities)
+function Forward(rates, maturities)
     # convert to zeros and pass to Zero
     disc_v = Vector{Float64}(undef, length(rates))
 
     v = 1.0
 
-    for i = 1:length(rates)
+    for (i,r) = enumerate(rates)
         Δt = maturities[i] - (i == 1 ? 0 : maturities[i-1])
-        v *= discount(rates[i], Δt)
+        v *= discount(r, Δt)
         disc_v[i] = v
     end
 
@@ -272,7 +272,7 @@ function Forward(rates::Vector{<:Rate}, maturities)
 end
 
 # if rates isn't a vector of Rates, then we assume periodic rates compounded once per period.
-function Forward(rates, maturities)
+function Forward(rates::Vector{<:Real}, maturities)
     return Forward(Yields.Periodic.(rates, 1), maturities)
 end
 
