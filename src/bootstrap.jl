@@ -46,7 +46,7 @@ end
     zero(curve,time)
     zero(curve,time,CompoundingFrequency)
 
-Return the zero rate for the curve at the given time. If not specified, will use `Periodic(1)` compounding.
+Return the zero rate for the curve at the given time.
 """
 Base.zero(c::YC, time) where {YC<:AbstractYield} = zero(c, time, Periodic(1))
 function Base.zero(c::YC, time, cf::C) where {YC<:AbstractYield,C<:CompoundingFrequency}
