@@ -7,3 +7,6 @@ include("RateCombination.jl")
 include("SmithWilson.jl")
 
 include("ActuaryUtilities.jl")
+include("misc.jl")
+#TODO EconomicScenarioGenerators.jl integration tests
+
