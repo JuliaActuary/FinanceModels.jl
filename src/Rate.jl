@@ -194,7 +194,7 @@ julia> discount(0.03, 5, 10)
 ```
 """
 
-discount(rate, t) = discount(Rate(rate), t)
+discount(rate::T, t) where {T<:Real} = discount(Rate(rate), t)
 discount(rate::Rate{<:Real, <:Continuous}, t) = exp(-rate.value * t)
 discount(rate::Rate{<:Real, <:Periodic}, t) = (1 + rate.value / rate.compounding.frequency)^(-rate.compounding.frequency * t)
 discount(rate, from, to) = discount(rate, to - from)

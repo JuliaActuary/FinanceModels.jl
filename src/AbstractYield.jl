@@ -23,6 +23,7 @@ struct YieldCurve{T,U,V} <: AbstractYield
     maturities::U
     zero::V # function time -> continuous zero rate
 end
+discount(yc::T, time) where {T<:YieldCurve} = exp(-yc.zero(time) * time)
 
 # internal function (will be used in EconomicScenarioGenerators)
 # defines the rate output given just the type of curve

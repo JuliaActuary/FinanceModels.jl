@@ -6,8 +6,8 @@
 
 The discount factor for the yield curve `yc` for times `from` through `to`.
 """
-discount(yc::YieldCurve, time) = exp(-yc.zero(time) * time)
-discount(yc::AbstractYield, from, to) = discount(yc, to) / discount(yc, from)
+discount(yc::T, time) where {T<:AbstractYield} = exp(-yc.zero(time) * time)
+discount(yc::T, from, to) where {T<:AbstractYield}= discount(yc, to) / discount(yc, from)
 
 """
     forward(yc, from, to, CompoundingFrequency=Periodic(1))
@@ -26,6 +26,23 @@ end
 function forward(yc::T, from) where {T<:AbstractYield}
     to = from + 1
     return forward(yc, from, to)
+end
+
+
+"""
+    zero(curve,time)
+    zero(curve,time,CompoundingFrequency)
+
+Return the zero rate for the curve at the given time.
+"""
+function Base.zero(c::YC, time) where {YC<:AbstractYield} 
+     zero(c, time, DEFAULT_COMPOUNDING)
+end
+
+function Base.zero(c::YC, time, cf::C) where {YC<:AbstractYield,C<:CompoundingFrequency}
+    df = discount(c, time)
+    r = -log(df)/time
+    return convert(cf, Continuous(r)) # c.zero is a curve of continuous rates represented as floats. explicitly wrap in continuous before converting
 end
 
 """

@@ -1,6 +1,7 @@
 using Yields
 using Test
 
+include("generic.jl")
 include("Rate.jl")
 include("bootstrap.jl")
 include("RateCombination.jl")
