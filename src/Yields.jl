@@ -13,7 +13,7 @@ export rate, discount, accumulation, forward,
 LinearSpline, QuadraticSpline, Periodic, Continuous
 
 include("Rate.jl")
-const DEFAULT_COMPOUNDING = Continuous()
+const DEFAULT_COMPOUNDING = Yields.Continuous()
 
 include("AbstractYield.jl")
 include("utils.jl")
