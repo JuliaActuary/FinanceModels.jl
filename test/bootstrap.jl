@@ -74,6 +74,7 @@
         @test discount(y, 0.0) ≈ 1
         @test discount(y, 0.5) ≈ 1 / (1.02)^(0.5)
         @test discount(y, 1) ≈ 1 / (1.02)^(1)
+        @test discount(y, 10) ≈ 1 / (1.02)^(1) / (1.05)^(9)
         @test zero(y, 1) ≈ Periodic(0.02,1)
 
         @test discount(y, 2) ≈ 1 / (1.02) / 1.05

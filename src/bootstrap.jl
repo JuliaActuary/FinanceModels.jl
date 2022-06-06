@@ -82,6 +82,8 @@ accumulation(r::Constant, from, to) = accumulation(r.rate, to - from)
 
 Create a yield curve object where the applicable rate is the effective rate of interest applicable until corresponding time. If `rates` is not a `Vector{Rate}`, will assume `Periodic(1)` type.
 
+The last rate will be applied to any time after the last time in `times`.
+
 # Examples
 
 ```julia-repl
@@ -112,25 +114,20 @@ function Step(rates::Vector{<:Real},times)
 end
 
 function discount(y::Step, time)
-    v = 1 / (1 + rate(y.rates[1]))^min(y.times[1], time)
+    v = 1.0
+    last_time = 0.0
 
-    if y.times[1] >= time
-        return v
+
+    for (rate,t) in zip(y.rates,y.times)
+        duration = min(time - last_time,t-last_time)
+        v *= discount(rate,duration)
+        last_time = t
+        (last_time > time) && return v
+        
     end
 
-    for i = 2:length(y.times)
-
-        if y.times[i] >= time
-            # take partial discount and break
-            v /= (1 + rate(y.rates[i]))^(time - y.times[i-1])
-            break
-        else
-            # take full discount and continue
-            v /= (1 + rate(y.rates[i]))^(y.times[i] - y.times[i-1])
-        end
-
-    end
-
+    # if we did not return in the loop, then we extend the last rate
+    v *= discount(last(y.rates), time - last_time)
     return v
 end
 
