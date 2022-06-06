@@ -18,7 +18,7 @@ abstract type AbstractYield end
 # make interest curve broadcastable so that you can broadcast over multiple`time`s in `interest_rate`
 Base.Broadcast.broadcastable(ic::T) where {T<:AbstractYield} = Ref(ic)
 
-struct YieldCurve{T,U,V} <: AbstractYield
+struct BootrappedYieldCurve{T,U,V} <: AbstractYield
     rates::T
     maturities::U
     zero::V # function time -> continuous zero rate
