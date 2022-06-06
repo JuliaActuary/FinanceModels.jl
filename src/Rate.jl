@@ -335,16 +335,20 @@ The division of a Rate with a scalar will inherit the type of the `Rate`, or the
 function Base.:/(a::Rate{N,T}, b::Real) where {N<:Real,T<:Continuous}
     return Continuous(a.value / b)
 end
-function Base.:/(a::Real, b::Rate{N,T}) where {N<:Real,T<:Continuous}
-    return Continuous( a / b.value)
-end
+
+# unclear if dividing a scalar by a rate should be allowed
+# function Base.:/(a::Real, b::Rate{N,T}) where {N<:Real,T<:Continuous}
+#     return Continuous( a / b.value)
+# end
 
 function Base.:/(a::Rate{N,T}, b::Real) where {N<:Real, T<:Periodic}
     return Periodic(a.value / b, a.compounding.frequency)
 end
-function Base.:/(a::Real, b::Rate{N,T}) where {N<:Real, T<:Periodic}
-    return Periodic(a / b.value, b.compounding.frequency)
-end
+
+# unclear if dividing a scalar by a rate should be allowed
+# function Base.:/(a::Real, b::Rate{N,T}) where {N<:Real, T<:Periodic}
+#     return Periodic(a / b.value, b.compounding.frequency)
+# end
 
 
 """
