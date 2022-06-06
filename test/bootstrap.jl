@@ -69,16 +69,14 @@
     @testset "Step curve" begin
         y = Yields.Step([0.02, 0.05], [1, 2])
 
-        @test rate(y, 0.5) == 0.02
+        @test zero(y, 0.5) ≈ Periodic(0.02,1)
 
         @test discount(y, 0.0) ≈ 1
         @test discount(y, 0.5) ≈ 1 / (1.02)^(0.5)
         @test discount(y, 1) ≈ 1 / (1.02)^(1)
-        @test rate(y, 1) ≈ 0.02
+        @test zero(y, 1) ≈ Periodic(0.02,1)
 
         @test discount(y, 2) ≈ 1 / (1.02) / 1.05
-        @test rate(y, 2) ≈ 0.05
-        @test rate(y, 2.5) ≈ 0.05
 
         @test discount(y, 2) ≈ 1 / (1.02) / 1.05
 
@@ -90,9 +88,10 @@
         end
 
         y = Yields.Step([0.02, 0.07])
-        @test rate(y, 0.5) ≈ 0.02
-        @test rate(y, 1) ≈ 0.02
-        @test rate(y, 1.5) ≈ 0.07
+
+        @test zero(y, 0.5) ≈ Periodic(0.02,1)
+        @test zero(y, 1) ≈ Periodic(0.02,1)
+        @test zero(y, 1.5) ≈ Periodic(accumulation(y,1.5)^(1/1.5)-1,1)
 
     end
 

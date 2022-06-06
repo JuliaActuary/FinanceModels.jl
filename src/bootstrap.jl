@@ -104,17 +104,13 @@ __ratetype(::Type{Step{R,T}}) where {R,T}= eltype(R)
 
 Step(rates) = Step(rates, collect(1:length(rates)))
 
-function rate(y::Step, time)
-    i = findfirst(t -> time <= t, y.times)
-    if isnothing(i)
-        return y.rates[end]
-    else
-        return y.rates[i]
-    end
+function Step(rates::Vector{<:Real},times) 
+    r = Periodic.(rates,1)
+    Step(r, times)
 end
 
 function discount(y::Step, time)
-    v = 1 / (1 + y.rates[1])^min(y.times[1], time)
+    v = 1 / (1 + rate(y.rates[1]))^min(y.times[1], time)
 
     if y.times[1] >= time
         return v
@@ -124,11 +120,11 @@ function discount(y::Step, time)
 
         if y.times[i] >= time
             # take partial discount and break
-            v /= (1 + y.rates[i])^(time - y.times[i-1])
+            v /= (1 + rate(y.rates[i]))^(time - y.times[i-1])
             break
         else
             # take full discount and continue
-            v /= (1 + y.rates[i])^(y.times[i] - y.times[i-1])
+            v /= (1 + rate(y.rates[i]))^(y.times[i] - y.times[i-1])
         end
 
     end
