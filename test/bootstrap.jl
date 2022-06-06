@@ -1,6 +1,6 @@
 @testset "bootstrapped class of curves" begin
 
-
+    
     @testset "constant curve and rate -> Constant" begin
         yield = Yields.Constant(0.05)
         rate = Yields.Yields.Rate(0.05, Yields.Periodic(1))
@@ -55,30 +55,29 @@
 
     @testset "short curve" begin
         z = Yields.Zero([0.0, 0.05], [1, 2])
-        @test rate(zero(z, 1)) ≈ 0.00
+        @test zero(z, 1) ≈ Periodic(0.00,1)
         @test discount(z, 1) ≈ 1.00
-        @test rate(zero(z, 2)) ≈ 0.05
+        @test zero(z, 2) ≈ Periodic(0.05,1)
 
         # test no times constructor
         z = Yields.Zero([0.0, 0.05])
-        @test rate(zero(z, 1)) ≈ 0.00
+        @test zero(z, 1) ≈ Periodic(0.00,1)
         @test discount(z, 1) ≈ 1.00
-        @test rate(zero(z, 2)) ≈ 0.05
+        @test zero(z, 2) ≈ Periodic(0.05,1)
     end
 
     @testset "Step curve" begin
         y = Yields.Step([0.02, 0.05], [1, 2])
 
-        @test rate(y, 0.5) == 0.02
+        @test zero(y, 0.5) ≈ Periodic(0.02,1)
 
         @test discount(y, 0.0) ≈ 1
         @test discount(y, 0.5) ≈ 1 / (1.02)^(0.5)
         @test discount(y, 1) ≈ 1 / (1.02)^(1)
-        @test rate(y, 1) ≈ 0.02
+        @test discount(y, 10) ≈ 1 / (1.02)^(1) / (1.05)^(9)
+        @test zero(y, 1) ≈ Periodic(0.02,1)
 
         @test discount(y, 2) ≈ 1 / (1.02) / 1.05
-        @test rate(y, 2) ≈ 0.05
-        @test rate(y, 2.5) ≈ 0.05
 
         @test discount(y, 2) ≈ 1 / (1.02) / 1.05
 
@@ -90,9 +89,10 @@
         end
 
         y = Yields.Step([0.02, 0.07])
-        @test rate(y, 0.5) ≈ 0.02
-        @test rate(y, 1) ≈ 0.02
-        @test rate(y, 1.5) ≈ 0.07
+
+        @test zero(y, 0.5) ≈ Periodic(0.02,1)
+        @test zero(y, 1) ≈ Periodic(0.02,1)
+        @test zero(y, 1.5) ≈ Periodic(accumulation(y,1.5)^(1/1.5)-1,1)
 
     end
 
@@ -108,16 +108,15 @@
         fwd = [6.0, 10.2, 13.07, 14.36, 13.77, 13.1, 12.61, 12.14, 12.05, 11.84] ./ 100  # modified
 
         y = Yields.Par(Yields.Rate.(par, Yields.Periodic(1)), maturity)
-
         @testset "UTYC Figure 9 par -> spot : $mat" for mat in maturity
-            @test rate(zero(y, mat)) ≈ spot[mat] atol = 0.0001
+            @test zero(y, mat) ≈ Periodic(spot[mat],1) atol = 0.0001
             @test forward(y, mat - 1) ≈ Yields.Periodic(fwd[mat], 1) atol = 0.0001
         end
 
         y = Yields.Par(Yields.Rate.(par, Yields.Periodic(1)), maturity; interpolation = LinearSpline())
 
         @testset "UTYC Figure 9 par -> spot : $mat" for mat in maturity
-            @test rate(zero(y, mat)) ≈ spot[mat] atol = 0.0001
+            @test zero(y, mat) ≈ Periodic(spot[mat],1) atol = 0.0001
             @test forward(y, mat - 1) ≈ Yields.Periodic(fwd[mat], 1) atol = 0.0001
         end
 
