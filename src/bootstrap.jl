@@ -62,6 +62,7 @@ struct Constant{T} <: AbstractYield
     rate::T
 end
 __ratetype(::Type{Constant{T}}) where {T} = T
+CompoundingFrequency(c::Constant{T}) where {T} = c.compounding
 
 function Constant(rate::T, cf::C = Periodic(1)) where {T<:Real,C<:CompoundingFrequency}
     return Constant(Rate(rate, cf))
@@ -101,6 +102,7 @@ struct Step{R,T} <: AbstractYield
     times::T
 end
 __ratetype(::Type{Step{R,T}}) where {R,T}= eltype(R)
+CompoundingFrequency(c::Constant{T}) where {T} = first(c.rates).compounding
 
 Step(rates) = Step(rates, collect(1:length(rates)))
 

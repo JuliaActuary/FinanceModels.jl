@@ -1,6 +1,6 @@
 @testset "Rate type" begin
 
-    default = typeof(Yields.DEFAULT_COMPOUNDING)
+    default = Yields.Rate{Float64,typeof(Yields.DEFAULT_COMPOUNDING)}
     
     y = Yields.Constant(0.05)
     @test Yields.__ratetype(y) == Yields.Rate{Float64, Periodic}
@@ -9,7 +9,7 @@
     @test Yields.__ratetype(y) == Yields.Rate{Float64, Continuous}
     
     y = Yields.Step([0.02,0.05], [1,2])
-    @test Yields.__ratetype(y) == default
+    @test Yields.__ratetype(y) == Yields.Rate{Float64, Periodic}
     
     y = Yields.Forward( [0.01,0.02,0.03] )
     @test Yields.__ratetype(y) == default

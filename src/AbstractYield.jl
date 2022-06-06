@@ -28,4 +28,5 @@ discount(yc::T, time) where {T<:YieldCurve} = exp(-yc.zero(time) * time)
 # internal function (will be used in EconomicScenarioGenerators)
 # defines the rate output given just the type of curve
 __ratetype(curve::T) where {T<:AbstractYield} = __ratetype(typeof(curve))
+__ratetype(::Type{T}) where {T<:AbstractYield} = Yields.Rate{Float64, typeof(DEFAULT_COMPOUNDING)}
 __ratetype(::Type{YieldCurve{T,U,V}}) where {T,U,V}= Yields.Rate{Float64, typeof(DEFAULT_COMPOUNDING)}

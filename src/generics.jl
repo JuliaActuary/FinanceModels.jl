@@ -28,6 +28,9 @@ function forward(yc::T, from) where {T<:AbstractYield}
     return forward(yc, from, to)
 end
 
+function CompoundingFrequency(curve::T) where {T<:AbstractYield}
+    return DEFAULT_COMPOUNDING
+end
 
 """
     zero(curve,time)
@@ -36,7 +39,7 @@ end
 Return the zero rate for the curve at the given time.
 """
 function Base.zero(c::YC, time) where {YC<:AbstractYield} 
-     zero(c, time, DEFAULT_COMPOUNDING)
+     zero(c, time, CompoundingFrequency(c))
 end
 
 function Base.zero(c::YC, time, cf::C) where {YC<:AbstractYield,C<:CompoundingFrequency}

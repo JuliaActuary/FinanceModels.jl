@@ -40,3 +40,13 @@ Sometimes it is most natural or convenient to expect a certain kind of `Rate` fr
 2. Developers implementing new `AbstractYield` types can define their own default. For example, using the `MyYield` example above:
 
   - `__ratetype(::Type{MyYield}) = Yields.Rate{Float64, Continuous}`
+
+If the `CompoundingFrequency` is `Continuous`, then it's currently not necessary to define `__ratetype`, as it will fall back onto the generic method defined for `AbstractYield`s.
+
+If the preferred compounding frequency is `Periodic`, then you must either define the methods (`zero`, `forward`,...) for your type or to use the generic methods then you must define `Yields.CompoundingFrequency(curve::MyCurve)` to return the `Periodic` compounding datatype of the rates to return. 
+
+For example, if we wanted `MyCurve` to return `Periodic(1)` rates, then we would define:
+
+`Yields.CompoundingFrequency(curve::MyCurve) = Periodic(1)`
+
+This latter step is necessary and distinct from `__ratetype`. This is due to `__ratetype` relying on type-only information. The `Periodic` type contains as a datafield the compounding frequency. Therefore, the frequency is not known to the type system and is available only at runtime. 
