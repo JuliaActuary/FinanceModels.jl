@@ -72,6 +72,8 @@
 
         @test zero(c,2) ≈ c
         @test zero(p,2) ≈ p
+        @test forward(c,2) ≈ c
+        @test forward(p,2) ≈ p
 
         @test discount(c,2) ≈ exp(-2*0.03)
         @test discount(p,2) ≈ 1 / (1 + .04/2)^(2*2)

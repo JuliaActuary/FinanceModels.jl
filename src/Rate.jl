@@ -228,6 +228,8 @@ accumulation(rate::Rate{<:Real, <:Periodic}, t) = (1 + rate.value / rate.compoun
 accumulation(rate, from, to) = accumulation(rate, to - from)
 
 Base.zero(rate::T,t) where {T<:Rate} = rate
+forward(rate::T,to) where {T<:Rate} = rate
+forward(rate::T,from,to) where {T<:Rate} = rate
 
 """
     +(Yields.Rate, T<:Real)
