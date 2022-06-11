@@ -1,5 +1,14 @@
 # bootstrapped class of curve methods
 
+struct BootstrappedYieldCurve{T,U,V} <: AbstractYield
+    rates::T
+    maturities::U
+    zero::V # function time -> continuous zero rate
+end
+discount(yc::T, time) where {T<:BootstrappedYieldCurve} = exp(-yc.zero(time) * time)
+
+__ratetype(::Type{BootstrappedYieldCurve{T,U,V}}) where {T,U,V}= Yields.Rate{Float64, typeof(DEFAULT_COMPOUNDING)}
+
 # Forward curves
 
 """

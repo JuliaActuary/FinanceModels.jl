@@ -1,3 +1,12 @@
+# make interest curve broadcastable so that you can broadcast over multiple`time`s in `interest_rate`
+Base.Broadcast.broadcastable(ic::T) where {T<:AbstractYield} = Ref(ic)
+
+
+# internal function (will be used in EconomicScenarioGenerators)
+# defines the rate output given just the type of curve
+__ratetype(curve::T) where {T<:AbstractYield} = __ratetype(typeof(curve))
+__ratetype(::Type{T}) where {T<:AbstractYield} = Yields.Rate{Float64, typeof(DEFAULT_COMPOUNDING)}
+
 # https://github.com/dpsanders/hands_on_julia/blob/master/during_sessions/Fractale%20de%20Newton.ipynb
 newton(f, f′, x) = x - f(x) / f′(x)
 function solve(g, g′, x0, max_iterations = 100)
@@ -80,7 +89,7 @@ function _bootstrap_inner(rates, maturities, settlement_frequency, interpolation
         end
 
     end
-    zero_vec = -log.(discount_vec) ./ maturities
+    zero_vec = -log.(clamp.(discount_vec,0.00001,1)) ./ maturities
     return interpolation_function([0.0; maturities], [first(zero_vec); zero_vec])
 end
 
