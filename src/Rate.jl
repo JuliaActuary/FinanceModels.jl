@@ -69,7 +69,7 @@ See also: [`Continuous`](@ref)
 """
 Periodic(x, frequency) = Rate(x, Periodic(frequency))
 
-struct Rate{N<:Real,T<:CompoundingFrequency}
+struct Rate{N<:Real,T<:CompoundingFrequency} <: AbstractYield
     value::N
     compounding::T
 end
