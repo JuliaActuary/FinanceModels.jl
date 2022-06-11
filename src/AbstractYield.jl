@@ -2,6 +2,7 @@
 An AbstractYield is an object which can be used as an argument to:
 
 - zero-coupon spot rates via [`zero`](@ref)
+- forward zero rates via [`forward`](@ref)
 - discount factor via [`discount`](@ref)
 - accumulation factor via [`accumulation`](@ref)
 
