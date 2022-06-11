@@ -66,7 +66,23 @@
         
     end
 
-    @testset "rate addition/subtraction" begin
+    @testset "AbstractYield Interface" begin
+        c = Continuous(0.03)
+        p = Periodic(0.04,2)
+
+        @test zero(c,2) ≈ c
+        @test zero(p,2) ≈ p
+
+        @test discount(c,2) ≈ exp(-2*0.03)
+        @test discount(p,2) ≈ 1 / (1 + .04/2)^(2*2)
+
+        @test discount(c,2) ≈ 1 / accumulation(c,2)
+        @test discount(p,2) ≈ 1 / accumulation(p,2)
+
+
+    end
+
+    @testset "rate algebra" begin
 
         a = 0.03
         b = 0.02

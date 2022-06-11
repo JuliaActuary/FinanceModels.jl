@@ -69,7 +69,7 @@ See also: [`Continuous`](@ref)
 """
 Periodic(x, frequency) = Rate(x, Periodic(frequency))
 
-struct Rate{N<:Real,T<:CompoundingFrequency}
+struct Rate{N<:Real,T<:CompoundingFrequency} <: AbstractYield
     value::N
     compounding::T
 end
@@ -227,6 +227,7 @@ accumulation(rate::Rate{<:Real, <:Continuous}, t) = exp(rate.value * t)
 accumulation(rate::Rate{<:Real, <:Periodic}, t) = (1 + rate.value / rate.compounding.frequency)^(rate.compounding.frequency * t)
 accumulation(rate, from, to) = accumulation(rate, to - from)
 
+Base.zero(rate::T,t) where {T<:Rate} = rate
 
 """
     +(Yields.Rate, T<:Real)

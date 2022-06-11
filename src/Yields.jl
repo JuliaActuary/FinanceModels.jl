@@ -12,10 +12,10 @@ using Roots
 export rate, discount, accumulation, forward,
 LinearSpline, QuadraticSpline, Periodic, Continuous
 
+include("AbstractYield.jl")
 include("Rate.jl")
 const DEFAULT_COMPOUNDING = Yields.Continuous()
 
-include("AbstractYield.jl")
 include("utils.jl")
 include("bootstrap.jl")
 include("SmithWilson.jl")

@@ -15,18 +15,4 @@ It can be be constructed via:
 """
 abstract type AbstractYield end
 
-# make interest curve broadcastable so that you can broadcast over multiple`time`s in `interest_rate`
-Base.Broadcast.broadcastable(ic::T) where {T<:AbstractYield} = Ref(ic)
-
-struct BootstrappedYieldCurve{T,U,V} <: AbstractYield
-    rates::T
-    maturities::U
-    zero::V # function time -> continuous zero rate
-end
-discount(yc::T, time) where {T<:BootstrappedYieldCurve} = exp(-yc.zero(time) * time)
-
-# internal function (will be used in EconomicScenarioGenerators)
-# defines the rate output given just the type of curve
-__ratetype(curve::T) where {T<:AbstractYield} = __ratetype(typeof(curve))
-__ratetype(::Type{T}) where {T<:AbstractYield} = Yields.Rate{Float64, typeof(DEFAULT_COMPOUNDING)}
-__ratetype(::Type{BootstrappedYieldCurve{T,U,V}}) where {T,U,V}= Yields.Rate{Float64, typeof(DEFAULT_COMPOUNDING)}
+abstract type AbstractYieldCurve <: AbstractYield end

@@ -1,5 +1,5 @@
 ## Curve Manipulations
-struct RateCombination{T,U,V} <: AbstractYield
+struct RateCombination{T,U,V} <: AbstractYieldCurve
     r1::T
     r2::U
     op::V
@@ -21,11 +21,11 @@ function Base.zero(rc::RateCombination, time, cf::C) where {C<:CompoundingFreque
 end
 
 """
-    Yields.AbstractYield + Yields.AbstractYield
+    Yields.AbstractYieldCurve + Yields.AbstractYieldCurve
 
 The addition of two yields will create a `RateCombination`. For `rate`, `discount`, and `accumulation` purposes the spot rates of the two curves will be added together.
 """
-function Base.:+(a::AbstractYield, b::AbstractYield)
+function Base.:+(a::AbstractYieldCurve, b::AbstractYieldCurve)
     return RateCombination(a, b, +)
 end
 
@@ -40,20 +40,20 @@ function Base.:+(a::Constant, b::Constant)
     )
 end
 
-function Base.:+(a::T, b) where {T<:AbstractYield}
+function Base.:+(a::T, b) where {T<:AbstractYieldCurve}
     return a + Constant(b)
 end
 
-function Base.:+(a, b::T) where {T<:AbstractYield}
+function Base.:+(a, b::T) where {T<:AbstractYieldCurve}
     return Constant(a) + b
 end
 
 """
-    Yields.AbstractYield - Yields.AbstractYield
+    Yields.AbstractYieldCurve - Yields.AbstractYieldCurve
 
 The subtraction of two yields will create a `RateCombination`. For `rate`, `discount`, and `accumulation` purposes the spot rates of the second curves will be subtracted from the first.
 """
-function Base.:-(a::AbstractYield, b::AbstractYield)
+function Base.:-(a::AbstractYieldCurve, b::AbstractYieldCurve)
     return RateCombination(a, b, -)
 end
 
@@ -68,10 +68,10 @@ function Base.:-(a::Constant, b::Constant)
     )
 end
 
-function Base.:-(a::T, b) where {T<:AbstractYield}
+function Base.:-(a::T, b) where {T<:AbstractYieldCurve}
     return a - Constant(b)
 end
 
-function Base.:-(a, b::T) where {T<:AbstractYield}
+function Base.:-(a, b::T) where {T<:AbstractYieldCurve}
     return Constant(a) - b
 end
