@@ -1,7 +1,7 @@
 # test extending type and that various generic methods are defined 
-# to fulfill the API of AbstractYield
+# to fulfill the API of AbstractYieldCurve
 @testset "generic methods and type extensions" begin
-    struct MyYield <: Yields.AbstractYield
+    struct MyYield <: Yields.AbstractYieldCurve
         rate
     end
 

@@ -1,11 +1,11 @@
 # make interest curve broadcastable so that you can broadcast over multiple`time`s in `interest_rate`
-Base.Broadcast.broadcastable(ic::T) where {T<:AbstractYield} = Ref(ic)
+Base.Broadcast.broadcastable(ic::T) where {T<:AbstractYieldCurve} = Ref(ic)
 
 
 # internal function (will be used in EconomicScenarioGenerators)
 # defines the rate output given just the type of curve
-__ratetype(curve::T) where {T<:AbstractYield} = __ratetype(typeof(curve))
-__ratetype(::Type{T}) where {T<:AbstractYield} = Yields.Rate{Float64, typeof(DEFAULT_COMPOUNDING)}
+__ratetype(curve::T) where {T<:AbstractYieldCurve} = __ratetype(typeof(curve))
+__ratetype(::Type{T}) where {T<:AbstractYieldCurve} = Yields.Rate{Float64, typeof(DEFAULT_COMPOUNDING)}
 
 # https://github.com/dpsanders/hands_on_julia/blob/master/during_sessions/Fractale%20de%20Newton.ipynb
 newton(f, f′, x) = x - f(x) / f′(x)
@@ -147,7 +147,7 @@ end
 # https://stackoverflow.com/questions/70043313/get-simple-name-of-type-in-julia?noredirect=1#comment123823820_70043313
 name(::Type{T}) where {T} = (isempty(T.parameters) ? T : T.name.wrapper)
 
-function Base.show(io::IO, curve::T) where {T<:AbstractYield}
+function Base.show(io::IO, curve::T) where {T<:AbstractYieldCurve}
     println() # blank line for padding
     r = zero(curve, 1)
     ylabel = isa(r.compounding, Continuous) ? "Continuous" : "Periodic($(r.compounding.frequency))"

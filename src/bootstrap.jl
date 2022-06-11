@@ -1,6 +1,6 @@
 # bootstrapped class of curve methods
 
-struct BootstrappedYieldCurve{T,U,V} <: AbstractYield
+struct BootstrappedYieldCurve{T,U,V} <: AbstractYieldCurve
     rates::T
     maturities::U
     zero::V # function time -> continuous zero rate
@@ -37,7 +37,7 @@ While `ForwardStarting` could be nested so that, e.g. the third period's curve i
 
 `ForwardStarting` is not used to construct a curve based on forward rates. See  [`Forward`](@ref) instead.
 """
-struct ForwardStarting{T,U} <: AbstractYield
+struct ForwardStarting{T,U} <: AbstractYieldCurve
     curve::U
     forwardstart::T
 end
@@ -67,7 +67,7 @@ julia> discount(y,2)
 0.9070294784580498     # 1 / (1.05) ^ 2
 ```
 """
-struct Constant{T} <: AbstractYield
+struct Constant{T} <: AbstractYieldCurve
     rate::T
 end
 __ratetype(::Type{Constant{T}}) where {T} = T
@@ -108,7 +108,7 @@ julia>rate(y,2.5)
 0.05
 ```
 """
-struct Step{R,T} <: AbstractYield
+struct Step{R,T} <: AbstractYieldCurve
     rates::R
     times::T
 end

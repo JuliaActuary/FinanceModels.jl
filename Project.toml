@@ -4,6 +4,7 @@ authors = ["Alec Loudenback <alecloudenback@gmail.com> and contributors"]
 version = "2.0.0"
 
 [deps]
+ActuaryUtilities = "bdd23359-8b1c-4f88-b89b-d11982a786f4"
 BSplineKit = "093aae92-e908-43d7-9660-e50ee39d5a0a"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"

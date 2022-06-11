@@ -94,7 +94,7 @@ Required keyword arguments:
 - `ufr` is the Ultimate Forward Rate, the forward interest rate to which the yield curve tends, in continuous compounding convention. 
 - `α` is the parameter that governs the speed of convergence towards the Ultimate Forward Rate. It can be typed with `\\alpha[TAB]`
 """
-struct SmithWilson{TU<:AbstractVector,TQb<:AbstractVector} <: AbstractYield
+struct SmithWilson{TU<:AbstractVector,TQb<:AbstractVector} <: AbstractYieldCurve
     u::TU
     qb::TQb
     ufr

@@ -14,3 +14,5 @@ It can be be constructed via:
 - typical constant maturity treasury (CMT) curve with [`CMT`](@ref)
 """
 abstract type AbstractYield end
+
+abstract type AbstractYieldCurve <: AbstractYield end
