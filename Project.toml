@@ -1,7 +1,7 @@
 name = "Yields"
 uuid = "d7e99b2f-e7f3-4d9e-9f01-2338fc023ad3"
 authors = ["Alec Loudenback <alecloudenback@gmail.com> and contributors"]
-version = "2.0.0"
+version = "2.1.0"
 
 [deps]
 BSplineKit = "093aae92-e908-43d7-9660-e50ee39d5a0a"
