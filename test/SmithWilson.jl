@@ -128,6 +128,8 @@
             @test sum(discount.(sw_swq, swq_times) .* swq_payments[:, swapIdx]) ≈ 1.0
         end
 
+        @test Yields.__ratetype(sw_swq) == Yields.Rate{Float64,typeof(Yields.DEFAULT_COMPOUNDING)}
+
         # Round-trip bullet bond quotes (reuse data from swap quotes)
         bbq_prices = [1.3, 0.1, 4.5]
         bbq = Yields.BulletBondQuote.(swq_interests, bbq_prices, swq_maturities, frequency)

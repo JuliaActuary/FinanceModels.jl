@@ -82,6 +82,28 @@
             @test a + p(b) ≈ Yields.Periodic(0.05,1)
         end
 
+        @testset "multiplication" begin
+            c(x) = Yields.Continuous(x)
+            p(x) = Yields.Periodic(x, 1)
+
+            @test c(a) * b ≈ Yields.Continuous(a * b)
+            @test a * c(b) ≈ Yields.Continuous(a * b)
+            
+            @test p(a) * b ≈ Yields.Periodic(a * b,1)
+            @test a * p(b) ≈ Yields.Periodic(a * b,1)
+        end
+
+        @testset "division" begin
+            c(x) = Yields.Continuous(x)
+            p(x) = Yields.Periodic(x, 1)
+
+            @test c(a) / b ≈ Yields.Continuous(a / b)
+            @test_throws MethodError a / c(b) ≈ Yields.Continuous(a / b)
+            
+            @test p(a) / b ≈ Yields.Periodic(a / b,1)
+            @test_throws MethodError a / p(b) ≈ Yields.Periodic(a / b,1)
+        end
+
         @testset "subtraction" begin
             c(x) = Yields.Continuous(x)
             p(x) = Yields.Periodic(x, 1)

@@ -1,6 +1,6 @@
 @testset "bootstrapped class of curves" begin
 
-
+    
     @testset "constant curve and rate -> Constant" begin
         yield = Yields.Constant(0.05)
         rate = Yields.Yields.Rate(0.05, Yields.Periodic(1))
@@ -55,30 +55,29 @@
 
     @testset "short curve" begin
         z = Yields.Zero([0.0, 0.05], [1, 2])
-        @test rate(zero(z, 1)) ≈ 0.00
+        @test zero(z, 1) ≈ Periodic(0.00,1)
         @test discount(z, 1) ≈ 1.00
-        @test rate(zero(z, 2)) ≈ 0.05
+        @test zero(z, 2) ≈ Periodic(0.05,1)
 
         # test no times constructor
         z = Yields.Zero([0.0, 0.05])
-        @test rate(zero(z, 1)) ≈ 0.00
+        @test zero(z, 1) ≈ Periodic(0.00,1)
         @test discount(z, 1) ≈ 1.00
-        @test rate(zero(z, 2)) ≈ 0.05
+        @test zero(z, 2) ≈ Periodic(0.05,1)
     end
 
     @testset "Step curve" begin
         y = Yields.Step([0.02, 0.05], [1, 2])
 
-        @test rate(y, 0.5) == 0.02
+        @test zero(y, 0.5) ≈ Periodic(0.02,1)
 
         @test discount(y, 0.0) ≈ 1
         @test discount(y, 0.5) ≈ 1 / (1.02)^(0.5)
         @test discount(y, 1) ≈ 1 / (1.02)^(1)
-        @test rate(y, 1) ≈ 0.02
+        @test discount(y, 10) ≈ 1 / (1.02)^(1) / (1.05)^(9)
+        @test zero(y, 1) ≈ Periodic(0.02,1)
 
         @test discount(y, 2) ≈ 1 / (1.02) / 1.05
-        @test rate(y, 2) ≈ 0.05
-        @test rate(y, 2.5) ≈ 0.05
 
         @test discount(y, 2) ≈ 1 / (1.02) / 1.05
 
@@ -90,9 +89,10 @@
         end
 
         y = Yields.Step([0.02, 0.07])
-        @test rate(y, 0.5) ≈ 0.02
-        @test rate(y, 1) ≈ 0.02
-        @test rate(y, 1.5) ≈ 0.07
+
+        @test zero(y, 0.5) ≈ Periodic(0.02,1)
+        @test zero(y, 1) ≈ Periodic(0.02,1)
+        @test zero(y, 1.5) ≈ Periodic(accumulation(y,1.5)^(1/1.5)-1,1)
 
     end
 
@@ -108,16 +108,15 @@
         fwd = [6.0, 10.2, 13.07, 14.36, 13.77, 13.1, 12.61, 12.14, 12.05, 11.84] ./ 100  # modified
 
         y = Yields.Par(Yields.Rate.(par, Yields.Periodic(1)), maturity)
-
         @testset "UTYC Figure 9 par -> spot : $mat" for mat in maturity
-            @test rate(zero(y, mat)) ≈ spot[mat] atol = 0.0001
+            @test zero(y, mat) ≈ Periodic(spot[mat],1) atol = 0.0001
             @test forward(y, mat - 1) ≈ Yields.Periodic(fwd[mat], 1) atol = 0.0001
         end
 
         y = Yields.Par(Yields.Rate.(par, Yields.Periodic(1)), maturity; interpolation = LinearSpline())
 
         @testset "UTYC Figure 9 par -> spot : $mat" for mat in maturity
-            @test rate(zero(y, mat)) ≈ spot[mat] atol = 0.0001
+            @test zero(y, mat) ≈ Periodic(spot[mat],1) atol = 0.0001
             @test forward(y, mat - 1) ≈ Yields.Periodic(fwd[mat], 1) atol = 0.0001
         end
 
@@ -128,7 +127,7 @@
 
         c = Yields.Par(Yields.Periodic.([0.0687,0.0687],2), [2,3])
 
-        @test Yields.par(c,2) ≈ Yields.Periodic(0.0687,2)
+        @test Yields.par(c,2) ≈ Yields.Periodic(0.0687,2) atol = 0.00001
 
     end
 
@@ -232,7 +231,7 @@
         targets = [5.25, 5.5, 5.76, 6.02, 6.28, 6.55, 6.82, 6.87, 7.09, 7.2, 7.26, 7.31, 7.43, 7.48, 7.54, 7.67, 7.8, 7.79, 7.93, 8.07] ./ 100
         target_periodicity = fill(2, length(mats))
         target_periodicity[2] = 1 # 1 year is a no-coupon, BEY yield, the rest are semiannual BEY
-        @testset "curve bootstrapping choices" for curve in [Yields.CMT(cmt, mats), Yields.CMT(cmt, mats; interpolation=LinearSpline()), Yields.CMT(cmt, mats; interpolation=CubicSpline()), Yields.CMT(cmt, mats; interpolation=Yields.cubic_interp)]
+        @testset "curve bootstrapping choices" for curve in [Yields.CMT(cmt, mats), Yields.CMT(cmt, mats; interpolation=LinearSpline()), Yields.CMT(cmt, mats; interpolation=QuadraticSpline()), Yields.CMT(cmt, mats; interpolation=Yields.cubic_interp)]
             @testset "Fabozzi bootstrapped rates" for (r, mat, target, tp) in zip(cmt, mats, targets, target_periodicity)
                 @test rate(zero(curve, mat, Yields.Periodic(tp))) ≈ target atol = 0.0001
             end
@@ -322,7 +321,7 @@
             curve = Yields.Par(par,maturity)
 
             for (p,m) in zip(par,maturity)
-                @test Yields.par(curve,m) ≈ Yields.Periodic(p,2) atol = 0.0001
+                @test Yields.par(curve,m) ≈ Yields.Periodic(p,2) atol = 0.001
             end
         end
 

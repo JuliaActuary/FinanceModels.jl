@@ -194,7 +194,7 @@ julia> discount(0.03, 5, 10)
 ```
 """
 
-discount(rate, t) = discount(Rate(rate), t)
+discount(rate::T, t) where {T<:Real} = discount(Rate(rate), t)
 discount(rate::Rate{<:Real, <:Continuous}, t) = exp(-rate.value * t)
 discount(rate::Rate{<:Real, <:Periodic}, t) = (1 + rate.value / rate.compounding.frequency)^(-rate.compounding.frequency * t)
 discount(rate, from, to) = discount(rate, to - from)
@@ -304,6 +304,52 @@ function Base.:-(a::Rate{N,T},b::Rate{N,T}) where {N<:Real,T<:CompoundingFrequen
     r = Rate(a_rate - b_rate,a.compounding)
     return r
 end
+
+"""
+    *(Yields.Rate, T<:Real)
+    *(T<:Real, Yields.Rate)
+
+The multiplication of a Rate with a scalar will inherit the type of the `Rate`, or the first argument's type if both are `Rate`s.
+"""
+function Base.:*(a::Rate{N,T}, b::Real) where {N<:Real,T<:Continuous}
+    return Continuous(a.value * b)
+end
+function Base.:*(a::Real, b::Rate{N,T}) where {N<:Real,T<:Continuous}
+    return Continuous( a * b.value)
+end
+
+function Base.:*(a::Rate{N,T}, b::Real) where {N<:Real, T<:Periodic}
+    return Periodic(a.value * b, a.compounding.frequency)
+end
+function Base.:*(a::Real, b::Rate{N,T}) where {N<:Real, T<:Periodic}
+    return Periodic(a * b.value, b.compounding.frequency)
+end
+
+
+"""
+    /(Yields.Rate, T<:Real)
+    /(T<:Real, Yields.Rate)
+
+The division of a Rate with a scalar will inherit the type of the `Rate`, or the first argument's type if both are `Rate`s.
+"""
+function Base.:/(a::Rate{N,T}, b::Real) where {N<:Real,T<:Continuous}
+    return Continuous(a.value / b)
+end
+
+# unclear if dividing a scalar by a rate should be allowed
+# function Base.:/(a::Real, b::Rate{N,T}) where {N<:Real,T<:Continuous}
+#     return Continuous( a / b.value)
+# end
+
+function Base.:/(a::Rate{N,T}, b::Real) where {N<:Real, T<:Periodic}
+    return Periodic(a.value / b, a.compounding.frequency)
+end
+
+# unclear if dividing a scalar by a rate should be allowed
+# function Base.:/(a::Real, b::Rate{N,T}) where {N<:Real, T<:Periodic}
+#     return Periodic(a / b.value, b.compounding.frequency)
+# end
+
 
 """
     <(Rate,Rate)
