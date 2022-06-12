@@ -25,6 +25,21 @@
             @test discount(c,10) ≈ 1 / accumulation(c,10)
         end
 
+        #tests adapted from tests/examples via https://github.com/luphord/nelson_siegel_svensson
+        @testset "nelson_siegel_svensson" begin
+            
+            t = [0.0, 0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 10.0, 15.0, 20.0, 25.0, 30.0]
+            y = [0.01, 0.011, 0.013, 0.016, 0.019, 0.021, 0.026, 0.03, 0.035, 0.037, 0.038, 0.04]
+
+            c = Yields.NelsonSiegel(y,t)
+
+            target = Yields.NelsonSiegel(0.04201739383636799, -0.031829031569430594, -0.026797319779108236, 1.7170972656534174)
+
+            @testset "parameter: $param" for param in [:β₀, :β₁, :β₂, :τ₁]
+                @test getfield(c, param) ≈ getfield(c_param, param)
+            end
+        end
+
         # Nelson-Siegel-Svensson package example at https://nelson-siegel-svensson.readthedocs.io/en/latest/usage.html
         @testset "pack" begin
             pack_yields = [0.01, 0.011, 0.013, 0.016, 0.019, 0.021, 0.026, 0.03, 0.035, 0.037, 0.038, 0.04]

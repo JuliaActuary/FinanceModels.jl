@@ -6,6 +6,7 @@ using LinearAlgebra
 using UnicodePlots
 using Roots
 import LsqFit
+import Optim
 
 
 # don't export type, as the API of Yields.Zero is nicer and 

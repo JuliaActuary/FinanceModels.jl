@@ -1,9 +1,9 @@
 abstract type ParametricModel <: AbstractYield end
 
 """
-    NelsonSiegel(yields::AbstractVector, maturities::AbstractVector, τₐₗₗ::Array{Float64, 1}=[0.1, 0.15, 0.2, 0.3, 0.5, 0.75, 1, 1.5, 2, 3, 5, 7.5, 10])
+    NelsonSiegel(rates::AbstractVector, maturities::AbstractVector; τ_init=1.0)
 
-Return the NelsonSiegel fitted parameters. Please note there must be no 0's in maturities.
+Return the NelsonSiegel fitted parameters. The rates should be zero spot rates. If `rates` are not `Rate`s, then they will be interpreted as `Continuous` `Rate`s.
 
     NelsonSiegel(β₀, β₁, β₂, τ₁)
 
@@ -49,30 +49,36 @@ function Base.zero(ns::NelsonSiegel, t)
 end
 discount(ns::NelsonSiegel, t) = discount.(zero.(ns,t),t)
 
-
-function NelsonSiegel(yields::AbstractVector, maturities::AbstractVector, τₐₗₗ::Array{Float64, 1} = [0.1, 0.15, 0.2, 0.3, 0.5, 0.75, 1, 1.5, 2, 3, 5, 7.5, 10])
-    Δₘ = vcat([maturities[1]], diff(maturities))
-    total_resid = Inf
-    ns_param = NelsonSiegel(1.0, 0.0, 0.0, 1)
-
-    for τ in τₐₗₗ
-        spot(m, param) = rate.(zero.(NelsonSiegel(param[1], param[2], param[3], τ), m))
-        param₀ = [1.0, 0.0, 0.0, 1.0]
-        res = LsqFit.curve_fit(spot, maturities, yields, Δₘ, param₀)
-        sr = sum(res.resid .* res.resid)
-        if sr < total_resid # take the smallest sum of squares of residuals
-            total_resid = sr
-            ns_param = NelsonSiegel(res.param[1], res.param[2], res.param[3], τ)
-        end
+function NelsonSiegel(yields::Vector{T}, maturities::Vector{U}; τ_init=1.0)  where {T<:Real,U<:Real}
+    function fit_β(yields,maturities,τ) 
+        Δₘ = vcat([maturities[1]], diff(maturities))
+        param₀ = [1.0, 0.0, 0.0]
+        spot(m, p) = rate.(zero.(NelsonSiegel(p[1], p[2], p[3],only(τ)), m))
+        
+        return LsqFit.curve_fit(spot, maturities, yields, Δₘ,param₀)
     end
 
-    return ns_param
+    function β_sum_sq_resid(τ)
+        result = fit_β(yields,maturities,τ) 
+        return sum(r^2 for r in result.resid)
+    end
+    r = Optim.optimize(β_sum_sq_resid, [t_init])
+
+    τ = only(Optim.minimizer(r))
+
+    result = fit_β(yields,maturities,τ) 
+    return NelsonSiegel(result.param[1], result.param[2], result.param[3], τ)
+end
+
+function NelsonSiegel(yields::Vector{T}, maturities::Vector{U}; τ_init=1.0) where {T<:AbstractRate,U<:Real}
+    cont = [convert(Continuous,r) for r in yields]
+    return NelsonSiegelSvensson(cont, maturities; τ_init)
 end
 
 """
-    NelsonSiegelSvensson(yields::AbstractVector, maturities::AbstractVector, τₐₗₗ::Array{Float64, 1}=[0.1, 0.15, 0.2, 0.3, 0.5, 0.75, 1, 1.5, 2, 3, 5, 7.5, 10])
+    NelsonSiegelSvensson(yields::AbstractVector, maturities::AbstractVector; τ_init=[1.0,1.0])
 
-Return the NelsonSiegelSvensson fitted parameters. Please note there must be no 0's in maturities.
+Return the NelsonSiegelSvensson fitted parameters. The rates should be continuous zero spot rates. If `rates` are not `Rate`s, then they will be interpreted as `Continuous` `Rate`s.
 
     NelsonSiegelSvensson(β₀, β₁, β₂, β₃, τ₁, τ₂)
 
@@ -112,24 +118,33 @@ struct NelsonSiegelSvensson <: ParametricModel
     end
 end
 
-function NelsonSiegelSvensson(yields::AbstractVector, maturities::AbstractVector, τₐₗₗ::Array{Float64, 1} = [0.1, 0.15, 0.2, 0.3, 0.5, 0.75, 1, 1.5, 2, 3, 5, 7.5, 10])
-    Δₘ = vcat([maturities[1]], diff(maturities))
-    total_resid = Inf
-    nss_param = NelsonSiegelSvensson(1.0, 0.0, 0.0, 0.0, 1, 1)
-
-    for τ₁ in τₐₗₗ, τ₂ in τₐₗₗ
-        spot(m, param) = rate.(zero.(NelsonSiegelSvensson(param[1], param[2], param[3], param[4], τ₁, τ₂), m))
-        param₀ = [1.0, 0.0, 0.0, 0.0, 1.0, 1.0]
-        res = LsqFit.curve_fit(spot, maturities, yields, Δₘ, param₀)
-        sr = sum(res.resid .* res.resid)
-        if sr < total_resid # take the smallest sum of squares of residuals
-            total_resid = sr
-            nss_param = NelsonSiegelSvensson(res.param[1], res.param[2], res.param[3], res.param[4], τ₁, τ₂)
-        end
+function NelsonSiegelSvensson(yields::Vector{T}, maturities::Vector{U}; τ_init=[1.0,1.0]) where {T<:Real,U<:Real}
+    function fit_β(yields,maturities,τ) 
+        Δₘ = vcat([maturities[1]], diff(maturities))
+        param₀ = [1.0, 0.0, 0.0, 0.0]
+        spot(m, p) = rate.(zero.(NelsonSiegelSvensson(p[1], p[2], p[3],p[4],first(τ),last(τ)), m))
+        
+        return LsqFit.curve_fit(spot, maturities, yields, Δₘ,param₀)
     end
 
-    return nss_param
+    function β_sum_sq_resid(τ)
+        result = fit_β(yields,maturities,τ) 
+        return sum(r^2 for r in result.resid)
+    end
+
+    r = Optim.optimize(β_sum_sq_resid, τ_init)
+
+    τ = Optim.minimizer(r)[[1,2]]
+
+    result = fit_β(yields,maturities,τ) 
+    return NelsonSiegelSvensson(result.param[1], result.param[2], result.param[3],result.param[4],  first(τ), last(τ))
 end
+
+function NelsonSiegelSvensson(yields::Vector{T}, maturities::Vector{U}; τ_init=[1.0,1.0]) where {T<:AbstractRate,U<:Real}
+    cont = [convert(Continuous,r) for r in yields]
+    return NelsonSiegelSvensson(cont, maturities; τ_init)
+end
+
 
 
 function Base.zero(nss::NelsonSiegelSvensson, t)
