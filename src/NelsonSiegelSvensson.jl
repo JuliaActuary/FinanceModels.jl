@@ -28,7 +28,13 @@ struct NelsonSiegel <: ParametricModel
     end
 end
 
-Base.zero(ns::NelsonSiegel, t) = Continuous.(ns.β₀ .+ ns.β₁ .* (1.0 .- exp.(-t ./ ns.τ₁)) ./ (t ./ ns.τ₁) .+ ns.β₂ .* ((1.0 .- exp.(-t ./ ns.τ₁)) ./ (t ./ ns.τ₁) .- exp.(-t ./ ns.τ₁)))
+function Base.zero(ns::NelsonSiegel, t)
+    if iszero(t)
+        # zero rate is undefined for t = 0
+        t += eps()
+    end
+    Continuous.(ns.β₀ .+ ns.β₁ .* (1.0 .- exp.(-t ./ ns.τ₁)) ./ (t ./ ns.τ₁) .+ ns.β₂ .* ((1.0 .- exp.(-t ./ ns.τ₁)) ./ (t ./ ns.τ₁) .- exp.(-t ./ ns.τ₁)))
+end
 discount(ns::NelsonSiegel, t) = discount.(zero.(ns,t),t)
 
 
@@ -102,5 +108,11 @@ function NelsonSiegelSvensson(yields::AbstractVector, maturities::AbstractVector
 end
 
 
-Base.zero(nss::NelsonSiegelSvensson, t) = Continuous.(nss.β₀ .+ nss.β₁ .* (1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .+ nss.β₂ .* ((1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .- exp.(-t ./ nss.τ₁)) .+ nss.β₃ .* ((1.0 .- exp.(-t ./ nss.τ₂)) ./ (t ./ nss.τ₂) .- exp.(-t ./ nss.τ₂)))
+function Base.zero(nss::NelsonSiegelSvensson, t)
+    if iszero(t)
+        # zero rate is undefined for t = 0
+        t += eps()
+    end
+    Continuous.(nss.β₀ .+ nss.β₁ .* (1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .+ nss.β₂ .* ((1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .- exp.(-t ./ nss.τ₁)) .+ nss.β₃ .* ((1.0 .- exp.(-t ./ nss.τ₂)) ./ (t ./ nss.τ₂) .- exp.(-t ./ nss.τ₂)))
+end
 discount(nss::NelsonSiegelSvensson, t) = discount.(zero.(nss,t),t)
