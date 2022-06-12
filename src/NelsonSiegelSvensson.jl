@@ -1,4 +1,4 @@
-abstract type ParametricModel <: AbstractYield end
+abstract type ParametricModel <: AbstractYieldCurve end
 
 """
     NelsonSiegel(rates::AbstractVector, maturities::AbstractVector; τ_init=1.0)
@@ -62,7 +62,7 @@ function NelsonSiegel(yields::Vector{T}, maturities::Vector{U}; τ_init=1.0)  wh
         result = fit_β(yields,maturities,τ) 
         return sum(r^2 for r in result.resid)
     end
-    r = Optim.optimize(β_sum_sq_resid, [t_init])
+    r = Optim.optimize(β_sum_sq_resid, [τ_init])
 
     τ = only(Optim.minimizer(r))
 
@@ -70,7 +70,7 @@ function NelsonSiegel(yields::Vector{T}, maturities::Vector{U}; τ_init=1.0)  wh
     return NelsonSiegel(result.param[1], result.param[2], result.param[3], τ)
 end
 
-function NelsonSiegel(yields::Vector{T}, maturities::Vector{U}; τ_init=1.0) where {T<:AbstractRate,U<:Real}
+function NelsonSiegel(yields::Vector{T}, maturities::Vector{U}; τ_init=1.0) where {T<:Rate,U<:Real}
     cont = [convert(Continuous,r) for r in yields]
     return NelsonSiegelSvensson(cont, maturities; τ_init)
 end
@@ -140,7 +140,7 @@ function NelsonSiegelSvensson(yields::Vector{T}, maturities::Vector{U}; τ_init=
     return NelsonSiegelSvensson(result.param[1], result.param[2], result.param[3],result.param[4],  first(τ), last(τ))
 end
 
-function NelsonSiegelSvensson(yields::Vector{T}, maturities::Vector{U}; τ_init=[1.0,1.0]) where {T<:AbstractRate,U<:Real}
+function NelsonSiegelSvensson(yields::Vector{T}, maturities::Vector{U}; τ_init=[1.0,1.0]) where {T<:Rate,U<:Real}
     cont = [convert(Continuous,r) for r in yields]
     return NelsonSiegelSvensson(cont, maturities; τ_init)
 end
