@@ -59,12 +59,10 @@ struct NelsonSiegelSvensson <: ParametricModel
 end
 
 Base.zero(ns::NelsonSiegel, t) = Continuous(ns.β₀ .+ ns.β₁ .* (1.0 .- exp.(-t ./ ns.τ₁)) ./ (t ./ ns.τ₁) .+ ns.β₂ .* ((1.0 .- exp.(-t ./ ns.τ₁)) ./ (t ./ ns.τ₁) .- exp.(-t ./ ns.τ₁)))
-zero_disc(ns::NelsonSiegel, t) = ns.β₀ .+ ns.β₁ .* (1.0 .- exp.(-t ./ ns.τ₁)) ./ (t ./ ns.τ₁) .+ ns.β₂ .* ((1.0 .- exp.(-t ./ ns.τ₁)) ./ (t ./ ns.τ₁) .- exp.(-t ./ ns.τ₁))
-discount(ns::NelsonSiegel, t) = exp.(-t .* zero_disc(ns, t))
+discount(ns::NelsonSiegel, t) = discount(zero(ns,t),t)
 
 Base.zero(nss::NelsonSiegelSvensson, t) = Continuous(nss.β₀ .+ nss.β₁ .* (1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .+ nss.β₂ .* ((1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .- exp.(-t ./ nss.τ₁)) .+ nss.β₃ .* ((1.0 .- exp.(-t ./ nss.τ₂)) ./ (t ./ nss.τ₂) .- exp.(-t ./ nss.τ₂)))
-zero_disc(nss::NelsonSiegelSvensson, t) = nss.β₀ .+ nss.β₁ .* (1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .+ nss.β₂ .* ((1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .- exp.(-t ./ nss.τ₁)) .+ nss.β₃ .* ((1.0 .- exp.(-t ./ nss.τ₂)) ./ (t ./ nss.τ₂) .- exp.(-t ./ nss.τ₂))
-discount(nss::NelsonSiegelSvensson, t) = exp.(-t .* zero_disc(nss, t))
+discount(nss::NelsonSiegelSvensson, t) = discount(zero(nss,t),t)
 
 #=""" 
     est_ns_params(swq::Vector{SwapQuote}, τₐₗₗ::Array{Float, 1})
