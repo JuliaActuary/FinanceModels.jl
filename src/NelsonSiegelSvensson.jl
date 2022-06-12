@@ -7,13 +7,25 @@ Return the NelsonSiegel fitted parameters. Please note there must be no 0's in m
 
     NelsonSiegel(β₀, β₁, β₂, τ₁)
 
-Parameters of Nelson and Siegel (1987) parametric model. 
+Parameters of Nelson and Siegel (1987) parametric model:
+
+- β₀ represents a long-term interest rate
+- β₁ represents a time-decay component
+- β₂ represents a hump
+- τ₁ controls the location of the hump
 
 # Examples
 
 ```julia-repl
 julia> β₀, β₁, β₂, τ₁ = 0.6, -1.2, -1.9, 3.0
-julia> nsm = NelsonSiegelSvensson.NelsonSiegel.(β₀, β₁, β₂, τ₁)
+julia> nsm = Yields.NelsonSiegel.(β₀, β₁, β₂, τ₁)
+
+# Extend Help
+
+## References
+- https://onriskandreturn.com/2019/12/01/nelson-siegel-yield-curve-model/
+- https://www.bis.org/publ/bppdf/bispap25.pdf
+
 ```
 """
 struct NelsonSiegel <: ParametricModel
@@ -64,7 +76,14 @@ Return the NelsonSiegelSvensson fitted parameters. Please note there must be no 
 
     NelsonSiegelSvensson(β₀, β₁, β₂, β₃, τ₁, τ₂)
 
-Parameters of Svensson (1994) parametric model. 
+Parameters of Svensson (1994) parametric model:
+
+- β₀ represents a long-term interest rate
+- β₁ represents a time-decay component
+- β₂ represents a hump
+- β₃ represents a second hum
+- τ₁ controls the location of the hump 
+- τ₁ controls the location of the second hump 
 
 
 # Examples
@@ -72,6 +91,11 @@ Parameters of Svensson (1994) parametric model.
 ```julia-repl
 julia> β₀, β₁, β₂, β₃, τ₁, τ₂ = 0.6, -1.2, -2.1, 3.0, 1.5
 julia> nssm = NelsonSiegelSvensson.NelsonSiegelSvensson.(β₀, β₁, β₂, β₃, τ₁, τ₂)
+
+## References
+- https://onriskandreturn.com/2019/12/01/nelson-siegel-yield-curve-model/
+- https://www.bis.org/publ/bppdf/bispap25.pdf
+
 ```
 """
 struct NelsonSiegelSvensson <: ParametricModel
