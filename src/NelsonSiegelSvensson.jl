@@ -58,11 +58,11 @@ struct NelsonSiegelSvensson <: ParametricModel
     end
 end
 
-Base.zero(ns::NelsonSiegel, t) = Continuous(ns.β₀ .+ ns.β₁ .* (1.0 .- exp.(-t ./ ns.τ₁)) ./ (t ./ ns.τ₁) .+ ns.β₂ .* ((1.0 .- exp.(-t ./ ns.τ₁)) ./ (t ./ ns.τ₁) .- exp.(-t ./ ns.τ₁)))
-discount(ns::NelsonSiegel, t) = discount(zero(ns,t),t)
+Base.zero(ns::NelsonSiegel, t) = Continuous.(ns.β₀ .+ ns.β₁ .* (1.0 .- exp.(-t ./ ns.τ₁)) ./ (t ./ ns.τ₁) .+ ns.β₂ .* ((1.0 .- exp.(-t ./ ns.τ₁)) ./ (t ./ ns.τ₁) .- exp.(-t ./ ns.τ₁)))
+discount(ns::NelsonSiegel, t) = discount.(zero.(ns,t),t)
 
-Base.zero(nss::NelsonSiegelSvensson, t) = Continuous(nss.β₀ .+ nss.β₁ .* (1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .+ nss.β₂ .* ((1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .- exp.(-t ./ nss.τ₁)) .+ nss.β₃ .* ((1.0 .- exp.(-t ./ nss.τ₂)) ./ (t ./ nss.τ₂) .- exp.(-t ./ nss.τ₂)))
-discount(nss::NelsonSiegelSvensson, t) = discount(zero(nss,t),t)
+Base.zero(nss::NelsonSiegelSvensson, t) = Continuous.(nss.β₀ .+ nss.β₁ .* (1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .+ nss.β₂ .* ((1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .- exp.(-t ./ nss.τ₁)) .+ nss.β₃ .* ((1.0 .- exp.(-t ./ nss.τ₂)) ./ (t ./ nss.τ₂) .- exp.(-t ./ nss.τ₂)))
+discount(nss::NelsonSiegelSvensson, t) = discount.(zero.(nss,t),t)
 
 #=""" 
     est_ns_params(swq::Vector{SwapQuote}, τₐₗₗ::Array{Float, 1})
@@ -106,7 +106,7 @@ function est_ns_params(yields::AbstractVector, maturities::AbstractVector, τₐ
     ns_param = NelsonSiegel(1.0, 0.0, 0.0, 1)
 
     for τ in τₐₗₗ
-        spot(m, param) = zero_disc(NelsonSiegel(param[1], param[2], param[3], τ), m)
+        spot(m, param) = rate.(zero.(NelsonSiegel(param[1], param[2], param[3], τ), m))
         param₀ = [1.0, 0.0, 0.0, 1.0]
         res = LsqFit.curve_fit(spot, maturities, yields, Δₘ, param₀)
         sr = sum(res.resid .* res.resid)
@@ -162,7 +162,7 @@ function est_nss_params(yields::AbstractVector, maturities::AbstractVector, τ�
     nss_param = NelsonSiegelSvensson(1.0, 0.0, 0.0, 0.0, 1, 1)
 
     for τ₁ in τₐₗₗ, τ₂ in τₐₗₗ
-        spot(m, param) = zero_disc(NelsonSiegelSvensson(param[1], param[2], param[3], param[4], τ₁, τ₂), m)
+        spot(m, param) = rate.(zero.(NelsonSiegelSvensson(param[1], param[2], param[3], param[4], τ₁, τ₂), m))
         param₀ = [1.0, 0.0, 0.0, 0.0, 1.0, 1.0]
         res = LsqFit.curve_fit(spot, maturities, yields, Δₘ, param₀)
         sr = sum(res.resid .* res.resid)
