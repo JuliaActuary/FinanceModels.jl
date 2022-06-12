@@ -367,9 +367,9 @@ Yields.Rate{Float64, Yields.Periodic}(0.03960780543711406, Yields.Periodic(2))
 
 """
 function par(curve, time; frequency=2)
-    mat_disc = discount(curve, 0, time)
+    mat_disc = discount(curve, time)
     coup_times = coupon_times(time,frequency)
-    coupon_pv = sum(discount(curve,0,t) for t in coup_times)
+    coupon_pv = sum(discount(curve,t) for t in coup_times)
     Δt = step(coup_times)
     r = (1-mat_disc) / coupon_pv
     cfs = [t == last(coup_times) ? 1+r : r for t in coup_times]
