@@ -1,6 +1,14 @@
 # make interest curve broadcastable so that you can broadcast over multiple`time`s in `interest_rate`
 Base.Broadcast.broadcastable(ic::T) where {T<:AbstractYieldCurve} = Ref(ic)
 
+function coupon_times(time,frequency)
+    Δt = min(1 / frequency,time)
+    times = time:-Δt:0
+    f = last(times)
+    f += iszero(f) ? Δt : zero(f)
+    l = first(times)
+    return f:Δt:l
+end
 
 # internal function (will be used in EconomicScenarioGenerators)
 # defines the rate output given just the type of curve
@@ -21,6 +29,15 @@ function solve(g, g′, x0, max_iterations = 100)
     end
 
     return x
+end
+
+function irr_newton(cashflows, times)
+    # use newton's method with hand-coded derivative
+    f(r) =  sum(cf * exp(-r*t) for (cf,t) in zip(cashflows,times))
+    f′(r) = sum(-t*cf * exp(-r*t) for (cf,t) in zip(cashflows,times) if t > 0)
+    r = Roots.newton(x->(f(x),f(x)/f′(x)),0.0)
+    return Yields.Periodic(exp(r)-1,1)
+
 end
 
 abstract type InterpolationKind end

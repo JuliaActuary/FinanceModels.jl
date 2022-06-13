@@ -379,21 +379,3 @@ function par(curve, time; frequency=2)
     r = convert(Periodic(frequency_inner),r)
     return r
 end
-
-function coupon_times(time,frequency)
-    Δt = min(1 / frequency,time)
-    times = time:-Δt:0
-    f = last(times)
-    f += iszero(f) ? Δt : zero(f)
-    l = first(times)
-    return f:Δt:l
-end
-
-function irr_newton(cashflows, times)
-    # use newton's method with hand-coded derivative
-    f(r) =  sum(cf * exp(-r*t) for (cf,t) in zip(cashflows,times))
-    f′(r) = sum(-t*cf * exp(-r*t) for (cf,t) in zip(cashflows,times) if t > 0)
-    r = Roots.newton(x->(f(x),f(x)/f′(x)),0.0)
-    return Yields.Periodic(exp(r)-1,1)
-
-end
