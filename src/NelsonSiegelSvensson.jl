@@ -1,7 +1,7 @@
 abstract type ParametricModel <: AbstractYieldCurve end
 
 """
-    NelsonSiegel(rates::AbstractVector, maturities::AbstractVector; τ_init=1.0)
+    NelsonSiegel(rates::AbstractVector, maturities::AbstractVector; τ_initial=1.0)
 
 Return the NelsonSiegel fitted parameters. The rates should be zero spot rates. If `rates` are not `Rate`s, then they will be interpreted as `Continuous` `Rate`s.
 
@@ -73,34 +73,39 @@ discount(ns::NelsonSiegelCurve, t) = discount.(zero.(ns,t),t)
 function fit_β(ns::NelsonSiegel,func,yields,maturities,τ) 
     Δₘ = vcat([maturities[1]], diff(maturities))
     param₀ = [1.0, 0.0, 0.0]
-    _rate(m, p) = rate.(func.(NelsonSiegel(p[1], p[2], p[3],only(τ)), m))
+    _rate(m, p) = rate.(func.(NelsonSiegelCurve(p[1], p[2], p[3],only(τ)), m))
     
     return LsqFit.curve_fit(_rate, maturities, yields, Δₘ,param₀)
 end
 
-function β_sum_sq_resid(ns_type,func,τ)
+function __fit_NS(ns::NelsonSiegel,func,yields,maturities,τ)
+    f(τ) = β_sum_sq_resid(ns,func,yields,maturities,τ)
+    r = Optim.optimize(f, [ns.τ_initial])
+
+    τ = only(Optim.minimizer(r))
+
+    return τ, fit_β(ns,func,yields,maturities,τ) 
+end
+
+function β_sum_sq_resid(ns,func,yields,maturities,τ)
     result = fit_β(ns,func,yields,maturities,τ) 
     return sum(r^2 for r in result.resid)
 end
 
 function Zero(ns::NelsonSiegel,yields::Vector{T}, maturities::Vector{U})  where {T<:Real,U<:Real}
-
-    f(τ) = β_sum_sq_resid(ns,zero,τ)
-    r = Optim.optimize(β_sum_sq_resid, [ns.τ_init])
-
-    τ = only(Optim.minimizer(r))
-
-    result = fit_β(yields,maturities,τ) 
+    func = zero
+    τ, result = __fit_NS(ns,func,yields,maturities,ns.τ_initial) 
     return NelsonSiegelCurve(result.param[1], result.param[2], result.param[3], τ)
 end
 
-function NelsonSiegel(yields::Vector{T}, maturities::Vector{U}; τ_init=1.0) where {T<:Rate,U<:Real}
-    cont = [convert(Continuous,r) for r in yields]
-    return NelsonSiegelSvensson(cont, maturities; τ_init)
+# curve fitting needs Real inputs, so we convert Rates to real first
+function Zero(ns::NelsonSiegel,yields::Vector{T}, maturities::Vector{U}) where {T<:Rate,U<:Real}
+    cont = [rate(convert(Continuous,r)) for r in yields]
+    return NelsonSiegel(ns,cont, maturities)
 end
 
 """
-    NelsonSiegelSvensson(yields::AbstractVector, maturities::AbstractVector; τ_init=[1.0,1.0])
+    NelsonSiegelSvensson(yields::AbstractVector, maturities::AbstractVector; τ_initial=[1.0,1.0])
 
 Return the NelsonSiegelSvensson fitted parameters. The rates should be continuous zero spot rates. If `rates` are not `Rate`s, then they will be interpreted as `Continuous` `Rate`s.
 
@@ -159,28 +164,33 @@ See for more:
 struct NelsonSiegelSvensson{T} <: YieldCurveFitParameters
     τ_initial::T
 end
-NelsonSiegelSvensson() = NelsonSiegelSvensson(1.0)
+NelsonSiegelSvensson() = NelsonSiegelSvensson([1.0,1.0])
 
 function fit_β(ns::NelsonSiegelSvensson,func,yields,maturities,τ) 
     Δₘ = vcat([maturities[1]], diff(maturities))
     param₀ = [1.0, 0.0, 0.0, 0.0]
-    _rate(m, p) = rate.(func.(NelsonSiegelSvensson(p[1], p[2], p[3],p[4],first(τ),last(τ)), m))
+    _rate(m, p) = rate.(func.(NelsonSiegelSvenssonCurve(p[1], p[2], p[3],p[4],first(τ),last(τ)), m))
     return LsqFit.curve_fit(_rate, maturities, yields, Δₘ,param₀)
 end
 
-function Zero(ns::NelsonSiegelSvensson,yields::Vector{T}, maturities::Vector{U}) where {T<:Real,U<:Real}
-
-    f(τ) = β_sum_sq_resid(ns,zero,τ)
-    r = Optim.optimize(f, ns.τ_init)
+function __fit_NS(ns::NelsonSiegelSvensson,func,yields,maturities,τ)
+    f(τ) = β_sum_sq_resid(ns,func,yields,maturities,τ)
+    r = Optim.optimize(f, ns.τ_initial)
 
     τ = Optim.minimizer(r)[[1,2]]
 
-    result = fit_β(yields,maturities,τ) 
+    return τ, fit_β(ns,func,yields,maturities,τ) 
+end
+
+
+function Zero(ns::NelsonSiegelSvensson,yields::Vector{T}, maturities::Vector{U}) where {T<:Real,U<:Real}
+    func = zero
+    τ, result = __fit_NS(ns,func,yields,maturities,ns.τ_initial)
     return NelsonSiegelSvenssonCurve(result.param[1], result.param[2], result.param[3],result.param[4],  first(τ), last(τ))
 end
 
-function NelsonSiegelSvensson(ns::NelsonSiegelSvensson,yields::Vector{T}, maturities::Vector{U}) where {T<:Rate,U<:Real}
-    cont = [convert(Continuous,r) for r in yields]
+function Zero(ns::NelsonSiegelSvensson,yields::Vector{T}, maturities::Vector{U}) where {T<:Rate,U<:Real}
+    cont = [rate(convert(Continuous,r)) for r in yields]
     return NelsonSiegelSvensson(ns,cont, maturities)
 end
 
