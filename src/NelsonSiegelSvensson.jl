@@ -28,47 +28,70 @@ julia> nsm = Yields.NelsonSiegel.(β₀, β₁, β₂, τ₁)
 
 ```
 """
-struct NelsonSiegel <: ParametricModel
-    β₀
-    β₁
-    β₂
-    τ₁
+struct NelsonSiegelCurve{T} <: ParametricModel
+    β₀::T
+    β₁::T
+    β₂::T
+    τ₁::T
 
-    function NelsonSiegel(β₀, β₁, β₂, τ₁)
+    function NelsonSiegelCurve(β₀::T, β₁::T, β₂::T, τ₁::T) where {T<:Real}
         (τ₁ <= 0) && throw(DomainError("Wrong parameter ranges"))
-        return new(β₀, β₁, β₂, τ₁)
+        return new{T}(β₀, β₁, β₂, τ₁)
     end
 end
 
-function Base.zero(ns::NelsonSiegel, t)
+
+"""
+    NelsonSiegel(τ_initial)
+    NelsonSiegel() # defaults to τ_initial=1.0
+    
+This parameter set is used to fit the Nelson-Siegel parametric model to given rates. `τ_initial` should be a scalar and is used as the starting τ value in the optimization. The default value for `τ_initial` is 1.0.
+
+See for more:
+
+- [`Zero`](@ref)
+- [`Forward`](@ref)
+- [`Par`](@ref)
+- [`CMT`](@ref)
+- [`OIS`](@ref)
+"""
+struct NelsonSiegel{T} <: YieldCurveFitParameters
+    τ_initial::T
+end
+NelsonSiegel() = NelsonSiegel(1.0)
+
+function Base.zero(ns::NelsonSiegelCurve, t)
     if iszero(t)
         # zero rate is undefined for t = 0
         t += eps()
     end
     Continuous.(ns.β₀ .+ ns.β₁ .* (1.0 .- exp.(-t ./ ns.τ₁)) ./ (t ./ ns.τ₁) .+ ns.β₂ .* ((1.0 .- exp.(-t ./ ns.τ₁)) ./ (t ./ ns.τ₁) .- exp.(-t ./ ns.τ₁)))
 end
-discount(ns::NelsonSiegel, t) = discount.(zero.(ns,t),t)
+discount(ns::NelsonSiegelCurve, t) = discount.(zero.(ns,t),t)
 
-function Par
-function NelsonSiegel(yields::Vector{T}, maturities::Vector{U}; τ_init=1.0)  where {T<:Real,U<:Real}
-    function fit_β(yields,maturities,τ) 
-        Δₘ = vcat([maturities[1]], diff(maturities))
-        param₀ = [1.0, 0.0, 0.0]
-        spot(m, p) = rate.(zero.(NelsonSiegel(p[1], p[2], p[3],only(τ)), m))
-        
-        return LsqFit.curve_fit(spot, maturities, yields, Δₘ,param₀)
-    end
 
-    function β_sum_sq_resid(τ)
-        result = fit_β(yields,maturities,τ) 
-        return sum(r^2 for r in result.resid)
-    end
-    r = Optim.optimize(β_sum_sq_resid, [τ_init])
+function fit_β(ns::NelsonSiegel,func,yields,maturities,τ) 
+    Δₘ = vcat([maturities[1]], diff(maturities))
+    param₀ = [1.0, 0.0, 0.0]
+    _rate(m, p) = rate.(func.(NelsonSiegel(p[1], p[2], p[3],only(τ)), m))
+    
+    return LsqFit.curve_fit(_rate, maturities, yields, Δₘ,param₀)
+end
+
+function β_sum_sq_resid(ns_type,func,τ)
+    result = fit_β(ns,func,yields,maturities,τ) 
+    return sum(r^2 for r in result.resid)
+end
+
+function Zero(ns::NelsonSiegel,yields::Vector{T}, maturities::Vector{U})  where {T<:Real,U<:Real}
+
+    f(τ) = β_sum_sq_resid(ns,zero,τ)
+    r = Optim.optimize(β_sum_sq_resid, [ns.τ_init])
 
     τ = only(Optim.minimizer(r))
 
     result = fit_β(yields,maturities,τ) 
-    return NelsonSiegel(result.param[1], result.param[2], result.param[3], τ)
+    return NelsonSiegelCurve(result.param[1], result.param[2], result.param[3], τ)
 end
 
 function NelsonSiegel(yields::Vector{T}, maturities::Vector{U}; τ_init=1.0) where {T<:Rate,U<:Real}
@@ -105,54 +128,69 @@ julia> nssm = NelsonSiegelSvensson.NelsonSiegelSvensson.(β₀, β₁, β₂, β
 
 ```
 """
-struct NelsonSiegelSvensson <: ParametricModel
-    β₀
-    β₁
-    β₂
-    β₃
-    τ₁
-    τ₂
+struct NelsonSiegelSvenssonCurve{T} <: ParametricModel
+    β₀::T
+    β₁::T
+    β₂::T
+    β₃::T
+    τ₁::T
+    τ₂::T
 
-    function NelsonSiegelSvensson(β₀, β₁, β₂, β₃, τ₁, τ₂)
+    function NelsonSiegelSvenssonCurve(β₀::T, β₁::T, β₂::T, β₃::T, τ₁::T, τ₂::T) where {T<:Real}
         (τ₁ <= 0 || τ₂ <= 0) && throw(DomainError("Wrong parameter ranges"))
-        return new(β₀, β₁, β₂, β₃, τ₁, τ₂)
+        return new{T}(β₀, β₁, β₂, β₃, τ₁, τ₂)
     end
 end
 
-function NelsonSiegelSvensson(yields::Vector{T}, maturities::Vector{U}; τ_init=[1.0,1.0]) where {T<:Real,U<:Real}
-    function fit_β(yields,maturities,τ) 
-        Δₘ = vcat([maturities[1]], diff(maturities))
-        param₀ = [1.0, 0.0, 0.0, 0.0]
-        spot(m, p) = rate.(zero.(NelsonSiegelSvensson(p[1], p[2], p[3],p[4],first(τ),last(τ)), m))
+"""
+    NelsonSiegelSvensson(τ_initial) 
+    NelsonSiegelSvensson() # defaults to τ_initial=[1.0,1.0]
         
-        return LsqFit.curve_fit(spot, maturities, yields, Δₘ,param₀)
-    end
+This parameter set is used to fit the Nelson-Siegel parametric model to given rates. `τ_initial` should be a two element vector and is used as the starting τ value in the optimization. The default value for `τ_initial` is [1.0,1.0].
 
-    function β_sum_sq_resid(τ)
-        result = fit_β(yields,maturities,τ) 
-        return sum(r^2 for r in result.resid)
-    end
+See for more:
 
-    r = Optim.optimize(β_sum_sq_resid, τ_init)
+- [`Zero`](@ref)
+- [`Forward`](@ref)
+- [`Par`](@ref)
+- [`CMT`](@ref)
+- [`OIS`](@ref)
+"""
+struct NelsonSiegelSvensson{T} <: YieldCurveFitParameters
+    τ_initial::T
+end
+NelsonSiegelSvensson() = NelsonSiegelSvensson(1.0)
+
+function fit_β(ns::NelsonSiegelSvensson,func,yields,maturities,τ) 
+    Δₘ = vcat([maturities[1]], diff(maturities))
+    param₀ = [1.0, 0.0, 0.0, 0.0]
+    _rate(m, p) = rate.(func.(NelsonSiegelSvensson(p[1], p[2], p[3],p[4],first(τ),last(τ)), m))
+    return LsqFit.curve_fit(_rate, maturities, yields, Δₘ,param₀)
+end
+
+function Zero(ns::NelsonSiegelSvensson,yields::Vector{T}, maturities::Vector{U}) where {T<:Real,U<:Real}
+
+    f(τ) = β_sum_sq_resid(ns,zero,τ)
+    r = Optim.optimize(f, ns.τ_init)
 
     τ = Optim.minimizer(r)[[1,2]]
 
     result = fit_β(yields,maturities,τ) 
-    return NelsonSiegelSvensson(result.param[1], result.param[2], result.param[3],result.param[4],  first(τ), last(τ))
+    return NelsonSiegelSvenssonCurve(result.param[1], result.param[2], result.param[3],result.param[4],  first(τ), last(τ))
 end
 
-function NelsonSiegelSvensson(yields::Vector{T}, maturities::Vector{U}; τ_init=[1.0,1.0]) where {T<:Rate,U<:Real}
+function NelsonSiegelSvensson(ns::NelsonSiegelSvensson,yields::Vector{T}, maturities::Vector{U}) where {T<:Rate,U<:Real}
     cont = [convert(Continuous,r) for r in yields]
-    return NelsonSiegelSvensson(cont, maturities; τ_init)
+    return NelsonSiegelSvensson(ns,cont, maturities)
 end
 
 
 
-function Base.zero(nss::NelsonSiegelSvensson, t)
+function Base.zero(nss::NelsonSiegelSvenssonCurve, t)
     if iszero(t)
         # zero rate is undefined for t = 0
         t += eps()
     end
     Continuous.(nss.β₀ .+ nss.β₁ .* (1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .+ nss.β₂ .* ((1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .- exp.(-t ./ nss.τ₁)) .+ nss.β₃ .* ((1.0 .- exp.(-t ./ nss.τ₂)) ./ (t ./ nss.τ₂) .- exp.(-t ./ nss.τ₂)))
 end
-discount(nss::NelsonSiegelSvensson, t) = discount.(zero.(nss,t),t)
+discount(nss::NelsonSiegelSvenssonCurve, t) = discount.(zero.(nss,t),t)

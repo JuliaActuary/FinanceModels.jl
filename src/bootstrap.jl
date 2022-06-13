@@ -1,5 +1,5 @@
 # bootstrapped class of curve methods
-struct Bootstrap{T} <: YieldParameters
+struct Bootstrap{T} <: YieldCurveFitParameters
     interpolation::T
 end
 

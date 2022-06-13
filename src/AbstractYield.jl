@@ -18,4 +18,4 @@ abstract type AbstractYield end
 
 abstract type AbstractYieldCurve <: AbstractYield end
 
-abstract type YieldParameters end
+abstract type YieldCurveFitParameters end
