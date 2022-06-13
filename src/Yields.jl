@@ -12,7 +12,8 @@ import Optim
 # don't export type, as the API of Yields.Zero is nicer and 
 # less polluting than Zero and less/equally verbose as ZeroYieldCurve or ZeroCurve
 export rate, discount, accumulation, forward,
-LinearSpline, QuadraticSpline, Periodic, Continuous
+LinearSpline, QuadraticSpline, Periodic, Continuous,
+Bootstrap,NelsonSiegel,NelsonSiegelSvensson,SmithWilson
 
 include("AbstractYield.jl")
 include("Rate.jl")

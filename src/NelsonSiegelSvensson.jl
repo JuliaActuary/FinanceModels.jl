@@ -49,6 +49,7 @@ function Base.zero(ns::NelsonSiegel, t)
 end
 discount(ns::NelsonSiegel, t) = discount.(zero.(ns,t),t)
 
+function Par
 function NelsonSiegel(yields::Vector{T}, maturities::Vector{U}; τ_init=1.0)  where {T<:Real,U<:Real}
     function fit_β(yields,maturities,τ) 
         Δₘ = vcat([maturities[1]], diff(maturities))

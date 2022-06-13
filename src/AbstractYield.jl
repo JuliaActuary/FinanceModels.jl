@@ -17,3 +17,5 @@ It can be be constructed via:
 abstract type AbstractYield end
 
 abstract type AbstractYieldCurve <: AbstractYield end
+
+abstract type YieldParameters end
