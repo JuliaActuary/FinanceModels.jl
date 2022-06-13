@@ -104,6 +104,29 @@ function Zero(ns::NelsonSiegel,yields::Vector{T}, maturities::Vector{U}) where {
     return NelsonSiegel(ns,cont, maturities)
 end
 
+function Par(ns::NelsonSiegel,yields::Vector{T}, maturities::Vector{U}) where {T<:Real,U<:Real}
+    func = par
+    τ, result = __fit_NS(ns,func,yields,maturities,ns.τ_initial)
+    return NelsonSiegelCurve(result.param[1], result.param[2], result.param[3],result.param[4],  first(τ), last(τ))
+end
+
+function Par(ns::NelsonSiegel,yields::Vector{T}, maturities::Vector{U}) where {T<:Rate,U<:Real}
+    cont = [rate(convert(Continuous,r)) for r in yields]
+    return NelsonSiegel(ns,cont, maturities)
+end
+
+function Forward(ns::NelsonSiegel,yields::Vector{T}, maturities::Vector{U}) where {T<:Real,U<:Real}
+    func = forward
+    τ, result = __fit_NS(ns,func,yields,maturities,ns.τ_initial)
+    return NelsonSiegelCurve(result.param[1], result.param[2], result.param[3],result.param[4],  first(τ), last(τ))
+end
+
+function Forward(ns::NelsonSiegel,yields::Vector{T}, maturities::Vector{U}) where {T<:Rate,U<:Real}
+    cont = [rate(convert(Continuous,r)) for r in yields]
+    return NelsonSiegel(ns,cont, maturities)
+end
+
+
 """
     NelsonSiegelSvensson(yields::AbstractVector, maturities::AbstractVector; τ_initial=[1.0,1.0])
 
@@ -190,6 +213,28 @@ function Zero(ns::NelsonSiegelSvensson,yields::Vector{T}, maturities::Vector{U})
 end
 
 function Zero(ns::NelsonSiegelSvensson,yields::Vector{T}, maturities::Vector{U}) where {T<:Rate,U<:Real}
+    cont = [rate(convert(Continuous,r)) for r in yields]
+    return NelsonSiegelSvensson(ns,cont, maturities)
+end
+
+function Par(ns::NelsonSiegelSvensson,yields::Vector{T}, maturities::Vector{U}) where {T<:Real,U<:Real}
+    func = par
+    τ, result = __fit_NS(ns,func,yields,maturities,ns.τ_initial)
+    return NelsonSiegelSvenssonCurve(result.param[1], result.param[2], result.param[3],result.param[4],  first(τ), last(τ))
+end
+
+function Par(ns::NelsonSiegelSvensson,yields::Vector{T}, maturities::Vector{U}) where {T<:Rate,U<:Real}
+    cont = [rate(convert(Continuous,r)) for r in yields]
+    return NelsonSiegelSvensson(ns,cont, maturities)
+end
+
+function Forward(ns::NelsonSiegelSvensson,yields::Vector{T}, maturities::Vector{U}) where {T<:Real,U<:Real}
+    func = forward
+    τ, result = __fit_NS(ns,func,yields,maturities,ns.τ_initial)
+    return NelsonSiegelSvenssonCurve(result.param[1], result.param[2], result.param[3],result.param[4],  first(τ), last(τ))
+end
+
+function Forward(ns::NelsonSiegelSvensson,yields::Vector{T}, maturities::Vector{U}) where {T<:Rate,U<:Real}
     cont = [rate(convert(Continuous,r)) for r in yields]
     return NelsonSiegelSvensson(ns,cont, maturities)
 end
