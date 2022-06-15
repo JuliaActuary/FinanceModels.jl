@@ -373,8 +373,9 @@ function par(curve, time; frequency=2)
     Δt = step(coup_times)
     r = (1-mat_disc) / coupon_pv
     cfs = [t == last(coup_times) ? 1+r : r for t in coup_times]
+    # `sign(r)`` is used instead of `1` because there are times when the coupons are negative so we want to flip the sign
     cfs = [-1;cfs]
-    r = irr_newton(cfs,[0;coup_times])
+    r = internal_rate_of_return(cfs,[0;coup_times])
     frequency_inner = min(1/Δt,max(1 / Δt, frequency))
     r = convert(Periodic(frequency_inner),r)
     return r

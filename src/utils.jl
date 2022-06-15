@@ -31,14 +31,6 @@ function solve(g, g′, x0, max_iterations = 100)
     return x
 end
 
-function irr_newton(cashflows, times)
-    # use newton's method with hand-coded derivative
-    f(r) =  sum(cf * exp(-r*t) for (cf,t) in zip(cashflows,times))
-    f′(r) = sum(-t*cf * exp(-r*t) for (cf,t) in zip(cashflows,times) if t > 0)
-    r = Roots.newton(x->(f(x),f(x)/f′(x)),0.0)
-    return Yields.Periodic(exp(r)-1,1)
-
-end
 
 abstract type InterpolationKind end
 
@@ -181,4 +173,60 @@ function Base.show(io::IO, curve::T) where {T<:AbstractYieldCurve}
         title = "Yield Curve ($kind)"
     )
     show(io, l)
+end
+
+
+### from ActuaryUtilities, eventually split this into a separate package
+
+function internal_rate_of_return(cfs)
+    return internal_rate_of_return(cfs, 0:length(cfs)-1)
+end
+
+function internal_rate_of_return(cfs,times)
+    # first try to quickly solve with newton's method, otherwise 
+    # revert to a more robust method
+    lower,upper = -2.,2.
+    v = try 
+        return irr_newton(cfs,times)
+    catch e
+        if isa(e,Roots.ConvergenceFailed) || sprint(showerror, e) =="No convergence"
+            return irr_robust(cfs,times)
+        else
+            throw(e)
+        end
+    end
+    
+    if v <= upper && v >= lower
+        return v
+    else
+        return irr_robust(cfs,times)
+    end
+end
+
+irr_robust(cfs) = irr_robust(cfs,0:length(cfs)-1)
+
+function irr_robust(cfs, times)
+    f(i) =  sum(cf / (1+i)^t for (cf,t) in zip(cfs,times))
+    # lower bound at -.99 because otherwise we can start taking the root of a negative number
+    # when a time is fractional. 
+    roots = Roots.find_zeros(f, -0.99, 2)
+    
+    # short circuit and return nothing if no roots found
+    isempty(roots) && return nothing
+    # find and return the one nearest zero
+    min_i = argmin(roots)
+    return Yields.Periodic(roots[min_i],1)
+
+end
+
+irr_newton(cfs) = irr_newton(cfs,0:length(cfs)-1)
+
+function irr_newton(cfs, times)
+    # use newton's method with hand-coded derivative
+    f(r) =  sum(cf * exp(-r*t) for (cf,t) in zip(cfs,times))
+    f′(r) = sum(-t*cf * exp(-r*t) for (cf,t) in zip(cfs,times) if t > 0)
+    # r = Roots.solve(Roots.ZeroProblem((f,f′), 0.0), Roots.Newton())
+    r = Roots.newton(x->(f(x),f(x)/f′(x)),0.0)
+    return Yields.Periodic(exp(r)-1,1)
+
 end
