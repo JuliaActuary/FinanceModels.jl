@@ -31,6 +31,10 @@ See also: [`Periodic`](@ref)
 """
 Continuous(rate) = Rate(rate, Continuous())
 
+function (c::Continuous)(r)
+    Rate(r,c)
+end
+
 """ 
     Periodic(frequency)
 
@@ -49,6 +53,10 @@ See also: [`Continuous`](@ref)
 """
 struct Periodic <: CompoundingFrequency
     frequency::Int
+end
+
+function (p::Periodic)(r) 
+    Rate(r, p)
 end
 
 """ 
@@ -136,6 +144,7 @@ Rate(0.009995835646701251, Continuous())
 function Base.convert(T::CompoundingFrequency, r::Rate{<:Real,<:CompoundingFrequency})
     convert(T, r, r.compounding)
 end
+
 function Base.convert(to::Continuous, r, from::Continuous)
     return r
 end

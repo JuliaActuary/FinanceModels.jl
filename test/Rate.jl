@@ -9,8 +9,14 @@
     @testset "constructor" begin
         @test Yields.Continuous(0.05) == Yields.Rate(0.05, Yields.Continuous())
         @test Yields.Periodic(0.02, 2) == Yields.Rate(0.02, Yields.Periodic(2))
+
+        @test Yields.Continuousg()(0.05) == Yields.Rate(0.05, Yields.Continuous())
+        @test Yields.Periodic(2)(0.02) == Yields.Rate(0.02, Yields.Periodic(2))
+
+
         @test Yields.Rate(0.02, 2) == Yields.Rate(0.02, Yields.Periodic(2))
         @test Yields.Rate(0.02, Inf) == Yields.Rate(0.02, Yields.Continuous())
+
     end
 
     @testset "rate conversions" begin
