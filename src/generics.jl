@@ -75,44 +75,89 @@ __ratefunction(::T) where {T<:typeof(Yields.Forward)} = Yields.forward
 __ratefunction(::T) where {T<:typeof(Yields.Zero)} = Yields.zero
 
 
-function Yields.Par(rates,maturities)
+"""
+    Par(rates, maturities=eachindex(rates)
+    Par(p::YieldCurveFitParameters, rates, maturities=eachindex(rates)
+
+Construct a curve given a set of bond equivalent yields and the corresponding maturities. Assumes that maturities <= 1 year do not pay coupons and that after one year, pays coupons with frequency equal to the CompoundingFrequency of the corresponding rate (normally the default for a `Rate` is `1`, but when constructed via `Par` the default compounding Frequency is `2`).
+
+See [`bootstrap`](@ref) for more on the `interpolation` parameter, which is set to `QuadraticSpline()` by default.
+
+# Examples
+
+```julia-repl
+
+julia> par = [6.,8.,9.5,10.5,11.0,11.25,11.38,11.44,11.48,11.5] ./ 100
+julia> maturities = [t for t in 1:10]
+julia> curve = Par(par,maturities);
+julia> zero(curve,1)
+Rate(0.06000000000000005, Periodic(1))
+
+```
+"""
+function Yields.Par(rates,maturities=eachindex(rates))
+    # bump to a constant yield if only given one rate
+    length(rates) == 1 && return Constant(first(rates))
     return Yields.Par(Bootstrap(),rates,maturities)
 end
 
-
-function Yields.Forward(rates,maturities)
+function Yields.Forward(rates,maturities=eachindex(rates))
+    # bump to a constant yield if only given one rate
+    length(rates) == 1 && return Constant(first(rates))
     return Yields.Forward(Bootstrap(),rates,maturities)
 end
 
-function Yields.Forward(rates)
-    maturities = 1:length(rates)
-    return Yields.Forward(Bootstrap(),rates,maturities)
-end
+"""
+    Zero(rates, maturities=eachindex(rates))
+    Zero(p::YieldCurveFitParameters,rates, maturities=eachindex(rates))
 
 
-function Yields.Zero(rates,maturities)
+Construct a yield curve with given zero-coupon spot `rates` at the given `maturities`. The method of fitting the curve to the data is determined by the [`YieldCurveFitParameters`](@ref) object `p`, which is a `Boostrap(QuadraticSpline())` by default. 
+
+If `rates` is a vector of floating point number instead of a vector `Rate`s, see the [`YieldCurveFitParameters`](@ref) for how the rate will be interpreted.
+
+# Examples
+
+```julia-repl
+julia> Yields.Zero([0.01,0.02,0.04,0.05],[1,2,5,10])
+
+              ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀Yield Curve (Yields.BootstrapCurve)⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀           
+              ┌────────────────────────────────────────────────────────────┐           
+         0.05 │⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡠⠤⠒⠒⠒⠒⠒⠤⠤⠤⢄⣀⣀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀│ Zero rates
+              │⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⠖⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠉⠉⠉⠒⠒⠒⠢⠤⠤⠤⣄⣀⣀⣀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀│           
+              │⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⠖⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠉⠉⠑⠒⠒⠒⠦⠤⠤⠤⣀⣀⣀⡀⠀│           
+              │⠀⠀⠀⠀⠀⠀⠀⠀⠀⡔⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠉│           
+              │⠀⠀⠀⠀⠀⠀⠀⢠⠎⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀│           
+              │⠀⠀⠀⠀⠀⠀⢠⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀│           
+              │⠀⠀⠀⠀⠀⢠⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀│           
+   Continuous │⠀⠀⠀⠀⢀⠇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀│           
+              │⠀⠀⠀⠀⡜⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀│           
+              │⠀⠀⠀⡸⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀│           
+              │⠀⠀⢠⠇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀│           
+              │⠀⠀⡜⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀│           
+              │⠒⠒⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀│           
+              │⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀│           
+            0 │⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀│           
+              └────────────────────────────────────────────────────────────┘           
+              ⠀0⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀time⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀30⠀      
+
+"""
+function Yields.Zero(rates,maturities=eachindex(rates))
+    # bump to a constant yield if only given one rate
+    length(rates) == 1 && return Constant(first(rates))
     return Yields.Zero(Bootstrap(),rates,maturities)
 end
 
-function Yields.Zero(rates)
-    maturities = 1:length(rates)
-    return Yields.Zero(Bootstrap(),rates,maturities)
-end
 
-function Yields.CMT(rates,maturities)
+function Yields.CMT(rates,maturities=eachindex(rates))
+    # bump to a constant yield if only given one rate
+    length(rates) == 1 && return Constant(first(rates))
     return Yields.CMT(Bootstrap(),rates,maturities)
 end
 
-function Yields.CMT(rates)
-    maturities = 1:length(rates)
-    return Yields.CMT(Bootstrap(),rates,maturities)
-end
 
-function Yields.OIS(rates,maturities)
-    return Yields.OIS(Bootstrap(),rates,maturities)
-end
-
-function Yields.OIS(rates)
-    maturities = 1:length(rates)
+function Yields.OIS(rates,maturities=eachindex(rates))
+    # bump to a constant yield if only given one rate
+    length(rates) == 1 && return Constant(first(rates))
     return Yields.OIS(Bootstrap(),rates,maturities)
 end

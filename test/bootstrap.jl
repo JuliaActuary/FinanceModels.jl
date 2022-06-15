@@ -107,15 +107,15 @@
         # fwd = [6.,10.2,13.07,14.36,13.77,13.1,12.55,12.2,11.97,11.93] ./ 100 # from text
         fwd = [6.0, 10.2, 13.07, 14.36, 13.77, 13.1, 12.61, 12.14, 12.05, 11.84] ./ 100  # modified
 
-        y = Yields.Par(Yields.Rate.(par, Yields.Periodic(1)), maturity)
-        @testset "UTYC Figure 9 par -> spot : $mat" for mat in maturity
+        y = Yields.Par(Periodic(1).(par), maturity)
+        @testset "quadratic UTYC Figure 9 par -> spot : $mat" for mat in maturity
             @test zero(y, mat) ≈ Periodic(spot[mat],1) atol = 0.0001
             @test forward(y, mat - 1) ≈ Yields.Periodic(fwd[mat], 1) atol = 0.0001
         end
 
         y = Yields.Par(Bootstrap(LinearSpline()),Yields.Rate.(par, Yields.Periodic(1)), maturity)
 
-        @testset "UTYC Figure 9 par -> spot : $mat" for mat in maturity
+        @testset "linear UTYC Figure 9 par -> spot : $mat" for mat in maturity
             @test zero(y, mat) ≈ Periodic(spot[mat],1) atol = 0.0001
             @test forward(y, mat - 1) ≈ Yields.Periodic(fwd[mat], 1) atol = 0.0001
         end

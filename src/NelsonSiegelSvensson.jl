@@ -1,4 +1,7 @@
 abstract type ParametricModel <: AbstractYieldCurve end
+Base.Broadcast.broadcastable(x::T) where {T<:ParametricModel} = Ref(x)
+__ratetype(::Type{T}) where {T<:ParametricModel}= Yields.Rate{Float64, typeof(DEFAULT_COMPOUNDING)}
+
 
 """
     NelsonSiegel(rates::AbstractVector, maturities::AbstractVector; τ_initial=1.0)
@@ -47,6 +50,8 @@ end
     
 This parameter set is used to fit the Nelson-Siegel parametric model to given rates. `τ_initial` should be a scalar and is used as the starting τ value in the optimization. The default value for `τ_initial` is 1.0.
 
+When fitting rates using this `YieldCurveFitParameters` object, the Nelson-Siegel model is used. If constructing curves and the rates are not `Rate`s (ie you pass a `Vector{Float64}`), then they will be interpreted as `Continuous` `Rate`s.
+
 See for more:
 
 - [`Zero`](@ref)
@@ -59,6 +64,7 @@ struct NelsonSiegel{T} <: YieldCurveFitParameters
     τ_initial::T
 end
 NelsonSiegel() = NelsonSiegel(1.0)
+__default_rate_interpretation(ns::NelsonSiegel,r) = Continuous(r)
 
 function Base.zero(ns::NelsonSiegelCurve, t)
     if iszero(t)
@@ -92,38 +98,25 @@ function β_sum_sq_resid(ns,func,yields,maturities,τ)
     return sum(r^2 for r in result.resid)
 end
 
-function Zero(ns::NelsonSiegel,yields::Vector{T}, maturities::Vector{U})  where {T<:Real,U<:Real}
+function Zero(ns::NelsonSiegel,yields::T, maturities::U=eachindex(yields))  where {T<:AbstractArray,U<:AbstractVector}
+    yields = rate.(__default_rate_interpretation.(ns,yields))
     func = zero
     τ, result = __fit_NS(ns,func,yields,maturities,ns.τ_initial) 
     return NelsonSiegelCurve(result.param[1], result.param[2], result.param[3], τ)
 end
 
-# curve fitting needs Real inputs, so we convert Rates to real first
-function Zero(ns::NelsonSiegel,yields::Vector{T}, maturities::Vector{U}) where {T<:Rate,U<:Real}
-    cont = [rate(convert(Continuous,r)) for r in yields]
-    return NelsonSiegel(ns,cont, maturities)
-end
-
-function Par(ns::NelsonSiegel,yields::Vector{T}, maturities::Vector{U}) where {T<:Real,U<:Real}
+function Par(ns::NelsonSiegel,yields::T, maturities::U=eachindex(yields)) where {T<:AbstractArray,U<:AbstractVector}
+    yields = rate.(__default_rate_interpretation.(ns,yields))
     func = par
     τ, result = __fit_NS(ns,func,yields,maturities,ns.τ_initial)
     return NelsonSiegelCurve(result.param[1], result.param[2], result.param[3],result.param[4],  first(τ), last(τ))
 end
 
-function Par(ns::NelsonSiegel,yields::Vector{T}, maturities::Vector{U}) where {T<:Rate,U<:Real}
-    cont = [rate(convert(Continuous,r)) for r in yields]
-    return NelsonSiegel(ns,cont, maturities)
-end
-
-function Forward(ns::NelsonSiegel,yields::Vector{T}, maturities::Vector{U}) where {T<:Real,U<:Real}
+function Forward(ns::NelsonSiegel,yields::T, maturities::U=eachindex(yields)) where {T<:AbstractArray,U<:AbstractVector}
+    yields = rate.(__default_rate_interpretation.(ns,yields))
     func = forward
     τ, result = __fit_NS(ns,func,yields,maturities,ns.τ_initial)
     return NelsonSiegelCurve(result.param[1], result.param[2], result.param[3],result.param[4],  first(τ), last(τ))
-end
-
-function Forward(ns::NelsonSiegel,yields::Vector{T}, maturities::Vector{U}) where {T<:Rate,U<:Real}
-    cont = [rate(convert(Continuous,r)) for r in yields]
-    return NelsonSiegel(ns,cont, maturities)
 end
 
 
@@ -131,6 +124,16 @@ end
     NelsonSiegelSvensson(yields::AbstractVector, maturities::AbstractVector; τ_initial=[1.0,1.0])
 
 Return the NelsonSiegelSvensson fitted parameters. The rates should be continuous zero spot rates. If `rates` are not `Rate`s, then they will be interpreted as `Continuous` `Rate`s.
+
+When fitting rates using this `YieldCurveFitParameters` object, the Nelson-Siegel model is used. If constructing curves and the rates are not `Rate`s (ie you pass a `Vector{Float64}`), then they will be interpreted as `Continuous` `Rate`s.
+
+See for more:
+
+    - [`Zero`](@ref)
+    - [`Forward`](@ref)
+    - [`Par`](@ref)
+    - [`CMT`](@ref)
+    - [`OIS`](@ref)
 
     NelsonSiegelSvensson(β₀, β₁, β₂, β₃, τ₁, τ₂)
 
@@ -188,6 +191,7 @@ struct NelsonSiegelSvensson{T} <: YieldCurveFitParameters
     τ_initial::T
 end
 NelsonSiegelSvensson() = NelsonSiegelSvensson([1.0,1.0])
+__default_rate_interpretation(ns::NelsonSiegelSvensson,r) = Continuous(r)
 
 function fit_β(ns::NelsonSiegelSvensson,func,yields,maturities,τ) 
     Δₘ = vcat([maturities[1]], diff(maturities))
@@ -206,40 +210,26 @@ function __fit_NS(ns::NelsonSiegelSvensson,func,yields,maturities,τ)
 end
 
 
-function Zero(ns::NelsonSiegelSvensson,yields::Vector{T}, maturities::Vector{U}) where {T<:Real,U<:Real}
+function Zero(ns::NelsonSiegelSvensson,yields::T, maturities::U=eachindex(yields)) where {T<:AbstractVector,U<:AbstractVector}
+    yields = rate.(__default_rate_interpretation.(ns,yields))
     func = zero
     τ, result = __fit_NS(ns,func,yields,maturities,ns.τ_initial)
     return NelsonSiegelSvenssonCurve(result.param[1], result.param[2], result.param[3],result.param[4],  first(τ), last(τ))
 end
 
-function Zero(ns::NelsonSiegelSvensson,yields::Vector{T}, maturities::Vector{U}) where {T<:Rate,U<:Real}
-    cont = [rate(convert(Continuous,r)) for r in yields]
-    return NelsonSiegelSvensson(ns,cont, maturities)
-end
-
-function Par(ns::NelsonSiegelSvensson,yields::Vector{T}, maturities::Vector{U}) where {T<:Real,U<:Real}
+function Par(ns::NelsonSiegelSvensson,yields::T, maturities::U=eachindex(yields)) where {T<:AbstractVector,U<:AbstractVector}
+    yields = rate.(__default_rate_interpretation.(ns,yields))
     func = par
     τ, result = __fit_NS(ns,func,yields,maturities,ns.τ_initial)
     return NelsonSiegelSvenssonCurve(result.param[1], result.param[2], result.param[3],result.param[4],  first(τ), last(τ))
 end
 
-function Par(ns::NelsonSiegelSvensson,yields::Vector{T}, maturities::Vector{U}) where {T<:Rate,U<:Real}
-    cont = [rate(convert(Continuous,r)) for r in yields]
-    return NelsonSiegelSvensson(ns,cont, maturities)
-end
-
-function Forward(ns::NelsonSiegelSvensson,yields::Vector{T}, maturities::Vector{U}) where {T<:Real,U<:Real}
+function Forward(ns::NelsonSiegelSvensson,yields::T, maturities::U=eachindex(yields)) where {T<:AbstractVector,U<:AbstractVector}
+    yields = rate.(__default_rate_interpretation.(ns,yields))
     func = forward
     τ, result = __fit_NS(ns,func,yields,maturities,ns.τ_initial)
     return NelsonSiegelSvenssonCurve(result.param[1], result.param[2], result.param[3],result.param[4],  first(τ), last(τ))
 end
-
-function Forward(ns::NelsonSiegelSvensson,yields::Vector{T}, maturities::Vector{U}) where {T<:Rate,U<:Real}
-    cont = [rate(convert(Continuous,r)) for r in yields]
-    return NelsonSiegelSvensson(ns,cont, maturities)
-end
-
-
 
 function Base.zero(nss::NelsonSiegelSvenssonCurve, t)
     if iszero(t)

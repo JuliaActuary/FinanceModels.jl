@@ -19,3 +19,4 @@ abstract type AbstractYield end
 abstract type AbstractYieldCurve <: AbstractYield end
 
 abstract type YieldCurveFitParameters end
+Base.Broadcast.broadcastable(x::T) where {T<:YieldCurveFitParameters} = Ref(x)

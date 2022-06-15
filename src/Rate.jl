@@ -29,10 +29,10 @@ Rate(0.01, Continuous())
 
 See also: [`Periodic`](@ref)
 """
-Continuous(rate) = Rate(rate, Continuous())
+Continuous(rate) = Continuous().(rate)
 
 function (c::Continuous)(r)
-    convert(c,r)
+    convert.(c,r)
 end
 
 """ 
@@ -56,7 +56,7 @@ struct Periodic <: CompoundingFrequency
 end
 
 function (p::Periodic)(r) 
-    convert(p, r)
+    convert.(p, r)
 end
 
 """ 
@@ -75,7 +75,7 @@ Rate(0.01, Periodic(2))
 
 See also: [`Continuous`](@ref)
 """
-Periodic(x, frequency) = Rate(x, Periodic(frequency))
+Periodic(x, frequency) = Periodic(frequency).(x)
 
 struct Rate{N<:Real,T<:CompoundingFrequency} <: AbstractYield
     value::N
@@ -134,7 +134,7 @@ Rate(rate) = Rate(rate, Periodic(1))
 Rate(x, frequency::T) where {T<:Real} = isinf(frequency) ? Rate(x, Continuous()) : Rate(x, Periodic(frequency))
 
 """
-    convert(T::CompoundingFrequency,r::Rate)
+    convert(cf::CompoundingFrequency,r::Rate) 
 
 Returns a `Rate` with an equivalent discount but represented with a different compounding frequency.
 
@@ -151,12 +151,12 @@ julia> convert(Continuous(),r)
 Rate(0.009995835646701251, Continuous())
 ```
 """
-function Base.convert(T::CompoundingFrequency, r::Rate{<:Real,<:CompoundingFrequency})
-    convert(T, r, r.compounding)
+function Base.convert(cf::T, r::Rate{<:Real,<:CompoundingFrequency}) where {T<:CompoundingFrequency}
+    convert.(cf, r, r.compounding)
 end
 
-function Base.convert(T::CompoundingFrequency, r::R) where {R<:Real}
-    Rate(r,T)
+function Base.convert(cf::T, r::R) where {R<:Real} where {T<:CompoundingFrequency}
+    Rate(r,cf)
 end
 
 function Base.convert(to::Continuous, r, from::Continuous)
@@ -164,26 +164,26 @@ function Base.convert(to::Continuous, r, from::Continuous)
 end
 
 function Base.convert(to::Periodic, r, from::Continuous)
-    return Rate(to.frequency * (exp(r.value / to.frequency) - 1), to)
+    return Rate.(to.frequency * (exp(r.value / to.frequency) - 1), to)
 end
 
 function Base.convert(to::Continuous, r, from::Periodic)
-    return Rate(from.frequency * log(1 + r.value / from.frequency), to)
+    return Rate.(from.frequency * log(1 + r.value / from.frequency), to)
 end
 
 function Base.convert(to::Periodic, r, from::Periodic)
-    c = convert(Continuous(), r, from)
-    return convert(to, c, Continuous())
+    c = convert.(Continuous(), r, from)
+    return convert.(to, c, Continuous())
 end
 
 function Continuous(r::Rate{<:Real,<:Periodic})
-    convert(Continuous(), r)
+    convert.(Continuous(), r)
 end
 function Continuous(r::Rate{<:Real,<:Continuous})
     r
 end
 function Periodic(r::Rate{<:Real,<:CompoundingFrequency},frequency::Int)
-    convert(Periodic(frequency), r)
+    convert.(Periodic(frequency), r)
 end
 
 

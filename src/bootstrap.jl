@@ -1,7 +1,23 @@
 # bootstrapped class of curve methods
+"""
+    Boostrap(interpolation_method=QuadraticSpline)
+    
+This `YieldCurveFitParameters` object defines the interpolation method to use when bootstrapping the curve. Provided options are `QuadraticSpline()` (the default) and `LinearSpline()`. You may also pass a custom interpolation method with the function signature of `f(xs, ys) -> f(x) -> y`.
+
+If constructing curves and the rates are not `Rate`s (ie you pass a `Vector{Float64}`), then they will be interpreted as `Periodic(1)` `Rate`s, except the [`Par`](@ref) curve, which is interpreted as `Periodic(2)` `Rate`s. [`CMT`](@ref) and [`OIS`](@ref) CompoundingFrequency assumption depends on the corresponding maturity.
+
+See for more:
+
+- [`Zero`](@ref)
+- [`Forward`](@ref)
+- [`Par`](@ref)
+- [`CMT`](@ref)
+- [`OIS`](@ref)
+"""
 struct Bootstrap{T} <: YieldCurveFitParameters
     interpolation::T
 end
+__default_rate_interpretation(ns::Bootstrap,r) where {T} = Periodic(r,1)
 
 function Bootstrap()
     return Bootstrap(QuadraticSpline())
@@ -76,7 +92,9 @@ julia> discount(y,2)
 """
 struct Constant{T} <: AbstractYieldCurve
     rate::T
+    Constant(rate::T) where {T<:Rate} = new{T}(rate)
 end
+
 __ratetype(::Type{Constant{T}}) where {T} = T
 CompoundingFrequency(c::Constant{T}) where {T} = c.rate.compounding
 
@@ -148,24 +166,17 @@ function discount(y::Step, time)
 end
 
 
-"""
-    Zero(rates, maturities; interpolation=QuadraticSpline())
 
-Construct a yield curve with given zero-coupon spot `rates` at the given `maturities`. If `rates` is not a `Vector{Rate}`, will assume `Periodic(1)` type.
-
-See [`bootstrap`](@ref) for more on the `interpolation` parameter, which is set to `QuadraticSpline()` by default.
-"""
-function Zero(b::Bootstrap,rates::Vector{<:Rate}, maturities)
-    # bump to a constant yield if only given one rate
-    length(rates) == 1 && return Constant(first(rates))
+function Zero(b::Bootstrap,rates::T, maturities) where {T<:AbstractVector}
+    rates = __default_rate_interpretation.(b,rates)
     return _zero_inner(rates,maturities,b.interpolation)
 end
 
 # zero is different than the other boostrapped curves in that it doesn't actually need to bootstrap 
 # because the rate are already zero rates. Instead, we just cut straight to the 
 # appropriate interpolation function based on the type dispatch.
-function _zero_inner(rates::Vector{<:Rate}, maturities, interp::QuadraticSpline)
-    continuous_zeros = rate.(convert.(Continuous(), rates))
+function _zero_inner(rates, maturities, interp::QuadraticSpline)
+    continuous_zeros = rate.(Continuous.(rates))
     return BootstrapCurve(
         rates,
         maturities,
@@ -173,8 +184,8 @@ function _zero_inner(rates::Vector{<:Rate}, maturities, interp::QuadraticSpline)
     )
 end
 
-function _zero_inner(rates::Vector{<:Rate}, maturities, interp::LinearSpline)
-    continuous_zeros = rate.(convert.(Continuous(), rates))
+function _zero_inner(rates, maturities, interp::LinearSpline)
+    continuous_zeros = rate.(Continuous.(rates))
     return BootstrapCurve(
         rates,
         maturities,
@@ -182,9 +193,9 @@ function _zero_inner(rates::Vector{<:Rate}, maturities, interp::LinearSpline)
     )
 end
 
-# fallback for user provied interpolation function
-function _zero_inner(rates::Vector{<:Rate}, maturities, interp)
-    continuous_zeros = rate.(convert.(Continuous(), rates))
+# fallback for user provided interpolation function
+function _zero_inner(rates, maturities, interp::T) where {T}
+    continuous_zeros = rate.(Continuous.(rates))
     return BootstrapCurve(
         rates,
         maturities,
@@ -192,36 +203,8 @@ function _zero_inner(rates::Vector{<:Rate}, maturities, interp)
     )
 end
 
-#fallback if `rates` aren't `Rate`s. Assume `Periodic(1)` per Zero docstring
-function Zero(b::Bootstrap,rates, maturities)
-    Zero(b,Periodic.(rates, 1), maturities)
-end
-
-
-"""
-    Par(rates, maturities; interpolation=QuadraticSpline())
-
-Construct a curve given a set of bond equivalent yields and the corresponding maturities. Assumes that maturities <= 1 year do not pay coupons and that after one year, pays coupons with frequency equal to the CompoundingFrequency of the corresponding rate (normally the default for a `Rate` is `1`, but when constructed via `Par` the default compounding Frequency is `2`).
-
-See [`bootstrap`](@ref) for more on the `interpolation` parameter, which is set to `QuadraticSpline()` by default.
-
-# Examples
-
-```julia-repl
-
-julia> par = [6.,8.,9.5,10.5,11.0,11.25,11.38,11.44,11.48,11.5] ./ 100
-julia> maturities = [t for t in 1:10]
-julia> curve = Par(par,maturities);
-julia> zero(curve,1)
-Rate(0.06000000000000005, Periodic(1))
-
-```
-"""
-function Par(b::Bootstrap,rates::Vector{<:Rate}, maturities)
-    # bump to a constant yield if only given one rate
-    if length(rates) == 1
-        return Constant(rate[1])
-    end
+function Par(b::Bootstrap,rates::T, maturities) where {T<:AbstractVector}
+    rates = Periodic.(rates,2)
     return BootstrapCurve(
         rates,
         maturities,
@@ -230,9 +213,14 @@ function Par(b::Bootstrap,rates::Vector{<:Rate}, maturities)
         bootstrap(rates, maturities, [m <= 1 ? nothing : 1 / r.compounding.frequency for (r, m) in zip(rates, maturities)], b.interpolation)
     )
 end
-
-function Par(b::Bootstrap,rates::Vector{T}, maturities) where {T<:Real}
-    return Par(b,Yields.Periodic.(rates,2), maturities)
+function Par(b::Bootstrap,rates::Vector{T}, maturities) where {T<:Rate}
+    return BootstrapCurve(
+        rates,
+        maturities,
+        # assume that maturities less than or equal to 12 months are settled once, otherwise semi-annual
+        # per Hull 4.7
+        bootstrap(rates, maturities, [m <= 1 ? nothing : 1 / r.compounding.frequency for (r, m) in zip(rates, maturities)], b.interpolation)
+    )
 end
 
 
@@ -251,7 +239,8 @@ julia> Yields.Forward( Yields.Continuous.([0.01,0.02,0.03]) );
 
 ```
 """
-function Forward(b::Bootstrap,rates, maturities)
+function Forward(b::Bootstrap,rates::T, maturities) where {T<:AbstractVector}
+    rates = __default_rate_interpretation.(b,rates)
     # convert to zeros and pass to Zero
     disc_v = Vector{Float64}(undef, length(rates))
 
@@ -265,11 +254,6 @@ function Forward(b::Bootstrap,rates, maturities)
 
     z = (1.0 ./ disc_v) .^ (1 ./ maturities) .- 1 # convert disc_v to zero
     return Zero(b,z, maturities)
-end
-
-# if rates isn't a vector of Rates, then we assume periodic rates compounded once per period.
-function Forward(b::Bootstrap,rates::Vector{<:Real}, maturities)
-    return Forward(b,Yields.Periodic.(rates, 1), maturities)
 end
 
 """
@@ -289,7 +273,7 @@ mats = [1/12, 2/12, 3/12, 6/12, 1, 2, 3, 5, 7, 10, 20, 30]
 Yields.CMT(rates,mats)
 ```
 """
-function CMT(b::Bootstrap,rates::Vector{T}, maturities) where {T<:Real}
+function CMT(b::Bootstrap,rates::T, maturities) where {T<:AbstractVector}
     rs = map(zip(rates, maturities)) do (r, m)
         if m <= 1
             Rate(r, Periodic(1 / m))
@@ -301,7 +285,7 @@ function CMT(b::Bootstrap,rates::Vector{T}, maturities) where {T<:Real}
     CMT(b,rs, maturities)
 end
 
-function CMT(b::Bootstrap,rates::Vector{<:Rate}, maturities)
+function CMT(b::Bootstrap,rates::Vector{T}, maturities) where {T<:Rate}
     return BootstrapCurve(
         rates,
         maturities,
@@ -319,7 +303,7 @@ Takes Overnight Index Swap rates, and assumes that instruments <= one year matur
 See [`bootstrap`](@ref) for more on the `interpolation` parameter, which is set to `QuadraticSpline()` by default.
 
 """
-function OIS(b::Bootstrap,rates::Vector{T}, maturities) where {T<:Real}
+function OIS(b::Bootstrap,rates::T, maturities) where {T<:AbstractVector}
     rs = map(zip(rates, maturities)) do (r, m)
         if m <= 1
             Rate(r, Periodic(1 / m))
