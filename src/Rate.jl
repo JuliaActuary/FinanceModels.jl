@@ -32,7 +32,7 @@ See also: [`Periodic`](@ref)
 Continuous(rate) = Rate(rate, Continuous())
 
 function (c::Continuous)(r)
-    Rate(r,c)
+    convert(c,r)
 end
 
 """ 
@@ -56,7 +56,7 @@ struct Periodic <: CompoundingFrequency
 end
 
 function (p::Periodic)(r) 
-    Rate(r, p)
+    convert(p, r)
 end
 
 """ 
@@ -101,7 +101,19 @@ Continuous rates can be constructed via `Rate(rate, Inf)` or `Rate(rate,Continuo
 julia> Rate(0.01,Continuous())
 Rate(0.01, Continuous())
 
+julia> Continuous(0.01)
+Rate(0.01, Continuous())
+
+julia> Continuous()(0.01)
+Rate(0.01, Continuous())
+
 julia> Rate(0.01,Periodic(2))
+Rate(0.01, Periodic(2))
+
+julia> Periodic(0.01,2)
+Rate(0.01, Periodic(2))
+
+julia> Periodic(2)(0.01)
 Rate(0.01, Periodic(2))
 
 julia> Rate(0.01)
@@ -116,8 +128,6 @@ Rate(0.01, Periodic(4))
 julia> Rate(0.01,Inf)
 Rate(0.01, Continuous())
 
-julia> Rate(0.01,Continuous())
-Rate(0.01, Continuous())
 ```
 """
 Rate(rate) = Rate(rate, Periodic(1))
@@ -145,6 +155,10 @@ function Base.convert(T::CompoundingFrequency, r::Rate{<:Real,<:CompoundingFrequ
     convert(T, r, r.compounding)
 end
 
+function Base.convert(T::CompoundingFrequency, r::R) where {R<:Real}
+    Rate(r,T)
+end
+
 function Base.convert(to::Continuous, r, from::Continuous)
     return r
 end
@@ -162,6 +176,20 @@ function Base.convert(to::Periodic, r, from::Periodic)
     return convert(to, c, Continuous())
 end
 
+function Continuous(r::Rate{<:Real,<:Periodic})
+    convert(Continuous(), r)
+end
+function Continuous(r::Rate{<:Real,<:Continuous})
+    r
+end
+function Periodic(r::Rate{<:Real,<:CompoundingFrequency},frequency::Int)
+    convert(Periodic(frequency), r)
+end
+
+
+""" 
+    
+"""
 function rate(r::Rate{<:Real,<:CompoundingFrequency})
     r.value
 end
@@ -179,6 +207,7 @@ end
 function Base.isapprox(a::T, b::N; atol::Real = 0, rtol::Real = atol > 0 ? 0 : √eps()) where {T<:Rate,N<:Rate}
     return isapprox(convert(b.compounding, a), b; atol, rtol)
 end
+
 
 """
     discount(rate, t)

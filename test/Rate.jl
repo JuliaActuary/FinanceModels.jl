@@ -10,7 +10,7 @@
         @test Yields.Continuous(0.05) == Yields.Rate(0.05, Yields.Continuous())
         @test Yields.Periodic(0.02, 2) == Yields.Rate(0.02, Yields.Periodic(2))
 
-        @test Yields.Continuousg()(0.05) == Yields.Rate(0.05, Yields.Continuous())
+        @test Yields.Continuous()(0.05) == Yields.Rate(0.05, Yields.Continuous())
         @test Yields.Periodic(2)(0.02) == Yields.Rate(0.02, Yields.Periodic(2))
 
 
@@ -21,11 +21,25 @@
 
     @testset "rate conversions" begin
         m = Yields.Rate(0.1, Yields.Periodic(2))
-        @test rate(convert(Yields.Continuous(), m)) ≈ rate(Yields.Rate(0.09758, Yields.Continuous())) atol = 1e-5
+        @test convert(Periodic(2),0.1) ≈ m
+        @test convert(Periodic(2),m) ≈ m
+        @test Periodic(m,2) ≈ m
+        @test Periodic(2)(m) ≈ m
+        @test convert(Yields.Continuous(), m) ≈ Yields.Rate(0.09758, Yields.Continuous()) atol = 1e-5
+        @test Yields.Continuous(m) ≈ Yields.Rate(0.09758, Yields.Continuous()) atol = 1e-5
+        @test Yields.Continuous()(m) ≈ Yields.Rate(0.09758, Yields.Continuous()) atol = 1e-5
+
         c = Yields.Rate(0.09758, Yields.Continuous())
         @test convert(Yields.Continuous(), c) == c
-        @test rate(convert(Yields.Periodic(2), c)) ≈ rate(Yields.Rate(0.1, Yields.Periodic(2))) atol = 1e-5
-        @test rate(convert(Yields.Periodic(4), m)) ≈ rate(Yields.Rate(0.09878030638383972, Yields.Periodic(4))) atol = 1e-5
+        @test convert(Yields.Continuous(), 0.09758) == c
+        @test Yields.Continuous(c) == c
+        @test Yields.Continuous()(c) == c
+        @test convert(Yields.Periodic(2), c) ≈ Yields.Rate(0.1, Yields.Periodic(2)) atol = 1e-5
+        @test Periodic(2)(c) ≈ Yields.Rate(0.1, Yields.Periodic(2)) atol = 1e-5
+        @test Periodic(c,2) ≈ Yields.Rate(0.1, Yields.Periodic(2)) atol = 1e-5
+        @test convert(Yields.Periodic(2), c) ≈ Yields.Rate(0.1, Yields.Periodic(2)) atol = 1e-5
+        @test convert(Yields.Periodic(2), c) ≈ Yields.Rate(0.1, Yields.Periodic(2)) atol = 1e-5
+        @test convert(Yields.Periodic(4), m) ≈ Yields.Rate(0.09878030638383972, Yields.Periodic(4)) atol = 1e-5
 
     end
 
