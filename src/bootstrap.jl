@@ -296,13 +296,6 @@ function CMT(b::Bootstrap,rates::Vector{T}, maturities) where {T<:Rate}
 end
 
 
-"""
-    OIS(rates,maturities)
-Takes Overnight Index Swap rates, and assumes that instruments <= one year maturity are settled once and other agreements are settled quarterly with a corresponding CompoundingFrequency.
-
-See [`bootstrap`](@ref) for more on the `interpolation` parameter, which is set to `QuadraticSpline()` by default.
-
-"""
 function OIS(b::Bootstrap,rates::T, maturities) where {T<:AbstractVector}
     rs = map(zip(rates, maturities)) do (r, m)
         if m <= 1
