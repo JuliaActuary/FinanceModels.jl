@@ -140,9 +140,7 @@ end
 __ratetype(::Type{Step{R,T}}) where {R,T}= eltype(R)
 CompoundingFrequency(c::Step{T}) where {T} = first(c.rates).compounding
 
-Step(rates) = Step(rates, collect(1:length(rates)))
-
-function Step(rates::Vector{<:Real},times) 
+function Step(rates::T,times=eachindex(rates)) where {T<:AbstractVector}
     r = Periodic.(rates,1)
     Step(r, times)
 end
