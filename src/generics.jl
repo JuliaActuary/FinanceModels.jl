@@ -101,20 +101,6 @@ function accumulation(yc::AbstractYieldCurve, from, to)
     return 1 ./ discount(yc, from, to)
 end
 
-"""
-    __ratefunction(::ConstructorFunction)::rate_function
-
-Return the corresponding rate function for the given curve. I.e. 
-
-Map: constructor => rate function
-    - `Yields.Par` => `Yields.par`
-    - `Yields.Forward` => `Yields.forward`
-    - `Yields.Zero` => `Yields.zero`
-"""
-__ratefunction(::T) where {T<:typeof(Yields.Par)} = Yields.par
-__ratefunction(::T) where {T<:typeof(Yields.Forward)} = Yields.forward
-__ratefunction(::T) where {T<:typeof(Yields.Zero)} = Yields.zero
-
 
 """
     Par(rates, maturities=eachindex(rates)
