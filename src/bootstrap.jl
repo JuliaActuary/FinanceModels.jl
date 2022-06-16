@@ -142,7 +142,7 @@ CompoundingFrequency(c::Step{T}) where {T} = first(c.rates).compounding
 
 function Step(rates::T,times=eachindex(rates)) where {T<:AbstractVector}
     r = Periodic.(rates,1)
-    Step(r, times)
+    Step{typeof(r),typeof(times)}(r, times)
 end
 
 function discount(y::Step, time)
