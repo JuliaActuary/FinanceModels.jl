@@ -26,6 +26,11 @@
 
             @test discount(c,0) == 1.0
             @test discount(c,10) ≈ 1 / accumulation(c,10)
+
+            # test that rates as floats work
+            fzeros = Yields.rate.(euraaa_zeros)
+            c_fzero = Yields.Zero(NelsonSiegel(),fzeros, euraaa_maturities)
+            @test c_fzero == c
         end
 
         # Nelson-Siegel-Svensson package example at https://nelson-siegel-svensson.readthedocs.io/en/latest/usage.html
@@ -62,6 +67,11 @@
                     @test Yields.par(c, t) ≈ r   atol = 0.0001
                 end
             end
+
+            # test that rates as floats work
+            fzeros = Yields.rate.(euraaa_zeros)
+            c_fzero = Yields.Zero(NelsonSiegelSvensson(),fzeros, euraaa_maturities)
+            @test c_fzero == c_zero
 
         end
         @testset "EURAAA_20191111 w parms given" begin

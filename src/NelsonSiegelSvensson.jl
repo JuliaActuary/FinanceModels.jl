@@ -64,7 +64,6 @@ struct NelsonSiegel{T} <: YieldCurveFitParameters
     τ_initial::T
 end
 NelsonSiegel() = NelsonSiegel(1.0)
-__default_rate_interpretation(::Type{NelsonSiegel},r) = Continuous(r)
 
 function Base.zero(ns::NelsonSiegelCurve, t)
     if iszero(t)
@@ -99,21 +98,21 @@ function β_sum_sq_resid(ns,func,yields,maturities,τ)
 end
 
 function Zero(ns::NelsonSiegel,yields, maturities=eachindex(yields))
-    yields = rate.(__default_rate_interpretation.(typeof(ns),yields))
+    yields = rate.(Continuous().(yields))
     func = zero
     τ, result = __fit_NS(ns,func,yields,maturities,ns.τ_initial) 
     return NelsonSiegelCurve(result.param[1], result.param[2], result.param[3], τ)
 end
 
 function Par(ns::NelsonSiegel,yields, maturities=eachindex(yields))
-    yields = rate.(__default_rate_interpretation.(typeof(ns),yields))
+    yields = rate.(Continuous().(yields))
     func = par
     τ, result = __fit_NS(ns,func,yields,maturities,ns.τ_initial)
     return NelsonSiegelCurve(result.param[1], result.param[2], result.param[3],result.param[4],  first(τ), last(τ))
 end
 
 function Forward(ns::NelsonSiegel,yields, maturities=eachindex(yields))
-    yields = rate.(__default_rate_interpretation.(typeof(ns),yields))
+    yields = rate.(Continuous().(yields))
     func = forward
     τ, result = __fit_NS(ns,func,yields,maturities,ns.τ_initial)
     return NelsonSiegelCurve(result.param[1], result.param[2], result.param[3],result.param[4],  first(τ), last(τ))
@@ -191,7 +190,6 @@ struct NelsonSiegelSvensson{T} <: YieldCurveFitParameters
     τ_initial::T
 end
 NelsonSiegelSvensson() = NelsonSiegelSvensson([1.0,1.0])
-__default_rate_interpretation(::Type{NelsonSiegelSvensson},r) = Continuous(r)
 
 function fit_β(ns::NelsonSiegelSvensson,func,yields,maturities,τ) 
     Δₘ = vcat([maturities[1]], diff(maturities))
@@ -211,21 +209,21 @@ end
 
 
 function Zero(ns::NelsonSiegelSvensson,yields, maturities=eachindex(yields))
-    yields = rate.(__default_rate_interpretation.(typeof(ns),yields))
+    yields = rate.(Continuous().(yields))
     func = zero
     τ, result = __fit_NS(ns,func,yields,maturities,ns.τ_initial)
     return NelsonSiegelSvenssonCurve(result.param[1], result.param[2], result.param[3],result.param[4],  first(τ), last(τ))
 end
 
 function Par(ns::NelsonSiegelSvensson,yields, maturities=eachindex(yields))
-    yields = rate.(__default_rate_interpretation.(typeof(ns),yields))
+    yields = rate.(Continuous().(yields))
     func = par
     τ, result = __fit_NS(ns,func,yields,maturities,ns.τ_initial)
     return NelsonSiegelSvenssonCurve(result.param[1], result.param[2], result.param[3],result.param[4],  first(τ), last(τ))
 end
 
 function Forward(ns::NelsonSiegelSvensson,yields, maturities=eachindex(yields))
-    yields = rate.(__default_rate_interpretation.(typeof(ns),yields))
+    yields = rate.(Continuous().(yields))
     func = forward
     τ, result = __fit_NS(ns,func,yields,maturities,ns.τ_initial)
     return NelsonSiegelSvenssonCurve(result.param[1], result.param[2], result.param[3],result.param[4],  first(τ), last(τ))
