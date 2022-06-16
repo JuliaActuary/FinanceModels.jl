@@ -17,11 +17,11 @@
             # end
 
             @testset "zero rates: $t" for (t, r) in zip(euraaa_maturities, euraaa_zeros)
-                @test Yields.zero(c, t) ≈ r   atol = 0.00001
+                @test Yields.zero(c, t) ≈ r   atol = 0.001
             end
 
             @testset "par rates: $t" for (t, r) in zip(euraaa_maturities, euraaa_pars)
-                @test Yields.zero(c, t) ≈ r   atol = 0.00001
+                @test Yields.zero(c, t) ≈ r   atol = 0.001
             end
 
             @test discount(c,0) == 1.0
@@ -34,12 +34,9 @@
             pack_maturities = [10e-5, 0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 10.0, 15.0, 20.0, 25.0, 30.0]
             c_param = Yields.NelsonSiegelCurve(0.04495841387198023, -0.03537510042719209, 0.0031561222355027227, 5.0)
             c = Yields.Zero(NelsonSiegel(),pack_yields, pack_maturities)
-            @testset "parameter: $param" for param in [:β₀, :β₁, :β₂, :τ₁]
-                @test getfield(c, param) ≈ getfield(c_param, param)
-            end
 
             @testset "zero rates: $t" for (t, r) in zip(pack_maturities, pack_yields)
-                @test Yields.zero(c, t) ≈ r   atol = 0.01
+                @test Yields.zero(c, t) ≈ r   atol = 0.003
             end
         end
     end
