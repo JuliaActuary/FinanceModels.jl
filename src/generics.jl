@@ -142,6 +142,24 @@ function Yields.Par(rates,maturities=eachindex(rates))
     return Yields.Par(Bootstrap(),rates,maturities)
 end
 
+
+"""
+    Forward(rates,maturities=eachindex(rates))
+    Forward(p::YieldCurveFitParameters, rates,maturities=eachindex(rates))
+
+Takes a vector of 1-period forward rates and constructs a discount curve. The method of fitting the curve to the data is determined by the [`YieldCurveFitParameters`](@ref) object `p`, which is a `Boostrap(QuadraticSpline())` by default. 
+
+If `rates` is a vector of floating point number instead of a vector `Rate`s, see the [`YieldCurveFitParameters`](@ref) for how the rate will be interpreted.
+
+# Examples
+
+```julia-repl
+julia> Yields.Forward( [0.01,0.02,0.03] );
+
+julia> Yields.Forward( Yields.Continuous.([0.01,0.02,0.03]) );
+
+```
+"""
 function Yields.Forward(rates,maturities=eachindex(rates))
     # bump to a constant yield if only given one rate
     length(rates) == 1 && return Constant(first(rates))
@@ -190,6 +208,24 @@ function Yields.Zero(rates,maturities=eachindex(rates))
 end
 
 
+"""
+    Yields.CMT(rates, maturities; interpolation=QuadraticSpline())
+    Yields.CMT(p::YieldCurveFitParameters,rates, maturities)
+
+Takes constant maturity (treasury) yields (bond equivalent), and assumes that instruments <= one year maturity pay no coupons and that the rest pay semi-annual.
+
+The method of fitting the curve to the data is determined by the [`YieldCurveFitParameters`](@ref) object `p`, which is a `Boostrap(QuadraticSpline())` by default. 
+
+# Examples
+
+```
+# 2021-03-31 rates from Treasury.gov
+rates =[0.01, 0.01, 0.03, 0.05, 0.07, 0.16, 0.35, 0.92, 1.40, 1.74, 2.31, 2.41] ./ 100
+mats = [1/12, 2/12, 3/12, 6/12, 1, 2, 3, 5, 7, 10, 20, 30]
+	
+Yields.CMT(rates,mats)
+```
+"""
 function Yields.CMT(rates,maturities=eachindex(rates))
     # bump to a constant yield if only given one rate
     length(rates) == 1 && return Constant(first(rates))

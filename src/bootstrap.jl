@@ -223,22 +223,6 @@ function Par(b::Bootstrap,rates::Vector{T}, maturities) where {T<:Rate}
     )
 end
 
-
-"""
-    Forward(rate_vector,maturities)
-
-Takes a vector of 1-period forward rates and constructs a discount curve. If rate_vector is not a vector of `Rates` (ie is just a vector of `Float64` values), then
-the assumption is that each value is `Periodic` rate compounded once per period.
-
-# Examples
-
-```julia-repl
-julia> Yields.Forward( [0.01,0.02,0.03] );
-
-julia> Yields.Forward( Yields.Continuous.([0.01,0.02,0.03]) );
-
-```
-"""
 function Forward(b::Bootstrap,rates::T, maturities) where {T<:AbstractVector}
     rates = __default_rate_interpretation.(b,rates)
     # convert to zeros and pass to Zero
@@ -256,23 +240,6 @@ function Forward(b::Bootstrap,rates::T, maturities) where {T<:AbstractVector}
     return Zero(b,z, maturities)
 end
 
-"""
-    Yields.CMT(rates, maturities; interpolation=QuadraticSpline())
-
-Takes constant maturity (treasury) yields (bond equivalent), and assumes that instruments <= one year maturity pay no coupons and that the rest pay semi-annual.
-
-See [`bootstrap`](@ref) for more on the `interpolation` parameter, which is set to `QuadraticSpline()` by default.
-
-# Examples
-
-```
-# 2021-03-31 rates from Treasury.gov
-rates =[0.01, 0.01, 0.03, 0.05, 0.07, 0.16, 0.35, 0.92, 1.40, 1.74, 2.31, 2.41] ./ 100
-mats = [1/12, 2/12, 3/12, 6/12, 1, 2, 3, 5, 7, 10, 20, 30]
-	
-Yields.CMT(rates,mats)
-```
-"""
 function CMT(b::Bootstrap,rates::T, maturities) where {T<:AbstractVector}
     rs = map(zip(rates, maturities)) do (r, m)
         if m <= 1
