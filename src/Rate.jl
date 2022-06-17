@@ -29,7 +29,11 @@ Rate(0.01, Continuous())
 
 See also: [`Periodic`](@ref)
 """
-Continuous(rate) = Rate(rate, Continuous())
+Continuous(rate) = Continuous().(rate)
+
+function (c::Continuous)(r)
+    convert.(c,r)
+end
 
 """ 
     Periodic(frequency)
@@ -51,6 +55,10 @@ struct Periodic <: CompoundingFrequency
     frequency::Int
 end
 
+function (p::Periodic)(r) 
+    convert.(p, r)
+end
+
 """ 
     Periodic(rate,frequency)
 
@@ -67,7 +75,7 @@ Rate(0.01, Periodic(2))
 
 See also: [`Continuous`](@ref)
 """
-Periodic(x, frequency) = Rate(x, Periodic(frequency))
+Periodic(x, frequency) = Periodic(frequency).(x)
 
 struct Rate{N<:Real,T<:CompoundingFrequency} <: AbstractYield
     value::N
@@ -93,7 +101,19 @@ Continuous rates can be constructed via `Rate(rate, Inf)` or `Rate(rate,Continuo
 julia> Rate(0.01,Continuous())
 Rate(0.01, Continuous())
 
+julia> Continuous(0.01)
+Rate(0.01, Continuous())
+
+julia> Continuous()(0.01)
+Rate(0.01, Continuous())
+
 julia> Rate(0.01,Periodic(2))
+Rate(0.01, Periodic(2))
+
+julia> Periodic(0.01,2)
+Rate(0.01, Periodic(2))
+
+julia> Periodic(2)(0.01)
 Rate(0.01, Periodic(2))
 
 julia> Rate(0.01)
@@ -108,15 +128,13 @@ Rate(0.01, Periodic(4))
 julia> Rate(0.01,Inf)
 Rate(0.01, Continuous())
 
-julia> Rate(0.01,Continuous())
-Rate(0.01, Continuous())
 ```
 """
 Rate(rate) = Rate(rate, Periodic(1))
 Rate(x, frequency::T) where {T<:Real} = isinf(frequency) ? Rate(x, Continuous()) : Rate(x, Periodic(frequency))
 
 """
-    convert(T::CompoundingFrequency,r::Rate)
+    convert(cf::CompoundingFrequency,r::Rate) 
 
 Returns a `Rate` with an equivalent discount but represented with a different compounding frequency.
 
@@ -133,26 +151,57 @@ julia> convert(Continuous(),r)
 Rate(0.009995835646701251, Continuous())
 ```
 """
-function Base.convert(T::CompoundingFrequency, r::Rate{<:Real,<:CompoundingFrequency})
-    convert(T, r, r.compounding)
+function Base.convert(cf::T, r::Rate{<:Real,<:CompoundingFrequency}) where {T<:CompoundingFrequency}
+    convert.(cf, r, r.compounding)
 end
+
+function Base.convert(cf::T, r::R) where {R<:Real} where {T<:CompoundingFrequency}
+    Rate(r,cf)
+end
+
 function Base.convert(to::Continuous, r, from::Continuous)
     return r
 end
 
 function Base.convert(to::Periodic, r, from::Continuous)
-    return Rate(to.frequency * (exp(r.value / to.frequency) - 1), to)
+    return Rate.(to.frequency * (exp(r.value / to.frequency) - 1), to)
 end
 
 function Base.convert(to::Continuous, r, from::Periodic)
-    return Rate(from.frequency * log(1 + r.value / from.frequency), to)
+    return Rate.(from.frequency * log(1 + r.value / from.frequency), to)
 end
 
 function Base.convert(to::Periodic, r, from::Periodic)
-    c = convert(Continuous(), r, from)
-    return convert(to, c, Continuous())
+    c = convert.(Continuous(), r, from)
+    return convert.(to, c, Continuous())
 end
 
+function Continuous(r::Rate{<:Real,<:Periodic})
+    convert.(Continuous(), r)
+end
+function Continuous(r::Rate{<:Real,<:Continuous})
+    r
+end
+function Periodic(r::Rate{<:Real,<:CompoundingFrequency},frequency::Int)
+    convert.(Periodic(frequency), r)
+end
+
+
+""" 
+    rate(r::Rate)
+
+Returns the untyped scalar interest rate represented by the `Rate`.
+
+# Examples
+
+```julia-repl
+julia> r =Continuous(0.03)
+Yields.Rate{Float64, Continuous}(0.03, Continuous())
+
+julia> rate(r)
+0.03
+```
+"""
 function rate(r::Rate{<:Real,<:CompoundingFrequency})
     r.value
 end
@@ -170,6 +219,7 @@ end
 function Base.isapprox(a::T, b::N; atol::Real = 0, rtol::Real = atol > 0 ? 0 : √eps()) where {T<:Rate,N<:Rate}
     return isapprox(convert(b.compounding, a), b; atol, rtol)
 end
+
 
 """
     discount(rate, t)

@@ -9,5 +9,6 @@ include("SmithWilson.jl")
 
 include("ActuaryUtilities.jl")
 include("misc.jl")
+include("NelsonSiegelSvensson.jl")
 #TODO EconomicScenarioGenerators.jl integration tests
 

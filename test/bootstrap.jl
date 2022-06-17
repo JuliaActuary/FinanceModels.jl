@@ -107,15 +107,15 @@
         # fwd = [6.,10.2,13.07,14.36,13.77,13.1,12.55,12.2,11.97,11.93] ./ 100 # from text
         fwd = [6.0, 10.2, 13.07, 14.36, 13.77, 13.1, 12.61, 12.14, 12.05, 11.84] ./ 100  # modified
 
-        y = Yields.Par(Yields.Rate.(par, Yields.Periodic(1)), maturity)
-        @testset "UTYC Figure 9 par -> spot : $mat" for mat in maturity
+        y = Yields.Par(Periodic(1).(par), maturity)
+        @testset "quadratic UTYC Figure 9 par -> spot : $mat" for mat in maturity
             @test zero(y, mat) ≈ Periodic(spot[mat],1) atol = 0.0001
             @test forward(y, mat - 1) ≈ Yields.Periodic(fwd[mat], 1) atol = 0.0001
         end
 
-        y = Yields.Par(Yields.Rate.(par, Yields.Periodic(1)), maturity; interpolation = LinearSpline())
+        y = Yields.Par(Bootstrap(LinearSpline()),Yields.Rate.(par, Yields.Periodic(1)), maturity)
 
-        @testset "UTYC Figure 9 par -> spot : $mat" for mat in maturity
+        @testset "linear UTYC Figure 9 par -> spot : $mat" for mat in maturity
             @test zero(y, mat) ≈ Periodic(spot[mat],1) atol = 0.0001
             @test forward(y, mat - 1) ≈ Yields.Periodic(fwd[mat], 1) atol = 0.0001
         end
@@ -138,7 +138,7 @@
         zero = [5.0, 5.8, 6.4, 6.8] ./ 100
         curve = Yields.Zero(zero, maturity)
 
-        for curve in [Yields.Zero(zero, maturity),Yields.Zero(zero, maturity;interpolation=LinearSpline()),Yields.Zero(zero, maturity;interpolation=Yields.cubic_interp)]
+        for curve in [Yields.Zero(zero, maturity),Yields.Zero(Bootstrap(LinearSpline()),zero, maturity),Yields.Zero(Bootstrap(QuadraticSpline()),zero, maturity)]
             @test discount(curve, 0) ≈ 1
             @test discount(curve, 1) ≈ 1 / (1 + zero[2])
             @test discount(curve, 2) ≈ 1 / (1 + zero[4])^2
@@ -231,7 +231,7 @@
         targets = [5.25, 5.5, 5.76, 6.02, 6.28, 6.55, 6.82, 6.87, 7.09, 7.2, 7.26, 7.31, 7.43, 7.48, 7.54, 7.67, 7.8, 7.79, 7.93, 8.07] ./ 100
         target_periodicity = fill(2, length(mats))
         target_periodicity[2] = 1 # 1 year is a no-coupon, BEY yield, the rest are semiannual BEY
-        @testset "curve bootstrapping choices" for curve in [Yields.CMT(cmt, mats), Yields.CMT(cmt, mats; interpolation=LinearSpline()), Yields.CMT(cmt, mats; interpolation=QuadraticSpline()), Yields.CMT(cmt, mats; interpolation=Yields.cubic_interp)]
+        @testset "curve bootstrapping choices" for curve in [Yields.CMT(cmt, mats), Yields.CMT(Bootstrap(LinearSpline()),cmt, mats), Yields.CMT(Bootstrap(QuadraticSpline()),cmt, mats)]
             @testset "Fabozzi bootstrapped rates" for (r, mat, target, tp) in zip(cmt, mats, targets, target_periodicity)
                 @test rate(zero(curve, mat, Yields.Periodic(tp))) ≈ target atol = 0.0001
             end
@@ -282,7 +282,7 @@
         @testset "bootstrapped rates" for (r, mat, target) in zip(ois, mats, targets)
             @test rate(zero(curve, mat, Yields.Continuous())) ≈ target atol = 0.001
         end
-        curve = Yields.OIS(ois, mats;interpolation=LinearSpline())
+        curve = Yields.OIS(Bootstrap(LinearSpline()),ois, mats)
         @testset "bootstrapped rates" for (r, mat, target) in zip(ois, mats, targets)
             @test rate(zero(curve, mat, Yields.Continuous())) ≈ target atol = 0.001
         end
