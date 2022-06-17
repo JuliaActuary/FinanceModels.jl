@@ -30,3 +30,8 @@
 
 
 end
+
+@testset "type coercion" begin
+    @test Yields.__coerce_rate(0.05, Periodic(1)) == Periodic(0.05,1)
+    @test Yields.__coerce_rate(Periodic(0.05,12), Periodic(1)) == Periodic(0.05,12)
+end

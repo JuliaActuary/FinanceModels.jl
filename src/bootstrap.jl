@@ -17,7 +17,8 @@ See for more:
 struct Bootstrap{T} <: YieldCurveFitParameters
     interpolation::T
 end
-__default_rate_interpretation(ns::Bootstrap,r) where {T} = Periodic(r,1)
+__default_rate_interpretation(ns,r::T) where {T<:Rate} = r
+__default_rate_interpretation(::Type{Bootstrap{T}},r::U) where {T,U<:Real} = Periodic(r,1)
 
 function Bootstrap()
     return Bootstrap(QuadraticSpline())
@@ -96,10 +97,12 @@ struct Constant{T} <: AbstractYieldCurve
 end
 
 __ratetype(::Type{Constant{T}}) where {T} = T
+__default_rate_interpretation(::Type{Constant},r) = Periodic(r,1)
 CompoundingFrequency(c::Constant{T}) where {T} = c.rate.compounding
 
-function Constant(rate::T, cf::C = Periodic(1)) where {T<:Real,C<:CompoundingFrequency}
-    return Constant(Rate(rate, cf))
+function Constant(rate::T) where {T<:Real}
+    r = __default_rate_interpretation(Constant,rate)
+    return Constant(r)
 end
 
 Base.zero(c::Constant, time) = c.rate
@@ -136,14 +139,16 @@ julia>rate(y,2.5)
 struct Step{R,T} <: AbstractYieldCurve
     rates::R
     times::T
+    function Step(rates,times=eachindex(rates))
+        r = __default_rate_interpretation.(Step,rates)
+        new{typeof(r),typeof(times)}(r, times)
+    end
 end
 __ratetype(::Type{Step{R,T}}) where {R,T}= eltype(R)
+__default_rate_interpretation(::Type{Step},r) = Periodic(r,1)
 CompoundingFrequency(c::Step{T}) where {T} = first(c.rates).compounding
 
-function Step(rates::T,times=eachindex(rates)) where {T<:AbstractVector}
-    r = Periodic.(rates,1)
-    Step{typeof(r),typeof(times)}(r, times)
-end
+
 
 function discount(y::Step, time)
     v = 1.0
@@ -165,8 +170,8 @@ end
 
 
 
-function Zero(b::Bootstrap,rates::T, maturities) where {T<:AbstractVector}
-    rates = __default_rate_interpretation.(b,rates)
+function Zero(b::Bootstrap,rates, maturities)
+    rates = __default_rate_interpretation.(typeof(b),rates)
     return _zero_inner(rates,maturities,b.interpolation)
 end
 
@@ -201,17 +206,8 @@ function _zero_inner(rates, maturities, interp::T) where {T}
     )
 end
 
-function Par(b::Bootstrap,rates::T, maturities) where {T<:AbstractVector}
-    rates = Periodic.(rates,2)
-    return BootstrapCurve(
-        rates,
-        maturities,
-        # assume that maturities less than or equal to 12 months are settled once, otherwise semi-annual
-        # per Hull 4.7
-        bootstrap(rates, maturities, [m <= 1 ? nothing : 1 / r.compounding.frequency for (r, m) in zip(rates, maturities)], b.interpolation)
-    )
-end
-function Par(b::Bootstrap,rates::Vector{T}, maturities) where {T<:Rate}
+function Par(b::Bootstrap,rates, maturities)
+    rates = __coerce_rate.(rates,Periodic(2))
     return BootstrapCurve(
         rates,
         maturities,
@@ -221,8 +217,8 @@ function Par(b::Bootstrap,rates::Vector{T}, maturities) where {T<:Rate}
     )
 end
 
-function Forward(b::Bootstrap,rates::T, maturities) where {T<:AbstractVector}
-    rates = __default_rate_interpretation.(b,rates)
+function Forward(b::Bootstrap,rates, maturities)
+    rates = __default_rate_interpretation.(typeof(b),rates)
     # convert to zeros and pass to Zero
     disc_v = Vector{Float64}(undef, length(rates))
 
@@ -238,7 +234,7 @@ function Forward(b::Bootstrap,rates::T, maturities) where {T<:AbstractVector}
     return Zero(b,z, maturities)
 end
 
-function CMT(b::Bootstrap,rates::T, maturities) where {T<:AbstractVector}
+function CMT(b::Bootstrap,rates, maturities)
     rs = map(zip(rates, maturities)) do (r, m)
         if m <= 1
             Rate(r, Periodic(1 / m))
@@ -261,7 +257,7 @@ function CMT(b::Bootstrap,rates::Vector{T}, maturities) where {T<:Rate}
 end
 
 
-function OIS(b::Bootstrap,rates::T, maturities) where {T<:AbstractVector}
+function OIS(b::Bootstrap,rates, maturities)
     rs = map(zip(rates, maturities)) do (r, m)
         if m <= 1
             Rate(r, Periodic(1 / m))
