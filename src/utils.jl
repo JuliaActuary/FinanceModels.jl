@@ -12,6 +12,8 @@ end
 
 # internal function (will be used in EconomicScenarioGenerators)
 # defines the rate output given just the type of curve
+__ratetype(::Type{Rate{T,U}}) where {T,U<:Periodic} = Yields.Rate{T, Periodic}
+__ratetype(::Type{Rate{T,U}}) where {T,U<:Continuous} = Yields.Rate{T, Continuous}
 __ratetype(curve::T) where {T<:AbstractYieldCurve} = __ratetype(typeof(curve))
 __ratetype(::Type{T}) where {T<:AbstractYieldCurve} = Yields.Rate{Float64, typeof(DEFAULT_COMPOUNDING)}
 
