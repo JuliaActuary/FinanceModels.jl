@@ -67,7 +67,8 @@ Continuous.([0.02,0.03,0.04])
 Rates can also be constructed by specifying the `CompoundingFrequency` and then passing a scalar rate:
 
 ```julia
-
+Periodic(1)(0.05)
+Continuous()(0.05)
 ```
 
 #### Conversion
