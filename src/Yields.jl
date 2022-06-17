@@ -26,5 +26,5 @@ include("generics.jl")
 include("RateCombination.jl")
 include("NelsonSiegelSvensson.jl")
 
-
+include("precompiles.jl")
 end
