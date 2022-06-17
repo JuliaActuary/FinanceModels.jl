@@ -6,7 +6,7 @@
         rate = Yields.Yields.Rate(0.05, Yields.Periodic(1))
 
         @test Yields.zero(yield, 1) == Yields.Rate(0.05, Yields.Periodic(1))
-        @test Yields.zero(Yields.Constant(0.05, Yields.Periodic(2)), 10) == Yields.Rate(0.05, Yields.Periodic(2))
+        @test Yields.zero(Yields.Constant(Yields.Periodic(0.05,2)), 10) == Yields.Rate(0.05, Yields.Periodic(2))
         @test Yields.zero(yield, 5, Yields.Periodic(2)) == convert(Yields.Periodic(2), Yields.Rate(0.05, Yields.Periodic(1)))
 
         @testset "constant discount time: $time" for time in [0, 0.5, 1, 10]

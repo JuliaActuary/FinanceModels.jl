@@ -32,6 +32,11 @@ function solve(g, g′, x0, max_iterations = 100)
 end
 
 
+# convert to a given rate type if not already a rate
+__coerce_rate(x::T,cf) where {T<:Rate} = return x
+__coerce_rate(x,cf) = return Rate(x,cf)
+
+
 abstract type InterpolationKind end
 
 struct QuadraticSpline <: InterpolationKind end
