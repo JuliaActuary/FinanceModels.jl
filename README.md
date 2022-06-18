@@ -9,6 +9,9 @@
 
 It's intended to provide common functionality around modeling interest rates, spreads, and miscellaneous yields across the JuliaActuary ecosystem (though not limited to use in JuliaActuary packages).
 
+![anim_fps2](https://user-images.githubusercontent.com/711879/174458687-860c5d7f-e125-46a9-a706-7d113f1e243b.gif)
+
+
 ## QuickStart
 
 ```julia
