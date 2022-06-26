@@ -5,18 +5,15 @@ version = "3.0.1"
 
 [deps]
 BSplineKit = "093aae92-e908-43d7-9660-e50ee39d5a0a"
+DataInterpolations = "82cc6244-b520-54b8-b5a6-8a565e85f1d0"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
-LsqFit = "2fda8390-95c7-5789-9bda-21331edee243"
-Optim = "429524aa-4258-5aef-a3af-852621145aeb"
 Roots = "f2b01f46-fcfa-551c-844a-d8ac1e96c665"
 UnicodePlots = "b8865327-cd53-5732-bb35-84acbb429228"
 
 [compat]
 BSplineKit = "^0.8"
 ForwardDiff = "^0.10"
-LsqFit = "^0.12"
-Optim = "^1"
 Roots = "^1"
 UnicodePlots = "^2"
 julia = "^1.6"
