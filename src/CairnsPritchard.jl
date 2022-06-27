@@ -1,8 +1,9 @@
-struct CairnsPritchardFixedC{T} <: YieldCurveFitParameters
+abstract type CairnsPritchardFit <: YieldCurveFitParameters end
+struct CairnsPritchardFixedC{T} <: CairnsPritchardFit
     c::Vector{T}
 end
 
-struct CairnsPritchardFitC <: YieldCurveFitParameters
+struct CairnsPritchardFitC <: CairnsPritchardFit
     n::Int
 end
 
@@ -10,13 +11,11 @@ end
 struct CairnsPritchardCurve <: ParametricModel
     b
     c
-
 end
-
-function Zero(fit::CairnsPritchardFixedC,yields, maturities=eachindex(yields))
+function __fit(fit::CairnsPritchardFixedC,func,yields,maturities)
     function m(x,params) 
         c = CairnsPritchardCurve(params,fit.c)
-        return zero.(c,x)
+        return rate.(func.(c,x))
     end
 
     initial_params = ones(length(fit.c)+1) 
@@ -25,10 +24,24 @@ function Zero(fit::CairnsPritchardFixedC,yields, maturities=eachindex(yields))
     return CairnsPritchardCurve(b,fit.c)
 end
 
+function Zero(fit::T,yields, maturities=eachindex(yields)) where {T<:CairnsPritchardFit}
+    __fit(fit,zero,yields,maturities)
+end
+function Par(fit::T,yields, maturities=eachindex(yields)) where {T<:CairnsPritchardFit}
+    __fit(fit,par,yields,maturities)
+end
+function Forward(fit::T,yields, maturities=eachindex(yields)) where {T<:CairnsPritchardFit}
+    __fit(fit,forward,yields,maturities)
+end
+
 function Base.zero(cpc::CairnsPritchardCurve, t)
     b = cpc.b
     c = cpc.c
-    sum(b[i+1]*exp.(-cᵢ.*t) for (i,cᵢ) in enumerate(c)) .+ b[1]
+    Continuous.(sum(b[i+1]*exp.(-cᵢ.*t) for (i,cᵢ) in enumerate(c)) .+ b[1])
+end
+
+function discount(cpc::CairnsPritchardCurve, t)
+    discount.(zero.(cpc,t),t)
 end
 
 
