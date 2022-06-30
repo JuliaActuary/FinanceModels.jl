@@ -52,7 +52,9 @@ function __fit(fit::CairnsPritchardFitC,func,yields,maturities)
         __cairns_lb(fit),
         __cairns_ub(fit),
         )
+<<<<<<< HEAD
     p = A.pmin
+>>>>>>> d7ddeed8dd2d604d6b205920d3ee6cb545749fcc
     return CairnsPritchardCurve(first(p,n+1),last(p,n))
 end
 
