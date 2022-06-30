@@ -19,10 +19,25 @@ function __fit(fit::CairnsPritchardFixedC,func,yields,maturities)
     end
 
     initial_params = ones(length(fit.c)+1) 
-    A = DataInterpolations.Curvefit(yields,maturities,m,initial_params,DataInterpolations.LBFGS())
+    A = DataInterpolations.Curvefit(
+        yields,
+        maturities,
+        m,
+        initial_params,
+        DataInterpolations.LBFGS(),
+        true,
+        __cairns_lb(fit),
+        __cairns_ub(fit),
+        )
     b = A.pmin
     return CairnsPritchardCurve(b,fit.c)
 end
+
+
+__cairns_lb(fit::CairnsPritchardFixedC) = fill(-10.,length(fit.c)+1)
+__cairns_lb(fit::CairnsPritchardFitC) = fill(-10.,fit.n*2+1)
+__cairns_ub(fit::CairnsPritchardFixedC) = fill(10.,length(fit.c)+1)
+__cairns_ub(fit::CairnsPritchardFitC) = fill(10.,fit.n*2+1)
 
 function Zero(fit::T,yields, maturities=eachindex(yields)) where {T<:CairnsPritchardFit}
     __fit(fit,zero,yields,maturities)
