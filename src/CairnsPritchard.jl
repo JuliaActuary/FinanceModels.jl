@@ -33,6 +33,28 @@ function __fit(fit::CairnsPritchardFixedC,func,yields,maturities)
     return CairnsPritchardCurve(b,fit.c)
 end
 
+function __fit(fit::CairnsPritchardFitC,func,yields,maturities)
+    n = fit.n
+    # params = [b1, b2, ..., c1, c2, ...]
+    function m(x,params) 
+        c = CairnsPritchardCurve(first(params,n+1),last(params,n))
+        return rate.(func.(c,x))
+    end
+
+    initial_params = ones(2*n+1) 
+    A = DataInterpolations.Curvefit(
+        yields,
+        maturities,
+        m,
+        initial_params,
+        DataInterpolations.LBFGS(),
+        true,
+        __cairns_lb(fit),
+        __cairns_ub(fit),
+        )
+    p = A.pmin
+    return CairnsPritchardCurve(first(p,n+1),last(p,n))
+end
 
 __cairns_lb(fit::CairnsPritchardFixedC) = fill(-10.,length(fit.c)+1)
 __cairns_lb(fit::CairnsPritchardFitC) = fill(-10.,fit.n*2+1)
@@ -58,13 +80,3 @@ end
 function discount(cpc::CairnsPritchardCurve, t)
     discount.(zero.(cpc,t),t)
 end
-
-
-
-
-
-    
-# rates =[0.01, 0.01, 0.03, 0.05, 0.07, 0.16, 0.35, 0.92, 1.40, 1.74, 2.31, 2.41] ./ 100
-# mats = [1/12, 2/12, 3/12, 6/12, 1, 2, 3, 5, 7, 10, 20, 30]
-# m(x, params) = @. params[1] + params[2]*exp(-0.2*x) + params[3] * exp(-0.4*x) + params[4] * exp(-0.8*x)
-# Curvefit(rates,mats,m,ones(4),LBFGS())
