@@ -80,7 +80,9 @@ end
 
 
 function _bootstrap_inner(rates, maturities, settlement_frequency, interpolation_function)
-    discount_vec = zeros(length(rates)) # construct a placeholder discount vector matching maturities
+    rt = __value_type(typeof(first(rates)))
+    maturities = convert.(rt,maturities)
+    discount_vec = zeros(rt,length(rates)) # construct a placeholder discount vector matching maturities
     # we have to take the first rate as the starting point
     discount_vec[1] = discount(Constant(rates[1]), maturities[1])
 
@@ -95,7 +97,7 @@ function _bootstrap_inner(rates, maturities, settlement_frequency, interpolation
             cfs[end] += 1
 
             function pv(v_guess)
-                v = interpolation_function([[0.0]; maturities[1:t]], vcat(1.0, discount_vec[1:t-1], v_guess...))
+                v = interpolation_function([[zero(rt)]; maturities[1:t]], vcat(one(rt), discount_vec[1:t-1], v_guess...))
                 return sum(v.(times) .* cfs)
             end
             target_pv = sum(map(t2 -> discount(Constant(rates[t]), t2), times) .* cfs)
@@ -105,8 +107,9 @@ function _bootstrap_inner(rates, maturities, settlement_frequency, interpolation
         end
 
     end
-    zero_vec = -log.(clamp.(discount_vec,0.00001,1)) ./ maturities
-    return interpolation_function([0.0; maturities], [first(zero_vec); zero_vec])
+    @show typeof(discount_vec)
+    zero_vec = -log.(clamp.(discount_vec,one(rt) / 100000,one(rt))) ./ maturities
+    return interpolation_function([zero(rt); maturities], [first(zero_vec); zero_vec])
 end
 
 # the ad-hoc approach to extrapoliatons is based on suggestion by author of 
