@@ -107,7 +107,6 @@ function _bootstrap_inner(rates, maturities, settlement_frequency, interpolation
         end
 
     end
-    @show typeof(discount_vec)
     zero_vec = -log.(clamp.(discount_vec,one(rt) / 100000,one(rt))) ./ maturities
     return interpolation_function([zero(rt); maturities], [first(zero_vec); zero_vec])
 end
