@@ -151,8 +151,8 @@ CompoundingFrequency(c::Step{T}) where {T} = first(c.rates).compounding
 
 
 function discount(y::Step, time)
-    v = 1.0
-    last_time = 0.0
+    v = 1
+    last_time = 0
 
 
     for (rate,t) in zip(y.rates,y.times)
@@ -179,11 +179,12 @@ end
 # because the rate are already zero rates. Instead, we just cut straight to the 
 # appropriate interpolation function based on the type dispatch.
 function _zero_inner(rates, maturities, interp::QuadraticSpline)
+    rt = __value_type(typeof(first(rates)))
     continuous_zeros = rate.(Continuous.(rates))
     return BootstrapCurve(
         rates,
         maturities,
-        cubic_interp([0.0; maturities],[first(continuous_zeros); continuous_zeros])
+        cubic_interp([zero(rt); maturities],[first(continuous_zeros); continuous_zeros])
     )
 end
 
@@ -219,10 +220,11 @@ end
 
 function Forward(b::Bootstrap,rates, maturities)
     rates = __default_rate_interpretation.(typeof(b),rates)
+    rt = __value_type(typeof(first(rates)))
     # convert to zeros and pass to Zero
-    disc_v = Vector{Float64}(undef, length(rates))
+    disc_v = Vector{rt}(undef, length(rates))
 
-    v = 1.0
+    v = one(rt)
 
     for (i,r) = enumerate(rates)
         Δt = maturities[i] - (i == 1 ? 0 : maturities[i-1])
@@ -230,7 +232,7 @@ function Forward(b::Bootstrap,rates, maturities)
         disc_v[i] = v
     end
 
-    z = (1.0 ./ disc_v) .^ (1 ./ maturities) .- 1 # convert disc_v to zero
+    z = (1 ./ disc_v) .^ (1 ./ maturities) .- 1 # convert disc_v to zero
     return Zero(b,z, maturities)
 end
 
