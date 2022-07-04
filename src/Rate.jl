@@ -38,7 +38,9 @@ end
 """ 
     Periodic(frequency)
 
-A type representing periodic interest compounding with the given frequency
+A type representing periodic interest compounding with the given frequency. 
+
+`frequency` will be converted to an `Integer`, and will round up to 8 decimal places (otherwise will throw an `InexactError`). 
 
 # Examples
 
@@ -54,6 +56,12 @@ See also: [`Continuous`](@ref)
 struct Periodic <: CompoundingFrequency
     frequency::Int
 end
+
+function Periodic(frequency::T) where {T<:AbstractFloat}
+    f = Int(round(frequency,digits=8))
+    Periodic(f)
+end
+
 
 function (p::Periodic)(r) 
     convert.(p, r)
