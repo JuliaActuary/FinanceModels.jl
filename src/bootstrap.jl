@@ -25,13 +25,13 @@ function Bootstrap()
 end
 
 struct BootstrapCurve{T,U,V} <: AbstractYieldCurve
-    rates::T
-    maturities::U
+    rates::AbstractVector{T}
+    maturities::AbstractVector{U}
     zero::V # function time -> continuous zero rate
 end
 discount(yc::T, time) where {T<:BootstrapCurve} = exp(-yc.zero(time) * time)
 
-__ratetype(::Type{BootstrapCurve{T,U,V}}) where {T,U,V}= Yields.Rate{Float64, typeof(DEFAULT_COMPOUNDING)}
+__ratetype(::Type{BootstrapCurve{T,U,V}}) where {T,U,V}= Yields.Rate{__value_type(T), typeof(DEFAULT_COMPOUNDING)}
 
 # Forward curves
 

@@ -90,6 +90,9 @@ struct Rate{N<:Real,T<:CompoundingFrequency} <: AbstractYield
     compounding::T
 end
 
+__value_type(::Type{Rate{N,T}}) where {N,T} = N
+__value_type(::Type{T}) where {T} = T
+
 # make rate a broadcastable type
 Base.Broadcast.broadcastable(ic::T) where {T<:Rate} = Ref(ic)
 
