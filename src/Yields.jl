@@ -5,8 +5,7 @@ import ForwardDiff
 using LinearAlgebra
 using UnicodePlots
 using Roots
-import LsqFit
-import Optim
+import DataInterpolations
 
 
 # don't export type, as the API of Yields.Zero is nicer and 
@@ -25,6 +24,7 @@ include("SmithWilson.jl")
 include("generics.jl")
 include("RateCombination.jl")
 include("NelsonSiegelSvensson.jl")
+include("CairnsPritchard.jl")
 
 include("precompiles.jl")
 end
