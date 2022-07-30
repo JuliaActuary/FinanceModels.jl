@@ -1,6 +1,5 @@
 abstract type ParametricModel <: AbstractYieldCurve end
 Base.Broadcast.broadcastable(x::T) where {T<:ParametricModel} = Ref(x)
-__ratetype(::Type{T}) where {T<:ParametricModel}= Yields.Rate{Float64, typeof(DEFAULT_COMPOUNDING)}
 
 
 """
@@ -42,6 +41,7 @@ struct NelsonSiegelCurve{T} <: ParametricModel
         return new{T}(β₀, β₁, β₂, τ₁)
     end
 end
+__ratetype(::Type{NelsonSiegelCurve{T}}) where {T}= Yields.Rate{T, typeof(DEFAULT_COMPOUNDING)}
 
 
 """
@@ -108,14 +108,14 @@ function Par(ns::NelsonSiegel,yields, maturities=eachindex(yields))
     yields = rate.(Continuous().(yields))
     func = par
     τ, result = __fit_NS(ns,func,yields,maturities,ns.τ_initial)
-    return NelsonSiegelCurve(result.param[1], result.param[2], result.param[3],result.param[4],  first(τ), last(τ))
+    return NelsonSiegelCurve(result.param[1], result.param[2], result.param[3], τ)
 end
 
 function Forward(ns::NelsonSiegel,yields, maturities=eachindex(yields))
     yields = rate.(Continuous().(yields))
     func = forward
     τ, result = __fit_NS(ns,func,yields,maturities,ns.τ_initial)
-    return NelsonSiegelCurve(result.param[1], result.param[2], result.param[3],result.param[4],  first(τ), last(τ))
+    return NelsonSiegelCurve(result.param[1], result.param[2], result.param[3], τ)
 end
 
 
@@ -171,7 +171,7 @@ struct NelsonSiegelSvenssonCurve{T} <: ParametricModel
         return new{T}(β₀, β₁, β₂, β₃, τ₁, τ₂)
     end
 end
-
+__ratetype(::Type{NelsonSiegelSvenssonCurve{T}}) where {T}= Yields.Rate{T, typeof(DEFAULT_COMPOUNDING)}
 """
     NelsonSiegelSvensson(τ_initial) 
     NelsonSiegelSvensson() # defaults to τ_initial=[1.0,1.0]

@@ -27,6 +27,12 @@
             @test discount(c,0) == 1.0
             @test discount(c,10) ≈ 1 / accumulation(c,10)
 
+            @testset "misc constructors" begin
+                for u in [Yields.Forward, Yields.Zero, Yields.Par]
+                    @test u(NelsonSiegel(), euraaa_zeros) isa Yields.AbstractYieldCurve
+                end
+            end
+
             # test that rates as floats work
             fzeros = Yields.rate.(euraaa_zeros)
             c_fzero = Yields.Zero(NelsonSiegel(),fzeros, euraaa_maturities)
@@ -60,6 +66,12 @@
                 @testset "par rates: $t" for (t, r) in zip(euraaa_maturities, euraaa_pars)
                     # are the target rates on the ECB site continuous rates or periodic/bond-equivalent?
                     @test Yields.par(c, t) ≈ r   atol = 0.0001
+                end
+            end
+
+            @testset "misc constructors" begin
+                for u in [Yields.Forward, Yields.Zero, Yields.Par]
+                    @test u(NelsonSiegelSvensson(), euraaa_zeros) isa Yields.AbstractYieldCurve
                 end
             end
 
