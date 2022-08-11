@@ -16,7 +16,9 @@
     @test accumulation(my,1,2) ≈ exp(0.05*1)
     @test accumulation(my,1) ≈ exp(0.05*1)
     @test Yields.__ratetype(my) == Yields.Rate{Float64,Continuous}
-    @test Yields.CompoundingFrequency(my) == Continuous()
+    @test Yields.FinanceCore.CompoundingFrequency(my) == Continuous()
+
+
 
     @test Yields.par(my,1) |> Yields.rate > 0 
 end

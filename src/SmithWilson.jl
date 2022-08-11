@@ -139,9 +139,9 @@ H(α, t1vec::AbstractVector, t2vec::AbstractVector) = [H(α, t1, t2) for t1 in t
 H(α, tvec::AbstractVector) = H(α, tvec, tvec)
 
 
-discount(sw::SmithWilson, t) = exp(-sw.ufr * t) * (1.0 + H(sw.α, sw.u, t) ⋅ sw.qb)
+FinanceCore.discount(sw::SmithWilson, t) = exp(-sw.ufr * t) * (1.0 + H(sw.α, sw.u, t) ⋅ sw.qb)
 Base.zero(sw::SmithWilson, t) = Continuous(sw.ufr - log(1.0 + H(sw.α, sw.u, t) ⋅ sw.qb) / t)
-Base.zero(sw::SmithWilson, t, cf::CompoundingFrequency) = convert(cf, zero(sw, t))
+Base.zero(sw::SmithWilson, t, cf::FinanceCore.CompoundingFrequency) = convert(cf, zero(sw, t))
 
 function SmithWilson(times::AbstractVector, cashflows::AbstractMatrix, prices::AbstractVector; ufr, α)
     Q = Diagonal(exp.(-ufr * times)) * cashflows
@@ -188,7 +188,7 @@ function cashflows(interests, maturities, frequencies)
         # if on a coupon date and less than maturity, pay coupon
         ((((t + time_adj[instrument]) % fq[instrument] ≈ 0) && t <= floored_mats[instrument]) ? interests[instrument] / frequencies[instrument] : 0.0) +
         (t ≈ floored_mats[instrument] ? 1.0 : 0.0) # add maturity payment
-        for t in times, instrument = 1:length(interests)
+        for t in times, instrument = eachindex(interests)
     ]
 
     return cashflows

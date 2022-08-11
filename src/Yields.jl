@@ -1,23 +1,25 @@
 module Yields
 
+using Reexport
+using FinanceCore
+using FinanceCore: Rate, rate, discount, accumulation, Periodic, Continuous, forward
+@reexport using FinanceCore: Rate, rate, discount, accumulation, Periodic, Continuous, forward 
 import BSplineKit
 import ForwardDiff
 using LinearAlgebra
 using UnicodePlots
-using Roots
 import LsqFit
 import Optim
 
-
+@show FinanceCore.Continuous(0.01)
 # don't export type, as the API of Yields.Zero is nicer and 
 # less polluting than Zero and less/equally verbose as ZeroYieldCurve or ZeroCurve
-export rate, discount, accumulation, forward,
-LinearSpline, QuadraticSpline, Periodic, Continuous,
+export LinearSpline, QuadraticSpline, 
 Bootstrap,NelsonSiegel,NelsonSiegelSvensson,SmithWilson
 
-include("AbstractYield.jl")
-include("Rate.jl")
 const DEFAULT_COMPOUNDING = Yields.Continuous()
+
+include("AbstractYieldCurve.jl")
 
 include("utils.jl")
 include("bootstrap.jl")
