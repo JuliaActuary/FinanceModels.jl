@@ -6,15 +6,15 @@ struct RateCombination{T,U,V} <: AbstractYieldCurve
 end
 __ratetype(::Type{RateCombination{T,U,V}}) where {T,U,V}= __ratetype(T)
 
-rate(rc::RateCombination, time) = rc.op(rate(rc.r1, time), rate(rc.r2, time))
-function discount(rc::RateCombination, time)
+FinanceCore.rate(rc::RateCombination, time) = rc.op(rate(rc.r1, time), rate(rc.r2, time))
+function FinanceCore.discount(rc::RateCombination, time)
     a1 = discount(rc.r1, time)^(-1 / time) - 1
     a2 = discount(rc.r2, time)^(-1 / time) - 1
     return 1 / (1 + rc.op(a1, a2))^time
 end
 
 Base.zero(rc::RateCombination, time) = zero(rc,time,Periodic(1))
-function Base.zero(rc::RateCombination, time, cf::C) where {C<:CompoundingFrequency}
+function Base.zero(rc::RateCombination, time, cf::C) where {C<:FinanceCore.CompoundingFrequency}
     d = discount(rc,time)
     i = Periodic(1/d^(1/time)-1,1)
     return convert(cf, i) # c.zero is a curve of continuous rates represented as floats. explicitly wrap in continuous before converting

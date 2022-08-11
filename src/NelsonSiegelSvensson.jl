@@ -72,7 +72,7 @@ function Base.zero(ns::NelsonSiegelCurve, t)
     end
     Continuous.(ns.β₀ .+ ns.β₁ .* (1.0 .- exp.(-t ./ ns.τ₁)) ./ (t ./ ns.τ₁) .+ ns.β₂ .* ((1.0 .- exp.(-t ./ ns.τ₁)) ./ (t ./ ns.τ₁) .- exp.(-t ./ ns.τ₁)))
 end
-discount(ns::NelsonSiegelCurve, t) = discount.(zero.(ns,t),t)
+FinanceCore.discount(ns::NelsonSiegelCurve, t) = discount.(zero.(ns,t),t)
 
 
 function fit_β(ns::NelsonSiegel,func,yields,maturities,τ) 
@@ -236,4 +236,4 @@ function Base.zero(nss::NelsonSiegelSvenssonCurve, t)
     end
     Continuous.(nss.β₀ .+ nss.β₁ .* (1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .+ nss.β₂ .* ((1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .- exp.(-t ./ nss.τ₁)) .+ nss.β₃ .* ((1.0 .- exp.(-t ./ nss.τ₂)) ./ (t ./ nss.τ₂) .- exp.(-t ./ nss.τ₂)))
 end
-discount(nss::NelsonSiegelSvenssonCurve, t) = discount.(zero.(nss,t),t)
+FinanceCore.discount(nss::NelsonSiegelSvenssonCurve, t) = discount.(zero.(nss,t),t)

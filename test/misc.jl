@@ -5,16 +5,16 @@
     y = Yields.Constant(0.05)
     @test Yields.__ratetype(y) == Yields.Rate{Float64, Periodic}
     @test Yields.__ratetype(typeof(Periodic(0.05,2))) == Yields.Rate{Float64, Periodic}
-    @test Yields.CompoundingFrequency(y) == Periodic(1)
+    @test Yields.FinanceCore.CompoundingFrequency(y) == Periodic(1)
     
     y = Yields.Constant(Continuous(0.05))
     @test Yields.__ratetype(y) == Yields.Rate{Float64, Continuous}
     @test Yields.__ratetype(typeof(Continuous(0.05))) == Yields.Rate{Float64, Continuous}
-    @test Yields.CompoundingFrequency(y) == Continuous()
+    @test Yields.FinanceCore.CompoundingFrequency(y) == Continuous()
     
     y = Yields.Step([0.02,0.05], [1,2])
     @test Yields.__ratetype(y) == Yields.Rate{Float64, Periodic}
-    @test Yields.CompoundingFrequency(y) == Periodic(1)
+    @test Yields.FinanceCore.CompoundingFrequency(y) == Periodic(1)
     
     y = Yields.Forward( [0.01,0.02,0.03] )
     @test Yields.__ratetype(y) == default
@@ -24,7 +24,7 @@
 	
     y = Yields.CMT(rates,mats)
     @test Yields.__ratetype(y) == default
-    @test Yields.CompoundingFrequency(y) == Continuous()
+    @test Yields.FinanceCore.CompoundingFrequency(y) == Continuous()
     
     
     combination = y + y

@@ -4,7 +4,7 @@
     
 This `YieldCurveFitParameters` object defines the interpolation method to use when bootstrapping the curve. Provided options are `QuadraticSpline()` (the default) and `LinearSpline()`. You may also pass a custom interpolation method with the function signature of `f(xs, ys) -> f(x) -> y`.
 
-If constructing curves and the rates are not `Rate`s (ie you pass a `Vector{Float64}`), then they will be interpreted as `Periodic(1)` `Rate`s, except the [`Par`](@ref) curve, which is interpreted as `Periodic(2)` `Rate`s. [`CMT`](@ref) and [`OIS`](@ref) CompoundingFrequency assumption depends on the corresponding maturity.
+If constructing curves and the rates are not `Rate`s (ie you pass a `Vector{Float64}`), then they will be interpreted as `Periodic(1)` `Rate`s, except the [`Par`](@ref) curve, which is interpreted as `Periodic(2)` `Rate`s. [`CMT`](@ref) and [`OIS`](@ref) FinanceCore.CompoundingFrequency assumption depends on the corresponding maturity.
 
 See for more:
 
@@ -29,7 +29,7 @@ struct BootstrapCurve{T,U,V} <: AbstractYieldCurve
     maturities::U
     zero::V # function time -> continuous zero rate
 end
-discount(yc::T, time) where {T<:BootstrapCurve} = exp(-yc.zero(time) * time)
+FinanceCore.discount(yc::T, time) where {T<:BootstrapCurve} = exp(-yc.zero(time) * time)
 
 __ratetype(::Type{BootstrapCurve{T,U,V}}) where {T,U,V}= Yields.Rate{Float64, typeof(DEFAULT_COMPOUNDING)}
 
@@ -48,10 +48,10 @@ julia> maturity = [0.5, 1.0, 1.5, 2.0]
 julia> curve = Yields.Zero(zero, maturity)
 julia> fwd = Yields.ForwardStarting(curve, 1.0)
 
-julia> discount(curve,1,2)
+julia> FinanceCore.discount(curve,1,2)
 0.9275624570410582
 
-julia> discount(fwd,1) # `curve` has effectively been reindexed to `1.0`
+julia> FinanceCore.discount(fwd,1) # `curve` has effectively been reindexed to `1.0`
 0.9275624570410582
 ```
 
@@ -67,11 +67,11 @@ struct ForwardStarting{T,U} <: AbstractYieldCurve
 end
 __ratetype(::Type{ForwardStarting{T,U}}) where {T,U}= __ratetype(U)
 
-function discount(c::ForwardStarting, to)
-    discount(c.curve, c.forwardstart, to + c.forwardstart)
+function FinanceCore.discount(c::ForwardStarting, to)
+    FinanceCore.discount(c.curve, c.forwardstart, to + c.forwardstart)
 end
 
-function Base.zero(c::ForwardStarting, to,cf::C) where {C<:CompoundingFrequency}
+function Base.zero(c::ForwardStarting, to,cf::C) where {C<:FinanceCore.CompoundingFrequency}
     z = forward(c.curve,c.forwardstart,to+c.forwardstart)
     return convert(cf,z)
 end
@@ -87,7 +87,7 @@ Construct a yield object where the spot rate is constant for all maturities. If 
 
 ```julia-repl
 julia> y = Yields.Constant(0.05)
-julia> discount(y,2)
+julia> FinanceCore.discount(y,2)
 0.9070294784580498     # 1 / (1.05) ^ 2
 ```
 """
@@ -98,7 +98,7 @@ end
 
 __ratetype(::Type{Constant{T}}) where {T} = T
 __default_rate_interpretation(::Type{Constant},r) = Periodic(r,1)
-CompoundingFrequency(c::Constant{T}) where {T} = c.rate.compounding
+FinanceCore.CompoundingFrequency(c::Constant{T}) where {T} = c.rate.compounding
 
 function Constant(rate::T) where {T<:Real}
     r = __default_rate_interpretation(Constant,rate)
@@ -106,13 +106,13 @@ function Constant(rate::T) where {T<:Real}
 end
 
 Base.zero(c::Constant, time) = c.rate
-Base.zero(c::Constant, time, cf::CompoundingFrequency) = convert(cf, c.rate)
-rate(c::Constant) = c.rate
-rate(c::Constant, time) = c.rate
-discount(r::Constant, time) = discount(r.rate, time)
-discount(r::Constant, from, to) = discount(r.rate, to - from)
-accumulation(r::Constant, time) = accumulation(r.rate, time)
-accumulation(r::Constant, from, to) = accumulation(r.rate, to - from)
+Base.zero(c::Constant, time, cf::FinanceCore.CompoundingFrequency) = convert(cf, c.rate)
+FinanceCore.rate(c::Constant) = c.rate
+FinanceCore.rate(c::Constant, time) = c.rate
+FinanceCore.discount(r::Constant, time) = FinanceCore.discount(r.rate, time)
+FinanceCore.discount(r::Constant, from, to) = FinanceCore.discount(r.rate, to - from)
+FinanceCore.accumulation(r::Constant, time) = accumulation(r.rate, time)
+FinanceCore.accumulation(r::Constant, from, to) = accumulation(r.rate, to - from)
 
 """
     Step(rates,times)
@@ -146,25 +146,25 @@ struct Step{R,T} <: AbstractYieldCurve
 end
 __ratetype(::Type{Step{R,T}}) where {R,T}= eltype(R)
 __default_rate_interpretation(::Type{Step},r) = Periodic(r,1)
-CompoundingFrequency(c::Step{T}) where {T} = first(c.rates).compounding
+FinanceCore.CompoundingFrequency(c::Step{T}) where {T} = first(c.rates).compounding
 
 
 
-function discount(y::Step, time)
+function FinanceCore.discount(y::Step, time)
     v = 1.0
     last_time = 0.0
 
 
     for (rate,t) in zip(y.rates,y.times)
         duration = min(time - last_time,t-last_time)
-        v *= discount(rate,duration)
+        v *= FinanceCore.discount(rate,duration)
         last_time = t
         (last_time > time) && return v
         
     end
 
     # if we did not return in the loop, then we extend the last rate
-    v *= discount(last(y.rates), time - last_time)
+    v *= FinanceCore.discount(last(y.rates), time - last_time)
     return v
 end
 
@@ -226,7 +226,7 @@ function Forward(b::Bootstrap,rates, maturities)
 
     for (i,r) = enumerate(rates)
         Δt = maturities[i] - (i == 1 ? 0 : maturities[i-1])
-        v *= discount(r, Δt)
+        v *= FinanceCore.discount(r, Δt)
         disc_v[i] = v
     end
 

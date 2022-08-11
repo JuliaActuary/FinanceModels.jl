@@ -12,8 +12,8 @@ function _precompile_()
         Yields.Zero(NelsonSiegelSvensson(), rates,tenors)
         Yields.Zero(rates,tenors)
         c = Yields.Zero(rates,tenors)
-        Yields.zero(c)
-        Yields.par(c)
+        Yields.zero(c,10)
+        Yields.par(c,10)
         Yields.forward(c,5,6)
     end
     let 
