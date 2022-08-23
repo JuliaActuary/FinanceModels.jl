@@ -11,7 +11,6 @@ using UnicodePlots
 import LsqFit
 import Optim
 
-@show FinanceCore.Continuous(0.01)
 # don't export type, as the API of Yields.Zero is nicer and 
 # less polluting than Zero and less/equally verbose as ZeroYieldCurve or ZeroCurve
 export LinearSpline, QuadraticSpline, 
