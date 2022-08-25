@@ -26,7 +26,16 @@
             (accumulation(c,10)-1 * factor) ≈ accumulation(rf_curve,10)
             forward(c,5,10) * factor ≈ forward(rf_curve,5,10)
             Yields.par(c,10) * factor ≈ Yields.par(rf_curve,10)
+
+            c = factor * rf_curve
+            (discount(c,10)-1 * factor) ≈ discount(rf_curve,10)
+            (accumulation(c,10)-1 * factor) ≈ accumulation(rf_curve,10)
+            forward(c,5,10) * factor ≈ forward(rf_curve,5,10)
+            Yields.par(c,10) * factor ≈ Yields.par(rf_curve,10)
+
+            @test discount(Yields.Constant(0.1) * Yields.Constant(0.1),10) ≈ discount(Yields.Constant(0.01),10)
         end
+
         @testset "division" begin
             factor = .79
             c = rf_curve / (factor^-1)
@@ -34,6 +43,7 @@
             (accumulation(c,10)-1 * factor) ≈ accumulation(rf_curve,10)
             forward(c,5,10) * factor ≈ forward(rf_curve,5,10)
             Yields.par(c,10) * factor ≈ Yields.par(rf_curve,10)
+            @test discount(Yields.Constant(0.1) / Yields.Constant(0.5),10) ≈ discount(Yields.Constant(0.2),10)
         end
     end
 end

@@ -146,7 +146,7 @@ function Base.:/(a::AbstractYieldCurve, b::AbstractYieldCurve)
     return RateCombination(a, b, /)
 end
 
-function Base.:*(a::Constant, b::Constant)
+function Base.:/(a::Constant, b::Constant)
     a_kind = rate(a).compounding
     rate_new_basis = rate(convert(a_kind, rate(b)))
     return Constant(
