@@ -44,6 +44,7 @@
             forward(c,5,10) * factor ≈ forward(rf_curve,5,10)
             Yields.par(c,10) * factor ≈ Yields.par(rf_curve,10)
             @test discount(Yields.Constant(0.1) / Yields.Constant(0.5),10) ≈ discount(Yields.Constant(0.2),10)
+            @test discount(0.1 / Yields.Constant(0.5),10) ≈ discount(Yields.Constant(0.2),10)
         end
     end
 end
