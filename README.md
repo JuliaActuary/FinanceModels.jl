@@ -84,7 +84,7 @@ convert(Yields.Continuous(),r)          # convert monthly rate to continuous
 
 #### Arithmetic
 
-Adding, substracting, and comparing rates is supported.
+Adding, substracting, multiplying, dividing, and comparing rates is supported.
 
 ### Curves
 
