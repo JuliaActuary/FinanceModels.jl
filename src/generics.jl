@@ -39,6 +39,7 @@ Calculate the par yield for maturity `time` for the given `curve` and `frequency
 
 # Examples
 
+```julia-repl
 julia> c = Yields.Constant(0.04);
 
 julia> Yields.par(c,4)
@@ -55,7 +56,7 @@ Yields.Rate{Float64, Yields.Periodic}(0.039374942589460726, Yields.Periodic(5))
 
 julia> Yields.par(c,2.5)
 Yields.Rate{Float64, Yields.Periodic}(0.03960780543711406, Yields.Periodic(2))
-
+```
 """
 function par(curve, time; frequency=2)
     mat_disc = discount(curve, time)
@@ -186,6 +187,7 @@ julia> Yields.Zero([0.01,0.02,0.04,0.05],[1,2,5,10])
               └────────────────────────────────────────────────────────────┘           
               ⠀0⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀time⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀30⠀      
 
+```
 """
 function Yields.Zero(rates,maturities=eachindex(rates))
     # bump to a constant yield if only given one rate
@@ -204,7 +206,7 @@ The method of fitting the curve to the data is determined by the [`YieldCurveFit
 
 # Examples
 
-```
+```julia-repl
 # 2021-03-31 rates from Treasury.gov
 rates =[0.01, 0.01, 0.03, 0.05, 0.07, 0.16, 0.35, 0.92, 1.40, 1.74, 2.31, 2.41] ./ 100
 mats = [1/12, 2/12, 3/12, 6/12, 1, 2, 3, 5, 7, 10, 20, 30]
@@ -228,7 +230,7 @@ Takes Overnight Index Swap rates, and assumes that instruments <= one year matur
 The method of fitting the curve to the data is determined by the [`YieldCurveFitParameters`](@ref) object `p`, which is a `Boostrap(QuadraticSpline())` by default. 
 
 # Examples
-```
+```julia-repl
 julia> ois = [1.8, 2.0, 2.2, 2.5, 3.0, 4.0] ./ 100;
 julia> mats = [1 / 12, 1 / 4, 1 / 2, 1, 2, 5];
 julia> curve = Yields.OIS(ois, mats)
