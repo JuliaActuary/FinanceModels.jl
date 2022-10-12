@@ -12,6 +12,7 @@ LsqFit = "2fda8390-95c7-5789-9bda-21331edee243"
 Optim = "429524aa-4258-5aef-a3af-852621145aeb"
 Reexport = "189a3867-3050-52da-a836-e630ba90ab69"
 Roots = "f2b01f46-fcfa-551c-844a-d8ac1e96c665"
+SnoopPrecompile = "66db9d55-30c0-4569-8b51-7e840670fc0c"
 UnicodePlots = "b8865327-cd53-5732-bb35-84acbb429228"
 
 [compat]
@@ -20,10 +21,10 @@ FinanceCore = "^1"
 ForwardDiff = "^0.10"
 LsqFit = "^0.12"
 Optim = "^1"
+Reexport = "^1.2"
 Roots = "^1"
 UnicodePlots = "^2"
 julia = "^1.6"
-Reexport = "^1.2"
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"

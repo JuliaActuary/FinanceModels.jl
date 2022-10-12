@@ -1,6 +1,7 @@
 module Yields
 
 using Reexport
+using SnoopPrecompile
 using FinanceCore
 using FinanceCore: Rate, rate, discount, accumulation, Periodic, Continuous, forward
 @reexport using FinanceCore: Rate, rate, discount, accumulation, Periodic, Continuous, forward 
