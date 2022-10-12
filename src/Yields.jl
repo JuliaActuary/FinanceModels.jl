@@ -1,11 +1,13 @@
 module Yields
 
 using Reexport
+using StaticArrays
 using FinanceCore
 using FinanceCore: Rate, rate, discount, accumulation, Periodic, Continuous, forward
 @reexport using FinanceCore: Rate, rate, discount, accumulation, Periodic, Continuous, forward 
-using DataInterpolations
+import DataInterpolations
 import ForwardDiff
+using NonlinearSolve
 using LinearAlgebra
 using UnicodePlots
 import LsqFit

@@ -50,7 +50,7 @@ struct LinearSpline <: InterpolationKind end
 Bootstrap the rates with the given maturities, treating the rates according to the periodic frequencies in settlement_frequency. 
 
 `interpolator` is any function that will take two vectors of inputs and output points and return a function that will estimate an output given a scalar input. That is
-`interpolator` should be: `interpolator(xs, ys) -> f(x)` where `f(x)` is the interpolated value of `y` at `x`. 
+`interpolator` should be: `interpolator(ys, xs) -> f(x)` where `f(x)` is the interpolated value of `y` at `x`. 
 
 Built in `interpolator`s in Yields are: 
 - `QuadraticSpline()`: Quadratic spline interpolation.
@@ -70,11 +70,11 @@ end
 # dispatch on the user-exposed InterpolationKind to the right 
 # internally named interpolation function
 function _bootstrap_choose_interp(rates, maturities, settlement_frequency, i::QuadraticSpline)
-    return _bootstrap_inner(rates, maturities, settlement_frequency, cubic_interp)
+    return _bootstrap_inner(rates, maturities, settlement_frequency, DataInterpolations.QuadraticSpline)
 end
 
 function _bootstrap_choose_interp(rates, maturities, settlement_frequency, i::LinearSpline)
-    return _bootstrap_inner(rates, maturities, settlement_frequency, linear_interp)
+    return _bootstrap_inner(rates, maturities, settlement_frequency, DataInterpolations.LinearInterpolation)
 end
 
 
@@ -85,6 +85,7 @@ function _bootstrap_inner(rates, maturities, settlement_frequency, interpolation
     discount_vec[1] = discount(Constant(rates[1]), maturities[1])
 
     for t = 2:length(maturities)
+        @show t
         if isnothing(settlement_frequency[t])
             # no settlement before maturity
             discount_vec[t] = discount(Constant(rates[t]), maturities[t])
@@ -95,68 +96,32 @@ function _bootstrap_inner(rates, maturities, settlement_frequency, interpolation
             cfs[end] += 1
 
             function pv(v_guess)
-                v = interpolation_function([[0.0]; maturities[1:t]], vcat(1.0, discount_vec[1:t-1], v_guess...))
+                @show "here1"
+                @show typeof(v_guess)
+                pv_inner(v_guess)
+            end
+            
+            function pv(v_guess::U{T}) where {T<:NonlinearSolve.ForwardDiff.Dual,U<:AbstractArray}
+                @show "here2"
+                pv_inner(v_guess.value)
+            end
+
+            function pv_inner(v_guess)
+                v = interpolation_function(vcat(1.0, discount_vec[1:t-1], only(v_guess)),[[0.0]; maturities[1:t]])
                 return sum(v.(times) .* cfs)
             end
             target_pv = sum(map(t2 -> discount(Constant(rates[t]), t2), times) .* cfs)
-            root_func(v_guess) = pv(v_guess) - target_pv
-            root_func′(v_guess) = ForwardDiff.derivative(root_func, v_guess)
-            discount_vec[t] = solve(root_func, root_func′, rate(rates[t]))
+            f(u,p) = pv(u) .- p
+            # root_func(v_guess) = pv(v_guess) - target_pv
+            # root_func′(v_guess) = ForwardDiff.derivative(root_func, v_guess)
+            # discount_vec[t] = solve(root_func, root_func′, rate(rates[t]))
+            probN = NonlinearProblem{false}(f,@SVector[rate(rates[t])],target_pv)
+            discount_vec[t] = NonlinearSolve.solve(probN,NewtonRaphson(),tol=1e-9)
         end
 
     end
     zero_vec = -log.(clamp.(discount_vec,0.00001,1)) ./ maturities
     return interpolation_function([0.0; maturities], [first(zero_vec); zero_vec])
-end
-
-# the ad-hoc approach to extrapoliatons is based on suggestion by author of 
-# BSplineKit at https://github.com/jipolanco/BSplineKit.jl/issues/19
-# this should not be exposed directly to user
-struct _Extrap{I,L,R}
-	int::I # the BSplineKit interpolation
-	left::L # a tuple of (boundary, extrapolation function)
-	right::R # a tuple of (boundary, extrapolation function)
-end
-
-function _wrap_spline(itp)
-
-	S = BSplineKit.spline(itp)  # spline passing through data points
-	B = BSplineKit.basis(S)     # B-spline basis
-	
-	a, b = BSplineKit.boundaries(B)  # left and right boundaries
-	
-	# For now, we construct the full spline S′(x).
-	# There are faster ways of doing this that should be implemented...
-	S′ = diff(S, BSplineKit.Derivative(1))
-	
-	return _Extrap(itp,
-		(boundary = a, func = x->S(a) + S′(a)*(x-a)),
-		(boundary = b, func = x->S(b) + S′(b)*(x-b)),
-		
-	)
-end
-
-function _interp(e::_Extrap,x)
-	if x <= e.left.boundary
-		return e.left.func(x)
-	elseif x >= e.right.boundary
-		return e.right.func(x)
-	else
-		return e.int(x)
-	end
-end
-
-function linear_interp(xs, ys)
-    int = BSplineKit.interpolate(xs, ys, BSplineKit.BSplineOrder(2))
-    e = _wrap_spline(int)
-    return x -> _interp(e, x)
-end
-
-function cubic_interp(xs, ys)
-    order = min(length(xs),3) # in case the length of xs is less than the spline order
-    int = BSplineKit.interpolate(xs, ys, BSplineKit.BSplineOrder(order))
-    e = _wrap_spline(int)
-    return x -> _interp(e, x)
 end
 
 # used to display simple type name in show method
