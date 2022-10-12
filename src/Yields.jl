@@ -4,7 +4,7 @@ using Reexport
 using FinanceCore
 using FinanceCore: Rate, rate, discount, accumulation, Periodic, Continuous, forward
 @reexport using FinanceCore: Rate, rate, discount, accumulation, Periodic, Continuous, forward 
-import BSplineKit
+using DataInterpolations
 import ForwardDiff
 using LinearAlgebra
 using UnicodePlots
