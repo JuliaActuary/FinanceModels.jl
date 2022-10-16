@@ -29,4 +29,15 @@ include("RateCombination.jl")
 include("NelsonSiegelSvensson.jl")
 
 include("precompiles.jl")
+
+
+function InexactError_hint(io::IO, ex::InexactError)
+    print(io, "\nSuggestion: try calling Periodic($(ex.val), 1) instead.")
+end
+
+function __init__()
+    Base.Experimental.register_error_hint(InexactError_hint, InexactError)
+    nothing
+end
+
 end
