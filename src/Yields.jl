@@ -4,7 +4,7 @@ using Reexport
 using SnoopPrecompile
 using FinanceCore
 using FinanceCore: Rate, rate, discount, accumulation, Periodic, Continuous, forward
-@reexport using FinanceCore: Rate, rate, discount, accumulation, Periodic, Continuous, forward 
+@reexport using FinanceCore: Rate, rate, discount, accumulation, Periodic, Continuous, forward
 import BSplineKit
 import ForwardDiff
 using LinearAlgebra
@@ -14,8 +14,8 @@ import Optim
 
 # don't export type, as the API of Yields.Zero is nicer and 
 # less polluting than Zero and less/equally verbose as ZeroYieldCurve or ZeroCurve
-export LinearSpline, QuadraticSpline, 
-Bootstrap,NelsonSiegel,NelsonSiegelSvensson,SmithWilson
+export LinearSpline, QuadraticSpline,
+    Bootstrap, NelsonSiegel, NelsonSiegelSvensson, SmithWilson
 
 const DEFAULT_COMPOUNDING = Yields.Continuous()
 
@@ -32,7 +32,9 @@ include("precompiles.jl")
 
 
 function InexactError_hint(io::IO, ex::InexactError)
-    print(io, "\nSuggestion: try calling Periodic($(ex.val), 1) instead.")
+    hint = "\nA Periodic rate requires also passing a compounding frequency." *
+    "\nFor example, call Periodic($(ex.val), 2) for a rate compounded twice per period."
+    print(io, hint)
 end
 
 function __init__()
