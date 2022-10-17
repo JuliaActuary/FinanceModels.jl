@@ -31,14 +31,14 @@ include("NelsonSiegelSvensson.jl")
 include("precompiles.jl")
 
 
-function InexactError_hint(io::IO, ex::InexactError)
+function MethodError_hint(io::IO, ex::InexactError)
     hint = "\nA Periodic rate requires also passing a compounding frequency." *
     "\nFor example, call Periodic($(ex.val), 2) for a rate compounded twice per period."
     print(io, hint)
 end
 
 function __init__()
-    Base.Experimental.register_error_hint(InexactError_hint, InexactError)
+    Base.Experimental.register_error_hint(MethodError_hint, MethodError)
     nothing
 end
 
