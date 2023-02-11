@@ -23,7 +23,7 @@ include("AbstractYieldCurve.jl")
 
 include("utils.jl")
 include("Observables.jl")
-export Cashflow, ZCBPrice, ZCBYield, ParYield, Bond, Quote
+export Cashflow, ZCBPrice, ZCBYield, ParYield, CMTYield, OISYield, Bond, Quote
 include("bootstrap.jl")
 include("SmithWilson.jl")
 include("generics.jl")
