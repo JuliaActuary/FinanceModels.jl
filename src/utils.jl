@@ -45,7 +45,7 @@ struct QuadraticSpline <: InterpolationKind end
 struct LinearSpline <: InterpolationKind end
 
 """
-    bootstrap(rates, maturities, settlement_frequency, interpolation::QuadraticSpline())
+    _bootstrap(rates, maturities, settlement_frequency, interpolation_function)
 
 Bootstrap the rates with the given maturities, treating the rates according to the periodic frequencies in settlement_frequency. 
 
@@ -58,28 +58,7 @@ Built in `interpolator`s in Yields are:
 
 The default is `QuadraticSpline()`.
 """
-function bootstrap(rates, maturities, settlement_frequency, interpolation::InterpolationKind=QuadraticSpline())
-    return _bootstrap_choose_interp(rates, maturities, settlement_frequency, interpolation)
-end
-
-# the fall-back if user provides own interpolation function
-function bootstrap(rates, maturities, settlement_frequency, interpolation)
-    return _bootstrap_inner(rates, maturities, settlement_frequency, interpolation)
-end
-
-# dispatch on the user-exposed InterpolationKind to the right 
-# internally named interpolation function
-function _bootstrap_choose_interp(rates, maturities, settlement_frequency, i::QuadraticSpline)
-    return _bootstrap_inner(rates, maturities, settlement_frequency, cubic_interp)
-end
-
-function _bootstrap_choose_interp(rates, maturities, settlement_frequency, i::LinearSpline)
-    return _bootstrap_inner(rates, maturities, settlement_frequency, linear_interp)
-end
-
-
-
-function _bootstrap_inner(rates, maturities, settlement_frequency, interpolation_function)
+function _bootstrap(rates, maturities, settlement_frequency, interpolation_function)
     discount_vec = zeros(length(rates)) # construct a placeholder discount vector matching maturities
     # we have to take the first rate as the starting point
     discount_vec[1] = discount(Constant(rates[1]), maturities[1])
