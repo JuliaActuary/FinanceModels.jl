@@ -5,14 +5,14 @@
 
 abstract type Instrument end
 
-struct Quote{T<:Instrument} 
-    price::Float64
+struct Quote{N<:Real,T<:Instrument} 
+    price::N
     instrument::T
 end
 
-struct Cashflow <: Instrument
-    amount::Float64
-    time::Float64
+struct Cashflow{N<:Real,T<:Real} <: Instrument
+    amount::N
+    time::T
 end
 
 
@@ -37,14 +37,12 @@ end
 ZCBPrice(price,time) = Quote(price,Cashflow(1.,time)) 
 ZCBYield(yield,time) = Quote(discount(yield,time),Cashflow(1.,time)) 
 
-struct Bond{F<:FinanceCore.CompoundingFrequency} <: AbstractBond
-    coupon_rate::Float64 # coupon_rate / frequency is the actual payment amount
+struct Bond{F<:FinanceCore.CompoundingFrequency,N<:Real,M<:Real} <: AbstractBond
+    coupon_rate::N # coupon_rate / frequency is the actual payment amount
     frequency::F
-    maturity::Float64
+    maturity::M
 end
 
-# force conversion to float
-Bond(c,f,m::I) where {I<:Integer} = Bond(c,f,Float64(m))
 
 get_frequency(a::FinanceCore.Rate; default) = a.compounding
 get_frequency(a; default) = default
@@ -80,3 +78,14 @@ function OISYield(yield,maturity)
     r = frequency(yield)
     return Quote(discount(r,maturity),Bond(rate(r),r.compounding,maturity))
 end
+
+
+# the instrument is relative to the Forward time.
+# e.g. if you have a Forward(1.0, Cashflow(1.0, 3.0)) then the instrument is a cashflow that pays 1.0 at time 4.0
+struct Forward{N<:Real,I<:Instrument} <: Instrument
+    time::N
+    instrument::I
+end
+
+
+ForwardYield(yield,start=0.0,duration=1.0) = Quote(discount(yield,duration),Forward(start,Cashflow(1.,duration)))
