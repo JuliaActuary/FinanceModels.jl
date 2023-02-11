@@ -22,6 +22,8 @@ const DEFAULT_COMPOUNDING = Yields.Continuous()
 include("AbstractYieldCurve.jl")
 
 include("utils.jl")
+include("Observables.jl")
+export Cashflow, ZCBPrice, ZCBYield, Quote
 include("bootstrap.jl")
 include("SmithWilson.jl")
 include("generics.jl")
