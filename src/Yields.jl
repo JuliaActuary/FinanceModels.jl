@@ -16,6 +16,8 @@ import Optim
 # less polluting than Zero and less/equally verbose as ZeroYieldCurve or ZeroCurve
 export LinearSpline, QuadraticSpline,
     Bootstrap, NelsonSiegel, NelsonSiegelSvensson, SmithWilson
+export Cashflow, ZCBPrice, ZCBYield, ParYield, CMTYield, OISYield, Forward, ForwardYield,Bond, Quote,
+curve
 
 const DEFAULT_COMPOUNDING = Yields.Continuous()
 
@@ -23,12 +25,14 @@ include("AbstractYieldCurve.jl")
 
 include("utils.jl")
 include("Observables.jl")
-export Cashflow, ZCBPrice, ZCBYield, ParYield, CMTYield, OISYield, Forward, ForwardYield,Bond, Quote
-# include("bootstrap.jl")
+include("methods.jl")
+include("Constant.jl")
+include("Bootstrap.jl")
 # include("SmithWilson.jl")
 # include("generics.jl")
-# include("RateCombination.jl")
 # include("NelsonSiegelSvensson.jl")
+include("curve.jl")
+include("RateCombination.jl")
 
 # include("precompiles.jl")
 

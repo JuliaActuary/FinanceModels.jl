@@ -30,8 +30,10 @@ FinanceCore.discount(yc::T, time) where {T<:BootstrapCurve} = exp(-yc.zero(time)
 
 __ratetype(::Type{BootstrapCurve{T,U,V}}) where {T,U,V}= Yields.Rate{Float64, typeof(DEFAULT_COMPOUNDING)}
 
-function (b::Bootstrap)(quotes::Vector{Quote{T,I}}) where {I<:Cashflow}
-    continuous_zeros = [rate(-log(q.price)/q.instrument.time) for q in quotes]
+(b::Bootstrap)(x::Float64) = 2.
+
+function (b::Bootstrap)(quotes::Vector{Quote{T,I}}) where {I<:Cashflow,T}
+    continuous_zeros = [-log(q.price)/q.instrument.time for q in quotes]
     times = [q.instrument.time for q in quotes]
     intp = b.interpolation([0.0;times],[first(continuous_zeros);continuous_zeros])
     return BootstrapCurve(continuous_zeros, times, intp)

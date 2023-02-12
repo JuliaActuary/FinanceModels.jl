@@ -41,8 +41,9 @@ __coerce_rate(x,cf) = return Rate(x,cf)
 
 abstract type InterpolationKind end
 
-struct QuadraticSpline <: InterpolationKind end
-struct LinearSpline <: InterpolationKind end
+QuadraticSpline() = cubic_interp
+LinearSpline() = linear_interp
+
 
 """
     _bootstrap(rates, maturities, settlement_frequency, interpolation_function)

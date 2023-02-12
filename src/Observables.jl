@@ -34,8 +34,10 @@ function Composite(a::Cashflow,b::Cashflow)
 end
 
 ### Bonds 
-ZCBPrice(price,time) = Quote(price,Cashflow(1.,time)) 
+ZCBPrice(price,time) = Quote(price,Cashflow(1.,time))
+ZCBPrice(prices) =  ZCBPrice.(prices,eachindex(prices))
 ZCBYield(yield,time) = Quote(discount(yield,time),Cashflow(1.,time)) 
+ZCBYield(yields) = ZCBYield.(yields,eachindex(yields))
 
 struct Bond{F<:FinanceCore.CompoundingFrequency,N<:Real,M<:Real} <: AbstractBond
     coupon_rate::N # coupon_rate / frequency is the actual payment amount
@@ -56,6 +58,9 @@ function ParYield(yield,maturity;frequency=nothing)
     coupon_rate = rate(frequency(yield))
     return Quote(price,Bond(coupon_rate,frequency,maturity)) 
 
+end
+function ParYield(yields;frequency=nothing)
+    return ParYield.(yields,eachindex(yields);frequency=frequency)
 end
 
 # the fixed leg of the swap
