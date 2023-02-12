@@ -30,14 +30,42 @@ FinanceCore.discount(yc::T, time) where {T<:BootstrapCurve} = exp(-yc.zero(time)
 
 __ratetype(::Type{BootstrapCurve{T,U,V}}) where {T,U,V}= Yields.Rate{Float64, typeof(DEFAULT_COMPOUNDING)}
 
-(b::Bootstrap)(x::Float64) = 2.
-
 function (b::Bootstrap)(quotes::Vector{Quote{T,I}}) where {I<:Cashflow,T}
     continuous_zeros = [-log(q.price)/q.instrument.time for q in quotes]
     times = [q.instrument.time for q in quotes]
     intp = b.interpolation([0.0;times],[first(continuous_zeros);continuous_zeros])
     return BootstrapCurve(continuous_zeros, times, intp)
 end
+
+function (b::Bootstrap)(quotes::Vector{Quote{T,I}}) where {I<:Bond,T}
+    _bootstrap_instrument(b,quotes)
+end
+
+function _bootstrap_instrument(bs::Bootstrap,quotes::Vector{Quote{P,I}}) where {I<:Bond,P}
+    # use first coupon rate as the initial guess
+    maturities = [q.instrument.maturity for q in quotes]
+    z = ZCBYield.(zero(length(quotes)), maturities)
+
+    
+    # we have to take the first rate as the starting point
+    for (i,q) in enumerate(quotes)
+        # it's a discount/premium bond so we need to solve for the rate that works
+        b = q.instrument
+        
+        function root_func(v_guess)
+            z_inner = [z[1:i-1];ZCBYield(v_guess,maturities[i])]
+            c = curve(bs,z_inner) 
+            _pv(v_guess,b) - q.price
+        end
+        root_func′(v_guess) = ForwardDiff.derivative(root_func, v_guess)
+
+        z[i] = ZCBYield(solve(root_func, root_func′, q.instrument.coupon_rate),maturities[i])
+    end
+
+    # zero_vec = -log.(clamp.(discount_vec,0.00001,1)) ./ maturities
+    return curve(bs,z)
+end
+
 
 
 function Par(b::Bootstrap,rates, maturities)

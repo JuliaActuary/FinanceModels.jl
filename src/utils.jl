@@ -1,9 +1,9 @@
 # make interest curve broadcastable so that you can broadcast over multiple`time`s in `interest_rate`
 Base.Broadcast.broadcastable(ic::T) where {T<:AbstractYieldCurve} = Ref(ic)
 
-function coupon_times(time,frequency)
-    Δt = min(1 / frequency,time)
-    times = time:-Δt:0
+function coupon_times(maturity,frequency)
+    Δt = min(1 / frequency,maturity)
+    times = maturity:-Δt:0
     f = last(times)
     f += iszero(f) ? Δt : zero(f)
     l = first(times)
