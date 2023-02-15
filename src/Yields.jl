@@ -6,7 +6,7 @@ using FinanceCore
 using FinanceCore: Rate, rate, discount, accumulation, Periodic, Continuous, forward
 @reexport using FinanceCore: Rate, rate, discount, accumulation, Periodic, Continuous, forward
 import BSplineKit
-import ForwardDiff
+import ForwardDiff # used in Bootstrap solving
 using LinearAlgebra
 using UnicodePlots
 import LsqFit

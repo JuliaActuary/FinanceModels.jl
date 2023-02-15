@@ -13,12 +13,6 @@ end
 struct Cashflow{N<:Real,T<:Real} <: Instrument
     amount::N
     time::T
-
-    function Cashflow(a::N,t::T) where {N,T}
-        t2 = convert(AbstractFloat,t)
-        T2 = typeof(t2) 
-        new{N,T2}(a,t2)
-    end
 end
 
 
@@ -49,11 +43,6 @@ struct Bond{F<:FinanceCore.CompoundingFrequency,N<:Real,M<:Real} <: AbstractBond
     coupon_rate::N # coupon_rate / frequency is the actual payment amount
     frequency::F
     maturity::M
-    function Bond(c::N,f::F,m::M) where {N,F,M}
-        m2 = convert(AbstractFloat,m)
-        M2 = typeof(m2) 
-        new{F,N,M2}(c,f,m2)
-    end
 end
 
 coupon_times(b::Bond) = coupon_times(b.maturity,b.frequency.frequency)
@@ -72,7 +61,7 @@ Base.length(b::Bond) = length(coupon_times(b))
 Base.eltype(::Type{Bond{F,N,M}}) where {F,N,M} = Cashflow{N,M}
 
 function _pv(y,b::Bond)
-    return sum(c.amount * discount(y,c.time) for c in b)
+    return sum(cf.amount * discount(y,cf.time) for cf in b)
 end
 
 get_frequency(a::FinanceCore.Rate; default) = a.compounding

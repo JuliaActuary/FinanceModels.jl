@@ -30,22 +30,35 @@ FinanceCore.discount(yc::T, time) where {T<:BootstrapCurve} = exp(-yc.zero(time)
 
 __ratetype(::Type{BootstrapCurve{T,U,V}}) where {T,U,V}= Yields.Rate{Float64, typeof(DEFAULT_COMPOUNDING)}
 
-function (b::Bootstrap)(quotes::Vector{Quote{T,I}}) where {I<:Cashflow,T}
+function (b::Bootstrap)(quotes::Vector{Quote{T,I}}) where {T,I<:Cashflow}
     continuous_zeros = [-log(q.price)/q.instrument.time for q in quotes]
     times = [q.instrument.time for q in quotes]
     intp = b.interpolation([0.0;times],[first(continuous_zeros);continuous_zeros])
     return BootstrapCurve(continuous_zeros, times, intp)
 end
 
-function (b::Bootstrap)(quotes::Vector{Quote{T,I}}) where {I<:Bond,T}
+# tried to just use the version without the `guess` argument, but in the solving,
+# it was getting stuck where the ForwardDiff.Dual type was different than the Float64 `T`
+# and not dispatching
+function (b::Bootstrap)(quotes::Vector{Quote{T,I}},guess) where {T,I<:Cashflow}
+    continuous_zeros = [-log(q.price)/q.instrument.time for q in quotes]
+    continuous_zeros = vcat(continuous_zeros,-log(guess.price)/guess.instrument.time)
+    times = [q.instrument.time for q in quotes]
+    times = vcat(times,guess.instrument.time)
+    intp = b.interpolation([0.0;times],[first(continuous_zeros);continuous_zeros])
+    return BootstrapCurve(continuous_zeros, times, intp)
+end
+
+function (b::Bootstrap)(quotes::Vector{Quote{T,I}}) where {T,I<:Bond}
     _bootstrap_instrument(b,quotes)
 end
 
-function _bootstrap_instrument(bs::Bootstrap,quotes::Vector{Quote{P,I}}) where {I<:Bond,P}
+function _bootstrap_instrument(bs::Bootstrap,quotes::Vector{Quote{P,I}}) where {P,I<:Bond}
     # use first coupon rate as the initial guess
     maturities = [q.instrument.maturity for q in quotes]
-    z = ZCBYield.(zero(length(quotes)), maturities)
+    z = ZCBYield.(zeros(length(quotes)), maturities)
 
+    ## TODO: Optim is looking for minimum, not root. Need to get root finding to work or switch Optim algo
     
     # we have to take the first rate as the starting point
     for (i,q) in enumerate(quotes)
@@ -53,89 +66,19 @@ function _bootstrap_instrument(bs::Bootstrap,quotes::Vector{Quote{P,I}}) where {
         b = q.instrument
         
         function root_func(v_guess)
-            z_inner = [z[1:i-1];ZCBYield(v_guess,maturities[i])]
-            c = curve(bs,z_inner) 
-            _pv(v_guess,b) - q.price
+            @show v_guess
+            # z_inner = vcat(z[1:i-1],ZCBYield(v_guess[1],maturities[i]))
+            # @show z_inner
+            c = bs(z[1:i-1],ZCBYield(v_guess[1],maturities[i])) 
+            @show _pv(v_guess[1],b) - q.price
         end
         root_func′(v_guess) = ForwardDiff.derivative(root_func, v_guess)
 
         z[i] = ZCBYield(solve(root_func, root_func′, q.instrument.coupon_rate),maturities[i])
+        # o =Optim.optimize(root_func, [0.0], Optim.LBFGS())
+        # z[i] = ZCBYield(Optim.minimizer(o)[1],maturities[i])
     end
 
     # zero_vec = -log.(clamp.(discount_vec,0.00001,1)) ./ maturities
     return curve(bs,z)
-end
-
-
-
-function Par(b::Bootstrap,rates, maturities)
-    rates = __coerce_rate.(rates,Periodic(2))
-    return BootstrapCurve(
-        rates,
-        maturities,
-        # assume that maturities less than or equal to 12 months are settled once, otherwise semi-annual
-        # per Hull 4.7
-        bootstrap(rates, maturities, [m <= 1 ? nothing : 1 / r.compounding.frequency for (r, m) in zip(rates, maturities)], b.interpolation)
-    )
-end
-
-function Forward(b::Bootstrap,rates, maturities)
-    rates = __default_rate_interpretation.(typeof(b),rates)
-    # convert to zeros and pass to Zero
-    disc_v = Vector{Float64}(undef, length(rates))
-
-    v = 1.0
-
-    for (i,r) = enumerate(rates)
-        Δt = maturities[i] - (i == 1 ? 0 : maturities[i-1])
-        v *= FinanceCore.discount(r, Δt)
-        disc_v[i] = v
-    end
-
-    z = (1.0 ./ disc_v) .^ (1 ./ maturities) .- 1 # convert disc_v to zero
-    return Zero(b,z, maturities)
-end
-
-function CMT(b::Bootstrap,rates, maturities)
-    rs = map(zip(rates, maturities)) do (r, m)
-        if m <= 1
-            Rate(r, Periodic(1 / m))
-        else
-            Rate(r, Periodic(2))
-        end
-    end
-
-    CMT(b,rs, maturities)
-end
-
-function CMT(b::Bootstrap,rates::Vector{T}, maturities) where {T<:Rate}
-    return BootstrapCurve(
-        rates,
-        maturities,
-        # assume that maturities less than or equal to 12 months are settled once, otherwise semi-annual
-        # per Hull 4.7
-        bootstrap(rates, maturities, [m <= 1 ? nothing : 0.5 for m in maturities], b.interpolation)
-    )
-end
-
-
-function OIS(b::Bootstrap,rates, maturities)
-    rs = map(zip(rates, maturities)) do (r, m)
-        if m <= 1
-            Rate(r, Periodic(1 / m))
-        else
-            Rate(r, Periodic(4))
-        end
-    end
-
-    return OIS(b,rs, maturities)
-end
-function OIS(b::Bootstrap,rates::Vector{<:Rate}, maturities)
-    return BootstrapCurve(
-        rates,
-        maturities,
-        # assume that maturities less than or equal to 12 months are settled once, otherwise quarterly
-        # per Hull 4.7
-        bootstrap(rates, maturities, [m <= 1 ? nothing : 1 / 4 for m in maturities], b.interpolation)
-    )
 end

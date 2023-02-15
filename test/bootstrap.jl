@@ -14,6 +14,40 @@
         @test zero(z, 2) ≈ Periodic(0.05,1)
     end
 
+    
+    @testset "Hull" begin
+        # Par Yield, pg 85
+
+        c = curve(ParYield.(Periodic(2).([0.0687,0.0687]), [2.,3.]))
+
+        @test Yields.par(c,2) ≈ Yields.Periodic(0.0687,2) atol = 0.00001
+
+    end
+
+    @testset "simple rate and forward" begin
+        # Risk Managment and Financial Institutions, 5th ed. Appendix B
+
+        maturity = [0.5, 1.0, 1.5, 2.0]
+        zero = [5.0, 5.8, 6.4, 6.8] ./ 100
+        c = ZCBYield.(zero, maturity)
+
+        @testset "curves" for curve in [curve(c),curve(Bootstrap(),c),curve(Bootstrap(LinearSpline()),c),curve(Bootstrap(QuadraticSpline()),c)]
+            @test discount(curve, 0) ≈ 1
+            @test discount(curve, 1) ≈ 1 / (1 + zero[2])
+            @test discount(curve, 2) ≈ 1 / (1 + zero[4])^2
+
+            @test forward(curve, 0.5, 1.0) ≈ Yields.Periodic(6.6 / 100, 1) atol = 0.001
+            @test forward(curve, 1.0, 1.5) ≈ Yields.Periodic(7.6 / 100, 1) atol = 0.001
+            @test forward(curve, 1.5, 2.0) ≈ Yields.Periodic(8.0 / 100, 1) atol = 0.001
+        end
+
+        @testset "broadcasting" begin
+            y = curve(ZCBYield(zero))
+            @test all(discount.(y, [1, 2]) .≈ [1 / 1.05, 1 / 1.058^2])
+            @test all(accumulation.(y, [1, 2]) .≈ [1.05, 1.058^2])
+        end
+
+    end
 
     @testset "Salomon Understanding the Yield Curve Pt 1 Figure 9" begin
         maturity = collect(1:10)
@@ -32,49 +66,11 @@
             @test forward(y, mat - 1) ≈ Yields.Periodic(fwd[mat], 1) atol = 0.0001
         end
 
-        y = Yields.Par(Bootstrap(LinearSpline()),Yields.Rate.(par, Yields.Periodic(1)), maturity)
+        y = curve(ParYield.(Periodic(1).(par), maturity))
 
         @testset "linear UTYC Figure 9 par -> spot : $mat" for mat in maturity
             @test zero(y, mat) ≈ Periodic(spot[mat],1) atol = 0.0001
             @test forward(y, mat - 1) ≈ Yields.Periodic(fwd[mat], 1) atol = 0.0001
-        end
-
-    end
-
-    @testset "Hull" begin
-        # Par Yield, pg 85
-
-        c = Yields.Par(Yields.Periodic.([0.0687,0.0687],2), [2,3])
-
-        @test Yields.par(c,2) ≈ Yields.Periodic(0.0687,2) atol = 0.00001
-
-    end
-
-    @testset "simple rate and forward" begin
-        # Risk Managment and Financial Institutions, 5th ed. Appendix B
-
-        maturity = [0.5, 1.0, 1.5, 2.0]
-        zero = [5.0, 5.8, 6.4, 6.8] ./ 100
-        curve = Yields.Zero(zero, maturity)
-
-        for curve in [Yields.Zero(zero, maturity),Yields.Zero(Bootstrap(LinearSpline()),zero, maturity),Yields.Zero(Bootstrap(QuadraticSpline()),zero, maturity)]
-            @test discount(curve, 0) ≈ 1
-            @test discount(curve, 1) ≈ 1 / (1 + zero[2])
-            @test discount(curve, 2) ≈ 1 / (1 + zero[4])^2
-
-            @test forward(curve, 0.5, 1.0) ≈ Yields.Periodic(6.6 / 100, 1) atol = 0.001
-            @test forward(curve, 1.0, 1.5) ≈ Yields.Periodic(7.6 / 100, 1) atol = 0.001
-            @test forward(curve, 1.5, 2.0) ≈ Yields.Periodic(8.0 / 100, 1) atol = 0.001
-        end
-        
-        y = Yields.Zero(zero)
-
-        @test discount(y, 1) ≈ 1 / 1.05
-        @test discount(y, 2) ≈ 1 / 1.058^2
-
-        @testset "broadcasting" begin
-            @test all(discount.(y, [1, 2]) .≈ [1 / 1.05, 1 / 1.058^2])
-            @test all(accumulation.(y, [1, 2]) .≈ [1.05, 1.058^2])
         end
 
     end
