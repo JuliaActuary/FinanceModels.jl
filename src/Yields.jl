@@ -3,8 +3,8 @@ module Yields
 using Reexport
 using SnoopPrecompile
 using FinanceCore
-using FinanceCore: Rate, rate, discount, accumulation, Periodic, Continuous, forward
-@reexport using FinanceCore: Rate, rate, discount, accumulation, Periodic, Continuous, forward
+using FinanceCore: Rate, rate, discount, accumulation, Periodic, Continuous, forward, zero
+@reexport using FinanceCore: Rate, rate, discount, accumulation, Periodic, Continuous, forward, zero
 import BSplineKit
 import ForwardDiff # used in Bootstrap solving
 using LinearAlgebra

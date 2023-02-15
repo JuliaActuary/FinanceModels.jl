@@ -66,11 +66,10 @@ function _bootstrap_instrument(bs::Bootstrap,quotes::Vector{Quote{P,I}}) where {
         b = q.instrument
         
         function root_func(v_guess)
-            @show v_guess
             # z_inner = vcat(z[1:i-1],ZCBYield(v_guess[1],maturities[i]))
             # @show z_inner
             c = bs(z[1:i-1],ZCBYield(v_guess[1],maturities[i])) 
-            @show _pv(v_guess[1],b) - q.price
+            _pv(c,b) - q.price
         end
         root_func′(v_guess) = ForwardDiff.derivative(root_func, v_guess)
 

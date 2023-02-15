@@ -64,32 +64,32 @@ function _pv(y,b::Bond)
     return sum(cf.amount * discount(y,cf.time) for cf in b)
 end
 
-get_frequency(a::FinanceCore.Rate; default) = a.compounding
-get_frequency(a; default) = default
+__coerce_periodic(y::Periodic) = y
+__coerce_periodic(y::T) where {T<:Int} = Periodic(y)
 
 # assume the frequency is two or infer it from the yield
-function ParYield(yield,maturity;frequency=nothing)
-    if isnothing(frequency)
-        frequency = get_frequency(yield;default=Periodic(2))
-    end
+function ParYield(yield,maturity;frequency=Periodic(2))
+    frequency = __coerce_periodic(frequency)
     price = 1. # by definition for a par bond
     coupon_rate = rate(frequency(yield))
     return Quote(price,Bond(coupon_rate,frequency,maturity)) 
-
 end
-function ParYield(yields;frequency=nothing)
+
+function ParYield(yields;frequency=Periodic(2))
+    frequency = __coerce_periodic(frequency)
     return ParYield.(yields,eachindex(yields);frequency=frequency)
 end
 
 # the fixed leg of the swap
-function ParSwapYield(yield,maturity;frequency=nothing)
+function ParSwapYield(yield,maturity;frequency=Periodic(4))
+    frequency = __coerce_periodic(frequency)
     ParYield(yield,maturity;frequency=frequency)
 end
 
 function CMTYield(yield,maturity)
-    frequency = maturity <= 1 ? Periodic(1) : Periodic(2)
+    frequency =  Periodic(2)
     r = frequency(yield)
-    return Quote(discount(r,maturity),Bond(rate(r),r.compounding,maturity))
+    return Quote(1.,Bond(rate(r),r.compounding,maturity))
 end
 
 function OISYield(yield,maturity)

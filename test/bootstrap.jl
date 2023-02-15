@@ -49,8 +49,16 @@
 
     end
 
+    @testset "simplest par" begin
+        c = curve(ParYield([0.05]))
+        @test Yields.par(c,1) ≈ Yields.Periodic(0.05,2)
+
+        c = curve(ParYield([0.05,0.05]))
+        @test Yields.par(c,2) ≈ Yields.Periodic(0.05,2)
+    end
+
     @testset "Salomon Understanding the Yield Curve Pt 1 Figure 9" begin
-        maturity = collect(1:10)
+        maturity = collect(1.:10.)
 
         par = [6.0, 8.0, 9.5, 10.5, 11.0, 11.25, 11.38, 11.44, 11.48, 11.5] ./ 100
         spot = [6.0, 8.08, 9.72, 10.86, 11.44, 11.71, 11.83, 11.88, 11.89, 11.89] ./ 100
@@ -61,16 +69,16 @@
         fwd = [6.0, 10.2, 13.07, 14.36, 13.77, 13.1, 12.61, 12.14, 12.05, 11.84] ./ 100  # modified
 
         y = curve(ParYield.(Periodic(1).(par), maturity))
-        @testset "quadratic UTYC Figure 9 par -> spot : $mat" for mat in maturity
-            @test zero(y, mat) ≈ Periodic(spot[mat],1) atol = 0.0001
-            @test forward(y, mat - 1) ≈ Yields.Periodic(fwd[mat], 1) atol = 0.0001
+        @testset "quadratic UTYC Figure 9 par -> spot : $m" for (p,s,f,m) in zip(par,spot,fwd,maturity)
+            @test Yields.zero(y, m) ≈ Periodic(s,1) atol = 0.0001
+            @test Yields.forward(y, m - 1) ≈ Yields.Periodic(f, 1) atol = 0.0001
         end
 
-        y = curve(ParYield.(Periodic(1).(par), maturity))
+        y = curve(Bootstrap(LinearSpline),ParYield.(Periodic(1).(par), maturity))
 
-        @testset "linear UTYC Figure 9 par -> spot : $mat" for mat in maturity
-            @test zero(y, mat) ≈ Periodic(spot[mat],1) atol = 0.0001
-            @test forward(y, mat - 1) ≈ Yields.Periodic(fwd[mat], 1) atol = 0.0001
+        @testset "linear UTYC Figure 9 par -> spot : $m" for (p,s,f,m) in zip(par,spot,fwd,maturity)
+            @test Yields.zero(y, m) ≈ Periodic(s,1) atol = 0.0001
+            @test Yields.forward(y, m - 1) ≈ Yields.Periodic(f, 1) atol = 0.0001
         end
 
     end
@@ -146,17 +154,11 @@
         targets = [5.25, 5.5, 5.76, 6.02, 6.28, 6.55, 6.82, 6.87, 7.09, 7.2, 7.26, 7.31, 7.43, 7.48, 7.54, 7.67, 7.8, 7.79, 7.93, 8.07] ./ 100
         target_periodicity = fill(2, length(mats))
         target_periodicity[2] = 1 # 1 year is a no-coupon, BEY yield, the rest are semiannual BEY
-        @testset "curve bootstrapping choices" for curve in [Yields.CMT(cmt, mats), Yields.CMT(Bootstrap(LinearSpline()),cmt, mats), Yields.CMT(Bootstrap(QuadraticSpline()),cmt, mats)]
+        objs = CMTYield.(cmt, mats)
+        curves = [curve(objs), curve(Bootstrap(LinearSpline()), objs), curve(Bootstrap(QuadraticSpline()), objs)]
+        @testset "curve bootstrapping choices" for c in curves
             @testset "Fabozzi bootstrapped rates" for (r, mat, target, tp) in zip(cmt, mats, targets, target_periodicity)
-                @test rate(zero(curve, mat, Yields.Periodic(tp))) ≈ target atol = 0.0001
-            end
-
-            @testset "Fabozzi bootstrapped rates" for (r, mat, target, tp) in zip(cmt, mats, targets, target_periodicity)
-                @test rate(zero(curve, mat, Yields.Periodic(tp))) ≈ target atol = 0.0001
-            end
-
-            @testset "Fabozzi bootstrapped rates" for (r, mat, target, tp) in zip(cmt, mats, targets, target_periodicity)
-                @test rate(zero(curve, mat, Yields.Periodic(tp))) ≈ target atol = 0.0001
+                @test zero(c, mat) ≈ Periodic(tp)(target) atol = 0.0001
             end
         end
         
@@ -164,14 +166,15 @@
         adj = ((1 + 0.051813 / 2)^2 - 1) * 100
         cmt = [4.0816, adj, 5.4986, 5.8620] ./ 100
         mats = [0.5, 1.0, 1.5, 2.0]
-        curve = Yields.CMT(cmt, mats)
+
+        c = curve(CMTYield.(cmt, mats))
         targets = [4.0405, 5.1293, 5.4429, 5.8085] ./ 100
         @testset "Hull bootstrapped rates" for (r, mat, target) in zip(cmt, mats, targets)
-            @test rate(zero(curve, mat, Yields.Continuous())) ≈ target atol = 0.001
+            @test Yields.zero(c, mat) ≈ Continuous(target) atol = 0.001
         end
 
         # test that showing the curve doesn't error
-        @test length(repr(curve)) > 0
+        @test length(repr(c)) > 0
 
         #     # https://www.federalreserve.gov/pubs/feds/2006/200628/200628abs.html
         #     # 2020-04-02 data

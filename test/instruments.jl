@@ -8,7 +8,7 @@
 
     @test ParYield(0.1,1.) == Quote(1.,Bond(0.1,Periodic(2),1.))
 
-    @test CMTYield(0.0,0.5) == Quote(1.,Bond(0.00,Periodic(1),0.5))
+    @test CMTYield(0.0,0.5) == Quote(1.,Bond(0.00,Periodic(2),0.5))
 
 
     @testset "Forward" begin
