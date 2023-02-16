@@ -148,16 +148,16 @@
 
 
     @testset "actual cmt treasury" begin
-        # Fabozzi 5-5,5-6
+        # Frank Fabozzi's Bond Markets, Analysis and Strategies, Sixth Edition example 5-5
         cmt = [5.25, 5.5, 5.75, 6.0, 6.25, 6.5, 6.75, 6.8, 7.0, 7.1, 7.15, 7.2, 7.3, 7.35, 7.4, 7.5, 7.6, 7.6, 7.7, 7.8] ./ 100
         mats = collect(0.5:0.5:10.0)
         targets = [5.25, 5.5, 5.76, 6.02, 6.28, 6.55, 6.82, 6.87, 7.09, 7.2, 7.26, 7.31, 7.43, 7.48, 7.54, 7.67, 7.8, 7.79, 7.93, 8.07] ./ 100
         target_periodicity = fill(2, length(mats))
-        target_periodicity[2] = 1 # 1 year is a no-coupon, BEY yield, the rest are semiannual BEY
+        target_periodicity[1:2] .= 1 # 1 year is a no-coupon, BEY yield, the rest are semiannual BEY
         objs = CMTYield.(cmt, mats)
         curves = [curve(objs), curve(Bootstrap(LinearSpline()), objs), curve(Bootstrap(QuadraticSpline()), objs)]
         @testset "curve bootstrapping choices" for c in curves
-            @testset "Fabozzi bootstrapped rates" for (r, mat, target, tp) in zip(cmt, mats, targets, target_periodicity)
+            @testset "Fabozzi bootstrapped rates ($mat)" for (r, mat, target, tp) in zip(cmt, mats, targets, target_periodicity)
                 @test zero(c, mat) ≈ Periodic(tp)(target) atol = 0.0001
             end
         end
@@ -198,11 +198,11 @@
 
         curve = Yields.OIS(ois, mats)
         @testset "bootstrapped rates" for (r, mat, target) in zip(ois, mats, targets)
-            @test rate(zero(curve, mat, Yields.Continuous())) ≈ target atol = 0.001
+            @test rate(Yields.zero(curve, mat, Yields.Continuous())) ≈ target atol = 0.001
         end
         curve = Yields.OIS(Bootstrap(LinearSpline()),ois, mats)
         @testset "bootstrapped rates" for (r, mat, target) in zip(ois, mats, targets)
-            @test rate(zero(curve, mat, Yields.Continuous())) ≈ target atol = 0.001
+            @test rate(Yields.zero(curve, mat, Yields.Continuous())) ≈ target atol = 0.001
         end
     end
 

@@ -9,11 +9,13 @@ struct Quote{N<:Real,T<:Instrument}
     price::N
     instrument::T
 end
+Base.isapprox(a::Quote,b::Quote) = isapprox(a.price,b.price) && isapprox(a.instrument,b.instrument)
 
 struct Cashflow{N<:Real,T<:Real} <: Instrument
     amount::N
     time::T
 end
+Base.isapprox(a::Cashflow,b::Cashflow) = isapprox(a.amount,b.amount) && isapprox(a.time,b.time)
 
 
 abstract type AbstractBond <: Instrument end
@@ -43,6 +45,10 @@ struct Bond{F<:FinanceCore.CompoundingFrequency,N<:Real,M<:Real} <: AbstractBond
     coupon_rate::N # coupon_rate / frequency is the actual payment amount
     frequency::F
     maturity::M
+end
+
+function Base.isapprox(a::Bond,b::Bond)
+    isapprox(a.coupon_rate,b.coupon_rate) && ==(a.frequency,b.frequency) && isapprox(a.maturity,b.maturity)
 end
 
 coupon_times(b::Bond) = coupon_times(b.maturity,b.frequency.frequency)
@@ -86,10 +92,18 @@ function ParSwapYield(yield,maturity;frequency=Periodic(4))
     ParYield(yield,maturity;frequency=frequency)
 end
 
+# assume maturity < 1 don't pay coupons and are therefore discount bonds
+# assume maturity > 1 pay coupons and are therefore par bonds
+# floating point yield assumed to be annual effective (`Periodic(1)`) unless otherwise specified
 function CMTYield(yield,maturity)
     frequency =  Periodic(2)
-    r = frequency(yield)
-    return Quote(1.,Bond(rate(r),r.compounding,maturity))
+    r, v = if maturity ≤ 1
+        Periodic(0.,1), discount(yield,maturity) 
+    else
+        # coupon paying par bond 
+        frequency(yield), 1.0
+    end
+    return Quote(v,Bond(rate(r),r.compounding,maturity))
 end
 
 function OISYield(yield,maturity)
