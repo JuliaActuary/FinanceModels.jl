@@ -162,6 +162,20 @@
             end
         end
         
+        @testset "Handbook of Fixed Income Securities" begin
+            # exhibit 3-3
+            # TODO: Issue is because these are not Par quotes, see exhibit 3-2
+            mats = 0.5:0.5:10.0
+            ytm = [8.,8.3,8.9,9.2,9.4,9.7,10.,10.4,10.6,10.8,10.9,11.2,11.4,11.6,11.8,11.9,12.,12.2,12.4,12.5]
+            c = curve(CMTYield.(ytm ./ 100, mats))
+
+            @test Yields.zero(c, 0.5) ≈ Periodic(0.08,1) atol = 0.0001
+            @test Yields.zero(c, 1.) ≈ Periodic(0.083,1) atol = 0.0001
+            @test Yields.zero(c, 2.) ≈ Periodic(0.09247,2) atol = 0.0001
+            @test Yields.zero(c, 5.) ≈ Periodic(0.11021,2) atol = 0.0001
+            @test Yields.zero(c, 10.) ≈ Periodic(0.13623,2) atol = 0.0001
+        end
+
         # Hull, problem 4.34
         adj = ((1 + 0.051813 / 2)^2 - 1) * 100
         cmt = [4.0816, adj, 5.4986, 5.8620] ./ 100
