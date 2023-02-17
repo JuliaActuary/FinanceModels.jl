@@ -14,7 +14,7 @@
     
 
     @testset "Forward" begin
-        fy = ForwardYield.([0.01,0.02],[0.,1.])
+        fy = ForwardYield.([0.01,0.02],[1.,2.])
         @test first(fy) == Quote(1/1.01,Forward(0.0,Cashflow(1.,1.)))
         @test last(fy) == Quote(1/1.02,Forward(1.0,Cashflow(1.,1.)))
     end

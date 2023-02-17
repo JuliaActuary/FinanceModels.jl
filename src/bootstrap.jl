@@ -52,13 +52,18 @@ end
 function (b::Bootstrap)(quotes::Vector{Quote{T,I}}) where {T,I<:Bond}
     _bootstrap_instrument(b,quotes)
 end
+function (b::Bootstrap)(quotes::Vector{Quote{U,Forward{N,T}}}) where {N,T<:Cashflow,U}
+    obs = __process_forwards(quotes)
+    b(obs)
+end
+
+
 
 function _bootstrap_instrument(bs::Bootstrap,quotes::Vector{Quote{P,I}}) where {P,I<:Bond}
     # use first coupon rate as the initial guess
     maturities = [q.instrument.maturity for q in quotes]
     z = ZCBYield.(zeros(length(quotes)), maturities)
 
-    ## TODO: Optim is looking for minimum, not root. Need to get root finding to work or switch Optim algo
     
     # we have to take the first rate as the starting point
     for (i,q) in enumerate(quotes)
@@ -66,16 +71,12 @@ function _bootstrap_instrument(bs::Bootstrap,quotes::Vector{Quote{P,I}}) where {
         b = q.instrument
         
         function root_func(v_guess)
-            # z_inner = vcat(z[1:i-1],ZCBYield(v_guess[1],maturities[i]))
-            # @show z_inner
             c = bs(z[1:i-1],ZCBYield(v_guess[1],maturities[i])) 
             _pv(c,b) - q.price
         end
         root_func′(v_guess) = ForwardDiff.derivative(root_func, v_guess)
 
         z[i] = ZCBYield(solve(root_func, root_func′, q.instrument.coupon_rate),maturities[i])
-        # o =Optim.optimize(root_func, [0.0], Optim.LBFGS())
-        # z[i] = ZCBYield(Optim.minimizer(o)[1],maturities[i])
     end
 
     # zero_vec = -log.(clamp.(discount_vec,0.00001,1)) ./ maturities

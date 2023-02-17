@@ -37,9 +37,9 @@ end
 
 ### Bonds 
 ZCBPrice(price,time) = Quote(price,Cashflow(1.,time))
-ZCBPrice(prices) =  ZCBPrice.(prices,eachindex(prices))
+# ZCBPrice(prices) =  ZCBPrice.(prices,eachindex(prices))
 ZCBYield(yield,time) = Quote(discount(yield,time),Cashflow(1.,time)) 
-ZCBYield(yields) = ZCBYield.(yields,eachindex(yields))
+# ZCBYield(yields) = ZCBYield.(yields,eachindex(yields))
 
 struct Bond{F<:FinanceCore.CompoundingFrequency,N<:Real,M<:Real} <: AbstractBond
     coupon_rate::N # coupon_rate / frequency is the actual payment amount
@@ -80,11 +80,17 @@ function ParYield(yield,maturity;frequency=Periodic(2))
     coupon_rate = rate(frequency(yield))
     return Quote(price,Bond(coupon_rate,frequency,maturity)) 
 end
-
-function ParYield(yields;frequency=Periodic(2))
-    frequency = __coerce_periodic(frequency)
-    return ParYield.(yields,eachindex(yields);frequency=frequency)
+function ParYield(yield::Rate{N,T},maturity;frequency=Periodic(2)) where {T<:Periodic,N}
+    frequency = yield.compounding
+    price = 1. # by definition for a par bond
+    coupon_rate = rate(frequency(yield))
+    return Quote(price,Bond(coupon_rate,frequency,maturity)) 
 end
+
+# function ParYield(yields;frequency=Periodic(2))
+#     frequency = __coerce_periodic(frequency)
+#     return ParYield.(yields,eachindex(yields);frequency=frequency)
+# end
 
 # the fixed leg of the swap
 function ParSwapYield(yield,maturity;frequency=Periodic(4))
@@ -125,4 +131,22 @@ struct Forward{N<:Real,I<:Instrument} <: Instrument
 end
 
 
-ForwardYield(yield,start=0.0,duration=1.0) = Quote(discount(yield,duration),Forward(start,Cashflow(1.,duration)))
+ForwardYield(yield,to=1.0,from=to-1.0) = Quote(discount(yield,to-from),Forward(from,Cashflow(1.,to-from)))
+
+# convert ZCB to non-forward versions
+function __process_forwards(qs::Vector{Quote{U,Forward{N,T}}}) where {N,T<:Cashflow,U}
+    v = 1.0
+    t = 0.0
+    map(qs) do q
+        v *= (q.price / q.instrument.instrument.amount)
+        t = q.instrument.time + q.instrument.instrument.time
+        Quote(v,Cashflow(1.,t))
+    end
+end
+
+
+for op = (:ZCBPrice, :ZCBYield, :ParYield, :ParSwapYield, :CMTYield, :ForwardYield)
+    eval(quote
+        $op(x::Vector{T};y...) where {T} = $op.(x,eachindex(x);y...)
+    end)
+end

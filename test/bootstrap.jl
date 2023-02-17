@@ -57,7 +57,10 @@
         @test Yields.par(c,2) ≈ Yields.Periodic(0.05,2)
     end
 
+
+
     @testset "Salomon Understanding the Yield Curve Pt 1 Figure 9" begin
+        # also at: Handbook of fixed income securities, 9th ed ex. 31-B
         maturity = collect(1.:10.)
 
         par = [6.0, 8.0, 9.5, 10.5, 11.0, 11.25, 11.38, 11.44, 11.48, 11.5] ./ 100
@@ -67,14 +70,14 @@
         # in the text? forwards for <= 6 matched so reasonably confident that the algo is correct
         # fwd = [6.,10.2,13.07,14.36,13.77,13.1,12.55,12.2,11.97,11.93] ./ 100 # from text
         fwd = [6.0, 10.2, 13.07, 14.36, 13.77, 13.1, 12.61, 12.14, 12.05, 11.84] ./ 100  # modified
-
-        y = curve(ParYield.(Periodic(1).(par), maturity))
+        obs = ParYield.(Periodic(1).(par), maturity)
+        y = curve(Bootstrap(QuadraticSpline()),obs)
         @testset "quadratic UTYC Figure 9 par -> spot : $m" for (p,s,f,m) in zip(par,spot,fwd,maturity)
             @test Yields.zero(y, m) ≈ Periodic(s,1) atol = 0.0001
             @test Yields.forward(y, m - 1) ≈ Yields.Periodic(f, 1) atol = 0.0001
         end
 
-        y = curve(Bootstrap(LinearSpline),ParYield.(Periodic(1).(par), maturity))
+        y = curve(Bootstrap(LinearSpline()),ParYield.(Periodic(1).(par), maturity))
 
         @testset "linear UTYC Figure 9 par -> spot : $m" for (p,s,f,m) in zip(par,spot,fwd,maturity)
             @test Yields.zero(y, m) ≈ Periodic(s,1) atol = 0.0001
@@ -83,46 +86,87 @@
 
     end
 
+    @testset "par" begin
+        @testset "first payment logic" begin
+            ct = Yields.coupon_times
+            @test ct(0.5,1) ≈ 0.5:1:0.5
+            @test ct(1.5,1) ≈ 0.5:1:1.5
+            @test ct(0.75,1) ≈ 0.75:1:0.75
+            @test ct(1,1) ≈ 1:1:1
+            @test ct(1,2) ≈ 0.5:0.5:1.0
+            @test ct(0.5,2) ≈ 0.5:0.5:0.5
+            @test ct(1.5,2) ≈ 0.5:0.5:1.5
+        end
+        
+        # https://quant.stackexchange.com/questions/57608/how-to-compute-par-yield-from-zero-rate-curve
+        c = Yields.Zero(Yields.Continuous.([0.02,0.025,0.03,0.035]),0.5:0.5:2)
+        @test Yields.par(c,2) ≈ Yields.Periodic(0.03508591,2) atol = 0.000001
+
+        c = Yields.Constant(0.04)
+        @testset "misc combinations" for t in 0.5:0.5:5 
+            @test Yields.par(c,t;frequency=1) ≈ Yields.Periodic(0.04,1)
+            @test Yields.par(c,t) ≈ Yields.Periodic(0.04,1)
+            @test Yields.par(c,t,frequency=4) ≈ Yields.Periodic(0.04,1)
+        end
+
+        @test Yields.par(c,0.6) ≈ Yields.Periodic(0.04,1)
+
+        @testset "round trip" begin
+            maturity = collect(1:10)
+
+            par = [6.0, 8.0, 9.5, 10.5, 11.0, 11.25, 11.38, 11.44, 11.48, 11.5] ./ 100
+
+            curve = Yields.Par(par,maturity)
+
+            for (p,m) in zip(par,maturity)
+                @test Yields.par(curve,m) ≈ Yields.Periodic(p,2) atol = 0.001
+            end
+        end
+
+
+    end
+
     @testset "Forward Rates" begin
         # Risk Managment and Financial Institutions, 5th ed. Appendix B
 
         forwards = [0.05, 0.04, 0.03, 0.08]
-        curve = Yields.Forward(forwards, [1, 2, 3, 4])
+        obs = ForwardYield.(forwards, [1, 2, 3, 4])
+        c = curve(obs)
 
 
         @testset "discounts: $t" for (t, r) in enumerate(forwards)
-            @test discount(curve, t) ≈ reduce((v, r) -> v / (1 + r), forwards[1:t]; init = 1.0)
+            @test discount(c, t) ≈ reduce((v, r) -> v / (1 + r), forwards[1:t]; init = 1.0)
         end
 
         # test constructor without times
-        curve = Yields.Forward(forwards)
+        c = curve(ForwardYield(forwards))
 
         @testset "discounts: $t" for (t, r) in enumerate(forwards)
-            @test discount(curve, t) ≈ reduce((v, r) -> v / (1 + r), forwards[1:t]; init = 1.0)
+            @test discount(c, t) ≈ reduce((v, r) -> v / (1 + r), forwards[1:t]; init = 1.0)
         end
 
-        @test accumulation(curve, 0, 1) ≈ 1.05
-        @test accumulation(curve, 1, 2) ≈ 1.04
-        @test accumulation(curve, 0, 2) ≈ 1.04 * 1.05
+        @test accumulation(c, 0, 1) ≈ 1.05
+        @test accumulation(c, 1, 2) ≈ 1.04
+        @test accumulation(c, 0, 2) ≈ 1.04 * 1.05
 
         # test construction using vector of reals and of Rates
-        @test discount(Yields.Forward(forwards), 1) > discount(Yields.Forward(Yields.Continuous.(forwards)), 1)
+        @test discount(c, 1) > discount(curve(ForwardYield(Continuous.(forwards))), 1)
 
         @testset "broadcasting" begin
-            @test all(accumulation.(curve, [1, 2]) .≈ [1.05, 1.04 * 1.05])
-            @test all(discount.(curve, [1, 2]) .≈ 1 ./ [1.05, 1.04 * 1.05])
+            @test all(accumulation.(c, [1, 2]) .≈ [1.05, 1.04 * 1.05])
+            @test all(discount.(c, [1, 2]) .≈ 1 ./ [1.05, 1.04 * 1.05])
         end
 
         # addition / subtraction
-        @test discount(curve + 0.1, 1) ≈ 1 / 1.15
-        @test discount(curve - 0.03, 1) ≈ 1 / 1.02
+        @test discount(c + 0.1, 1) ≈ 1 / 1.15
+        @test discount(c - 0.03, 1) ≈ 1 / 1.02
 
 
 
         @testset "with specified timepoints" begin
             i = [0.0, 0.05]
             times = [0.5, 1.5]
-            y = Yields.Forward(i, times)
+            y = curve(ForwardYield.(i, times))
             @test discount(y, 0.5) ≈ 1 / 1.0^0.5
             @test discount(y, 1.5) ≈ 1 / 1.0^0.5 / 1.05^1
 
@@ -130,7 +174,7 @@
 
     end
 
-    @testset "forwardcurve" begin
+    @testset "Forward Starting" begin
         maturity = [0.5, 1.0, 1.5, 2.0]
         zeros = [5.0, 5.8, 6.4, 6.8] ./ 100
         curve = Yields.Zero(zeros, maturity)
@@ -164,13 +208,34 @@
         
         @testset "Handbook of Fixed Income Securities" begin
             # exhibit 3-3
-            # TODO: Issue is because these are not Par quotes, see exhibit 3-2
             mats = 0.5:0.5:10.0
             ytm = [8.,8.3,8.9,9.2,9.4,9.7,10.,10.4,10.6,10.8,10.9,11.2,11.4,11.6,11.8,11.9,12.,12.2,12.4,12.5]
-            c = curve(CMTYield.(ytm ./ 100, mats))
-
-            @test Yields.zero(c, 0.5) ≈ Periodic(0.08,1) atol = 0.0001
-            @test Yields.zero(c, 1.) ≈ Periodic(0.083,1) atol = 0.0001
+            obs = [
+                Quote(0.9615,Bond(0.0000,Periodic(1), 0.5)),
+                Quote(0.9219,Bond(0.0000,Periodic(1), 1.0)),
+                Quote(0.9945,Bond(0.0850,Periodic(2), 1.5)),
+                Quote(0.9964,Bond(0.0900,Periodic(2), 2.0)),
+                Quote(1.0349,Bond(0.1100,Periodic(2), 2.5)),
+                Quote(0.9949,Bond(0.0950,Periodic(2), 3.0)),
+                Quote(1.0000,Bond(0.1000,Periodic(2), 3.5)),
+                Quote(0.9872,Bond(0.1000,Periodic(2), 4.0)),
+                Quote(1.0316,Bond(0.1150,Periodic(2), 4.5)),
+                Quote(0.9224,Bond(0.0875,Periodic(2), 5.0)),
+                Quote(0.9838,Bond(0.1050,Periodic(2), 5.5)),
+                Quote(0.9914,Bond(0.1100,Periodic(2), 6.0)),
+                Quote(0.8694,Bond(0.0850,Periodic(2), 6.5)),
+                Quote(0.8424,Bond(0.0825,Periodic(2), 7.0)),
+                Quote(0.9609,Bond(0.1100,Periodic(2), 7.5)),
+                Quote(0.7262,Bond(0.0650,Periodic(2), 8.0)),
+                Quote(0.8297,Bond(0.0875,Periodic(2), 8.5)),
+                Quote(1.0430,Bond(0.1300,Periodic(2), 9.0)),
+                Quote(0.9506,Bond(0.1150,Periodic(2), 9.5)),
+                Quote(1.0000,Bond(0.1250,Periodic(2),10.0)),
+                ]
+                
+            c = curve(obs)
+            @test Yields.zero(c, 0.5) ≈ Periodic(1.04^2-1,1) atol = 0.0001
+            @test Yields.zero(c, 1.) ≈ Periodic(0.083,2) atol = 0.0001
             @test Yields.zero(c, 2.) ≈ Periodic(0.09247,2) atol = 0.0001
             @test Yields.zero(c, 5.) ≈ Periodic(0.11021,2) atol = 0.0001
             @test Yields.zero(c, 10.) ≈ Periodic(0.13623,2) atol = 0.0001
@@ -218,46 +283,6 @@
         @testset "bootstrapped rates" for (r, mat, target) in zip(ois, mats, targets)
             @test rate(Yields.zero(curve, mat, Yields.Continuous())) ≈ target atol = 0.001
         end
-    end
-
-    @testset "par" begin
-        @testset "first payment logic" begin
-            ct = Yields.coupon_times
-            @test ct(0.5,1) ≈ 0.5:1:0.5
-            @test ct(1.5,1) ≈ 0.5:1:1.5
-            @test ct(0.75,1) ≈ 0.75:1:0.75
-            @test ct(1,1) ≈ 1:1:1
-            @test ct(1,2) ≈ 0.5:0.5:1.0
-            @test ct(0.5,2) ≈ 0.5:0.5:0.5
-            @test ct(1.5,2) ≈ 0.5:0.5:1.5
-        end
-        
-        # https://quant.stackexchange.com/questions/57608/how-to-compute-par-yield-from-zero-rate-curve
-        c = Yields.Zero(Yields.Continuous.([0.02,0.025,0.03,0.035]),0.5:0.5:2)
-        @test Yields.par(c,2) ≈ Yields.Periodic(0.03508591,2) atol = 0.000001
-
-        c = Yields.Constant(0.04)
-        @testset "misc combinations" for t in 0.5:0.5:5 
-            @test Yields.par(c,t;frequency=1) ≈ Yields.Periodic(0.04,1)
-            @test Yields.par(c,t) ≈ Yields.Periodic(0.04,1)
-            @test Yields.par(c,t,frequency=4) ≈ Yields.Periodic(0.04,1)
-        end
-
-        @test Yields.par(c,0.6) ≈ Yields.Periodic(0.04,1)
-
-        @testset "round trip" begin
-            maturity = collect(1:10)
-
-            par = [6.0, 8.0, 9.5, 10.5, 11.0, 11.25, 11.38, 11.44, 11.48, 11.5] ./ 100
-
-            curve = Yields.Par(par,maturity)
-
-            for (p,m) in zip(par,maturity)
-                @test Yields.par(curve,m) ≈ Yields.Periodic(p,2) atol = 0.001
-            end
-        end
-
-
     end
 
 end
