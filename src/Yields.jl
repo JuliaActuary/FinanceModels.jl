@@ -15,7 +15,7 @@ import Optim
 # don't export type, as the API of Yields.Zero is nicer and 
 # less polluting than Zero and less/equally verbose as ZeroYieldCurve or ZeroCurve
 export LinearSpline, QuadraticSpline,
-    Bootstrap, NelsonSiegel, NelsonSiegelSvensson, SmithWilson
+    Bootstrap, NelsonSiegel, NelsonSiegelSvensson, SmithWilson, ForwardStarting
 export Cashflow, ZCBPrice, ZCBYield, ParYield, CMTYield, OISYield, Forward, ForwardYield,Bond, Quote,
 curve
 
@@ -28,6 +28,7 @@ include("Observables.jl")
 include("methods.jl")
 include("Constant.jl")
 include("Bootstrap.jl")
+include("ForwardStarting.jl")
 # include("SmithWilson.jl")
 # include("generics.jl")
 # include("NelsonSiegelSvensson.jl")

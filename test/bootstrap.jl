@@ -29,9 +29,9 @@
 
         maturity = [0.5, 1.0, 1.5, 2.0]
         zero = [5.0, 5.8, 6.4, 6.8] ./ 100
-        c = ZCBYield.(zero, maturity)
+        obs = ZCBYield.(zero, maturity)
 
-        @testset "curves" for curve in [curve(c),curve(Bootstrap(),c),curve(Bootstrap(LinearSpline()),c),curve(Bootstrap(QuadraticSpline()),c)]
+        @testset "curves" for curve in [curve(obs),curve(Bootstrap(),obs),curve(Bootstrap(LinearSpline()),obs),curve(Bootstrap(QuadraticSpline()),obs)]
             @test discount(curve, 0) ≈ 1
             @test discount(curve, 1) ≈ 1 / (1 + zero[2])
             @test discount(curve, 2) ≈ 1 / (1 + zero[4])^2
@@ -99,7 +99,7 @@
         end
         
         # https://quant.stackexchange.com/questions/57608/how-to-compute-par-yield-from-zero-rate-curve
-        c = Yields.Zero(Yields.Continuous.([0.02,0.025,0.03,0.035]),0.5:0.5:2)
+        c = curve(ZCBYield.(Yields.Continuous.([0.02,0.025,0.03,0.035]),0.5:0.5:2))
         @test Yields.par(c,2) ≈ Yields.Periodic(0.03508591,2) atol = 0.000001
 
         c = Yields.Constant(0.04)
@@ -116,10 +116,10 @@
 
             par = [6.0, 8.0, 9.5, 10.5, 11.0, 11.25, 11.38, 11.44, 11.48, 11.5] ./ 100
 
-            curve = Yields.Par(par,maturity)
+            c = curve(ParYield.(par,maturity))
 
             for (p,m) in zip(par,maturity)
-                @test Yields.par(curve,m) ≈ Yields.Periodic(p,2) atol = 0.001
+                @test Yields.par(c,m) ≈ Yields.Periodic(p,2) atol = 0.001
             end
         end
 
@@ -177,16 +177,17 @@
     @testset "Forward Starting" begin
         maturity = [0.5, 1.0, 1.5, 2.0]
         zeros = [5.0, 5.8, 6.4, 6.8] ./ 100
-        curve = Yields.Zero(zeros, maturity)
+        obs = ZCBYield.(zeros, maturity)
+        c = curve(obs)
 
-        fwd = Yields.ForwardStarting(curve, 1.0)
+        fwd = Yields.ForwardStarting(c, 1.0)
         @test discount(fwd, 0) ≈ 1
-        @test discount(fwd, 0.5) ≈ discount(curve, 1, 1.5)
-        @test discount(fwd, 1) ≈ discount(curve, 1, 2)
-        @test accumulation(fwd, 1) ≈ accumulation(curve, 1, 2)
+        @test discount(fwd, 0.5) ≈ discount(c, 1, 1.5)
+        @test discount(fwd, 1) ≈ discount(c, 1, 2)
+        @test accumulation(fwd, 1) ≈ accumulation(c, 1, 2)
 
-        @test zero(fwd,1) ≈ forward(curve,1,2)
-        @test zero(fwd,1,Yields.Continuous()) ≈ convert(Yields.Continuous(),forward(curve,1,2))
+        @test zero(fwd,1) ≈ forward(c,1,2)
+        @test zero(fwd,1) ≈ Continuous()(forward(c,1,2))
     end
 
 
