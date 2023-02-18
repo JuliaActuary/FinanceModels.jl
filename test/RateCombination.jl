@@ -1,7 +1,7 @@
 @testset "Rate Combinations" begin
     riskfree_maturities = [0.5, 1.0, 1.5, 2.0]
     riskfree = [5.0, 5.8, 6.4, 6.8] ./ 100 # spot rates
-    rf_curve = Yields.Zero(riskfree, riskfree_maturities)
+    rf_curve = curve(ZCBYield.(riskfree, riskfree_maturities))
 
     @testset "base + spread" begin
 
