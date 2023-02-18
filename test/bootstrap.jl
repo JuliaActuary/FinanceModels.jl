@@ -273,15 +273,16 @@
     @testset "OIS" begin
         ois = [1.8, 2.0, 2.2, 2.5, 3.0, 4.0] ./ 100
         mats = [1 / 12, 1 / 4, 1 / 2, 1, 2, 5]
-        targets = [0.017987, 0.019950, 0.021880, 0.024693, 0.029994, 0.040401]
+        obs = OISYield.(ois, mats)
+        targets = Continuous.([0.017987, 0.019950, 0.021880, 0.024693, 0.029994, 0.040401])
 
-        curve = Yields.OIS(ois, mats)
-        @testset "bootstrapped rates" for (r, mat, target) in zip(ois, mats, targets)
-            @test rate(Yields.zero(curve, mat, Yields.Continuous())) ≈ target atol = 0.001
+        c = curve(obs)
+        @testset "bootstrapped rates: $mat" for (r, mat, target) in zip(ois, mats, targets)
+            @test Yields.zero(c, mat) ≈ target atol = 0.001
         end
-        curve = Yields.OIS(Bootstrap(LinearSpline()),ois, mats)
-        @testset "bootstrapped rates" for (r, mat, target) in zip(ois, mats, targets)
-            @test rate(Yields.zero(curve, mat, Yields.Continuous())) ≈ target atol = 0.001
+        c = curve(Bootstrap(LinearSpline()),obs)
+        @testset "bootstrapped rates: $mat" for (r, mat, target) in zip(ois, mats, targets)
+            @test Yields.zero(c, mat) ≈ target atol = 0.001
         end
     end
 

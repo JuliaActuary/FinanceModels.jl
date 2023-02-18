@@ -67,16 +67,17 @@ function _bootstrap_instrument(bs::Bootstrap,quotes::Vector{Quote{P,I}}) where {
     
     # we have to take the first rate as the starting point
     for (i,q) in enumerate(quotes)
-        # it's a discount/premium bond so we need to solve for the rate that works
         b = q.instrument
-        
+        # construct a curve with our guess and see return the difference to the target price
         function root_func(v_guess)
+            z[1:i-1],v_guess[1],maturities[i]
             c = bs(z[1:i-1],ZCBYield(v_guess[1],maturities[i])) 
+            v_guess, _pv(c,b) - q.price
             _pv(c,b) - q.price
         end
         root_func′(v_guess) = ForwardDiff.derivative(root_func, v_guess)
-
-        z[i] = ZCBYield(solve(root_func, root_func′, q.instrument.coupon_rate),maturities[i])
+        ans = solve(root_func, root_func′, q.instrument.coupon_rate)
+        z[i] = ZCBYield(ans,maturities[i])
     end
 
     # zero_vec = -log.(clamp.(discount_vec,0.00001,1)) ./ maturities

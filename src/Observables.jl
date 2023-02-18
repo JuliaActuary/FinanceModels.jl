@@ -106,13 +106,15 @@ function CMTYield(yield,maturity)
 end
 
 function OISYield(yield,maturity)
-    frequency = if m <= 1
-        Periodic(1 / m)
+        # assume that maturities less than or equal to 12 months are settled once, otherwise quarterly
+        # per Hull 4.7
+    if maturity <= 1
+        return Quote(discount(yield,maturity),Bond(0.,Periodic(1),maturity))
     else
-        Periodic(4)
+        frequency = Periodic(4)
+        r = frequency(yield)
+        return Quote(1.0,Bond(rate(r),frequency,maturity))
     end
-    r = frequency(yield)
-    return Quote(discount(r,maturity),Bond(rate(r),r.compounding,maturity))
 end
 
 
