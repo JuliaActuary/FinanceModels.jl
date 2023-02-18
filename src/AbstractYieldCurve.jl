@@ -1,4 +1,6 @@
 abstract type AbstractYieldCurve <: FinanceCore.AbstractYield end
+# make interest curve broadcastable so that you can broadcast over multiple`time`s in `interest_rate`
+Base.Broadcast.broadcastable(ic::T) where {T<:AbstractYieldCurve} = Ref(ic)
 
 """
 A `CurveMethod` is a structure which contains associated parameters for a yield curve fitting procedure. The type of the object determines the method, and the values of the object determine the parameters.

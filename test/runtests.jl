@@ -5,6 +5,7 @@ include("instruments.jl")
 include("generic.jl")
 include("Constant.jl")
 include("bootstrap.jl")
+include("ForwardStarting.jl")
 include("RateCombination.jl")
 include("SmithWilson.jl")
 

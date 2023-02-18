@@ -1,6 +1,3 @@
-# make interest curve broadcastable so that you can broadcast over multiple`time`s in `interest_rate`
-Base.Broadcast.broadcastable(ic::T) where {T<:AbstractYieldCurve} = Ref(ic)
-
 function coupon_times(maturity,frequency)
     Δt = min(1 / frequency,maturity)
     times = maturity:-Δt:0
@@ -41,53 +38,9 @@ __coerce_rate(x,cf) = return Rate(x,cf)
 
 abstract type InterpolationKind end
 
-QuadraticSpline() = cubic_interp
+QuadraticSpline() = quadratic_interp
 LinearSpline() = linear_interp
 
-
-"""
-    _bootstrap(rates, maturities, settlement_frequency, interpolation_function)
-
-Bootstrap the rates with the given maturities, treating the rates according to the periodic frequencies in settlement_frequency. 
-
-`interpolator` is any function that will take two vectors of inputs and output points and return a function that will estimate an output given a scalar input. That is
-`interpolator` should be: `interpolator(xs, ys) -> f(x)` where `f(x)` is the interpolated value of `y` at `x`. 
-
-Built in `interpolator`s in Yields are: 
-- `QuadraticSpline()`: Quadratic spline interpolation.
-- `LinearSpline()`: Linear spline interpolation.
-
-The default is `QuadraticSpline()`.
-"""
-function _bootstrap(rates, maturities, settlement_frequency, interpolation_function)
-    discount_vec = zeros(length(rates)) # construct a placeholder discount vector matching maturities
-    # we have to take the first rate as the starting point
-    discount_vec[1] = discount(Constant(rates[1]), maturities[1])
-
-    for t = 2:length(maturities)
-        if isnothing(settlement_frequency[t])
-            # no settlement before maturity
-            discount_vec[t] = discount(Constant(rates[t]), maturities[t])
-        else
-            # need to account for the interim cashflows settled
-            times = settlement_frequency[t]:settlement_frequency[t]:maturities[t]
-            cfs = [rate(rates[t]) * settlement_frequency[t] for s in times]
-            cfs[end] += 1
-
-            function pv(v_guess)
-                v = interpolation_function([[0.0]; maturities[1:t]], vcat(1.0, discount_vec[1:t-1], v_guess...))
-                return sum(v.(times) .* cfs)
-            end
-            target_pv = sum(map(t2 -> discount(Constant(rates[t]), t2), times) .* cfs)
-            root_func(v_guess) = pv(v_guess) - target_pv
-            root_func′(v_guess) = ForwardDiff.derivative(root_func, v_guess)
-            discount_vec[t] = solve(root_func, root_func′, rate(rates[t]))
-        end
-
-    end
-    zero_vec = -log.(clamp.(discount_vec,0.00001,1)) ./ maturities
-    return interpolation_function([0.0; maturities], [first(zero_vec); zero_vec])
-end
 
 # the ad-hoc approach to extrapoliatons is based on suggestion by author of 
 # BSplineKit at https://github.com/jipolanco/BSplineKit.jl/issues/19
@@ -132,7 +85,7 @@ function linear_interp(xs, ys)
     return x -> _interp(e, x)
 end
 
-function cubic_interp(xs, ys)
+function quadratic_interp(xs, ys)
     order = min(length(xs),3) # in case the length of xs is less than the spline order
     int = BSplineKit.interpolate(xs, ys, BSplineKit.BSplineOrder(order))
     e = _wrap_spline(int)

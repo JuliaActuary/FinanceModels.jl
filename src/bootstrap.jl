@@ -1,18 +1,8 @@
 # bootstrapped class of curve methods
 """
-    Bootstrap(;interpolation=QuadraticSpline)
+    Bootstrap(interpolation=QuadraticSpline())
     
 This `CurveMethod` object defines the interpolation method to use when bootstrapping the curve. Provided options are `QuadraticSpline()` (the default) and `LinearSpline()`. You may also pass a custom interpolation method with the function signature of `f(xs, ys) -> f(x) -> y`.
-
-If constructing curves and the rates are not `Rate`s (ie you pass a `Vector{Float64}`), then they will be interpreted as `Periodic(1)` `Rate`s, except the [`Par`](@ref) curve, which is interpreted as `Periodic(2)` `Rate`s. [`CMT`](@ref) and [`OIS`](@ref) FinanceCore.CompoundingFrequency assumption depends on the corresponding maturity.
-
-See for more:
-
-- [`Zero`](@ref)
-- [`Forward`](@ref)
-- [`Par`](@ref)
-- [`CMT`](@ref)
-- [`OIS`](@ref)
 """
 Base.@kwdef struct Bootstrap{T} <: CurveMethod
     interpolation::T = LinearSpline()
@@ -58,7 +48,12 @@ function (b::Bootstrap)(quotes::Vector{Quote{U,Forward{N,T}}}) where {N,T<:Cashf
 end
 
 
+"""
+    _bootstrap(rates, maturities, settlement_frequency, interpolation_function)
 
+Bootstrap the rates with the given maturities, treating the rates according to the periodic frequencies in settlement_frequency. 
+
+"""
 function _bootstrap_instrument(bs::Bootstrap,quotes::Vector{Quote{P,I}}) where {P,I<:Bond}
     # use first coupon rate as the initial guess
     maturities = [q.instrument.maturity for q in quotes]
