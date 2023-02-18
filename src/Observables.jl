@@ -36,7 +36,24 @@ function Composite(a::Cashflow,b::Cashflow)
 end
 
 ### Bonds 
+"""
+    ZCBYield(yield,maturity)
+    ZCBYield(yield::Vector)
+
+Takes zero (sometimes called "spot") rates. Assumes annual effective compounding (`Periodic(1)``) unless given a `Rate` with a different compounding frequency.
+
+Use broadcasting to create a set of quotes given a collection of yields and maturities, e.g. `ZCBYield.(yields,maturities)`.
+"""
 ZCBPrice(price,time) = Quote(price,Cashflow(1.,time))
+
+"""
+    ZCBPrice(discount,maturity)
+    ZCBPrice(yield::Vector)
+
+Takes discount factors. 
+
+Use broadcasting to create a set of quotes given a collection of prices and maturities, e.g. `ZCBPrice.(yields,maturities)`.
+"""
 ZCBYield(yield,time) = Quote(discount(yield,time),Cashflow(1.,time)) 
 
 struct Bond{F<:FinanceCore.CompoundingFrequency,N<:Real,M<:Real} <: AbstractBond
@@ -71,8 +88,16 @@ end
 __coerce_periodic(y::Periodic) = y
 __coerce_periodic(y::T) where {T<:Int} = Periodic(y)
 
-# assume the frequency is two or infer it from the yield
+"""
+    ParYield(yield,maturity)
+    ParYield(yield::Vector)
+
+Takes bond equivalent yields, and assumes that instruments <= one year maturity pay no coupons and that the rest pay semi-annual. Alternative, you may pass a `Rate` as the yield and the coupon frequency will be inferred from the `Rate`'s frequency. 
+
+Use broadcasting to create a set of quotes given a collection of yields and maturities, e.g. `ParYield.(yields,maturities)`.
+"""
 function ParYield(yield,maturity;frequency=Periodic(2))
+    # assume the frequency is two or infer it from the yield
     frequency = __coerce_periodic(frequency)
     price = 1. # by definition for a par bond
     coupon_rate = rate(frequency(yield))
@@ -91,10 +116,16 @@ function ParSwapYield(yield,maturity;frequency=Periodic(4))
     ParYield(yield,maturity;frequency=frequency)
 end
 
-# assume maturity < 1 don't pay coupons and are therefore discount bonds
-# assume maturity > 1 pay coupons and are therefore par bonds
-# floating point yield assumed to be annual effective (`Periodic(1)`) unless otherwise specified
+"""
+    CMTYield(yield,maturity)
+    CMTYield(yield::Vector)
+Takes constant maturity (treasury) yields (bond equivalent), and assumes that instruments <= one year maturity pay no coupons and that the rest pay semi-annual.
+
+Use broadcasting to create a set of quotes given a collection of yields and maturities, e.g. `CMTYield.(yields,maturities)`.
+"""
 function CMTYield(yield,maturity)
+    # Assume maturity < 1 don't pay coupons and are therefore discount bonds
+    # Assume maturity > 1 pay coupons and are therefore par bonds
     frequency =  Periodic(2)
     r, v = if maturity ≤ 1
         Periodic(0.,1), discount(yield,maturity) 
@@ -105,9 +136,17 @@ function CMTYield(yield,maturity)
     return Quote(v,Bond(rate(r),r.compounding,maturity))
 end
 
+"""
+    OISYield(yield,maturity)
+    OISYield(yield::Vector)
+
+Assumes that maturities less than or equal to 12 months are settled once (per Hull textbook, 4.7), otherwise quarterly and that the yields given are bond equivalent.
+
+Use broadcasting to create a set of quotes given a collection of yields and maturities, e.g. `OISYield.(yields,maturities)`.
+
+"""
 function OISYield(yield,maturity)
-        # assume that maturities less than or equal to 12 months are settled once, otherwise quarterly
-        # per Hull 4.7
+        
     if maturity <= 1
         return Quote(discount(yield,maturity),Bond(0.,Periodic(1),maturity))
     else
@@ -118,14 +157,29 @@ function OISYield(yield,maturity)
 end
 
 
-# the instrument is relative to the Forward time.
-# e.g. if you have a Forward(1.0, Cashflow(1.0, 3.0)) then the instrument is a cashflow that pays 1.0 at time 4.0
+"""
+    Forward(time,instrument)
+
+The instrument is relative to the Forward time.
+e.g. if you have a `Forward(1.0, Cashflow(1.0, 3.0))` then the instrument is a cashflow that pays 1.0 at time 4.0
+"""
 struct Forward{N<:Real,I<:Instrument} <: Instrument
     time::N
     instrument::I
 end
 
 
+"""
+    ForwardYield(yield,to=1.0,from=to-1.0) 
+Returns a `Quote`d price for a future cashflow. 
+
+# Examples
+```julia
+fy = ForwardYield.([0.01,0.02],[1.,2.])
+first(fy) == Quote(1/1.01,Forward(0.0,Cashflow(1.,1.)))
+last(fy) == Quote(1/1.02,Forward(1.0,Cashflow(1.,1.)))
+```
+"""
 ForwardYield(yield,to=1.0,from=to-1.0) = Quote(discount(yield,to-from),Forward(from,Cashflow(1.,to-from)))
 
 # convert ZCB to non-forward versions

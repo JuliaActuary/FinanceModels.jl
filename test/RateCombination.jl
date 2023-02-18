@@ -8,7 +8,7 @@
         spread_maturities = [0.5, 1.0, 1.5, 3.0] # different maturities
         spread = [1.0, 1.8, 1.4, 1.8] ./ 100 # spot spreads
 
-        spread_curve = Yields.Zero(spread, spread_maturities)
+        spread_curve = curve(ZCBYield.(spread, spread_maturities))
 
         yield = rf_curve + spread_curve
 
