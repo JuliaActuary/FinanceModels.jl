@@ -114,3 +114,4 @@ function Base.show(io::IO, curve::T) where {T<:AbstractYieldCurve}
     )
     show(io, l)
 end
+

@@ -38,6 +38,11 @@ end
     @test Yields.__coerce_rate(Periodic(0.05,12), Periodic(1)) == Periodic(0.05,12)
 end
 
+@testset "common timestep" begin
+    @test __common_timestep([1/12,3/12,1/2,2]) == 1/12  
+    @test __common_timestep([4/12,1/2,1]) == 1/12  
+end
+
 #Issue #117
 @testset "DecFP" begin
     import DecFP
