@@ -1,3 +1,8 @@
+@Base.kwdef struct SmithWilson{U,A} <: CurveMethod
+    ufr::U
+    α::A
+end
+
 abstract type ObservableQuote end
 
 """
@@ -94,14 +99,14 @@ Required keyword arguments:
 - `ufr` is the Ultimate Forward Rate, the forward interest rate to which the yield curve tends, in continuous compounding convention. 
 - `α` is the parameter that governs the speed of convergence towards the Ultimate Forward Rate. It can be typed with `\\alpha[TAB]`
 """
-struct SmithWilson{TU<:AbstractVector,TQb<:AbstractVector} <: AbstractYieldCurve
+struct SmithWilsonCurve{TU<:AbstractVector,TQb<:AbstractVector} <: AbstractYieldCurve
     u::TU
     qb::TQb
     ufr
     α
 
     # Inner constructor ensures that vector lengths match
-    function SmithWilson{TU,TQb}(u, qb; ufr, α) where {TU<:AbstractVector,TQb<:AbstractVector}
+    function SmithWilsonCurve{TU,TQb}(u, qb; ufr, α) where {TU<:AbstractVector,TQb<:AbstractVector}
         if length(u) != length(qb)
             throw(DomainError("Vectors u and qb in SmithWilson must have equal length"))
         end
@@ -109,9 +114,9 @@ struct SmithWilson{TU<:AbstractVector,TQb<:AbstractVector} <: AbstractYieldCurve
     end
 end
 
-SmithWilson(u::TU, qb::TQb; ufr, α) where {TU<:AbstractVector,TQb<:AbstractVector} = SmithWilson{TU,TQb}(u, qb; ufr = ufr, α = α)
+# SmithWilson(u::TU, qb::TQb; ufr, α) where {TU<:AbstractVector,TQb<:AbstractVector} = SmithWilson{TU,TQb}(u, qb; ufr = ufr, α = α)
 
-__ratetype(::Type{SmithWilson{TU,TQb}}) where {TU,TQb}= Yields.Rate{Float64, Yields.Continuous}
+__ratetype(::Type{SmithWilsonCurve{TU,TQb}}) where {TU,TQb}= Yields.Rate{Float64, Yields.Continuous}
 
 """
     H_ordered(α, t_min, t_max)
@@ -139,9 +144,8 @@ H(α, t1vec::AbstractVector, t2vec::AbstractVector) = [H(α, t1, t2) for t1 in t
 H(α, tvec::AbstractVector) = H(α, tvec, tvec)
 
 
-FinanceCore.discount(sw::SmithWilson, t) = exp(-sw.ufr * t) * (1.0 + H(sw.α, sw.u, t) ⋅ sw.qb)
-Base.zero(sw::SmithWilson, t) = Continuous(sw.ufr - log(1.0 + H(sw.α, sw.u, t) ⋅ sw.qb) / t)
-Base.zero(sw::SmithWilson, t, cf::FinanceCore.CompoundingFrequency) = convert(cf, zero(sw, t))
+FinanceCore.discount(sw::SmithWilsonCurve, t) = exp(-sw.ufr * t) * (1.0 + H(sw.α, sw.u, t) ⋅ sw.qb)
+Base.zero(sw::SmithWilsonCurve, t) = Continuous(sw.ufr - log(1.0 + H(sw.α, sw.u, t) ⋅ sw.qb) / t)
 
 function SmithWilson(times::AbstractVector, cashflows::AbstractMatrix, prices::AbstractVector; ufr, α)
     Q = Diagonal(exp.(-ufr * times)) * cashflows
@@ -152,48 +156,6 @@ function SmithWilson(times::AbstractVector, cashflows::AbstractMatrix, prices::A
     return SmithWilson(times, Qb; ufr = ufr, α = α)
 end
 
-""" 
-    timepoints(zcq::Vector{ZeroCouponQuote})
-    timepoints(bbq::Vector{BulletBondQuote})
-
-Return the times associated with the `cashflows` of the instruments.
-"""
-function timepoints(qs::Vector{Q}) where {Q<:ObservableQuote}
-    frequency = maximum(q.frequency for q in qs)
-    timestep = 1 / frequency
-    maturity = maximum(q.maturity for q in qs)
-    return [timestep:timestep:maturity...]
-end
-
-
-"""
-    cashflows(interests, maturities, frequency)
-    timepoints(zcq::Vector{ZeroCouponQuote})
-    timepoints(bbq::Vector{BulletBondQuote})
-
-Produce a cash flow matrix for a set of instruments with given `interests` and `maturities`
-and a given payment frequency `frequency`. All instruments are assumed to have their first payment at time 1/`frequency`
-and have their last payment at the largest multiple of 1/`frequency` less than or equal to the input maturity.
-"""
-function cashflows(interests, maturities, frequencies)
-    frequency = lcm(frequencies)
-    fq = inv.(frequencies)
-    timestep = 1 / frequency
-    floored_mats = floor.(maturities ./ timestep) .* timestep
-    times = timestep:timestep:maximum(floored_mats)
-    # we need to determine the coupons in relation to the payment date, not time zero
-    time_adj = floored_mats .% fq
-
-    cashflows = [
-        # if on a coupon date and less than maturity, pay coupon
-        ((((t + time_adj[instrument]) % fq[instrument] ≈ 0) && t <= floored_mats[instrument]) ? interests[instrument] / frequencies[instrument] : 0.0) +
-        (t ≈ floored_mats[instrument] ? 1.0 : 0.0) # add maturity payment
-        for t in times, instrument = eachindex(interests)
-    ]
-
-    return cashflows
-end
-
 function cashflows(qs::Vector{Q}) where {Q<:ObservableQuote}
     yield = [q.yield for q in qs]
     maturity = [q.maturity for q in qs]
@@ -201,24 +163,8 @@ function cashflows(qs::Vector{Q}) where {Q<:ObservableQuote}
     return cashflows(yield, maturity, frequency)
 end
 
-# Utility methods for calibrating Smith-Wilson directly from quotes
-function SmithWilson(zcq::Vector{ZeroCouponQuote}; ufr, α)
-    n = length(zcq)
-    maturities = [q.maturity for q in zcq]
-    prices = [q.price for q in zcq]
-    return SmithWilson(maturities, Matrix{Float64}(I, n, n), prices; ufr = ufr, α = α)
+
+
+function curve() 
 end
 
-function SmithWilson(swq::Vector{SwapQuote}; ufr, α)
-    times = timepoints(swq)
-    cfs = cashflows(swq)
-    ones(length(swq))
-    return SmithWilson(times, cfs, ones(length(swq)), ufr = ufr, α = α)
-end
-
-function SmithWilson(bbq::Vector{BulletBondQuote}; ufr, α)
-    times = timepoints(bbq)
-    cfs = cashflows(bbq)
-    prices = [q.price for q in bbq]
-    return SmithWilson(times, cfs, prices, ufr = ufr, α = α)
-end

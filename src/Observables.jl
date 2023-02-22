@@ -16,7 +16,15 @@ struct Cashflow{N<:Real,T<:Real} <: Instrument
     time::T
 end
 Base.isapprox(a::Cashflow,b::Cashflow) = isapprox(a.amount,b.amount) && isapprox(a.time,b.time)
-
+function Base.iterate(cf::Cashflow,state=cf) 
+    if isnothing(state)
+        return nothing
+    else
+        return (state,nothing)
+    end
+end
+Base.length(cf::Cashflow) = 1
+Base.eltype(x::Type{Cashflow{N,T}}) where{N,T} = x
 
 abstract type AbstractBond <: Instrument end
 
@@ -198,4 +206,29 @@ for op = (:ZCBPrice, :ZCBYield, :ParYield, :ParSwapYield, :CMTYield, :ForwardYie
     eval(quote
         $op(x::Vector{T};y...) where {T} = $op.(x,eachindex(x);y...)
     end)
+end
+
+
+# cashflows should be a vector of a vector of cashflows
+function cashflow_matrix(instruments::Vector{Q};resolution=1000) where {Q<:Instrument} 
+    vcf = collect.(instruments) # a vector of vector of cashflows
+    ts = timesteps(instruments;resolution=resolution)
+    m = zeros(round(Int,last(ts) ÷ step(ts)), length(vcf))
+    for (i, cf) in enumerate(vcf)
+        for c in cf
+            m[ round(Int,c.time ÷ step(ts)),i] = c.amount
+        end
+    end
+    return m
+    # for each obs determine the closest integer multiple of the gcd
+    # fill in the matrix
+end
+
+
+function timesteps(instruments::Vector{Q};resolution=1000) where {Q<:Instrument} 
+    # calculate the gcd of the timesteps 
+    vcf = collect.(instruments) # a vector of vector of cashflows
+    scaled_step = gcd([Int(cf.time * resolution) for cf in Iterators.flatten(vcf) if cf.time > 0])
+    last = Int(maximum(cf.time * resolution for cf in Iterators.flatten(vcf)) ÷ resolution)
+    (scaled_step / resolution): (scaled_step / resolution) : (last)
 end

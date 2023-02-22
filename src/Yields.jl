@@ -30,7 +30,7 @@ include("Constant.jl")
 include("Bootstrap.jl")
 include("ForwardStarting.jl")
 include("SmithWilson.jl")
-include("NelsonSiegelSvensson.jl")
+# include("NelsonSiegelSvensson.jl")
 include("curve.jl")
 include("RateCombination.jl")
 
