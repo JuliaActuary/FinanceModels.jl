@@ -42,11 +42,6 @@ end
 function (b::Bootstrap)(quotes::Vector{Quote{T,I}}) where {T,I<:Bond}
     _bootstrap_instrument(b,quotes)
 end
-function (b::Bootstrap)(quotes::Vector{Quote{U,Forward{N,T}}}) where {N,T<:Cashflow,U}
-    obs = __process_forwards(quotes)
-    b(obs)
-end
-
 
 """
     _bootstrap(rates, maturities, settlement_frequency, interpolation_function)
