@@ -3,88 +3,12 @@
     α::A
 end
 
-abstract type ObservableQuote end
-
 """
-    ZeroCouponQuote(price, maturity)
-
-Quote for a set of zero coupon bonds with given `price` and `maturity`. 
-
-# Examples
-
-```julia-repl
-julia> prices = [1.3, 0.1, 4.5]
-julia> maturities = [1.2, 2.5, 3.6]
-julia> swq = Yields.ZeroCouponQuote.(prices, maturities)
-```
-"""
-struct ZeroCouponQuote <: ObservableQuote
-    price
-    maturity
-end
-
-"""
-    SwapQuote(yield, maturity, frequency)
-
-Quote for a set of interest rate swaps with the given `yield` and `maturity` and a given payment `frequency`.
-
-# Examples
-
-```julia-repl
-julia> maturities = [1.2, 2.5, 3.6]
-julia> interests = [-0.02, 0.3, 0.04]
-julia> prices = [1.3, 0.1, 4.5]
-julia> frequencies = [2,1,2]
-julia> swq = Yields.SwapQuote.(interests, maturities, frequencies)
-```
-"""
-struct SwapQuote <: ObservableQuote
-    yield
-    maturity
-    frequency
-    function SwapQuote(yield, maturity, frequency)
-        frequency <= 0 && throw(DomainError("Payment frequency must be positive"))
-        return new(yield, maturity, frequency)
-    end
-end
-
-
-"""
-    BulletBondQuote(yield, price, maturity, frequency)
-
-Quote for a set of fixed interest bullet bonds with given `yield`, `price`, `maturity` and a given payment frequency `frequency`.
-
-Construct a vector of quotes for use with SmithWilson methods, e.g. by broadcasting over an array of inputs.
-
-# Examples
-
-```julia-repl
-julia> maturities = [1.2, 2.5, 3.6]
-julia> interests = [-0.02, 0.3, 0.04]
-julia> prices = [1.3, 0.1, 4.5]
-julia> frequencies = [2,1,2]
-julia> bbq = Yields.BulletBondQuote.(interests, maturities, prices, frequencies)
-```
-"""
-struct BulletBondQuote <: ObservableQuote
-    yield
-    price
-    maturity
-    frequency
-
-    function BulletBondQuote(yield, maturity, price, frequency)
-        frequency <= 0 && throw(DomainError("Payment frequency must be positive"))
-        return new(yield, maturity, price, frequency)
-    end
-end
-
-
-"""
-    SmithWilson(zcq::Vector{ZeroCouponQuote}; ufr, α)
-    SmithWilson(swq::Vector{SwapQuote}; ufr, α)
-    SmithWilson(bbq::Vector{BulletBondQuote}; ufr, α)
-    SmithWilson(times<:AbstractVector, cashflows<:AbstractMatrix, prices<:AbstractVector; ufr, α)
-    SmithWilson(u, qb; ufr, α)
+    SmithWilsonCurve(zcq::Vector{ZeroCouponQuote}; ufr, α)
+    SmithWilsonCurve(swq::Vector{SwapQuote}; ufr, α)
+    SmithWilsonCurve(bbq::Vector{BulletBondQuote}; ufr, α)
+    SmithWilsonCurve(times<:AbstractVector, cashflows<:AbstractMatrix, prices<:AbstractVector; ufr, α)
+    SmithWilsonCurve(u, qb; ufr, α)
     
 Create a yield curve object that implements the Smith-Wilson interpolation/extrapolation scheme.
 
@@ -106,15 +30,13 @@ struct SmithWilsonCurve{TU<:AbstractVector,TQb<:AbstractVector} <: AbstractYield
     α
 
     # Inner constructor ensures that vector lengths match
-    function SmithWilsonCurve{TU,TQb}(u, qb; ufr, α) where {TU<:AbstractVector,TQb<:AbstractVector}
+    function SmithWilsonCurve(sw::S, u::TU, qb::TQb) where {S<:SmithWilson,TU<:AbstractVector,TQb<:AbstractVector}
         if length(u) != length(qb)
             throw(DomainError("Vectors u and qb in SmithWilson must have equal length"))
         end
-        return new(u, qb, ufr, α)
+        return new{TU,TQb}(u, qb, sw.ufr, sw.α)
     end
 end
-
-# SmithWilson(u::TU, qb::TQb; ufr, α) where {TU<:AbstractVector,TQb<:AbstractVector} = SmithWilson{TU,TQb}(u, qb; ufr = ufr, α = α)
 
 __ratetype(::Type{SmithWilsonCurve{TU,TQb}}) where {TU,TQb}= Yields.Rate{Float64, Yields.Continuous}
 
@@ -147,24 +69,20 @@ H(α, tvec::AbstractVector) = H(α, tvec, tvec)
 FinanceCore.discount(sw::SmithWilsonCurve, t) = exp(-sw.ufr * t) * (1.0 + H(sw.α, sw.u, t) ⋅ sw.qb)
 Base.zero(sw::SmithWilsonCurve, t) = Continuous(sw.ufr - log(1.0 + H(sw.α, sw.u, t) ⋅ sw.qb) / t)
 
-function SmithWilson(times::AbstractVector, cashflows::AbstractMatrix, prices::AbstractVector; ufr, α)
-    Q = Diagonal(exp.(-ufr * times)) * cashflows
+function __SW_inner(sw::SmithWilson,times, cashflows, prices)
+    Q = Diagonal(exp.(-sw.ufr * times)) * cashflows
     q = vec(sum(Q, dims = 1))  # We want q to be a column vector
-    QHQ = Q' * H(α, times) * Q
+    QHQ = Q' * H(sw.α, times) * Q
     b = QHQ \ (prices - q)
     Qb = Q * b
-    return SmithWilson(times, Qb; ufr = ufr, α = α)
+    return SmithWilsonCurve(sw, times, Qb)
 end
 
-function cashflows(qs::Vector{Q}) where {Q<:ObservableQuote}
-    yield = [q.yield for q in qs]
-    maturity = [q.maturity for q in qs]
-    frequency = [q.frequency for q in qs]
-    return cashflows(yield, maturity, frequency)
+function (sw::SmithWilson)(quotes::Vector{Quote{T,C}}) where {T,C<:Cashflow}
+    n = length(quotes)
+    maturities = [q.instrument.time for q in quotes]
+    prices = [q.price for q in quotes]
+    return __SW_inner(sw,maturities, Matrix{Float64}(I, n, n), prices)
 end
 
-
-
-function curve() 
-end
 

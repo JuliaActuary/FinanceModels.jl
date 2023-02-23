@@ -1,55 +1,25 @@
 @testset "SmithWilson" begin
 
-    @testset "InstrumentQuotes" begin
-
-        maturities = [1.3, 2.7]
-        prices = [1.1, 0.8]
-        zcq = Yields.ZeroCouponQuote.(prices, maturities)
-        @test isa(first(zcq), Yields.ZeroCouponQuote)
-
-        @test_throws DimensionMismatch Yields.ZeroCouponQuote.([1.3, 2.4, 0.9], maturities)
-
-        rates = [0.4, -0.7]
-        swq = Yields.SwapQuote.(rates, maturities, 3)
-        @test first(swq).frequency == 3
-
-        @test_throws DimensionMismatch Yields.SwapQuote.([1.3, 2.4, 0.9], maturities, 3)
-        @test_throws DomainError Yields.SwapQuote.(rates, maturities, 0)
-        @test_throws DomainError Yields.SwapQuote.(rates, maturities, -2)
-
-        rates = [0.4, -0.7]
-        bbq = Yields.BulletBondQuote.(rates, prices, maturities, 3)
-        @test first(bbq).frequency == 3
-        @test first(bbq).yield == first(rates)
-
-
-        @test_throws DimensionMismatch Yields.BulletBondQuote.([1.3, 2.4, 0.9], prices, maturities, 3)
-        @test_throws DimensionMismatch Yields.BulletBondQuote.(rates, prices, [4.3, 5.6, 4.4, 4.4], 3)
-        @test first(Yields.BulletBondQuote.(rates, [5.7], maturities, 3)).price == 5.7
-        @test_throws DomainError Yields.BulletBondQuote.(rates, prices, maturities, 0)
-        @test_throws DomainError Yields.BulletBondQuote.(rates, prices, maturities, -4)
-
-    end
-
     @testset "SmithWilson" begin
 
         ufr = 0.03
         α = 0.1
+        w = SmithWilson(ufr, α)
         u = [5.0, 7.0]
         qb = [2.3, -1.2]
 
         # Basic behaviour
-        sw = Yields.SmithWilson(u, qb; ufr = ufr, α = α)
+        sw = Yields.SmithWilsonCurve(w,u, qb)
         @test sw.ufr == ufr
         @test sw.α == α
         @test sw.u == u
         @test sw.qb == qb
-        @test_throws DomainError Yields.SmithWilson(u, [2.4, -3.4, 8.9], ufr = ufr, α = α)
+        @test_throws DomainError Yields.SmithWilsonCurve(w,u, [2.4, -3.4, 8.9])
 
         # Empty u and Qb should result in a flat yield curve
         # Use this to test methods expected from <:AbstractYieldCurve
         # Only discount and zero are explicitly implemented, so the others should follow automatically
-        sw_flat = Yields.SmithWilson(Float64[], Float64[], ufr = ufr, α = α)
+        sw_flat = Yields.SmithWilsonCurve(w,Float64[], Float64[])
         @test discount(sw_flat, 10.0) == exp(-ufr * 10.0)
         @test accumulation(sw_flat, 10.0) ≈ exp(ufr * 10.0)
         @test rate(convert(Yields.Continuous(), zero(sw_flat, 8.0))) ≈ ufr
@@ -57,11 +27,12 @@
         @test rate(convert(Yields.Continuous(), forward(sw_flat, 5.0, 8.0))) ≈ ufr
 
         # A trivial Qb vector (=0) should result in a flat yield curve
-        ufr_curve = Yields.SmithWilson(u, [0.0, 0.0], ufr = ufr, α = α)
+        ufr_curve = Yields.SmithWilsonCurve(w,u, [0.0, 0.0])
         @test discount(ufr_curve, 10.0) == exp(-ufr * 10.0)
 
         # A single payment at time 4, zero interest
-        curve_with_zero_yield = Yields.SmithWilson([4.0], reshape([1.0], 1, 1), [1.0], ufr = ufr, α = α)
+        obs = [ZCBPrice(1.0,4)]
+        curve_with_zero_yield = curve(w,obs)
         @test discount(curve_with_zero_yield, 4.0) == 1.0
 
         # In the long end it's still just UFR
