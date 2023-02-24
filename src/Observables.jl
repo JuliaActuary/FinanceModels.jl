@@ -224,11 +224,33 @@ function cashflow_matrix(instruments::Vector{Q};resolution=1000) where {Q<:Instr
     # fill in the matrix
 end
 
+function cashflow_matrix(quotes::Vector{Q};resolution=1000) where {Q<:Quote}
+    cashflow_matrix([q.instrument for q in quotes];resolution=resolution)
+end
 
 function timesteps(instruments::Vector{Q};resolution=1000) where {Q<:Instrument} 
     # calculate the gcd of the timesteps 
-    vcf = collect.(instruments) # a vector of vector of cashflows
-    scaled_step = gcd([Int(cf.time * resolution) for cf in Iterators.flatten(vcf) if cf.time > 0])
-    last = Int(maximum(cf.time * resolution for cf in Iterators.flatten(vcf)) ÷ resolution)
-    (scaled_step / resolution): (scaled_step / resolution) : (last)
+    mapreduce(timesteps,merge_range,instruments)
+end
+
+function timesteps(quotes::Vector{Q};resolution=1000) where {Q<:Quote}
+    timesteps([q.instrument for q in quotes];resolution=resolution)
+end
+
+timesteps(c::Cashflow) = c.time:c.time
+function timesteps(b::Bond)
+    f = 1/b.frequency.frequency
+    f:f:b.maturity
+end
+function timesteps(c::Composite)
+    a = timesteps(c.a)
+    b = timesteps(c.b)
+    merge_range(a,b)
+end
+
+function merge_range(a,b;resolution=1000)
+    start = min(minimum(a),minimum(b))
+    last = max(maximum(a),maximum(b))
+    delta = gcd(Int(step(a)*resolution),Int(step(b)*resolution)) / resolution
+    return start:delta:last
 end
