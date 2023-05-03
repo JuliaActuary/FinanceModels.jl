@@ -3,6 +3,13 @@ uuid = "d7e99b2f-e7f3-4d9e-9f01-2338fc023ad3"
 authors = ["Alec Loudenback <alecloudenback@gmail.com> and contributors"]
 version = "3.5.0"
 
+[weakdeps]
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+DayCounts = "44e31299-2c53-5a9b-9141-82aa45d7972f"
+
+[extensions]
+YieldsDateExt = "Dates, DayCounts"
+
 [deps]
 BSplineKit = "093aae92-e908-43d7-9660-e50ee39d5a0a"
 FinanceCore = "b9b1ffdd-6612-4b69-8227-7663be06e089"
