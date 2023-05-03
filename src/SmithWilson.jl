@@ -85,6 +85,13 @@ function (sw::SmithWilson)(quotes::Vector{Quote{T,C}}) where {T,C<:Cashflow}
     return __SW_inner(sw,maturities, Matrix{Float64}(I, n, n), prices)
 end
 
+function (sw::SmithWilson)(quotes::Vector{Quote{T,C}}) where {T,C<:Cashflow}
+    n = length(quotes)
+    time
+    prices = [q.price for q in quotes]
+    return __SW_inner(sw,maturities, Matrix{Float64}(I, n, n), prices)
+end
+
 function (sw::SmithWilson)(quotes::Vector{Quote{T,B}}) where {T,B<:Bond}
     @show ts = timesteps(quotes)
     @show prices = [q.price for q in quotes]

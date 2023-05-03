@@ -5,7 +5,7 @@
 
 abstract type Instrument end
 
-struct Quote{N<:Real,T<:Instrument} 
+struct Quote{N<:Real,T} 
     price::N
     instrument::T
 end
@@ -28,20 +28,20 @@ Base.eltype(x::Type{Cashflow{N,T}}) where{N,T} = x
 
 abstract type AbstractBond <: Instrument end
 
-struct Composite{T,U} <: Instrument 
-    first::T
-    second::U
-end
+# struct Composite{T,U} <: Instrument 
+#     first::T
+#     second::U
+# end
 
-Base.:+(a::Instrument,b::Instrument) = Composite(a,b)
+# struct Composite{C} <: Instrument
+#     Cashflow::Vector{C}
+# end
+# const Vector{Cashflow} = 
 
-function Composite(a::Cashflow,b::Cashflow)
-    if a.time == b.time
-        return Cashflow(a.amount + b.amount, a.time)
-    else
-        return Composite{Cashflow,Cashflow}(a,b)
-    end
-end
+Base.:+(a,b::Instrument) = vcat(collect(a),collect(b))
+Base.:+(a::Instrument,b) = vcat(collect(a),collect(b))
+Base.:+(a::Instrument,b::Instrument) = vcat(collect(a),collect(b))
+
 
 ### Bonds 
 """
@@ -238,15 +238,12 @@ function timesteps(quotes::Vector{Q};resolution=1000) where {Q<:Quote}
 end
 
 timesteps(c::Cashflow) = c.time:c.time
+
 function timesteps(b::Bond)
     f = 1/b.frequency.frequency
     f:f:b.maturity
 end
-function timesteps(c::Composite)
-    a = timesteps(c.a)
-    b = timesteps(c.b)
-    merge_range(a,b)
-end
+
 
 function merge_range(a,b;resolution=1000)
     start = min(minimum(a),minimum(b))
