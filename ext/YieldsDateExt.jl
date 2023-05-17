@@ -13,7 +13,6 @@ struct DateCurve{T,D<:DayCounts.AbstractDayCount}
     end
 end
 
-discount(c::DateCurve, date::Date) = discount(c.curve, time, c.dc)
-
+discount(c::DateCurve, date::Date) = discount(c.curve, yearfrac(c.reference_date,date, c.dc))
 
 end
