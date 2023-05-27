@@ -4,7 +4,7 @@ using ActuaryUtilities
     cfs = [5, 5, 105]
     times    = [1, 2, 3]
 
-    discount_rates  = [0.03,Yields.Periodic(0.03,1), Yields.Constant(0.03)]
+    discount_rates  = [0.03,FinanceModels.Periodic(0.03,1), FinanceModels.Constant(0.03)]
 
     for d in discount_rates
         @test present_value(d, cfs, times)           ≈ 105.65722270978935

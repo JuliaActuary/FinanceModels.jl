@@ -2,7 +2,7 @@
 ActuaryUtilities = "bdd23359-8b1c-4f88-b89b-d11982a786f4"
 DecFP = "55939f99-70c6-5e9b-8bb0-5071ed7d61fd"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
-Yields = "d7e99b2f-e7f3-4d9e-9f01-2338fc023ad3"
+FinanceModels = "77f2ae65-bdde-421f-ae9d-22f1af19dd76"
 
 [compat]
 ActuaryUtilities = "^2,^3"

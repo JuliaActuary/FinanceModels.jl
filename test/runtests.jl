@@ -1,4 +1,4 @@
-using Yields
+using FinanceModels
 using Test
 
 include("generic.jl")

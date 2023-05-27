@@ -4,30 +4,30 @@
 
         maturities = [1.3, 2.7]
         prices = [1.1, 0.8]
-        zcq = Yields.ZeroCouponQuote.(prices, maturities)
-        @test isa(first(zcq), Yields.ZeroCouponQuote)
+        zcq = FinanceModels.ZeroCouponQuote.(prices, maturities)
+        @test isa(first(zcq), FinanceModels.ZeroCouponQuote)
 
-        @test_throws DimensionMismatch Yields.ZeroCouponQuote.([1.3, 2.4, 0.9], maturities)
+        @test_throws DimensionMismatch FinanceModels.ZeroCouponQuote.([1.3, 2.4, 0.9], maturities)
 
         rates = [0.4, -0.7]
-        swq = Yields.SwapQuote.(rates, maturities, 3)
+        swq = FinanceModels.SwapQuote.(rates, maturities, 3)
         @test first(swq).frequency == 3
 
-        @test_throws DimensionMismatch Yields.SwapQuote.([1.3, 2.4, 0.9], maturities, 3)
-        @test_throws DomainError Yields.SwapQuote.(rates, maturities, 0)
-        @test_throws DomainError Yields.SwapQuote.(rates, maturities, -2)
+        @test_throws DimensionMismatch FinanceModels.SwapQuote.([1.3, 2.4, 0.9], maturities, 3)
+        @test_throws DomainError FinanceModels.SwapQuote.(rates, maturities, 0)
+        @test_throws DomainError FinanceModels.SwapQuote.(rates, maturities, -2)
 
         rates = [0.4, -0.7]
-        bbq = Yields.BulletBondQuote.(rates, prices, maturities, 3)
+        bbq = FinanceModels.BulletBondQuote.(rates, prices, maturities, 3)
         @test first(bbq).frequency == 3
         @test first(bbq).yield == first(rates)
 
 
-        @test_throws DimensionMismatch Yields.BulletBondQuote.([1.3, 2.4, 0.9], prices, maturities, 3)
-        @test_throws DimensionMismatch Yields.BulletBondQuote.(rates, prices, [4.3, 5.6, 4.4, 4.4], 3)
-        @test first(Yields.BulletBondQuote.(rates, [5.7], maturities, 3)).price == 5.7
-        @test_throws DomainError Yields.BulletBondQuote.(rates, prices, maturities, 0)
-        @test_throws DomainError Yields.BulletBondQuote.(rates, prices, maturities, -4)
+        @test_throws DimensionMismatch FinanceModels.BulletBondQuote.([1.3, 2.4, 0.9], prices, maturities, 3)
+        @test_throws DimensionMismatch FinanceModels.BulletBondQuote.(rates, prices, [4.3, 5.6, 4.4, 4.4], 3)
+        @test first(FinanceModels.BulletBondQuote.(rates, [5.7], maturities, 3)).price == 5.7
+        @test_throws DomainError FinanceModels.BulletBondQuote.(rates, prices, maturities, 0)
+        @test_throws DomainError FinanceModels.BulletBondQuote.(rates, prices, maturities, -4)
 
     end
 
@@ -39,33 +39,33 @@
         qb = [2.3, -1.2]
 
         # Basic behaviour
-        sw = Yields.SmithWilson(u, qb; ufr = ufr, α = α)
+        sw = FinanceModels.SmithWilson(u, qb; ufr = ufr, α = α)
         @test sw.ufr == ufr
         @test sw.α == α
         @test sw.u == u
         @test sw.qb == qb
-        @test_throws DomainError Yields.SmithWilson(u, [2.4, -3.4, 8.9], ufr = ufr, α = α)
+        @test_throws DomainError FinanceModels.SmithWilson(u, [2.4, -3.4, 8.9], ufr = ufr, α = α)
 
         # Empty u and Qb should result in a flat yield curve
         # Use this to test methods expected from <:AbstractYieldCurve
         # Only discount and zero are explicitly implemented, so the others should follow automatically
-        sw_flat = Yields.SmithWilson(Float64[], Float64[], ufr = ufr, α = α)
+        sw_flat = FinanceModels.SmithWilson(Float64[], Float64[], ufr = ufr, α = α)
         @test discount(sw_flat, 10.0) == exp(-ufr * 10.0)
         @test accumulation(sw_flat, 10.0) ≈ exp(ufr * 10.0)
-        @test rate(convert(Yields.Continuous(), zero(sw_flat, 8.0))) ≈ ufr
+        @test rate(convert(FinanceModels.Continuous(), zero(sw_flat, 8.0))) ≈ ufr
         @test discount.(sw_flat, [5.0, 10.0]) ≈ exp.(-ufr .* [5.0, 10.0])
-        @test rate(convert(Yields.Continuous(), forward(sw_flat, 5.0, 8.0))) ≈ ufr
+        @test rate(convert(FinanceModels.Continuous(), forward(sw_flat, 5.0, 8.0))) ≈ ufr
 
         # A trivial Qb vector (=0) should result in a flat yield curve
-        ufr_curve = Yields.SmithWilson(u, [0.0, 0.0], ufr = ufr, α = α)
+        ufr_curve = FinanceModels.SmithWilson(u, [0.0, 0.0], ufr = ufr, α = α)
         @test discount(ufr_curve, 10.0) == exp(-ufr * 10.0)
 
         # A single payment at time 4, zero interest
-        curve_with_zero_yield = Yields.SmithWilson([4.0], reshape([1.0], 1, 1), [1.0], ufr = ufr, α = α)
+        curve_with_zero_yield = FinanceModels.SmithWilson([4.0], reshape([1.0], 1, 1), [1.0], ufr = ufr, α = α)
         @test discount(curve_with_zero_yield, 4.0) == 1.0
 
         # In the long end it's still just UFR
-        @test rate(convert(Yields.Continuous(), forward(curve_with_zero_yield, 1000.0, 2000.0))) ≈ ufr
+        @test rate(convert(FinanceModels.Continuous(), forward(curve_with_zero_yield, 1000.0, 2000.0))) ≈ ufr
 
         # Three maturities have known discount factors
         times = [1.0, 2.5, 5.6]
@@ -74,7 +74,7 @@
             0 1 0
             0 0 1]
 
-        curve_three = Yields.SmithWilson(times, cfs, prices, ufr = ufr, α = α)
+        curve_three = FinanceModels.SmithWilson(times, cfs, prices, ufr = ufr, α = α)
         @test transpose(cfs) * discount.(curve_three, times) ≈ prices
 
         # Two cash flows with payments at three times
@@ -82,14 +82,14 @@
         cfs = [0.1 0.1
             1.0 0.1
             0.0 1.0]
-        curve_nondiag = Yields.SmithWilson(times, cfs, prices, ufr = ufr, α = α)
+        curve_nondiag = FinanceModels.SmithWilson(times, cfs, prices, ufr = ufr, α = α)
         @test transpose(cfs) * discount.(curve_nondiag, times) ≈ prices
 
         # Round-trip zero coupon quotes
         zcq_times = [1.2, 4.5, 5.6]
         zcq_prices = [1.0, 0.9, 1.2]
-        zcq = Yields.ZeroCouponQuote.(zcq_prices, zcq_times)
-        sw_zcq = Yields.SmithWilson(zcq, ufr = ufr, α = α)
+        zcq = FinanceModels.ZeroCouponQuote.(zcq_prices, zcq_times)
+        sw_zcq = FinanceModels.SmithWilson(zcq, ufr = ufr, α = α)
         @testset "ZeroCouponQuotes round-trip" for idx = 1:length(zcq_times)
             @test discount(sw_zcq, zcq_times[idx]) ≈ zcq_prices[idx]
         end
@@ -98,7 +98,7 @@
         swq_maturities = [1.2, 2.5, 3.6]
         swq_interests = [-0.02, 0.3, 0.04]
         frequency = [2, 1, 2]
-        swq = Yields.SwapQuote.(swq_interests, swq_maturities, frequency)
+        swq = FinanceModels.SwapQuote.(swq_interests, swq_maturities, frequency)
         swq_times = 0.5:0.5:3.5   # Maturities are rounded down to multiples of 1/frequency, [1.0, 2.5, 3.5]
         swq_payments = [
             -0.01 0.3 0.02
@@ -114,7 +114,7 @@
         swq_maturities = [1.2, 2.5, 3.6]
         swq_interests = [-0.02, 0.3, 0.04]
         frequency = 2
-        swq = Yields.SwapQuote.(swq_interests, swq_maturities, frequency)
+        swq = FinanceModels.SwapQuote.(swq_interests, swq_maturities, frequency)
         swq_times = 0.5:0.5:3.5   # Maturities are rounded down to multiples of 1/frequency, [1.0, 2.5, 3.5]
         swq_payments = [-0.01 0.15 0.02
             0.99 0.15 0.02
@@ -123,24 +123,24 @@
             0.0 1.15 0.02
             0.0 0.0 0.02
             0.0 0.0 1.02]
-        sw_swq = Yields.SmithWilson(swq, ufr = ufr, α = α)
+        sw_swq = FinanceModels.SmithWilson(swq, ufr = ufr, α = α)
         @testset "SwapQuotes round-trip" for swapIdx = 1:length(swq_interests)
             @test sum(discount.(sw_swq, swq_times) .* swq_payments[:, swapIdx]) ≈ 1.0
         end
 
-        @test Yields.__ratetype(sw_swq) == Yields.Rate{Float64,typeof(Yields.DEFAULT_COMPOUNDING)}
+        @test FinanceModels.__ratetype(sw_swq) == FinanceModels.Rate{Float64,typeof(FinanceModels.DEFAULT_COMPOUNDING)}
 
         # Round-trip bullet bond quotes (reuse data from swap quotes)
         bbq_prices = [1.3, 0.1, 4.5]
-        bbq = Yields.BulletBondQuote.(swq_interests, bbq_prices, swq_maturities, frequency)
-        sw_bbq = Yields.SmithWilson(bbq, ufr = ufr, α = α)
+        bbq = FinanceModels.BulletBondQuote.(swq_interests, bbq_prices, swq_maturities, frequency)
+        sw_bbq = FinanceModels.SmithWilson(bbq, ufr = ufr, α = α)
         @testset "BulletBondQuotes round-trip" for bondIdx = 1:length(swq_interests)
             @test sum(discount.(sw_bbq, swq_times) .* swq_payments[:, bondIdx]) ≈ bbq_prices[bondIdx]
         end
 
         @testset "SW ForwardStarting" begin
             fwd_time = 1.0
-            fwd = Yields.ForwardStarting(sw_swq, fwd_time)
+            fwd = FinanceModels.ForwardStarting(sw_swq, fwd_time)
 
             @test discount(fwd, 3.7) ≈ discount(sw_swq, fwd_time, fwd_time + 3.7)
         end
@@ -170,13 +170,13 @@
         eiopa_output_u = 1:20
         eiopa_ufr = log(1.036)
         eiopa_α = 0.133394
-        sw_eiopa_expected = Yields.SmithWilson(eiopa_output_u, eiopa_output_qb; ufr = eiopa_ufr, α = eiopa_α)
+        sw_eiopa_expected = FinanceModels.SmithWilson(eiopa_output_u, eiopa_output_qb; ufr = eiopa_ufr, α = eiopa_α)
 
         eiopa_eurswap_maturities = [1:12; 15; 20]
         eiopa_eurswap_rates = [-0.00615, -0.00575, -0.00535, -0.00485, -0.00425, -0.00375, -0.003145,
             -0.00245, -0.00185, -0.00125, -0.000711, -0.00019, 0.00111, 0.00215]   # Reverse engineered from output curve. This is the full precision of market quotes.
-        eiopa_eurswap_quotes = Yields.SwapQuote.(eiopa_eurswap_rates, eiopa_eurswap_maturities, 1)
-        sw_eiopa_actual = Yields.SmithWilson(eiopa_eurswap_quotes, ufr = eiopa_ufr, α = eiopa_α)
+        eiopa_eurswap_quotes = FinanceModels.SwapQuote.(eiopa_eurswap_rates, eiopa_eurswap_maturities, 1)
+        sw_eiopa_actual = FinanceModels.SmithWilson(eiopa_eurswap_quotes, ufr = eiopa_ufr, α = eiopa_α)
 
         @testset "Match EIOPA calculation" begin
             @test sw_eiopa_expected.u ≈ sw_eiopa_actual.u
