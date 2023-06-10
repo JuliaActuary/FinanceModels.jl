@@ -61,7 +61,5 @@ end
 function Transducers.asfoldable(p::Projection{M,K,C}) where {M,K,C<:Composite}
     ap = @set p.contract = p.contract.a
     bp = @set p.contract = p.contract.b
-    a = ap |> Map(identity) |> collect 
-    b = bp |> Map(identity) |> collect
-    [a,b] |> Cat()
+    (ap,bp) |> Cat()
 end
