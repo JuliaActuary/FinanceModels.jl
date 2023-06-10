@@ -10,6 +10,7 @@ FinanceCore = "b9b1ffdd-6612-4b69-8227-7663be06e089"
 Optimization = "7f7a1694-90dd-40f0-9382-eb1efda571ba"
 OptimizationOptimJL = "36348300-93cb-4f02-beb5-3c3902f8871e"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+Transducers = "28d57a85-8fef-5791-bfe6-a80928e7c999"
 
 [compat]
 julia = "1.6"

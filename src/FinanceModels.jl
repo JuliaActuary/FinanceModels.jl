@@ -5,6 +5,8 @@ using FinanceCore
 using Optimization, OptimizationOptimJL
 using StaticArrays
 using Accessors
+using Transducers
+using Transducers: @next, complete, __foldl__, asfoldable
 
 export Cashflow, Bond, Quote
 export NullModel, Yield, discount
