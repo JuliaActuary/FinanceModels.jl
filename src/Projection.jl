@@ -1,7 +1,7 @@
 
 abstract type AbstractProjection end
 
-struct Projection{M,K,C} <: AbstractProjection 
+struct Projection{M,K,C} <: AbstractProjection
     model::M
     kind::K
     contract::C
@@ -31,11 +31,11 @@ function Transducers.__foldl__(rf, val, p::Projection{M,K,C}) where {M,K,C<:Bond
     ts = Bond.coupon_times(b)
     for t in ts
         amt = if t == last(ts)
-             1. + b.coupon_rate/b.frequency.frequency
-             else
-                b.coupon_rate/b.frequency.frequency
-             end
-        cf = Cashflow(amt,t)
+            1.0 + b.coupon_rate / b.frequency.frequency
+        else
+            b.coupon_rate / b.frequency.frequency
+        end
+        cf = Cashflow(amt, t)
         val = @next(rf, val, cf)
     end
     return complete(rf, val)
@@ -45,13 +45,13 @@ function Transducers.__foldl__(rf, val, p::Projection{M,K,C}) where {M,K,C<:Bond
     b = p.contract
     ts = Bond.coupon_times(b)
     for t in ts
-        reference_rate = Periodic(b.frequency.frequency)(rate(p.model[b.key],t))
+        reference_rate = Periodic(b.frequency.frequency)(rate(p.model[b.key], t))
         amt = if t == last(ts)
-             1. + (rate(reference_rate)+ b.coupon_rate)/b.frequency.frequency
-             else
-                 (rate(reference_rate)+ b.coupon_rate)/b.frequency.frequency
-             end
-        cf = Cashflow(amt,t)
+            1.0 + (rate(reference_rate) + b.coupon_rate) / b.frequency.frequency
+        else
+            (rate(reference_rate) + b.coupon_rate) / b.frequency.frequency
+        end
+        cf = Cashflow(amt, t)
         val = @next(rf, val, cf)
     end
     return complete(rf, val)
@@ -61,5 +61,5 @@ end
 function Transducers.asfoldable(p::Projection{M,K,C}) where {M,K,C<:Composite}
     ap = @set p.contract = p.contract.a
     bp = @set p.contract = p.contract.b
-    (ap,bp) |> Cat()
+    (ap, bp) |> Cat()
 end
