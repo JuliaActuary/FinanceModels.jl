@@ -1,10 +1,13 @@
 
 abstract type AbstractProjection end
 
-struct Projection{M,K,C} <: AbstractProjection
+struct Projection{M,C,K} <: AbstractProjection
     model::M
-    kind::K
     contract::C
+    kind::K
+    function Projection(model::M, contract::C, kind::K) where {M,C,K}
+        new{M,C,K}(model, contract, kind)
+    end
 end
 
 
@@ -18,7 +21,7 @@ Base.collect(p::P) where {P<:AbstractProjection} = p |> Map(identity) |> collect
 
 struct CashflowProjection <: ProjectionKind end
 
-function Transducers.__foldl__(rf, val, p::Projection{M,K,C}) where {M,K,C<:Cashflow}
+function Transducers.__foldl__(rf, val, p::Projection{M,C,K}) where {M,C<:Cashflow,K}
     for i in 1:1
         val = @next(rf, val, p.contract)
     end
@@ -26,7 +29,7 @@ function Transducers.__foldl__(rf, val, p::Projection{M,K,C}) where {M,K,C<:Cash
 end
 
 
-function Transducers.__foldl__(rf, val, p::Projection{M,K,C}) where {M,K,C<:Bond.Fixed}
+function Transducers.__foldl__(rf, val, p::Projection{M,C,K}) where {M,C<:Bond.Fixed,K}
     b = p.contract
     ts = Bond.coupon_times(b)
     for t in ts
@@ -41,7 +44,7 @@ function Transducers.__foldl__(rf, val, p::Projection{M,K,C}) where {M,K,C<:Bond
     return complete(rf, val)
 end
 
-function Transducers.__foldl__(rf, val, p::Projection{M,K,C}) where {M,K,C<:Bond.Floating}
+function Transducers.__foldl__(rf, val, p::Projection{M,C,K}) where {M,C<:Bond.Floating,K}
     b = p.contract
     ts = Bond.coupon_times(b)
     for t in ts
@@ -58,8 +61,14 @@ function Transducers.__foldl__(rf, val, p::Projection{M,K,C}) where {M,K,C<:Bond
 end
 
 
-function Transducers.asfoldable(p::Projection{M,K,C}) where {M,K,C<:Composite}
+function Transducers.asfoldable(p::Projection{M,C,K}) where {M,C<:Composite,K}
     ap = @set p.contract = p.contract.a
     bp = @set p.contract = p.contract.b
     (ap, bp) |> Cat()
+end
+
+function Transducers.asfoldable(p::Projection{M,C,K}) where {M,C<:Forward,K<:CashflowProjection}
+    fwd_start = p.contract.time
+    p_alt = @set p.contract = p.contract.instrument
+    p_alt |> Map(cf -> @set cf.time += fwd_start)
 end

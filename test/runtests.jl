@@ -1,3 +1,12 @@
+# newer TestItem tests here
+
+using TestItemRunner
+
+@run_package_tests
+
+# older Test tests below
+# eventually covert these into TestItemRunner
+
 using FinanceModels
 using Test
 

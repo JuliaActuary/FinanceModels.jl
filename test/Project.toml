@@ -1,8 +1,10 @@
 [deps]
 ActuaryUtilities = "bdd23359-8b1c-4f88-b89b-d11982a786f4"
 DecFP = "55939f99-70c6-5e9b-8bb0-5071ed7d61fd"
-Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+FinanceCore = "b9b1ffdd-6612-4b69-8227-7663be06e089"
 FinanceModels = "77f2ae65-bdde-421f-ae9d-22f1af19dd76"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+TestItemRunner = "f8b46487-2199-4994-9208-9a1283c18c0a"
 
 [compat]
 ActuaryUtilities = "^2,^3"

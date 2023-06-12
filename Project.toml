@@ -5,11 +5,14 @@ version = "4.0.0"
 
 [deps]
 Accessors = "7d9f7c33-5ae7-4f3b-8dc6-eff91059b697"
+BangBang = "198e06fe-97b7-11e9-32a5-e1d131e6ad66"
 Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 FinanceCore = "b9b1ffdd-6612-4b69-8227-7663be06e089"
 Optimization = "7f7a1694-90dd-40f0-9382-eb1efda571ba"
 OptimizationOptimJL = "36348300-93cb-4f02-beb5-3c3902f8871e"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+TestItems = "1c621080-faea-4a02-84b6-bbd5e436b8fe"
 Transducers = "28d57a85-8fef-5791-bfe6-a80928e7c999"
 
 [compat]

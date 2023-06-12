@@ -7,10 +7,12 @@ using StaticArrays
 using Accessors
 using Transducers
 using Transducers: @next, complete, __foldl__, asfoldable
+import Distributions
 
-export Cashflow, Bond, Quote
-export NullModel, Yield, discount
+export Cashflow, Bond, Quote, Forward, Equity, Option
+export NullModel, Yield, discount, BlackScholesMerton
 export Projection, CashflowProjection
+export value
 export Fit, fit
 
 include("utils.jl")
