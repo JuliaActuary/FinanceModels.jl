@@ -10,7 +10,9 @@ using TestItemRunner
 using FinanceModels
 using Test
 
-include("generic.jl")
+@testitem "Generic" begin
+    include("generic.jl")
+end
 include("bootstrap.jl")
 include("RateCombination.jl")
 include("SmithWilson.jl")

@@ -1,81 +1,81 @@
+@testset "constant curve and rate -> Constant" begin
+    yield = Yield.Constant(0.05)
+
+    @test zero(yield, 1) == FinanceModels.Rate(0.05, FinanceModels.Periodic(1))
+    @test zero(FinanceModels.Constant(FinanceModels.Periodic(0.05, 2)), 10) == FinanceModels.Rate(0.05, FinanceModels.Periodic(2))
+    @test zero(yield, 5, FinanceModels.Periodic(2)) == convert(FinanceModels.Periodic(2), FinanceModels.Rate(0.05, FinanceModels.Periodic(1)))
+
+    @testset "constant discount time: $time" for time in [0, 0.5, 1, 10]
+        @test discount(yield, time) ≈ 1 / (1.05)^time
+        @test discount(yield, 0, time) ≈ 1 / (1.05)^time
+        @test discount(yield, 3, time + 3) ≈ 1 / (1.05)^time
+    end
+    @testset "constant discount scalar time: $time" for time in [0, 0.5, 1, 10]
+        @test discount(0.05, time) ≈ 1 / (1.05)^time
+    end
+
+    @testset "constant accumulation scalar time: $time" for time in [0, 0.5, 1, 10]
+        @test accumulation(0.05, time) ≈ 1 * (1.05)^time
+    end
+
+    @testset "broadcasting" begin
+        @test all(discount.(yield, [1, 2, 3]) .≈ 1 ./ 1.05 .^ (1:3))
+        @test all(accumulation.(yield, [1, 2, 3]) .≈ 1.05 .^ (1:3))
+    end
+
+    @testset "constant accumulation time: $time" for time in [0, 0.5, 1, 10]
+        @test accumulation(yield, time) ≈ 1 * 1.05^time
+        @test accumulation(yield, 0, time) ≈ 1 * 1.05^time
+        @test accumulation(yield, 3, time + 3) ≈ 1 * 1.05^time
+    end
+
+
+    yield_2x = yield + yield
+    yield_add = yield + 0.05
+    add_yield = 0.05 + yield
+    @testset "constant discount added" for time in [0, 0.5, 1, 10]
+        @test discount(yield_2x, time) ≈ 1 / (1.1)^time
+        @test discount(yield_add, time) ≈ 1 / (1.1)^time
+        @test discount(add_yield, time) ≈ 1 / (1.1)^time
+    end
+
+    yield_1bps = yield - FinanceModels.Constant(0.04)
+    yield_minus = yield - 0.01
+    minus_yield = 0.05 - FinanceModels.Constant(0.01)
+    @testset "constant discount subtraction" for time in [0, 0.5, 1, 10]
+        @test discount(yield_1bps, time) ≈ 1 / (1.01)^time
+        @test discount(yield_minus, time) ≈ 1 / (1.04)^time
+        @test discount(minus_yield, time) ≈ 1 / (1.04)^time
+    end
+end
+
 @testset "bootstrapped class of curves" begin
 
-    
-    @testset "constant curve and rate -> Constant" begin
-        yield = FinanceModels.Constant(0.05)
-        rate = FinanceModels.FinanceModels.Rate(0.05, FinanceModels.Periodic(1))
 
-        @test FinanceModels.zero(yield, 1) == FinanceModels.Rate(0.05, FinanceModels.Periodic(1))
-        @test FinanceModels.zero(FinanceModels.Constant(FinanceModels.Periodic(0.05,2)), 10) == FinanceModels.Rate(0.05, FinanceModels.Periodic(2))
-        @test FinanceModels.zero(yield, 5, FinanceModels.Periodic(2)) == convert(FinanceModels.Periodic(2), FinanceModels.Rate(0.05, FinanceModels.Periodic(1)))
-
-        @testset "constant discount time: $time" for time in [0, 0.5, 1, 10]
-            @test discount(yield, time) ≈ 1 / (1.05)^time
-            @test discount(yield, 0, time) ≈ 1 / (1.05)^time
-            @test discount(yield, 3, time + 3) ≈ 1 / (1.05)^time
-        end
-        @testset "constant discount scalar time: $time" for time in [0, 0.5, 1, 10]
-            @test discount(0.05, time) ≈ 1 / (1.05)^time
-        end
-
-        @testset "constant accumulation scalar time: $time" for time in [0, 0.5, 1, 10]
-            @test accumulation(0.05, time) ≈ 1 * (1.05)^time
-        end
-
-        @testset "broadcasting" begin
-            @test all(discount.(yield, [1, 2, 3]) .≈ 1 ./ 1.05 .^ (1:3))
-            @test all(accumulation.(yield, [1, 2, 3]) .≈ 1.05 .^ (1:3))
-        end
-
-        @testset "constant accumulation time: $time" for time in [0, 0.5, 1, 10]
-            @test accumulation(yield, time) ≈ 1 * 1.05^time
-            @test accumulation(yield, 0, time) ≈ 1 * 1.05^time
-            @test accumulation(yield, 3, time + 3) ≈ 1 * 1.05^time
-        end
-
-
-        yield_2x = yield + yield
-        yield_add = yield + 0.05
-        add_yield = 0.05 + yield
-        @testset "constant discount added" for time in [0, 0.5, 1, 10]
-            @test discount(yield_2x, time) ≈ 1 / (1.1)^time
-            @test discount(yield_add, time) ≈ 1 / (1.1)^time
-            @test discount(add_yield, time) ≈ 1 / (1.1)^time
-        end
-
-        yield_1bps = yield - FinanceModels.Constant(0.04)
-        yield_minus = yield - 0.01
-        minus_yield = 0.05 - FinanceModels.Constant(0.01)
-        @testset "constant discount subtraction" for time in [0, 0.5, 1, 10]
-            @test discount(yield_1bps, time) ≈ 1 / (1.01)^time
-            @test discount(yield_minus, time) ≈ 1 / (1.04)^time
-            @test discount(minus_yield, time) ≈ 1 / (1.04)^time
-        end
-    end
 
     @testset "short curve" begin
         z = FinanceModels.Zero([0.0, 0.05], [1, 2])
-        @test zero(z, 1) ≈ Periodic(0.00,1)
+        @test zero(z, 1) ≈ Periodic(0.00, 1)
         @test discount(z, 1) ≈ 1.00
-        @test zero(z, 2) ≈ Periodic(0.05,1)
+        @test zero(z, 2) ≈ Periodic(0.05, 1)
 
         # test no times constructor
         z = FinanceModels.Zero([0.0, 0.05])
-        @test zero(z, 1) ≈ Periodic(0.00,1)
+        @test zero(z, 1) ≈ Periodic(0.00, 1)
         @test discount(z, 1) ≈ 1.00
-        @test zero(z, 2) ≈ Periodic(0.05,1)
+        @test zero(z, 2) ≈ Periodic(0.05, 1)
     end
 
     @testset "Step curve" begin
         y = FinanceModels.Step([0.02, 0.05], [1, 2])
 
-        @test zero(y, 0.5) ≈ Periodic(0.02,1)
+        @test zero(y, 0.5) ≈ Periodic(0.02, 1)
 
         @test discount(y, 0.0) ≈ 1
         @test discount(y, 0.5) ≈ 1 / (1.02)^(0.5)
         @test discount(y, 1) ≈ 1 / (1.02)^(1)
         @test discount(y, 10) ≈ 1 / (1.02)^(1) / (1.05)^(9)
-        @test zero(y, 1) ≈ Periodic(0.02,1)
+        @test zero(y, 1) ≈ Periodic(0.02, 1)
 
         @test discount(y, 2) ≈ 1 / (1.02) / 1.05
 
@@ -90,9 +90,9 @@
 
         y = FinanceModels.Step([0.02, 0.07])
 
-        @test zero(y, 0.5) ≈ Periodic(0.02,1)
-        @test zero(y, 1) ≈ Periodic(0.02,1)
-        @test zero(y, 1.5) ≈ Periodic(accumulation(y,1.5)^(1/1.5)-1,1)
+        @test zero(y, 0.5) ≈ Periodic(0.02, 1)
+        @test zero(y, 1) ≈ Periodic(0.02, 1)
+        @test zero(y, 1.5) ≈ Periodic(accumulation(y, 1.5)^(1 / 1.5) - 1, 1)
 
     end
 
@@ -109,14 +109,14 @@
 
         y = FinanceModels.Par(Periodic(1).(par), maturity)
         @testset "quadratic UTYC Figure 9 par -> spot : $mat" for mat in maturity
-            @test zero(y, mat) ≈ Periodic(spot[mat],1) atol = 0.0001
+            @test zero(y, mat) ≈ Periodic(spot[mat], 1) atol = 0.0001
             @test forward(y, mat - 1) ≈ FinanceModels.Periodic(fwd[mat], 1) atol = 0.0001
         end
 
-        y = FinanceModels.Par(Bootstrap(LinearSpline()),FinanceModels.Rate.(par, FinanceModels.Periodic(1)), maturity)
+        y = FinanceModels.Par(Bootstrap(LinearSpline()), FinanceModels.Rate.(par, FinanceModels.Periodic(1)), maturity)
 
         @testset "linear UTYC Figure 9 par -> spot : $mat" for mat in maturity
-            @test zero(y, mat) ≈ Periodic(spot[mat],1) atol = 0.0001
+            @test zero(y, mat) ≈ Periodic(spot[mat], 1) atol = 0.0001
             @test forward(y, mat - 1) ≈ FinanceModels.Periodic(fwd[mat], 1) atol = 0.0001
         end
 
@@ -125,9 +125,9 @@
     @testset "Hull" begin
         # Par Yield, pg 85
 
-        c = FinanceModels.Par(FinanceModels.Periodic.([0.0687,0.0687],2), [2,3])
+        c = FinanceModels.Par(FinanceModels.Periodic.([0.0687, 0.0687], 2), [2, 3])
 
-        @test FinanceModels.par(c,2) ≈ FinanceModels.Periodic(0.0687,2) atol = 0.00001
+        @test FinanceModels.par(c, 2) ≈ FinanceModels.Periodic(0.0687, 2) atol = 0.00001
 
     end
 
@@ -138,7 +138,7 @@
         zero = [5.0, 5.8, 6.4, 6.8] ./ 100
         curve = FinanceModels.Zero(zero, maturity)
 
-        for curve in [FinanceModels.Zero(zero, maturity),FinanceModels.Zero(Bootstrap(LinearSpline()),zero, maturity),FinanceModels.Zero(Bootstrap(QuadraticSpline()),zero, maturity)]
+        for curve in [FinanceModels.Zero(zero, maturity), FinanceModels.Zero(Bootstrap(LinearSpline()), zero, maturity), FinanceModels.Zero(Bootstrap(QuadraticSpline()), zero, maturity)]
             @test discount(curve, 0) ≈ 1
             @test discount(curve, 1) ≈ 1 / (1 + zero[2])
             @test discount(curve, 2) ≈ 1 / (1 + zero[4])^2
@@ -147,7 +147,7 @@
             @test forward(curve, 1.0, 1.5) ≈ FinanceModels.Periodic(7.6 / 100, 1) atol = 0.001
             @test forward(curve, 1.5, 2.0) ≈ FinanceModels.Periodic(8.0 / 100, 1) atol = 0.001
         end
-        
+
         y = FinanceModels.Zero(zero)
 
         @test discount(y, 1) ≈ 1 / 1.05
@@ -168,14 +168,14 @@
 
 
         @testset "discounts: $t" for (t, r) in enumerate(forwards)
-            @test discount(curve, t) ≈ reduce((v, r) -> v / (1 + r), forwards[1:t]; init = 1.0)
+            @test discount(curve, t) ≈ reduce((v, r) -> v / (1 + r), forwards[1:t]; init=1.0)
         end
 
         # test constructor without times
         curve = FinanceModels.Forward(forwards)
 
         @testset "discounts: $t" for (t, r) in enumerate(forwards)
-            @test discount(curve, t) ≈ reduce((v, r) -> v / (1 + r), forwards[1:t]; init = 1.0)
+            @test discount(curve, t) ≈ reduce((v, r) -> v / (1 + r), forwards[1:t]; init=1.0)
         end
 
         @test accumulation(curve, 0, 1) ≈ 1.05
@@ -218,8 +218,8 @@
         @test discount(fwd, 1) ≈ discount(curve, 1, 2)
         @test accumulation(fwd, 1) ≈ accumulation(curve, 1, 2)
 
-        @test zero(fwd,1) ≈ forward(curve,1,2)
-        @test zero(fwd,1,FinanceModels.Continuous()) ≈ convert(FinanceModels.Continuous(),forward(curve,1,2))
+        @test zero(fwd, 1) ≈ forward(curve, 1, 2)
+        @test zero(fwd, 1, FinanceModels.Continuous()) ≈ convert(FinanceModels.Continuous(), forward(curve, 1, 2))
     end
 
 
@@ -231,7 +231,7 @@
         targets = [5.25, 5.5, 5.76, 6.02, 6.28, 6.55, 6.82, 6.87, 7.09, 7.2, 7.26, 7.31, 7.43, 7.48, 7.54, 7.67, 7.8, 7.79, 7.93, 8.07] ./ 100
         target_periodicity = fill(2, length(mats))
         target_periodicity[2] = 1 # 1 year is a no-coupon, BEY yield, the rest are semiannual BEY
-        @testset "curve bootstrapping choices" for curve in [FinanceModels.CMT(cmt, mats), FinanceModels.CMT(Bootstrap(LinearSpline()),cmt, mats), FinanceModels.CMT(Bootstrap(QuadraticSpline()),cmt, mats)]
+        @testset "curve bootstrapping choices" for curve in [FinanceModels.CMT(cmt, mats), FinanceModels.CMT(Bootstrap(LinearSpline()), cmt, mats), FinanceModels.CMT(Bootstrap(QuadraticSpline()), cmt, mats)]
             @testset "Fabozzi bootstrapped rates" for (r, mat, target, tp) in zip(cmt, mats, targets, target_periodicity)
                 @test rate(zero(curve, mat, FinanceModels.Periodic(tp))) ≈ target atol = 0.0001
             end
@@ -244,7 +244,7 @@
                 @test rate(zero(curve, mat, FinanceModels.Periodic(tp))) ≈ target atol = 0.0001
             end
         end
-        
+
         # Hull, problem 4.34
         adj = ((1 + 0.051813 / 2)^2 - 1) * 100
         cmt = [4.0816, adj, 5.4986, 5.8620] ./ 100
@@ -282,7 +282,7 @@
         @testset "bootstrapped rates" for (r, mat, target) in zip(ois, mats, targets)
             @test rate(zero(curve, mat, FinanceModels.Continuous())) ≈ target atol = 0.001
         end
-        curve = FinanceModels.OIS(Bootstrap(LinearSpline()),ois, mats)
+        curve = FinanceModels.OIS(Bootstrap(LinearSpline()), ois, mats)
         @testset "bootstrapped rates" for (r, mat, target) in zip(ois, mats, targets)
             @test rate(zero(curve, mat, FinanceModels.Continuous())) ≈ target atol = 0.001
         end
@@ -291,37 +291,37 @@
     @testset "par" begin
         @testset "first payment logic" begin
             ct = FinanceModels.coupon_times
-            @test ct(0.5,1) ≈ 0.5:1:0.5
-            @test ct(1.5,1) ≈ 0.5:1:1.5
-            @test ct(0.75,1) ≈ 0.75:1:0.75
-            @test ct(1,1) ≈ 1:1:1
-            @test ct(1,2) ≈ 0.5:0.5:1.0
-            @test ct(0.5,2) ≈ 0.5:0.5:0.5
-            @test ct(1.5,2) ≈ 0.5:0.5:1.5
+            @test ct(0.5, 1) ≈ 0.5:1:0.5
+            @test ct(1.5, 1) ≈ 0.5:1:1.5
+            @test ct(0.75, 1) ≈ 0.75:1:0.75
+            @test ct(1, 1) ≈ 1:1:1
+            @test ct(1, 2) ≈ 0.5:0.5:1.0
+            @test ct(0.5, 2) ≈ 0.5:0.5:0.5
+            @test ct(1.5, 2) ≈ 0.5:0.5:1.5
         end
-        
+
         # https://quant.stackexchange.com/questions/57608/how-to-compute-par-yield-from-zero-rate-curve
-        c = FinanceModels.Zero(FinanceModels.Continuous.([0.02,0.025,0.03,0.035]),0.5:0.5:2)
-        @test FinanceModels.par(c,2) ≈ FinanceModels.Periodic(0.03508591,2) atol = 0.000001
+        c = FinanceModels.Zero(FinanceModels.Continuous.([0.02, 0.025, 0.03, 0.035]), 0.5:0.5:2)
+        @test FinanceModels.par(c, 2) ≈ FinanceModels.Periodic(0.03508591, 2) atol = 0.000001
 
         c = FinanceModels.Constant(0.04)
-        @testset "misc combinations" for t in 0.5:0.5:5 
-            @test FinanceModels.par(c,t;frequency=1) ≈ FinanceModels.Periodic(0.04,1)
-            @test FinanceModels.par(c,t) ≈ FinanceModels.Periodic(0.04,1)
-            @test FinanceModels.par(c,t,frequency=4) ≈ FinanceModels.Periodic(0.04,1)
+        @testset "misc combinations" for t in 0.5:0.5:5
+            @test FinanceModels.par(c, t; frequency=1) ≈ FinanceModels.Periodic(0.04, 1)
+            @test FinanceModels.par(c, t) ≈ FinanceModels.Periodic(0.04, 1)
+            @test FinanceModels.par(c, t, frequency=4) ≈ FinanceModels.Periodic(0.04, 1)
         end
 
-        @test FinanceModels.par(c,0.6) ≈ FinanceModels.Periodic(0.04,1)
+        @test FinanceModels.par(c, 0.6) ≈ FinanceModels.Periodic(0.04, 1)
 
         @testset "round trip" begin
             maturity = collect(1:10)
 
             par = [6.0, 8.0, 9.5, 10.5, 11.0, 11.25, 11.38, 11.44, 11.48, 11.5] ./ 100
 
-            curve = FinanceModels.Par(par,maturity)
+            curve = FinanceModels.Par(par, maturity)
 
-            for (p,m) in zip(par,maturity)
-                @test FinanceModels.par(curve,m) ≈ FinanceModels.Periodic(p,2) atol = 0.001
+            for (p, m) in zip(par, maturity)
+                @test FinanceModels.par(curve, m) ≈ FinanceModels.Periodic(p, 2) atol = 0.001
             end
         end
 

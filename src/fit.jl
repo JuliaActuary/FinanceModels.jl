@@ -13,20 +13,24 @@ end
 end
 
 
-function fit(::Type{Yield.Constant}, method::Fit.Loss, quotes)
+__default_optic(m::Yield.Constant) = @optic(_.rate.value) => -1.0 .. 1.0
+__default_optic(m::Equity.BlackScholesMerton) = __default_optic(m.σ)
+__default_optic(m::Volatility.Constant) = @optic(_.σ) => -0.0 .. 10.0
+
+function fit(mod0, quotes, method::F=Fit.Loss(x -> x^2);
+    variables=OptArgs(__default_optic(mod0))
+) where
+{F<:Fit.Loss}
     # find the rate that minimizes the loss function w.r.t. the calculated price vs the quotes
-    function outer(x, p)
-        m = Yield.Constant(x[1])
+    loss(m, quotes) =
         mapreduce(+, quotes) do q
-            method.fn(value(m, q.instrument) - q.price)
+            method.fn(pv(m, q.instrument) - q.price)
         end
-    end
 
-    x0 = [0.01]
+    f = Base.Fix2(loss, quotes)
+    ops = OptProblemSpec(f, SVector, mod0, variables)
+    sol = solve(ops, ECA(), maxiters=300)
 
-    prob = OptimizationFunction(outer, Optimization.AutoForwardDiff())
-    prob = Optimization.OptimizationProblem(prob, x0, [0.0])
-    sol = solve(prob, Newton())
-    return Yield.Constant(only(sol))
+    return sol.uobj
 
 end

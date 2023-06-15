@@ -65,10 +65,10 @@ function Base.isapprox(a::Fixed, b::Fixed)
     isapprox(a.coupon_rate, b.coupon_rate) && ==(a.frequency, b.frequency) && isapprox(a.maturity, b.maturity)
 end
 
-function timesteps(b::AbstractBond)
-    f = 1 / b.frequency.frequency
-    f:f:b.maturity
-end
+# function timesteps(b::AbstractBond)
+#     f = 1 / b.frequency.frequency
+#     f:f:b.maturity
+# end
 
 
 struct Floating{F<:FinanceCore.CompoundingFrequency,N<:Real,M<:Timepoint,K} <: AbstractBond
@@ -76,11 +76,6 @@ struct Floating{F<:FinanceCore.CompoundingFrequency,N<:Real,M<:Timepoint,K} <: A
     frequency::F
     maturity::M
     key::K
-end
-
-
-function _pv(y, b::Fixed)
-    return sum(cf.amount * discount(y, cf.time) for cf in b)
 end
 
 __coerce_periodic(y::Periodic) = y
@@ -168,7 +163,7 @@ coupon_times(b::AbstractBond) = coupon_times(b.maturity, b.frequency.frequency)
 
 end
 
-struct Equity <: AbstractContract end
+struct CommonEquity <: AbstractContract end
 
 module Option
 import ..AbstractContract
@@ -218,48 +213,48 @@ function __process_forwards(qs::Vector{Quote{U,Forward{N,T}}}) where {N,T<:Cashf
 end
 
 
-for op = (:ZCBPrice, :ZCBYield, :ParYield, :ParSwapYield, :CMTYield, :ForwardYield)
-    eval(quote
-        $op(x::Vector{T}; y...) where {T} = $op.(x, eachindex(x); y...)
-    end)
-end
+# for op = (:ZCBPrice, :ZCBYield, :ParYield, :ParSwapYield, :CMTYield, :ForwardYield)
+#     eval(quote
+#         $op(x::Vector{T}; y...) where {T} = $op.(x, eachindex(x); y...)
+#     end)
+# end
 
 
-# cashflows should be a vector of a vector of cashflows
-function cashflow_matrix(instruments::Vector{Q}; resolution=1000) where {Q<:AbstractContract}
-    vcf = collect.(instruments) # a vector of vector of cashflows
-    ts = timesteps(instruments; resolution=resolution)
-    m = zeros(round(Int, last(ts) ÷ step(ts)), length(vcf))
-    for (i, cf) in enumerate(vcf)
-        for c in cf
-            m[round(Int, c.time ÷ step(ts)), i] = c.amount
-        end
-    end
-    return m
-    # for each obs determine the closest integer multiple of the gcd
-    # fill in the matrix
-end
+# # cashflows should be a vector of a vector of cashflows
+# function cashflow_matrix(instruments::Vector{Q}; resolution=1000) where {Q<:AbstractContract}
+#     vcf = collect.(instruments) # a vector of vector of cashflows
+#     ts = timesteps(instruments; resolution=resolution)
+#     m = zeros(round(Int, last(ts) ÷ step(ts)), length(vcf))
+#     for (i, cf) in enumerate(vcf)
+#         for c in cf
+#             m[round(Int, c.time ÷ step(ts)), i] = c.amount
+#         end
+#     end
+#     return m
+#     # for each obs determine the closest integer multiple of the gcd
+#     # fill in the matrix
+# end
 
-function cashflow_matrix(quotes::Vector{Q}; resolution=1000) where {Q<:Quote}
-    cashflow_matrix([q.instrument for q in quotes]; resolution=resolution)
-end
+# function cashflow_matrix(quotes::Vector{Q}; resolution=1000) where {Q<:Quote}
+#     cashflow_matrix([q.instrument for q in quotes]; resolution=resolution)
+# end
 
-function timesteps(instruments::Vector{Q}; resolution=1000) where {Q<:AbstractContract}
-    # calculate the gcd of the timesteps 
-    mapreduce(timesteps, merge_range, instruments)
-end
+# function timesteps(instruments::Vector{Q}; resolution=1000) where {Q<:AbstractContract}
+#     # calculate the gcd of the timesteps 
+#     mapreduce(timesteps, merge_range, instruments)
+# end
 
-function timesteps(quotes::Vector{Q}; resolution=1000) where {Q<:Quote}
-    timesteps([q.instrument for q in quotes]; resolution=resolution)
-end
+# function timesteps(quotes::Vector{Q}; resolution=1000) where {Q<:Quote}
+#     timesteps([q.instrument for q in quotes]; resolution=resolution)
+# end
 
-timesteps(c::Cashflow) = c.time:c.time
+# timesteps(c::Cashflow) = c.time:c.time
 
 
 
-function merge_range(a, b; resolution=1000)
-    start = min(minimum(a), minimum(b))
-    last = max(maximum(a), maximum(b))
-    delta = gcd(Int(step(a) * resolution), Int(step(b) * resolution)) / resolution
-    return start:delta:last
-end
+# function merge_range(a, b; resolution=1000)
+#     start = min(minimum(a), minimum(b))
+#     last = max(maximum(a), maximum(b))
+#     delta = gcd(Int(step(a) * resolution), Int(step(b) * resolution)) / resolution
+#     return start:delta:last
+# end

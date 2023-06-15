@@ -1,27 +1,29 @@
 
 abstract type AbstractProjection end
 
-struct Projection{M,C,K} <: AbstractProjection
-    model::M
+struct Projection{C,M,K} <: AbstractProjection
     contract::C
+    model::M
     kind::K
-    function Projection(model::M, contract::C, kind::K) where {M,C,K}
-        new{M,C,K}(model, contract, kind)
-    end
 end
 
+Projection(c) = Projection(c, NullModel(), CashflowProjection())
+Projection(c, m) = Projection(c, m, CashflowProjection())
 
+function Transducers.asfoldable(c::C) where {C<:AbstractContract}
+    Projection(c) |> Map(identity)
+end
+Base.collect(p::P) where {P<:AbstractProjection} = p |> Map(identity) |> collect
+Base.collect(c::C) where {C<:AbstractContract} = Projection(c) |> Map(identity) |> collect
 
 
 # controls what gets produced from the model,
 # e.g. if you just want cashflows or you want full amortization schedule, etc
 abstract type ProjectionKind end
 
-Base.collect(p::P) where {P<:AbstractProjection} = p |> Map(identity) |> collect
-
 struct CashflowProjection <: ProjectionKind end
 
-function Transducers.__foldl__(rf, val, p::Projection{M,C,K}) where {M,C<:Cashflow,K}
+function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:Cashflow,M,K}
     for i in 1:1
         val = @next(rf, val, p.contract)
     end
@@ -29,14 +31,15 @@ function Transducers.__foldl__(rf, val, p::Projection{M,C,K}) where {M,C<:Cashfl
 end
 
 
-function Transducers.__foldl__(rf, val, p::Projection{M,C,K}) where {M,C<:Bond.Fixed,K}
+function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:Bond.Fixed,M,K}
     b = p.contract
     ts = Bond.coupon_times(b)
     for t in ts
+        coup = b.coupon_rate / b.frequency.frequency
         amt = if t == last(ts)
-            1.0 + b.coupon_rate / b.frequency.frequency
+            1.0 + coup
         else
-            b.coupon_rate / b.frequency.frequency
+            coup
         end
         cf = Cashflow(amt, t)
         val = @next(rf, val, cf)
@@ -44,15 +47,16 @@ function Transducers.__foldl__(rf, val, p::Projection{M,C,K}) where {M,C<:Bond.F
     return complete(rf, val)
 end
 
-function Transducers.__foldl__(rf, val, p::Projection{M,C,K}) where {M,C<:Bond.Floating,K}
+function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:Bond.Floating,M,K}
     b = p.contract
     ts = Bond.coupon_times(b)
     for t in ts
         reference_rate = Periodic(b.frequency.frequency)(rate(p.model[b.key], t))
+        coup = (forward(reference_rate, t, t + b.frequency.frequency) + b.coupon_rate) / b.frequency.frequency
         amt = if t == last(ts)
-            1.0 + (rate(reference_rate) + b.coupon_rate) / b.frequency.frequency
+            1.0 + coup
         else
-            (rate(reference_rate) + b.coupon_rate) / b.frequency.frequency
+            coup
         end
         cf = Cashflow(amt, t)
         val = @next(rf, val, cf)
@@ -61,13 +65,13 @@ function Transducers.__foldl__(rf, val, p::Projection{M,C,K}) where {M,C<:Bond.F
 end
 
 
-function Transducers.asfoldable(p::Projection{M,C,K}) where {M,C<:Composite,K}
+function Transducers.asfoldable(p::Projection{C,M,K}) where {C<:Composite,M,K}
     ap = @set p.contract = p.contract.a
     bp = @set p.contract = p.contract.b
     (ap, bp) |> Cat()
 end
 
-function Transducers.asfoldable(p::Projection{M,C,K}) where {M,C<:Forward,K<:CashflowProjection}
+function Transducers.asfoldable(p::Projection{C,M,K}) where {C<:Forward,M,K<:CashflowProjection}
     fwd_start = p.contract.time
     p_alt = @set p.contract = p.contract.instrument
     p_alt |> Map(cf -> @set cf.time += fwd_start)
