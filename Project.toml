@@ -6,6 +6,7 @@ version = "4.0.0"
 [deps]
 AccessibleOptimization = "d88a00a0-4a21-4fe4-a515-e2123c37b885"
 Accessors = "7d9f7c33-5ae7-4f3b-8dc6-eff91059b697"
+BSplineKit = "093aae92-e908-43d7-9660-e50ee39d5a0a"
 BangBang = "198e06fe-97b7-11e9-32a5-e1d131e6ad66"
 Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"

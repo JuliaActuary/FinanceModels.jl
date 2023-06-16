@@ -1,8 +1,8 @@
 @testset "constant curve and rate -> Constant" begin
     yield = Yield.Constant(0.05)
 
-    @test zero(yield, 1) ≈ FinanceModels.Rate(0.05, FinanceModels.Periodic(1))
-    @test zero(Yield.Constant(FinanceModels.Periodic(0.05, 2)), 10) ≈ FinanceModels.Rate(0.05, FinanceModels.Periodic(2))
+    @test zero(yield, 1) ≈ Periodic(0.05, 1)
+    @test zero(Yield.Constant(Periodic(0.05, 2)), 10) ≈ Periodic(0.05, 2)
 
     @testset "constant discount time: $time" for time in [0, 0.5, 1, 10]
         @test discount(yield, time) ≈ 1 / (1.05)^time
@@ -53,7 +53,9 @@ end
 
 
     @testset "short curve" begin
-        z = FinanceModels.Zero([0.0, 0.05], [1, 2])
+        zs = ZCBYield([0.0, 0.05])
+        z = fit(CubicSpline(), zs, Fit.Bootstrap())
+
         @test zero(z, 1) ≈ Periodic(0.00, 1)
         @test discount(z, 1) ≈ 1.00
         @test zero(z, 2) ≈ Periodic(0.05, 1)

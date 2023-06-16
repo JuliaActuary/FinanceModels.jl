@@ -12,12 +12,16 @@ struct Quote{N<:Real,T}
     price::N
     instrument::T
 end
+
+maturity(q::Quote) = maturity(q.instrument)
 Base.isapprox(a::Quote, b::Quote) = isapprox(a.price, b.price) && isapprox(a.instrument, b.instrument)
 
 struct Cashflow{N<:Real,T<:Timepoint} <: AbstractContract
     amount::N
     time::T
 end
+
+maturity(c::Cashflow) = c.time
 Base.isapprox(a::Cashflow, b::Cashflow) = isapprox(a.amount, b.amount) && isapprox(a.time, b.time)
 Base.convert(::Type{Cashflow{A,B}}, y::Cashflow{C,D}) where {A,B,C,D} = Cashflow(A(y.amount), B(y.time))
 
@@ -26,24 +30,22 @@ struct Composite{A,B} <: AbstractContract
     b::B
 end
 
+maturity(c::Composite) = max(maturity(c.a), maturity(c.b))
+
 ### Bonds 
 module Bond
 import ..AbstractContract
 import ..Timepoint
-import ..FinanceCore
+import ..Cashflow, ..Quote
+using ..FinanceCore
+
 using FinanceCore: Periodic, Continuous, Rate
 
+export ZCBYield, ZCBPrice, ParSwapYield, ParYield, CMTYield
+
 abstract type AbstractBond <: AbstractContract end
+maturity(b::AbstractBond) = b.maturity
 
-"""
-ZCBYield(yield,maturity)
-ZCBYield(yield::Vector)
-
-Takes zero (sometimes called "spot") rates. Assumes annual effective compounding (`Periodic(1)``) unless given a `Rate` with a different compounding frequency.
-
-Use broadcasting to create a set of quotes given a collection of FinanceModels and maturities, e.g. `ZCBYield.(FinanceModels,maturities)`.
-"""
-ZCBPrice(price, time) = Quote(price, Cashflow(1.0, time))
 
 """
 ZCBPrice(discount,maturity)
@@ -52,6 +54,17 @@ ZCBPrice(yield::Vector)
 Takes discount factors. 
 
 Use broadcasting to create a set of quotes given a collection of prices and maturities, e.g. `ZCBPrice.(FinanceModels,maturities)`.
+"""
+ZCBPrice(price, time) = Quote(price, Cashflow(1.0, time))
+
+
+"""
+ZCBYield(yield,maturity)
+ZCBYield(yield::Vector)
+
+Takes zero (sometimes called "spot") rates. Assumes annual effective compounding (`Periodic(1)``) unless given a `Rate` with a different compounding frequency.
+
+Use broadcasting to create a set of quotes given a collection of FinanceModels and maturities, e.g. `ZCBYield.(FinanceModels,maturities)`.
 """
 ZCBYield(yield, time) = Quote(discount(yield, time), Cashflow(1.0, time))
 
@@ -149,6 +162,20 @@ function OISYield(yield, maturity)
     end
 end
 
+"""
+ForwardYield(yield,to=1.0,from=to-1.0) 
+Returns a `Quote`d price for a future cashflow. 
+    
+    # Examples
+    ```julia
+    fy = ForwardYield.([0.01,0.02],[1.,2.])
+    first(fy) == Quote(1/1.01,Forward(0.0,Cashflow(1.,1.)))
+    last(fy) == Quote(1/1.02,Forward(1.0,Cashflow(1.,1.)))
+    ```
+    """
+ForwardYield(yield, to=1.0, from=to - 1.0) = Quote(discount(yield, to - from), Forward(from, Cashflow(1.0, to - from)))
+
+
 # Bond utility funcs
 
 function coupon_times(maturity, frequency)
@@ -160,6 +187,14 @@ function coupon_times(maturity, frequency)
     return f:Δt:l
 end
 coupon_times(b::AbstractBond) = coupon_times(b.maturity, b.frequency.frequency)
+
+
+for op = (:ZCBPrice, :ZCBYield, :ParYield, :ParSwapYield, :CMTYield, :ForwardYield)
+    eval(quote
+        $op(x::Vector; kwargs...) = $op.(x, eachindex(x); kwargs...)
+    end)
+end
+
 
 end
 
@@ -188,36 +223,18 @@ struct Forward{T<:Timepoint,I<:AbstractContract} <: AbstractContract
 end
 
 
-"""
-ForwardYield(yield,to=1.0,from=to-1.0) 
-Returns a `Quote`d price for a future cashflow. 
-    
-    # Examples
-    ```julia
-    fy = ForwardYield.([0.01,0.02],[1.,2.])
-    first(fy) == Quote(1/1.01,Forward(0.0,Cashflow(1.,1.)))
-    last(fy) == Quote(1/1.02,Forward(1.0,Cashflow(1.,1.)))
-    ```
-    """
-ForwardYield(yield, to=1.0, from=to - 1.0) = Quote(discount(yield, to - from), Forward(from, Cashflow(1.0, to - from)))
 
 # convert ZCB to non-forward versions
-function __process_forwards(qs::Vector{Quote{U,Forward{N,T}}}) where {N,T<:Cashflow,U}
-    v = 1.0
-    t = 0.0
-    map(qs) do q
-        v *= (q.price / q.instrument.instrument.amount)
-        t = q.instrument.time + q.instrument.instrument.time
-        Quote(v, Cashflow(1.0, t))
-    end
-end
-
-
-# for op = (:ZCBPrice, :ZCBYield, :ParYield, :ParSwapYield, :CMTYield, :ForwardYield)
-#     eval(quote
-#         $op(x::Vector{T}; y...) where {T} = $op.(x, eachindex(x); y...)
-#     end)
+# function __process_forwards(qs::Vector{Quote{U,Forward{N,T}}}) where {N,T<:Cashflow,U}
+#     v = 1.0
+#     t = 0.0
+#     map(qs) do q
+#         v *= (q.price / q.instrument.instrument.amount)
+#         t = q.instrument.time + q.instrument.instrument.time
+#         Quote(v, Cashflow(1.0, t))
+#     end
 # end
+
 
 
 # # cashflows should be a vector of a vector of cashflows

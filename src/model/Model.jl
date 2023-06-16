@@ -10,6 +10,19 @@ function Quote(m::M, c::C) where {M<:AbstractModel,C<:AbstractContract}
     return Quote(pv(m, c), c)
 end
 
+include("Spline.jl")
 include("Yield.jl")
 include("Volatility.jl")
 include("Equity.jl")
+
+function FinanceCore.present_value(model::M, c::AbstractContract; cur_time=0.0) where {M<:Yield.AbstractYieldModel}
+    p = Projection(c, model, CashflowProjection())
+    xf = p |> Filter(cf -> cf.time >= cur_time) |> Map(cf -> FinanceCore.discount(model, cf.time - cur_time) * cf.amount)
+    foldxl(+, xf)
+end
+
+function FinanceCore.present_value(model::M, c::AbstractContract; cur_time=0.0) where {M<:Yield.AbstractYieldModel}
+    p = Projection(c, model, CashflowProjection())
+    xf = p |> Filter(cf -> cf.time >= cur_time) |> Map(cf -> FinanceCore.discount(model, cf.time - cur_time) * cf.amount)
+    foldxl(+, xf)
+end

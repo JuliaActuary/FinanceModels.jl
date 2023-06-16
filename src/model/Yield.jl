@@ -23,11 +23,6 @@ Constant() = Constant(0.0)
 
 FinanceCore.discount(c::Constant, t) = FinanceCore.discount(c.rate, t)
 
-function pv(model::M, c::AbstractContract; cur_time=0.0) where {M<:Yield.AbstractYieldModel}
-    p = Projection(c, model, CashflowProjection())
-    xf = p |> Filter(cf -> cf.time >= cur_time) |> Map(cf -> FinanceCore.discount(model, cf.time - cur_time) * cf.amount)
-    foldxl(+, xf)
-end
 
 ## Generic and Fallbacks
 """

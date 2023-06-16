@@ -15,7 +15,7 @@ function volatility(vol::Volatility.Constant, strike_ratio, time_to_maturity)
     return vol.σ
 end
 
-function pv(model::M, c::Option.EuroCall{CommonEquity,K,T}) where {M<:Equity.BlackScholesMerton,K,T}
+function FinanceCore.present_value(model::M, c::Option.EuroCall{CommonEquity,K,T}) where {M<:Equity.BlackScholesMerton,K,T}
     eurocall(; S=1.0, K=c.strike, τ=c.maturity, r=model.r, q=model.q, σ=model.σ)
 
 end
