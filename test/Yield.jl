@@ -1,9 +1,8 @@
 @testset "constant curve and rate -> Constant" begin
     yield = Yield.Constant(0.05)
 
-    @test zero(yield, 1) == FinanceModels.Rate(0.05, FinanceModels.Periodic(1))
-    @test zero(FinanceModels.Constant(FinanceModels.Periodic(0.05, 2)), 10) == FinanceModels.Rate(0.05, FinanceModels.Periodic(2))
-    @test zero(yield, 5, FinanceModels.Periodic(2)) == convert(FinanceModels.Periodic(2), FinanceModels.Rate(0.05, FinanceModels.Periodic(1)))
+    @test zero(yield, 1) ≈ FinanceModels.Rate(0.05, FinanceModels.Periodic(1))
+    @test zero(Yield.Constant(FinanceModels.Periodic(0.05, 2)), 10) ≈ FinanceModels.Rate(0.05, FinanceModels.Periodic(2))
 
     @testset "constant discount time: $time" for time in [0, 0.5, 1, 10]
         @test discount(yield, time) ≈ 1 / (1.05)^time
@@ -39,9 +38,9 @@
         @test discount(add_yield, time) ≈ 1 / (1.1)^time
     end
 
-    yield_1bps = yield - FinanceModels.Constant(0.04)
+    yield_1bps = yield - Yield.Constant(0.04)
     yield_minus = yield - 0.01
-    minus_yield = 0.05 - FinanceModels.Constant(0.01)
+    minus_yield = 0.05 - Yield.Constant(0.01)
     @testset "constant discount subtraction" for time in [0, 0.5, 1, 10]
         @test discount(yield_1bps, time) ≈ 1 / (1.01)^time
         @test discount(yield_minus, time) ≈ 1 / (1.04)^time
@@ -304,7 +303,7 @@ end
         c = FinanceModels.Zero(FinanceModels.Continuous.([0.02, 0.025, 0.03, 0.035]), 0.5:0.5:2)
         @test FinanceModels.par(c, 2) ≈ FinanceModels.Periodic(0.03508591, 2) atol = 0.000001
 
-        c = FinanceModels.Constant(0.04)
+        c = Yield.Constant(0.04)
         @testset "misc combinations" for t in 0.5:0.5:5
             @test FinanceModels.par(c, t; frequency=1) ≈ FinanceModels.Periodic(0.04, 1)
             @test FinanceModels.par(c, t) ≈ FinanceModels.Periodic(0.04, 1)

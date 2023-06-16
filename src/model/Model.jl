@@ -1,4 +1,5 @@
 abstract type AbstractModel end
+Base.Broadcast.broadcastable(x::T) where {T<:AbstractModel} = Ref(x)
 
 # a model for when you don't really need a model
 # (e.g. determining nominal cashflows for fixed income contract)
