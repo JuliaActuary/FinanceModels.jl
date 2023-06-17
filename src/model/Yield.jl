@@ -3,6 +3,8 @@ module Yield
 import ..AbstractModel
 import ..FinanceCore
 import ..AbstractContract
+import ..Spline as Sp
+import ..BSplineKit
 
 using FinanceCore: Continuous, discount
 
@@ -22,6 +24,34 @@ end
 Constant() = Constant(0.0)
 
 FinanceCore.discount(c::Constant, t) = FinanceCore.discount(c.rate, t)
+
+# used as the object which gets optmized before finally returning a completed spline
+struct IntermediateYieldCurve{U,V} <: AbstractYieldModel
+    b::Sp.BSpline
+    xs::Vector{U}
+    ys::Vector{V}
+end
+
+function FinanceCore.discount(ic::IntermediateYieldCurve, x)
+    c = Yield.Spline(ic.b, ic.xs, ic.ys)
+    return c(x)
+end
+
+struct Spline{U} <: AbstractYieldModel
+    fn::U
+end
+
+function (c::Spline)(x)
+    return c.fn(x)
+end
+
+FinanceCore.discount(c::Spline, t) = c(t)
+
+function Spline(b::Sp.BSpline, xs, ys)
+    order = min(length(xs), b.order) # in case the length of xs is less than the spline order
+    int = BSplineKit.interpolate(xs, ys, BSplineKit.BSplineOrder(order))
+    return Spline(BSplineKit.extrapolate(int, BSplineKit.Smooth()))
+end
 
 
 ## Generic and Fallbacks

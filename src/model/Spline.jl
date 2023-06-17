@@ -1,8 +1,10 @@
 module Spline
+import ..FinanceCore
 import ..BSplineKit
-abstract type SplineType end
+import ..AbstractModel
 
-struct BSpline <: SplineType
+
+struct BSpline
     order::Int
 end
 
@@ -11,17 +13,6 @@ Quadratic() = BSpline(3)
 Cubic() = BSpline(4)
 
 
-# struct Curve{F,U,V}
-#     fn::F
-#     xs::Vector{U}
-#     ys::Vector{V}
-# end
-
-function Curve(b::BSpline, xs, ys)
-    @show order = min(length(xs), b.order) # in case the length of xs is less than the spline order
-    @show xs, ys
-    int = BSplineKit.interpolate(xs, ys, BSplineKit.BSplineOrder(order))
-    return BSplineKit.extrapolate(int, BSplineKit.Smooth())
-end
+# used as the object which gets optmized before finally returning a completed spline
 
 end

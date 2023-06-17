@@ -10,7 +10,7 @@ using IntervalSets
 using AccessibleOptimization
 using Accessors
 using Transducers
-using BSplineKit
+import BSplineKit
 using Transducers: @next, complete, __foldl__, asfoldable
 import Distributions
 
