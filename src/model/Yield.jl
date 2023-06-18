@@ -5,8 +5,10 @@ import ..FinanceCore
 import ..AbstractContract
 import ..Spline as Sp
 import ..BSplineKit
+import UnicodePlots
+import ..Bond: coupon_times
 
-using FinanceCore: Continuous, discount
+using FinanceCore: Continuous, Periodic, discount, accumulation
 
 export discount, zero, forward, par, pv
 
@@ -29,23 +31,32 @@ FinanceCore.discount(c::Constant, t) = FinanceCore.discount(c.rate, t)
 struct IntermediateYieldCurve{U,V} <: AbstractYieldModel
     b::Sp.BSpline
     xs::Vector{U}
-    ys::Vector{V}
+    ys::Vector{V} # here, ys are the discount factors
 end
 
-function FinanceCore.discount(ic::IntermediateYieldCurve, x)
-    c = Yield.Spline(ic.b, ic.xs, ic.ys)
-    return c(x)
+function FinanceCore.discount(ic::IntermediateYieldCurve, time)
+    zs = zero_vec = -log.(clamp.(ic.ys, 0.00001, 1)) ./ ic.xs
+    c = Yield.Spline(ic.b, ic.xs, zs)
+    return exp(-c.fn(time) * time)
 end
 
 struct Spline{U} <: AbstractYieldModel
-    fn::U
+    fn::U # here, fn is a map from time to instantaneous zero rate
 end
 
-function (c::Spline)(x)
-    return c.fn(x)
+function (c::Spline)(time)
+    c.fn(time)
+    return exp(-c.fn(time) * time)
 end
 
-FinanceCore.discount(c::Spline, t) = c(t)
+function FinanceCore.discount(c::Spline, time)
+    z = c.fn(time)
+    return exp(-z * time)
+end
+
+# function Base.zero(c::YC, time) where {YC<:Spline}
+#     c.fn(time)
+# end
 
 function Spline(b::Sp.BSpline, xs, ys)
     order = min(length(xs), b.order) # in case the length of xs is less than the spline order
@@ -69,7 +80,7 @@ FinanceCore.discount(yc::T, from, to) where {T<:AbstractYieldModel} = discount(y
 The forward `Rate` implied by the yield curve `yc` between times `from` and `to`.
 """
 function FinanceCore.forward(yc::T, from, to=from + 1) where {T<:AbstractYieldModel}
-    return forward(yc, from, to,)
+    Periodic((accumulation(yc, to) / accumulation(yc, from))^(1 / (to - from)) - 1, 1)
 end
 
 
@@ -108,7 +119,7 @@ function par(curve, time; frequency=2)
     cfs = [t == last(coup_times) ? 1 + r : r for t in coup_times]
     # `sign(r)`` is used instead of `1` because there are times when the coupons are negative so we want to flip the sign
     cfs = [-1; cfs]
-    r = internal_rate_of_return(cfs, [0; coup_times])
+    r = FinanceCore.internal_rate_of_return(cfs, [0; coup_times])
     frequency_inner = min(1 / Δt, max(1 / Δt, frequency))
     r = convert(Periodic(frequency_inner), r)
     return r
@@ -288,6 +299,30 @@ end
 
 function Base.:/(a, b::T) where {T<:AbstractYieldModel}
     return Constant(a) / b
+end
+
+
+# used to display simple type name in show method
+# https://stackoverflow.com/questions/70043313/get-simple-name-of-type-in-julia?noredirect=1#comment123823820_70043313
+name(::Type{T}) where {T} = (isempty(T.parameters) ? T : T.name.wrapper)
+
+function Base.show(io::IO, curve::T) where {T<:AbstractYieldModel}
+    println() # blank line for padding
+    r = zero(curve, 1)
+    ylabel = isa(r.compounding, Continuous) ? "Continuous" : "Periodic($(r.compounding.frequency))"
+    kind = name(typeof(curve))
+    l = UnicodePlots.lineplot(
+        0.0, #from 
+        30.0,  # to
+        t -> FinanceCore.rate(zero(curve, t)),
+        xlabel="time",
+        ylabel=ylabel,
+        compact=true,
+        name="Zero rates",
+        width=60,
+        title="Yield Curve ($kind)"
+    )
+    show(io, l)
 end
 
 end

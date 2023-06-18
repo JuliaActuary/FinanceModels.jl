@@ -11,6 +11,7 @@ using AccessibleOptimization
 using Accessors
 using Transducers
 import BSplineKit
+import UnicodePlots
 using Transducers: @next, complete, __foldl__, asfoldable
 import Distributions
 
@@ -29,7 +30,12 @@ export Bond, ZCBYield, ZCBPrice, ParSwapYield, ParYield, CMTYield
 
 export Spline
 
-export NullModel, Yield, discount, accumulation, zero, forward, Equity, Volatility
+export NullModel, Yield, discount, accumulation, zero, forward
+
+using .Yield: par
+export par
+
+export Equity, Volatility
 export Projection, CashflowProjection
 export pv
 export Fit, fit

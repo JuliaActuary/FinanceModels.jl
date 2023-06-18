@@ -1,5 +1,4 @@
 module Fit
-import .Spline
 
 abstract type FitMethod end
 
@@ -59,8 +58,9 @@ function fit(mod0::Spline.BSpline, quotes, method::Fit.Bootstrap)
         end
 
     end
-
-    return Yield.Spline(mod0, times, discount_vector)
+    zero_vec = -log.(clamp.(discount_vector, 0.00001, 1)) ./ times
+    return Yield.Spline(mod0, [zero(eltype(times)); times], [first(zero_vec); zero_vec])
+    # return Yield.Spline(mod0, times, zero_vec)
 
 end
 

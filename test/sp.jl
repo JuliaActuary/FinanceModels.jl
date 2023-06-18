@@ -1,7 +1,6 @@
 
 # Cashflows
-@testitem "Cashflows" begin
-    using FinanceCore
+@testset "Cashflows" begin
     c = Cashflow(1.0, 1.0)
 
     p = Projection(c)
@@ -11,8 +10,7 @@
 end
 
 # fixed bonds
-@testitem "Fixed Bonds" begin
-    using FinanceCore
+@testset "Fixed Bonds" begin
     c = Bond.Fixed(0.05, Periodic(1), 3.0)
     p = Projection(c)
 
@@ -24,8 +22,7 @@ end
     @test pv(Yield.Constant(0.05), Bond.Fixed(0.05, Periodic(1), 3.0)) ≈ 1.0
 end
 
-@testitem "Floating Bonds" begin
-    using FinanceCore
+@testset "Floating Bonds" begin
     p = Projection(
         Bond.Floating(0.02, Periodic(1), 3.0, "SOFR"),
         Dict("SOFR" => Yield.Constant(0.05)),
@@ -35,8 +32,7 @@ end
     @test_broken collect(p) == [Cashflow(0.07, 1.0), Cashflow(0.07, 2.0), Cashflow(1.07, 3.0)]
 end
 
-@testitem "Composite Contracts" begin
-    using FinanceCore
+@testset "Composite Contracts" begin
     a = Bond.Fixed(0.05, Periodic(1), 3.0)
     b = Bond.Fixed(0.1, Periodic(4), 3.0)
     c = FinanceModels.Composite(a, b)
@@ -45,8 +41,7 @@ end
     @test collect(p) == [collect(a); collect(b)]
 end
 
-@testitem "Fit Models" begin
-    using FinanceCore
+@testset "Fit Models" begin
 
     @testset "Yield Models" begin
         qs = [
@@ -75,7 +70,7 @@ end
     end
 
 end
-@testitem "Yield Models" begin
+@testset "Yield Models" begin
     y = Yield.Constant(0.05)
     @test Yield.discount(y, 5) ≈ 1 / (1.05)^5
 end

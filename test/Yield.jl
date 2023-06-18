@@ -53,48 +53,19 @@ end
 
 
     @testset "short curve" begin
-        zs = ZCBYield([0.0, 0.05])
-        z = fit(CubicSpline(), zs, Fit.Bootstrap())
+        zs = ZCBYield.([0.0, 0.05], [1, 2])
+        z = fit(Spline.Cubic(), zs, Fit.Bootstrap())
 
         @test zero(z, 1) ≈ Periodic(0.00, 1)
         @test discount(z, 1) ≈ 1.00
         @test zero(z, 2) ≈ Periodic(0.05, 1)
 
         # test no times constructor
-        z = FinanceModels.Zero([0.0, 0.05])
+        zs = ZCBYield([0.0, 0.05])
+        z = fit(Spline.Cubic(), zs, Fit.Bootstrap())
         @test zero(z, 1) ≈ Periodic(0.00, 1)
         @test discount(z, 1) ≈ 1.00
         @test zero(z, 2) ≈ Periodic(0.05, 1)
-    end
-
-    @testset "Step curve" begin
-        y = FinanceModels.Step([0.02, 0.05], [1, 2])
-
-        @test zero(y, 0.5) ≈ Periodic(0.02, 1)
-
-        @test discount(y, 0.0) ≈ 1
-        @test discount(y, 0.5) ≈ 1 / (1.02)^(0.5)
-        @test discount(y, 1) ≈ 1 / (1.02)^(1)
-        @test discount(y, 10) ≈ 1 / (1.02)^(1) / (1.05)^(9)
-        @test zero(y, 1) ≈ Periodic(0.02, 1)
-
-        @test discount(y, 2) ≈ 1 / (1.02) / 1.05
-
-        @test discount(y, 2) ≈ 1 / (1.02) / 1.05
-
-        @test discount(y, 1.5) ≈ 1 / (1.02) / 1.05^(0.5)
-
-        @testset "broadcasting" begin
-            @test all(discount.(y, [1, 2]) .== [1 / 1.02, 1 / 1.02 / 1.05])
-            @test all(accumulation.(y, [1, 2]) .== [1.02, 1.02 * 1.05])
-        end
-
-        y = FinanceModels.Step([0.02, 0.07])
-
-        @test zero(y, 0.5) ≈ Periodic(0.02, 1)
-        @test zero(y, 1) ≈ Periodic(0.02, 1)
-        @test zero(y, 1.5) ≈ Periodic(accumulation(y, 1.5)^(1 / 1.5) - 1, 1)
-
     end
 
     @testset "Salomon Understanding the Yield Curve Pt 1 Figure 9" begin
@@ -108,17 +79,18 @@ end
         # fwd = [6.,10.2,13.07,14.36,13.77,13.1,12.55,12.2,11.97,11.93] ./ 100 # from text
         fwd = [6.0, 10.2, 13.07, 14.36, 13.77, 13.1, 12.61, 12.14, 12.05, 11.84] ./ 100  # modified
 
-        y = FinanceModels.Par(Periodic(1).(par), maturity)
+        rs = FinanceModels.ParYield.(Periodic(1).(par), maturity)
+        m = fit(Spline.Cubic(), rs, Fit.Bootstrap())
         @testset "quadratic UTYC Figure 9 par -> spot : $mat" for mat in maturity
-            @test zero(y, mat) ≈ Periodic(spot[mat], 1) atol = 0.0001
-            @test forward(y, mat - 1) ≈ FinanceModels.Periodic(fwd[mat], 1) atol = 0.0001
+            @test zero(m, mat) ≈ Periodic(spot[mat], 1) atol = 0.0001
+            @test forward(m, mat - 1) ≈ FinanceModels.Periodic(fwd[mat], 1) atol = 0.0001
         end
 
-        y = FinanceModels.Par(Bootstrap(LinearSpline()), FinanceModels.Rate.(par, FinanceModels.Periodic(1)), maturity)
+        m = fit(Spline.Linear(), rs, Fit.Bootstrap())
 
         @testset "linear UTYC Figure 9 par -> spot : $mat" for mat in maturity
-            @test zero(y, mat) ≈ Periodic(spot[mat], 1) atol = 0.0001
-            @test forward(y, mat - 1) ≈ FinanceModels.Periodic(fwd[mat], 1) atol = 0.0001
+            @test zero(m, mat) ≈ Periodic(spot[mat], 1) atol = 0.0001
+            @test forward(m, mat - 1) ≈ FinanceModels.Periodic(fwd[mat], 1) atol = 0.0001
         end
 
     end
@@ -126,9 +98,10 @@ end
     @testset "Hull" begin
         # Par Yield, pg 85
 
-        c = FinanceModels.Par(FinanceModels.Periodic.([0.0687, 0.0687], 2), [2, 3])
+        c = ParYield.(FinanceModels.Periodic.([0.0687, 0.0687], 2), [2, 3])
 
-        @test FinanceModels.par(c, 2) ≈ FinanceModels.Periodic(0.0687, 2) atol = 0.00001
+        m = fit(Spline.Linear(), c, Fit.Bootstrap())
+        @test FinanceModels.par(m, 2) ≈ FinanceModels.Periodic(0.0687, 2) atol = 0.00001
 
     end
 
@@ -137,9 +110,13 @@ end
 
         maturity = [0.5, 1.0, 1.5, 2.0]
         zero = [5.0, 5.8, 6.4, 6.8] ./ 100
-        curve = FinanceModels.Zero(zero, maturity)
+        zs = ZCBYield.(zero, maturity)
+        @testset "$i" for (i, curve) in enumerate([fit(Spline.Cubic(), zs, Fit.Bootstrap()), fit(Spline.Linear(), zs, Fit.Bootstrap()), fit(Spline.Quadratic(), zs, Fit.Bootstrap()), fit(Spline.BSpline(5), zs, Fit.Bootstrap())])
 
-        for curve in [FinanceModels.Zero(zero, maturity), FinanceModels.Zero(Bootstrap(LinearSpline()), zero, maturity), FinanceModels.Zero(Bootstrap(QuadraticSpline()), zero, maturity)]
+            @test discount(curve, 1) ≈ 1 / 1.058
+            @test discount(curve, 1.5) ≈ 1 / 1.064^1.5
+            @test discount(curve, 2) ≈ 1 / 1.068^2
+
             @test discount(curve, 0) ≈ 1
             @test discount(curve, 1) ≈ 1 / (1 + zero[2])
             @test discount(curve, 2) ≈ 1 / (1 + zero[4])^2
@@ -147,16 +124,10 @@ end
             @test forward(curve, 0.5, 1.0) ≈ FinanceModels.Periodic(6.6 / 100, 1) atol = 0.001
             @test forward(curve, 1.0, 1.5) ≈ FinanceModels.Periodic(7.6 / 100, 1) atol = 0.001
             @test forward(curve, 1.5, 2.0) ≈ FinanceModels.Periodic(8.0 / 100, 1) atol = 0.001
-        end
-
-        y = FinanceModels.Zero(zero)
-
-        @test discount(y, 1) ≈ 1 / 1.05
-        @test discount(y, 2) ≈ 1 / 1.058^2
-
-        @testset "broadcasting" begin
-            @test all(discount.(y, [1, 2]) .≈ [1 / 1.05, 1 / 1.058^2])
-            @test all(accumulation.(y, [1, 2]) .≈ [1.05, 1.058^2])
+            @testset "broadcasting" begin
+                @test all(discount.(curve, [1, 2]) .≈ [1 / 1.058, 1 / 1.068^2])
+                @test all(accumulation.(curve, [1, 2]) .≈ [1.058, 1.068^2])
+            end
         end
 
     end
@@ -164,8 +135,9 @@ end
     @testset "Forward Rates" begin
         # Risk Managment and Financial Institutions, 5th ed. Appendix B
 
-        forwards = [0.05, 0.04, 0.03, 0.08]
-        curve = FinanceModels.Forward(forwards, [1, 2, 3, 4])
+        zs = ZCBYield.([0.05, 0.04, 0.03, 0.08], 1)
+        fs = Forward.(zs, [1, 2, 3, 4])
+        curve = fit(Spline.Cubic(), fs, Fit.Bootstrap())
 
 
         @testset "discounts: $t" for (t, r) in enumerate(forwards)

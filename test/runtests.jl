@@ -1,8 +1,6 @@
-# newer TestItem tests here
+using Test
+using FinanceCore
 
-using TestItemRunner
-
-@run_package_tests
 
 # older Test tests below
 # eventually covert these into TestItemRunner
@@ -10,10 +8,10 @@ using TestItemRunner
 using FinanceModels
 using Test
 
-@testitem "Generic" begin
-    include("generic.jl")
-end
-include("bootstrap.jl")
+include("generic.jl")
+include("sp.jl")
+
+include("Yield.jl")
 include("RateCombination.jl")
 include("SmithWilson.jl")
 

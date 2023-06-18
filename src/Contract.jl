@@ -37,6 +37,7 @@ module Bond
 import ..AbstractContract
 import ..Timepoint
 import ..Cashflow, ..Quote
+import ..FinanceModels: maturity
 using ..FinanceCore
 
 using FinanceCore: Periodic, Continuous, Rate

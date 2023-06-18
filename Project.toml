@@ -16,6 +16,7 @@ OptimizationMetaheuristics = "3aafef2f-86ae-4776-b337-85a36adf0b55"
 OptimizationOptimJL = "36348300-93cb-4f02-beb5-3c3902f8871e"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 Transducers = "28d57a85-8fef-5791-bfe6-a80928e7c999"
+UnicodePlots = "b8865327-cd53-5732-bb35-84acbb429228"
 
 [compat]
 julia = "1.6"
