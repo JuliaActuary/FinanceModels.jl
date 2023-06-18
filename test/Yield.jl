@@ -134,10 +134,9 @@ end
 
     @testset "Forward Rates" begin
         # Risk Managment and Financial Institutions, 5th ed. Appendix B
-
-        zs = ZCBYield.([0.05, 0.04, 0.03, 0.08], 1)
-        fs = Forward.(zs, [1, 2, 3, 4])
-        curve = fit(Spline.Cubic(), fs, Fit.Bootstrap())
+        forwards = [0.05, 0.04, 0.03, 0.08]
+        qs = ForwardYields(forwards, [1, 2, 3, 4])
+        curve = fit(Spline.Cubic(), qs, Fit.Bootstrap())
 
 
         @testset "discounts: $t" for (t, r) in enumerate(forwards)
@@ -145,7 +144,7 @@ end
         end
 
         # test constructor without times
-        curve = FinanceModels.Forward(forwards)
+        qs = ForwardYields(forwards)
 
         @testset "discounts: $t" for (t, r) in enumerate(forwards)
             @test discount(curve, t) ≈ reduce((v, r) -> v / (1 + r), forwards[1:t]; init=1.0)
@@ -155,13 +154,18 @@ end
         @test accumulation(curve, 1, 2) ≈ 1.04
         @test accumulation(curve, 0, 2) ≈ 1.04 * 1.05
 
-        # test construction using vector of reals and of Rates
-        @test discount(FinanceModels.Forward(forwards), 1) > discount(FinanceModels.Forward(FinanceModels.Continuous.(forwards)), 1)
-
         @testset "broadcasting" begin
             @test all(accumulation.(curve, [1, 2]) .≈ [1.05, 1.04 * 1.05])
             @test all(discount.(curve, [1, 2]) .≈ 1 ./ [1.05, 1.04 * 1.05])
         end
+
+        # test construction using vector of reals and of Rates
+        curve_c = let
+            qs = ForwardYields(Continuous.(forwards), [1, 2, 3, 4])
+            fit(Spline.Cubic(), qs, Fit.Bootstrap())
+        end
+        @test discount(curve, 1) > discount(curve_c, 1)
+
 
         # addition / subtraction
         @test discount(curve + 0.1, 1) ≈ 1 / 1.15
@@ -169,12 +173,13 @@ end
 
 
 
-        @testset "with specified timepoints" begin
+        @testset "with specified non integer timepoints" begin
             i = [0.0, 0.05]
             times = [0.5, 1.5]
-            y = FinanceModels.Forward(i, times)
-            @test discount(y, 0.5) ≈ 1 / 1.0^0.5
-            @test discount(y, 1.5) ≈ 1 / 1.0^0.5 / 1.05^1
+            qs = ForwardYields(i, times)
+            m = fit(Spline.Linear(), qs, Fit.Bootstrap())
+            @test discount(m, 0.5) ≈ 1 / 1.0^0.5
+            @test discount(m, 1.5) ≈ 1 / 1.0^0.5 / 1.05^1
 
         end
 

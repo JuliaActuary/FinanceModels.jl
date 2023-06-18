@@ -25,8 +25,8 @@ include("Fit.jl")
 
 export Cashflow, Quote, Forward, CommonEquity, Option
 
-using .Bond: ZCBYield, ZCBPrice, ParSwapYield, ParYield, CMTYield
-export Bond, ZCBYield, ZCBPrice, ParSwapYield, ParYield, CMTYield
+using .Bond: ZCBYield, ZCBPrice, ParSwapYield, ParYield, CMTYield, ForwardYields
+export Bond, ZCBYield, ZCBPrice, ParSwapYield, ParYield, CMTYield, ForwardYields
 
 export Spline
 

@@ -164,17 +164,29 @@ function OISYield(yield, maturity)
 end
 
 """
-ForwardYield(yield,to=1.0,from=to-1.0) 
-Returns a `Quote`d price for a future cashflow. 
+ForwardYields(yields,times) 
+Returns a vector of `Quote` corresponding to the . 
     
-    # Examples
-    ```julia
-    fy = ForwardYield.([0.01,0.02],[1.,2.])
-    first(fy) == Quote(1/1.01,Forward(0.0,Cashflow(1.,1.)))
-    last(fy) == Quote(1/1.02,Forward(1.0,Cashflow(1.,1.)))
-    ```
-    """
-ForwardYield(yield, to=1.0, from=to - 1.0) = Quote(discount(yield, to - from), Forward(from, Cashflow(1.0, to - from)))
+# Examples
+```julia-repl
+julia> FinanceModels.Bond.ForwardYields([0.01,0.02],[1.,3.])
+2-element Vector{Quote{Float64, Cashflow{Float64, Float64}}}:
+ Quote{Float64, Cashflow{Float64, Float64}}(0.9900990099009901, Cashflow{Float64, Float64}(1.0, 1.0))
+ Quote{Float64, Cashflow{Float64, Float64}}(0.9423223345470445, Cashflow{Float64, Float64}(1.0, 3.0))
+```
+"""
+function ForwardYields(yields, times=eachindex(yields))
+    df = 1.0
+    t_prior = 0.0
+    map(zip(yields, times)) do (y, t)
+        df *= discount(y, t - t_prior)
+        t_prior = t
+        Quote(
+            df,
+            Cashflow(1.0, t)
+        )
+    end
+end
 
 
 # Bond utility funcs
