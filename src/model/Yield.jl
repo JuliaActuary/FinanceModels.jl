@@ -173,11 +173,6 @@ function FinanceCore.discount(rc::CompositeYield, time)
     return 1 / (1 + rc.op(a1, a2))^time
 end
 
-Base.zero(rc::CompositeYield, time) = zero(rc, time)
-function Base.zero(rc::CompositeYield, time, cf::C) where {C<:FinanceCore.CompoundingFrequency}
-    d = discount(rc, time)
-    return Periodic(1 / d^(1 / time) - 1, 1)
-end
 
 """
     ForwardStarting(curve,forwardstart)
@@ -257,11 +252,11 @@ function Base.:*(a::AbstractYieldModel, b::AbstractYieldModel)
 end
 
 function Base.:*(a::Constant, b::Constant)
-    a_kind = rate(a).compounding
-    rate_new_basis = rate(convert(a_kind, rate(b)))
+    a_kind = a.rate.compounding
+    rate_new_basis = FinanceCore.rate(convert(a_kind, b.rate))
     return Constant(
-        Rate(
-            rate(a.rate) * rate_new_basis,
+        FinanceCore.Rate(
+            FinanceCore.rate(a.rate) * rate_new_basis,
             a_kind
         )
     )
@@ -318,11 +313,11 @@ function Base.:/(a::AbstractYieldModel, b::AbstractYieldModel)
 end
 
 function Base.:/(a::Constant, b::Constant)
-    a_kind = rate(a).compounding
-    rate_new_basis = rate(convert(a_kind, rate(b)))
+    a_kind = a.rate.compounding
+    rate_new_basis = FinanceCore.rate(convert(a_kind, b.rate))
     return Constant(
-        Rate(
-            rate(a.rate) / rate_new_basis,
+        FinanceCore.Rate(
+            FinanceCore.rate(a.rate) / rate_new_basis,
             a_kind
         )
     )
