@@ -188,16 +188,16 @@ end
     @testset "forwardcurve" begin
         maturity = [0.5, 1.0, 1.5, 2.0]
         zeros = [5.0, 5.8, 6.4, 6.8] ./ 100
-        curve = FinanceModels.Zero(zeros, maturity)
+        qs = ZCBYield.(zeros, maturity)
+        curve = fit(Spline.Cubic(), qs, Fit.Bootstrap())
 
-        fwd = FinanceModels.ForwardStarting(curve, 1.0)
+        fwd = Yield.ForwardStarting(curve, 1.0)
         @test discount(fwd, 0) ≈ 1
         @test discount(fwd, 0.5) ≈ discount(curve, 1, 1.5)
         @test discount(fwd, 1) ≈ discount(curve, 1, 2)
         @test accumulation(fwd, 1) ≈ accumulation(curve, 1, 2)
 
         @test zero(fwd, 1) ≈ forward(curve, 1, 2)
-        @test zero(fwd, 1, FinanceModels.Continuous()) ≈ convert(FinanceModels.Continuous(), forward(curve, 1, 2))
     end
 
 
@@ -206,20 +206,20 @@ end
         # Fabozzi 5-5,5-6
         cmt = [5.25, 5.5, 5.75, 6.0, 6.25, 6.5, 6.75, 6.8, 7.0, 7.1, 7.15, 7.2, 7.3, 7.35, 7.4, 7.5, 7.6, 7.6, 7.7, 7.8] ./ 100
         mats = collect(0.5:0.5:10.0)
-        targets = [5.25, 5.5, 5.76, 6.02, 6.28, 6.55, 6.82, 6.87, 7.09, 7.2, 7.26, 7.31, 7.43, 7.48, 7.54, 7.67, 7.8, 7.79, 7.93, 8.07] ./ 100
-        target_periodicity = fill(2, length(mats))
-        target_periodicity[2] = 1 # 1 year is a no-coupon, BEY yield, the rest are semiannual BEY
-        @testset "curve bootstrapping choices" for curve in [FinanceModels.CMT(cmt, mats), FinanceModels.CMT(Bootstrap(LinearSpline()), cmt, mats), FinanceModels.CMT(Bootstrap(QuadraticSpline()), cmt, mats)]
-            @testset "Fabozzi bootstrapped rates" for (r, mat, target, tp) in zip(cmt, mats, targets, target_periodicity)
-                @test rate(zero(curve, mat, FinanceModels.Periodic(tp))) ≈ target atol = 0.0001
-            end
+        qs = CMTYield.(cmt, mats)
+        target_raw = [5.25, 5.5, 5.76, 6.02, 6.28, 6.55, 6.82, 6.87, 7.09, 7.2, 7.26, 7.31, 7.43, 7.48, 7.54, 7.67, 7.8, 7.79, 7.93, 8.07] ./ 100
+        targets = Periodic(2).(target_raw)
+        targets[1:2] .= Periodic(1)(target_raw[1:2]) # 1 year is a no-coupon, BEY yield, the rest are semiannual BEY
 
-            @testset "Fabozzi bootstrapped rates" for (r, mat, target, tp) in zip(cmt, mats, targets, target_periodicity)
-                @test rate(zero(curve, mat, FinanceModels.Periodic(tp))) ≈ target atol = 0.0001
-            end
+        curves = [
+            fit(Spline.Linear(), qs, Fit.Bootstrap()),
+            fit(Spline.Quadratic(), qs, Fit.Bootstrap()),
+            fit(Spline.Cubic(), qs, Fit.Bootstrap()),
+        ]
 
-            @testset "Fabozzi bootstrapped rates" for (r, mat, target, tp) in zip(cmt, mats, targets, target_periodicity)
-                @test rate(zero(curve, mat, FinanceModels.Periodic(tp))) ≈ target atol = 0.0001
+        @testset "curve bootstrapping choices" for curve in curves
+            @testset "Fabozzi bootstrapped rates" for (r, mat, target) in zip(cmt, mats, targets)
+                @test zero(curve, mat) ≈ target atol = 0.0001
             end
         end
 
@@ -227,10 +227,10 @@ end
         adj = ((1 + 0.051813 / 2)^2 - 1) * 100
         cmt = [4.0816, adj, 5.4986, 5.8620] ./ 100
         mats = [0.5, 1.0, 1.5, 2.0]
-        curve = FinanceModels.CMT(cmt, mats)
-        targets = [4.0405, 5.1293, 5.4429, 5.8085] ./ 100
+        curve = fit(Spline.Linear(), CMTYield.(cmt, mats), Fit.Bootstrap())
+        targets = Continuous.([4.0405, 5.1293, 5.4429, 5.8085] ./ 100)
         @testset "Hull bootstrapped rates" for (r, mat, target) in zip(cmt, mats, targets)
-            @test rate(zero(curve, mat, FinanceModels.Continuous())) ≈ target atol = 0.001
+            @test zero(curve, mat) ≈ target atol = 0.001
         end
 
         # test that showing the curve doesn't error
@@ -254,21 +254,22 @@ end
     @testset "OIS" begin
         ois = [1.8, 2.0, 2.2, 2.5, 3.0, 4.0] ./ 100
         mats = [1 / 12, 1 / 4, 1 / 2, 1, 2, 5]
-        targets = [0.017987, 0.019950, 0.021880, 0.024693, 0.029994, 0.040401]
+        qs = OISYield.(ois, mats)
+        targets = Continuous.([0.017987, 0.019950, 0.021880, 0.024693, 0.029994, 0.040401])
 
-        curve = FinanceModels.OIS(ois, mats)
-        @testset "bootstrapped rates" for (r, mat, target) in zip(ois, mats, targets)
-            @test rate(zero(curve, mat, FinanceModels.Continuous())) ≈ target atol = 0.001
+        curve = fit(Spline.Linear(), qs, Fit.Bootstrap())
+        @testset "bootstrapped rates" for (mat, target) in zip(mats, targets)
+            @test zero(curve, mat) ≈ target atol = 0.001
         end
-        curve = FinanceModels.OIS(Bootstrap(LinearSpline()), ois, mats)
-        @testset "bootstrapped rates" for (r, mat, target) in zip(ois, mats, targets)
-            @test rate(zero(curve, mat, FinanceModels.Continuous())) ≈ target atol = 0.001
+        curve = fit(Spline.Cubic(), qs, Fit.Bootstrap())
+        @testset "bootstrapped rates" for (mat, target) in zip(mats, targets)
+            @test zero(curve, mat) ≈ target atol = 0.001
         end
     end
 
     @testset "par" begin
         @testset "first payment logic" begin
-            ct = FinanceModels.coupon_times
+            ct = Bond.coupon_times
             @test ct(0.5, 1) ≈ 0.5:1:0.5
             @test ct(1.5, 1) ≈ 0.5:1:1.5
             @test ct(0.75, 1) ≈ 0.75:1:0.75
@@ -279,8 +280,8 @@ end
         end
 
         # https://quant.stackexchange.com/questions/57608/how-to-compute-par-yield-from-zero-rate-curve
-        c = FinanceModels.Zero(FinanceModels.Continuous.([0.02, 0.025, 0.03, 0.035]), 0.5:0.5:2)
-        @test FinanceModels.par(c, 2) ≈ FinanceModels.Periodic(0.03508591, 2) atol = 0.000001
+        c = fit(Spline.Cubic(), ZCBYield.(Continuous.([0.02, 0.025, 0.03, 0.035]), 0.5:0.5:2), Fit.Bootstrap())
+        @test FinanceModels.par(c, 2) ≈ Periodic(0.03508591, 2) atol = 0.000001
 
         c = Yield.Constant(0.04)
         @testset "misc combinations" for t in 0.5:0.5:5
@@ -294,12 +295,12 @@ end
         @testset "round trip" begin
             maturity = collect(1:10)
 
-            par = [6.0, 8.0, 9.5, 10.5, 11.0, 11.25, 11.38, 11.44, 11.48, 11.5] ./ 100
+            pars = [6.0, 8.0, 9.5, 10.5, 11.0, 11.25, 11.38, 11.44, 11.48, 11.5] ./ 100
 
-            curve = FinanceModels.Par(par, maturity)
+            curve = fit(Spline.Cubic(), ParYield.(pars, maturity), Fit.Bootstrap())
 
-            for (p, m) in zip(par, maturity)
-                @test FinanceModels.par(curve, m) ≈ FinanceModels.Periodic(p, 2) atol = 0.001
+            for (p, m) in zip(pars, maturity)
+                @test par(curve, m) ≈ Periodic(p, 2) atol = 0.001
             end
         end
 

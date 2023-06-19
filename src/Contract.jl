@@ -144,15 +144,14 @@ function CMTYield(yield, maturity)
 end
 
 """
-OISYield(yield,maturity)
-OISYield(yield::Vector)
+OISYield(yield [, maturity=eachindex(yield)]))
 
 Assumes that maturities less than or equal to 12 months are settled once (per Hull textbook, 4.7), otherwise quarterly and that the FinanceModels given are bond equivalent.
 
 Use broadcasting to create a set of quotes given a collection of FinanceModels and maturities, e.g. `OISYield.(FinanceModels,maturities)`.
 
 """
-function OISYield(yield, maturity)
+function OISYield(yield, maturity=eachindex(yield))
 
     if maturity <= 1
         return Quote(discount(yield, maturity), Fixed(0.0, Periodic(1), maturity))

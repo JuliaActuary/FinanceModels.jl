@@ -1,6 +1,6 @@
 using Test
 using FinanceCore
-
+using Accessors
 
 # older Test tests below
 # eventually covert these into TestItemRunner
@@ -12,7 +12,7 @@ include("generic.jl")
 include("sp.jl")
 
 include("Yield.jl")
-include("RateCombination.jl")
+include("CompositeYield.jl")
 include("SmithWilson.jl")
 
 include("ActuaryUtilities.jl")
