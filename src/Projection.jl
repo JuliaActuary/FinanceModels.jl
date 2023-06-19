@@ -51,8 +51,8 @@ function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:Bond.Flo
     b = p.contract
     ts = Bond.coupon_times(b)
     for t in ts
-        reference_rate = Periodic(b.frequency.frequency)(rate(p.model[b.key], t))
-        coup = (forward(reference_rate, t, t + b.frequency.frequency) + b.coupon_rate) / b.frequency.frequency
+        reference_rate = rate(Periodic(b.frequency.frequency)(forward(p.model[b.key], t, t + b.frequency.frequency)))
+        coup = (reference_rate + b.coupon_rate) / b.frequency.frequency
         amt = if t == last(ts)
             1.0 + coup
         else
