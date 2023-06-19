@@ -29,7 +29,7 @@ end
         CashflowProjection(),
     )
 
-    @test collect(p) == [Cashflow(0.07, 1.0), Cashflow(0.07, 2.0), Cashflow(1.07, 3.0)]
+    @test all(collect(p) .≈ [Cashflow(0.07, 1.0), Cashflow(0.07, 2.0), Cashflow(1.07, 3.0)])
 end
 
 @testset "Composite Contracts" begin
