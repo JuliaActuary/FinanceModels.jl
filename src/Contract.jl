@@ -249,41 +249,42 @@ end
 
 
 
-# # cashflows should be a vector of a vector of cashflows
-# function cashflow_matrix(instruments::Vector{Q}; resolution=1000) where {Q<:AbstractContract}
-#     vcf = collect.(instruments) # a vector of vector of cashflows
-#     ts = timesteps(instruments; resolution=resolution)
-#     m = zeros(round(Int, last(ts) ÷ step(ts)), length(vcf))
-#     for (i, cf) in enumerate(vcf)
-#         for c in cf
-#             m[round(Int, c.time ÷ step(ts)), i] = c.amount
-#         end
-#     end
-#     return m
-#     # for each obs determine the closest integer multiple of the gcd
-#     # fill in the matrix
-# end
+# cashflows should be a vector of a vector of cashflows
+function cashflow_matrix(instruments::Vector{Q}; resolution=1000) where {Q<:AbstractContract}
+    vcf = collect.(instruments) # a vector of vector of cashflows
+    ts = timepoints(instruments; resolution=resolution)
+    m = zeros(round(Int, last(ts) ÷ step(ts)), length(vcf))
+    for (i, cf) in enumerate(vcf)
+        for c in cf
+            m[round(Int, c.time ÷ step(ts)), i] = c.amount
+        end
+    end
+    return m
+    # for each obs determine the closest integer multiple of the gcd
+    # fill in the matrix
+end
 
-# function cashflow_matrix(quotes::Vector{Q}; resolution=1000) where {Q<:Quote}
-#     cashflow_matrix([q.instrument for q in quotes]; resolution=resolution)
-# end
+function cashflow_matrix(quotes::Vector{Quote{T,U}}; resolution=1000) where {T,U}
+    cashflow_matrix([q.instrument for q in quotes]; resolution=resolution)
+end
 
-# function timesteps(instruments::Vector{Q}; resolution=1000) where {Q<:AbstractContract}
-#     # calculate the gcd of the timesteps 
-#     mapreduce(timesteps, merge_range, instruments)
-# end
+function timepoints(instruments::Vector{Q}; resolution=1000) where {Q<:AbstractContract}
+    # calculate the gcd of the timepoints 
+    mapreduce(timepoints, merge_range, instruments)
+end
 
-# function timesteps(quotes::Vector{Q}; resolution=1000) where {Q<:Quote}
-#     timesteps([q.instrument for q in quotes]; resolution=resolution)
-# end
+function timepoints(quotes::Vector{Q}; resolution=1000) where {Q<:Quote}
+    timepoints([q.instrument for q in quotes]; resolution=resolution)
+end
 
-# timesteps(c::Cashflow) = c.time:c.time
+timepoints(c::Cashflow) = c.time:c.time
+timepoints(c::Bond.AbstractBond) = Bond.coupon_times(c)
 
 
 
-# function merge_range(a, b; resolution=1000)
-#     start = min(minimum(a), minimum(b))
-#     last = max(maximum(a), maximum(b))
-#     delta = gcd(Int(step(a) * resolution), Int(step(b) * resolution)) / resolution
-#     return start:delta:last
-# end
+function merge_range(a, b; resolution=1000)
+    @show start = min(minimum(a), minimum(b))
+    @show last = max(maximum(a), maximum(b))
+    @show delta = gcd(Int(step(a) * resolution), Int(step(b) * resolution)) / resolution
+    return start:delta:last
+end

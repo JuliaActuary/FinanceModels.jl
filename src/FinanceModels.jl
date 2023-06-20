@@ -9,6 +9,7 @@ using StaticArrays
 using IntervalSets
 using AccessibleOptimization
 using Accessors
+using LinearAlgebra
 using Transducers
 import BSplineKit
 import UnicodePlots

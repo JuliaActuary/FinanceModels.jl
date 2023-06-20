@@ -54,16 +54,14 @@ function FinanceCore.discount(c::Spline, time)
     return exp(-z * time)
 end
 
-# function Base.zero(c::YC, time) where {YC<:Spline}
-#     c.fn(time)
-# end
-
 function Spline(b::Sp.BSpline, xs, ys)
     order = min(length(xs), b.order) # in case the length of xs is less than the spline order
     int = BSplineKit.interpolate(xs, ys, BSplineKit.BSplineOrder(order))
     return Spline(BSplineKit.extrapolate(int, BSplineKit.Smooth()))
 end
 
+
+include("Yield/SmithWilson.jl")
 
 ## Generic and Fallbacks
 """
@@ -75,14 +73,13 @@ The discount factor for the yield curve `yc` for times `from` through `to`.
 FinanceCore.discount(yc::T, from, to) where {T<:AbstractYieldModel} = discount(yc, to) / discount(yc, from)
 
 """
-    forward(yc, from, to)
+    forward(yc, from, to)˚
 
 The forward `Rate` implied by the yield curve `yc` between times `from` and `to`.
 """
 function FinanceCore.forward(yc::T, from, to=from + 1) where {T<:AbstractYieldModel}
-    Periodic((accumulation(yc, to) / accumulation(yc, from))^(1 / (to - from)) - 1, 1)
+    Continuous(log(discount(yc, from) / discount(yc, to)) / (to - from))
 end
-
 
 """
     par(curve,time;frequency=2)
