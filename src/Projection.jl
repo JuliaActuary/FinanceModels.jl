@@ -76,3 +76,7 @@ function Transducers.asfoldable(p::Projection{C,M,K}) where {C<:Forward,M,K<:Cas
     p_alt = @set p.contract = p.contract.instrument
     p_alt |> Map(cf -> @set cf.time += fwd_start)
 end
+
+function Transducers.asfoldable(p::Projection{C,M,K}) where {C<:Cashflow,M,K<:CashflowProjection}
+    Ref(p.contract) |> Map(identity)
+end

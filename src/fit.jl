@@ -65,8 +65,7 @@ function fit(mod0::Spline.BSpline, quotes, method::Fit.Bootstrap)
 end
 
 function fit(mod0::Yield.SmithWilson, quotes)
-    cm = cashflow_matrix(quotes)
-    ts = timepoints(quotes)
+    cm, ts = cashflows_timepoints(quotes)
     prices = [q.price for q in quotes]
 
     return Yield.SmithWilson(ts, cm, prices; ufr=mod0.ufr, α=mod0.α)

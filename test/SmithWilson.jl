@@ -49,8 +49,10 @@
     prices = [1.0, 0.9]
     qs = Quote.(
         prices,
-        Bond.Fixed(0.1, Periodic(1), 2),
-        Bond.Fixed(0.1, Periodic(1), 3),
+        [
+            Bond.Fixed(0.1, Periodic(1), 2),
+            Bond.Fixed(0.1, Periodic(1), 3),
+        ]
     )
     cfs = [0.1 0.1
         1.0 0.1
