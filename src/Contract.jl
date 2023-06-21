@@ -292,20 +292,26 @@ end
 # create a matrix of cashflows and a vector of timepoints
 # timepoints need not be spaced evenly
 function cashflows_timepoints(qs)
-    cfs = map(q -> collect(q.instrument), qs)
+    cfs = map(q -> collect(q), qs)
     times = map(cfs) do cf
                 map(c -> c.time, cf)
             end |> Iterators.flatten |> unique |> sort!
 
-    m = zeros(length(qs), length(times))
+    m = zeros(length(times), length(qs))
 
     for t in 1:length(times)
         for q in 1:length(qs)
-            if times[t] == qs[q].instrument.time
-                m[q, t] += qs[q].instrument.amount
+            for c in 1:length(cfs[q])
+                if times[t] == cfs[q][c].time
+                    m[t, q] += cfs[q][c].amount
+                end
             end
         end
     end
     m
     return m, times
+end
+
+function cashflows_timepoints(qs::Vector{Q}) where {Q<:Quote}
+    cashflows_timepoints([q.instrument for q in qs])
 end

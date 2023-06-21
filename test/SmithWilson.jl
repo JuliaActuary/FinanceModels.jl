@@ -47,26 +47,21 @@
 
     # Two cash flows with payments at three times
     prices = [1.0, 0.9]
-    qs = Quote.(
-        prices,
-        [
-            Bond.Fixed(0.1, Periodic(1), 2),
-            Bond.Fixed(0.1, Periodic(1), 3),
-        ]
-    )
+    times = [1.0, 2.5, 5.6]
     cfs = [0.1 0.1
-        1.0 0.1
-        0.0 1.0]
-    curve_nondiag = Yield.SmithWilson([1, 2, 3], cfs, prices; ufr=ufr, α=α)
+        1.1 0.1
+        0.0 1.1]
+    qs = [Quote(q[1], Cashflow.(q[2], times)) for q in zip(prices, eachcol(cfs))]
+    curve_nondiag = Yield.SmithWilson(times, cfs, prices; ufr=ufr, α=α)
     @test transpose(cfs) * discount.(curve_nondiag, times) ≈ prices
-    curve_nondiag = fit(Yie.dSmithWilson(ufr=ufr, α=α), qs)
+    curve_nondiag = fit(Yield.SmithWilson(ufr=ufr, α=α), qs)
     @test transpose(cfs) * discount.(curve_nondiag, times) ≈ prices
 
     # Round-trip zero coupon quotes
     zcq_times = [1.2, 4.5, 5.6]
     zcq_prices = [1.0, 0.9, 1.2]
     qs = ZCBPrice.(zcq_prices, zcq_times)
-    sw_zcq = fit(SmithWilson(ufr=ufr, α=α), qs)
+    sw_zcq = fit(Yield.SmithWilson(ufr=ufr, α=α), qs)
     @testset "ZeroCouponQuotes round-trip" for idx = 1:length(zcq_times)
         @test discount(sw_zcq, zcq_times[idx]) ≈ zcq_prices[idx]
     end
@@ -80,22 +75,14 @@
         Bond.Fixed.(coupon, frequency, maturities)
     )
 
-    sw_swq = fit(SmithWilson(ufr=ufr, α=α), qs)
-    swq_times = 0.5:0.5:3.5   # Maturities are rounded down to multiples of 1/frequency, [1.0, 2.5, 3.5]
-    swq_payments = [-0.01 0.15 0.02
-        0.99 0.15 0.02
-        0.0 0.15 0.02
-        0.0 0.15 0.02
-        0.0 1.15 0.02
-        0.0 0.0 0.02
-        0.0 0.0 1.02]
-    sw_swq = FinanceModels.SmithWilson(swq, ufr=ufr, α=α)
-    @testset "SwapQuotes round-trip" for swapIdx = 1:length(swq_interests)
+    sw_swq = fit(Yield.SmithWilson(ufr=ufr, α=α), qs)
+    swq_payments, swq_times = FinanceModels.cashflows_timepoints(qs)
+    @testset "SwapQuotes round-trip" for swapIdx = 1:length(coupon)
         @test sum(discount.(sw_swq, swq_times) .* swq_payments[:, swapIdx]) ≈ 1.0
     end
     @testset "SW ForwardStarting" begin
         fwd_time = 1.0
-        fwd = FinanceModels.ForwardStarting(sw_swq, fwd_time)
+        fwd = Yield.ForwardStarting(sw_swq, fwd_time)
 
         @test discount(fwd, 3.7) ≈ discount(sw_swq, fwd_time, fwd_time + 3.7)
     end
@@ -106,8 +93,8 @@
         bbq_prices,
         Bond.Fixed.(coupon, frequency, maturities)
     )
-    sw_bbq = fit(FinanceModels.SmithWilson(ufr=ufr, α=α), qs)
-    @testset "BulletBondQuotes round-trip" for bondIdx = 1:length(swq_interests)
+    sw_bbq = fit(Yield.SmithWilson(ufr=ufr, α=α), qs)
+    @testset "BulletBondQuotes round-trip" for bondIdx = 1:length(bbq_prices)
         @test sum(discount.(sw_bbq, swq_times) .* swq_payments[:, bondIdx]) ≈ bbq_prices[bondIdx]
     end
 
@@ -137,13 +124,14 @@
     eiopa_output_u = 1:20
     eiopa_ufr = log(1.036)
     eiopa_α = 0.133394
-    sw_eiopa_expected = FinanceModels.SmithWilson(eiopa_output_u, eiopa_output_qb; ufr=eiopa_ufr, α=eiopa_α)
+    sw_eiopa_expected = Yield.SmithWilson(eiopa_output_u, eiopa_output_qb; ufr=eiopa_ufr, α=eiopa_α)
 
     eiopa_eurswap_maturities = [1:12; 15; 20]
+    # Reverse engineered from output curve. This is the full precision of market quotes.
     eiopa_eurswap_rates = [-0.00615, -0.00575, -0.00535, -0.00485, -0.00425, -0.00375, -0.003145,
-        -0.00245, -0.00185, -0.00125, -0.000711, -0.00019, 0.00111, 0.00215]   # Reverse engineered from output curve. This is the full precision of market quotes.
-    eiopa_eurswap_quotes = FinanceModels.SwapQuote.(eiopa_eurswap_rates, eiopa_eurswap_maturities, 1)
-    sw_eiopa_actual = FinanceModels.SmithWilson(eiopa_eurswap_quotes, ufr=eiopa_ufr, α=eiopa_α)
+        -0.00245, -0.00185, -0.00125, -0.000711, -0.00019, 0.00111, 0.00215]
+    eiopa_eurswap_quotes = Quote.(1.0, Bond.Fixed.(eiopa_eurswap_rates, Periodic(1), eiopa_eurswap_maturities))
+    sw_eiopa_actual = fit(Yield.SmithWilson(ufr=eiopa_ufr, α=eiopa_α), eiopa_eurswap_quotes)
 
     @testset "Match EIOPA calculation" begin
         @test sw_eiopa_expected.u ≈ sw_eiopa_actual.u
