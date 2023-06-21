@@ -62,6 +62,7 @@ end
 
 
 include("Yield/SmithWilson.jl")
+include("Yield/NelsonSiegelSvensson.jl")
 
 ## Generic and Fallbacks
 """

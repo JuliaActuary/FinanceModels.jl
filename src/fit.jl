@@ -16,21 +16,29 @@ end
 
 __default_optic(m::Yield.Constant) = @optic(_.rate.value) => -1.0 .. 1.0
 __default_optic(m::Yield.IntermediateYieldCurve) = @optic(_.ys[end]) => 0.0 .. 1.0
+__default_optic(m::Yield.NelsonSiegel) = [
+    @optic(_.τ₁) => 0.0 .. 10.0
+    @optic(_.β₀) => -10.0 .. 10.0
+    @optic(_.β₁) => -10.0 .. 10.0
+    @optic(_.β₂) => -10.0 .. 10.0
+]
+__default_optic(m::Yield.NelsonSiegelSvensson) = [
+    @optic(_.τ₁) => 0.0 .. 10.0
+    @optic(_.τ₂) => 0.0 .. 10.0
+    @optic(_.β₀) => -10.0 .. 10.0
+    @optic(_.β₁) => -10.0 .. 10.0
+    @optic(_.β₂) => -10.0 .. 10.0
+    @optic(_.β₃) => -10.0 .. 10.0
+]
 __default_optic(m::Equity.BlackScholesMerton) = __default_optic(m.σ)
 __default_optic(m::Volatility.Constant) = @optic(_.σ) => -0.0 .. 10.0
 
 function fit(mod0, quotes, method::F=Fit.Loss(x -> x^2);
-    variables=OptArgs(__default_optic(mod0))
+    variables=OptArgs(__default_optic(mod0)...)
 ) where
 {F<:Fit.Loss}
     # find the rate that minimizes the loss function w.r.t. the calculated price vs the quotes
-    function loss(m, quotes)
-        return mapreduce(+, quotes) do q
-            method.fn(present_value(m, q.instrument) - q.price)
-        end
-    end
-
-    f = Base.Fix2(loss, quotes)
+    f = __loss_single_function(method, quotes)
     ops = OptProblemSpec(f, SVector, mod0, variables)
     sol = solve(ops, ECA(), maxiters=300)
 
@@ -72,3 +80,12 @@ function fit(mod0::Yield.SmithWilson, quotes)
 
 end
 
+function __loss_single_function(loss_method, quotes)
+    function loss(m, quotes)
+        return mapreduce(+, quotes) do q
+            loss_method.fn(present_value(m, q.instrument) - q.price)
+        end
+    end
+
+    return Base.Fix2(loss, quotes) # a function that takes a model and returns the loss
+end

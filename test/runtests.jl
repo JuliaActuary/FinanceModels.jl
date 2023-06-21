@@ -15,7 +15,8 @@ include("Yield.jl")
 include("CompositeYield.jl")
 include("SmithWilson.jl")
 
-include("ActuaryUtilities.jl")
+# TODO fix AU integration
+#  include("ActuaryUtilities.jl")
 include("misc.jl")
 include("NelsonSiegelSvensson.jl")
 #TODO EconomicScenarioGenerators.jl integration tests
