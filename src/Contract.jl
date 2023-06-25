@@ -1,8 +1,3 @@
-### TODO
-# - if explicit price, should have par to calculate unit price
-# - can we just dispatch on the type of price/yield to simplify constructor?
-# - collect cashflows into vector
-
 # Allow Dates or real timesteps
 const Timepoint{T} = Union{T,Dates.Date} where {T<:Real}
 

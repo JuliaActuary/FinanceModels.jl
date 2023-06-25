@@ -43,7 +43,8 @@ function fit(mod0, quotes, method::F=Fit.Loss(x -> x^2);
 {F<:Fit.Loss}
     # find the rate that minimizes the loss function w.r.t. the calculated price vs the quotes
     f = __loss_single_function(method, quotes)
-    ops = OptProblemSpec(f, Vector, mod0, variables)
+    # some solvers want a `Vector` instead of `SVector`
+    ops = OptProblemSpec(f, SVector, mod0, variables)
     sol = solve(ops, optimizer)
     return sol.uobj
 
