@@ -2,12 +2,11 @@
 ## Originally developed by leeyuntien <leeyuntien@gmail.com>
 
 """
-    NelsonSiegel(rates::AbstractVector, maturities::AbstractVector; τ_initial=1.0)
-
-Return the NelsonSiegel fitted parameters. The rates should be zero spot rates. If `rates` are not `Rate`s, then they will be interpreted as `Continuous` `Rate`s.
-
     NelsonSiegel(β₀, β₁, β₂, τ₁)
+    NelsonSiegel(τ₁=1.0) # used in fitting
 
+
+A Nelson-Siegel yield curve model 
 Parameters of Nelson and Siegel (1987) parametric model:
 
 - β₀ represents a long-term interest rate
@@ -21,7 +20,9 @@ Parameters of Nelson and Siegel (1987) parametric model:
 julia> β₀, β₁, β₂, τ₁ = 0.6, -1.2, -1.9, 3.0
 julia> nsm = Yields.NelsonSiegel.(β₀, β₁, β₂, τ₁)
 
-# Extend Help
+# Extended Help
+
+NelsonSiegel has generally been replaced by NelsonSiegelSvensson, which is a more flexible model.
 
 ## References
 - https://onriskandreturn.com/2019/12/01/nelson-siegel-yield-curve-model/
@@ -75,6 +76,19 @@ Parameters of Svensson (1994) parametric model:
 julia> β₀, β₁, β₂, β₃, τ₁, τ₂ = 0.6, -1.2, -2.1, 3.0, 1.5
 julia> nssm = NelsonSiegelSvensson.NelsonSiegelSvensson.(β₀, β₁, β₂, β₃, τ₁, τ₂)
 
+# Extended Help
+
+Nelson-Siegel-Svensson Pros:
+
+- Simplicity: With only six parameters, the model is quite parsimonious and easy to estimate. It's also easier to interpret and communicate than more complex models.
+- Economic Interpretability: Each of the model's components can be given an economic interpretation, with parameters representing long term rate, short term rate, the rates of decay towards the long term rate, and humps in the yield curve.
+
+Nelson-Siegel-Svensson Cons:
+
+- Unusual Curves: NSS makes some assumptions about the shape of the yield curve (e.g. generally has a hump in short to medium term maturities). It might not be the best choice for fitting unusual curves.
+- Arbitrage Opportunities: The NSS model does not guarantee absence of arbitrage opportunities. More sophisticated models, like the ones based on no-arbitrage conditions, might provide better pricing accuracy in some contexts.
+- Sensitivity: Similar inputs may produce different parameters due to the highly convex, non-linear region to solve for the parameters. Entities like the ECB will partially mitigate this by using the prior business day's parameters as the starting point for the current day's yield curve.
+
 ## References
 - https://onriskandreturn.com/2019/12/01/nelson-siegel-yield-curve-model/
 - https://www.bis.org/publ/bppdf/bispap25.pdf
@@ -89,7 +103,7 @@ struct NelsonSiegelSvensson{T} <: AbstractYieldModel
     β₂::T
     β₃::T
 
-    function NelsonSiegelSvensson(τ₁::T, τ₂::T, β₀::T, β₁::T, β₂::T, β₃::T) where {T<:Real}
+    function NelsonSiegelSvensson(τ₁::T, τ₂::T, β₀::T, β₁::T, β₂::T, β₃::T) where {T}
         (τ₁ <= 0 || τ₂ <= 0) && throw(DomainError("Wrong tau parameter ranges (must be positive)"))
         return new{T}(τ₁, τ₂, β₀, β₁, β₂, β₃)
     end

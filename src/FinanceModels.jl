@@ -5,6 +5,7 @@ using FinanceCore
 using FinanceCore: present_value, discount, accumulation
 using OptimizationOptimJL
 using OptimizationMetaheuristics
+using OptimizationNLopt
 using StaticArrays
 using IntervalSets
 using AccessibleOptimization

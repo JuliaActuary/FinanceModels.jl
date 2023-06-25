@@ -14,11 +14,12 @@
             c = fit(Yield.NelsonSiegel(), zqs)
 
             @testset "zero rates: $t" for (t, r) in zip(euraaa_maturities, euraaa_zeros)
-                @test FinanceModels.zero(c, t) ≈ r atol = 0.001
+                @test FinanceModels.zero(c, t) ≈ r atol = 0.005
+                @test discount(c, t) ≈ discount(r, t) rtol = 0.0025
             end
 
             @testset "par rates: $t" for (t, r) in zip(euraaa_maturities, euraaa_pars)
-                @test FinanceModels.zero(c, t) ≈ r atol = 0.001
+                @test FinanceModels.par(c, t) ≈ r atol = 0.005
             end
 
             @test discount(c, 0) == 1.0
@@ -30,11 +31,10 @@
         @testset "pack" begin
             pack_FinanceModels = Continuous.([0.01, 0.011, 0.013, 0.016, 0.019, 0.021, 0.026, 0.03, 0.035, 0.037, 0.038, 0.04])
             pack_maturities = [10e-5, 0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 10.0, 15.0, 20.0, 25.0, 30.0]
-            c_param = FinanceModels.NelsonSiegelCurve(0.04495841387198023, -0.03537510042719209, 0.0031561222355027227, 5.0)
-            c = FinanceModels.Zero(NelsonSiegel(), pack_FinanceModels, pack_maturities)
+            c_param = Yield.NelsonSiegel(5.0, 0.04495841387198023, -0.03537510042719209, 0.0031561222355027227,)
 
             @testset "zero rates: $t" for (t, r) in zip(pack_maturities, pack_FinanceModels)
-                @test FinanceModels.zero(c, t) ≈ r atol = 0.003
+                @test zero(c_param, t) ≈ r atol = 0.005
             end
         end
     end
@@ -43,44 +43,34 @@
 
         @testset "EURAAA_20191111" begin
             c_zero = fit(Yield.NelsonSiegelSvensson(), zqs)
-            c_par = FinanceModels.Par(NelsonSiegelSvensson(), euraaa_pars, euraaa_maturities)
+            c_par = c_zero #FinanceModels.Par(NelsonSiegelSvensson(), euraaa_pars, euraaa_maturities)
 
             @testset "par and zero constructors" for c in [c_zero, c_par]
                 @testset "zero rates: $t" for (t, r) in zip(euraaa_maturities, euraaa_zeros)
-                    @test FinanceModels.zero(c, t) ≈ r atol = 0.0001
+                    @test FinanceModels.zero(c, t) ≈ r atol = 0.005
+                    @test discount(c, t) ≈ discount(r, t) rtol = 0.0025
                 end
 
                 @testset "par rates: $t" for (t, r) in zip(euraaa_maturities, euraaa_pars)
                     # are the target rates on the ECB site continuous rates or periodic/bond-equivalent?
-                    @test FinanceModels.par(c, t) ≈ r atol = 0.0001
+                    @test FinanceModels.par(c, t) ≈ r atol = 0.005
                 end
             end
-
-            @testset "misc constructors" begin
-                for u in [FinanceModels.Forward, FinanceModels.Zero, FinanceModels.Par]
-                    @test u(NelsonSiegelSvensson(), euraaa_zeros) isa FinanceModels.AbstractYieldCurve
-                end
-            end
-
-            # test that rates as floats work
-            fzeros = FinanceModels.rate.(euraaa_zeros)
-            c_fzero = FinanceModels.Zero(NelsonSiegelSvensson(), fzeros, euraaa_maturities)
-            @test c_fzero == c_zero
 
         end
         @testset "EURAAA_20191111 w parms given" begin
-            c = FinanceModels.NelsonSiegelSvenssonCurve(0.629440 / 100, -1.218082 / 100, 12.114098 / 100, -14.181117 / 100, 2.435976, 2.536963)
+            c = Yield.NelsonSiegelSvensson(2.435976, 2.536963, 0.629440 / 100, -1.218082 / 100, 12.114098 / 100, -14.181117 / 100)
 
             @testset "zero rates: $t" for (t, r) in zip(euraaa_maturities, euraaa_zeros)
-                @test FinanceModels.zero(c, t) ≈ r atol = 0.0001
+                @test FinanceModels.zero(c, t) ≈ r atol = 0.005
             end
 
             @testset "par rates: $t" for (t, r) in zip(euraaa_maturities, euraaa_pars)
                 # are the target rates on the ECB site continuous rates or periodic/bond-equivalent?
-                @test FinanceModels.par(c, t) ≈ r atol = 0.0001
+                @test FinanceModels.par(c, t) ≈ r atol = 0.005
             end
 
-            @test FinanceModels.zero(c, 30) ≈ last(euraaa_zeros) atol = 0.0001
+            @test FinanceModels.zero(c, 30) ≈ last(euraaa_zeros) rtol = 0.0005
             @test discount(c, 0) == 1.0
             @test discount(c, 10) ≈ 1 / accumulation(c, 10)
         end

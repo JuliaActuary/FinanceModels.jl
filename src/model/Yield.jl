@@ -163,7 +163,6 @@ struct CompositeYield{T,U,V} <: AbstractYieldModel
     op::V
 end
 
-FinanceCore.rate(rc::CompositeYield, time) = rc.op(rate(rc.r1, time), rate(rc.r2, time))
 
 function FinanceCore.discount(rc::CompositeYield, time)
     a1 = discount(rc.r1, time)^(-1 / time) - 1
