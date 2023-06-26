@@ -35,7 +35,7 @@ end
 @testset "Composite Contracts" begin
     a = Bond.Fixed(0.05, Periodic(1), 3.0)
     b = Bond.Fixed(0.1, Periodic(4), 3.0)
-    c = FinanceModels.Composite(a, b)
+    c = FinanceCore.Composite(a, b)
 
     p = Projection(c)
     @test collect(p) == [collect(a); collect(b)]

@@ -143,6 +143,30 @@ end
             @test discount(curve, t) ≈ reduce((v, r) -> v / (1 + r), forwards[1:t]; init=1.0)
         end
 
+        # test from ActuaryUtilities 
+
+        @testset "pv with vector discount rates" begin
+            cf = [100, 100]
+            @test pv([0.0, 0.05], cf) ≈ 100 / 1.0 + 100 / 1.05
+            @test pv(ActuaryUtilities.Yields.Forward([0.0, 0.05]), cf) ≈ 100 / 1.0 + 100 / 1.05
+            @test pv([0.05, 0.0], cf) ≈ 100 / 1.05 + 100 / 1.05
+            @test pv([0.05, 0.1], cf) ≈ 100 / 1.05 + 100 / 1.05 / 1.1
+
+            ts = [0.5, 1]
+            @test pv(ActuaryUtilities.Yields.Forward([0.0, 0.05], ts), cf, ts) ≈ 100 / 1.0 + 100 / 1.05^0.5
+            @test pv(ActuaryUtilities.Yields.Forward([0.05, 0.0], ts), cf, ts) ≈ 100 / 1.05^0.5 + 100 / 1.05^0.5
+            @test pv(ActuaryUtilities.Yields.Forward([0.05, 0.1], ts), cf, ts) ≈ 100 / 1.05^0.5 + 100 / (1.05^0.5) / (1.1^0.5)
+
+            #without explicit Yields constructor
+            @test pv([0.0, 0.05], cf, ts) ≈ 100 / 1.0 + 100 / 1.05^0.5
+
+            @test price([0.0, 0.05], cf, ts) ≈ pv([0.0, 0.05], cf, ts)
+            @test price([0.0, 0.05], -1 .* cf, ts) ≈ abs(pv([0.0, 0.05], cf, ts))
+
+
+        end
+
+
         # test constructor without times
         qs = ForwardYields(forwards)
 

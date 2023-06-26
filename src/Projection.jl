@@ -10,11 +10,11 @@ end
 Projection(c) = Projection(c, NullModel(), CashflowProjection())
 Projection(c, m) = Projection(c, m, CashflowProjection())
 
-function Transducers.asfoldable(c::C) where {C<:AbstractContract}
+function Transducers.asfoldable(c::C) where {C<:FinanceCore.AbstractContract}
     Projection(c) |> Map(identity)
 end
 Base.collect(p::P) where {P<:AbstractProjection} = p |> Map(identity) |> collect
-Base.collect(c::C) where {C<:AbstractContract} = Projection(c) |> Map(identity) |> collect
+Base.collect(c::C) where {C<:FinanceCore.AbstractContract} = Projection(c) |> Map(identity) |> collect
 
 
 # controls what gets produced from the model,
@@ -65,7 +65,7 @@ function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:Bond.Flo
 end
 
 
-function Transducers.asfoldable(p::Projection{C,M,K}) where {C<:Composite,M,K}
+function Transducers.asfoldable(p::Projection{C,M,K}) where {C<:FinanceCore.Composite,M,K}
     ap = @set p.contract = p.contract.a
     bp = @set p.contract = p.contract.b
     (ap, bp) |> Cat()

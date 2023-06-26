@@ -2,13 +2,12 @@
 module Yield
 import ..AbstractModel
 import ..FinanceCore
-import ..AbstractContract
 import ..Spline as Sp
 import ..BSplineKit
 import UnicodePlots
 import ..Bond: coupon_times
 
-using FinanceCore: Continuous, Periodic, discount, accumulation
+using FinanceCore: Continuous, Periodic, discount, accumulation, AbstractContract
 
 export discount, zero, forward, par, pv
 

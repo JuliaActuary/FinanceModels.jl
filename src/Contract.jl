@@ -1,38 +1,8 @@
-# Allow Dates or real timesteps
-const Timepoint{T} = Union{T,Dates.Date} where {T<:Real}
-
-abstract type AbstractContract end
-
-struct Quote{N<:Real,T}
-    price::N
-    instrument::T
-end
-
-maturity(q::Quote) = maturity(q.instrument)
-Base.isapprox(a::Quote, b::Quote) = isapprox(a.price, b.price) && isapprox(a.instrument, b.instrument)
-
-struct Cashflow{N<:Real,T<:Timepoint} <: AbstractContract
-    amount::N
-    time::T
-end
-
-maturity(c::Cashflow) = c.time
-Base.isapprox(a::Cashflow, b::Cashflow) = isapprox(a.amount, b.amount) && isapprox(a.time, b.time)
-Base.convert(::Type{Cashflow{A,B}}, y::Cashflow{C,D}) where {A,B,C,D} = Cashflow(A(y.amount), B(y.time))
-
-struct Composite{A,B} <: AbstractContract
-    a::A
-    b::B
-end
-
-maturity(c::Composite) = max(maturity(c.a), maturity(c.b))
+# Extending the Core contracts from FinanceCore
 
 ### Bonds 
 module Bond
-import ..AbstractContract
-import ..Timepoint
-import ..Cashflow, ..Quote
-import ..FinanceModels: maturity
+import ..FinanceCore: Cashflow, Quote, AbstractContract, maturity, Timepoint
 using ..FinanceCore
 
 using FinanceCore: Periodic, Continuous, Rate
@@ -205,11 +175,10 @@ end
 
 end
 
-struct CommonEquity <: AbstractContract end
+struct CommonEquity <: FinanceCore.AbstractContract end
 
 module Option
-import ..AbstractContract
-import ..Timepoint
+import ..FinanceCore: AbstractContract, Timepoint
 
 struct EuroCall{S<:AbstractContract,K<:Real,M<:Timepoint} <: AbstractContract
     underlying::S
@@ -224,7 +193,7 @@ Forward(time,instrument)
 The instrument is relative to the Forward time.
 e.g. if you have a `Forward(1.0, Cashflow(1.0, 3.0))` then the instrument is a cashflow that pays 1.0 at time 4.0
 """
-struct Forward{T<:Timepoint,I<:AbstractContract} <: AbstractContract
+struct Forward{T<:FinanceCore.Timepoint,I<:FinanceCore.AbstractContract} <: FinanceCore.AbstractContract
     time::T
     instrument::I
 end

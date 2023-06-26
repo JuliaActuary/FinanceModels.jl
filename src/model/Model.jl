@@ -6,7 +6,7 @@ Base.Broadcast.broadcastable(x::T) where {T<:AbstractModel} = Ref(x)
 struct NullModel <: AbstractModel end
 
 # useful for round-tripping or iterating on quotes?
-function Quote(m::M, c::C) where {M<:AbstractModel,C<:AbstractContract}
+function Quote(m::M, c::C) where {M<:AbstractModel,C<:FinanceCore.AbstractContract}
     return Quote(pv(m, c), c)
 end
 
@@ -15,7 +15,7 @@ include("Yield.jl")
 include("Volatility.jl")
 include("Equity.jl")
 
-function FinanceCore.present_value(model::M, c::AbstractContract; cur_time=0.0) where {M<:Yield.AbstractYieldModel}
+function FinanceCore.present_value(model::M, c::FinanceCore.AbstractContract; cur_time=0.0) where {M<:Yield.AbstractYieldModel}
     p = Projection(c, model, CashflowProjection())
     xf = p |> Filter(cf -> cf.time >= cur_time) |> Map(cf -> FinanceCore.discount(model, cur_time, cf.time) * cf.amount)
     foldxl(+, xf)
