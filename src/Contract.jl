@@ -158,10 +158,11 @@ end
 function coupon_times(maturity, frequency)
     Δt = min(1 / frequency, maturity)
     times = maturity:-Δt:0
-    f = last(times)
-    f += iszero(f) ? Δt : zero(f)
-    l = first(times)
-    return f:Δt:l
+    if iszero(last(times))
+        return reverse(times[1:end-1])
+    else
+        return reverse(times)
+    end
 end
 coupon_times(b::AbstractBond) = coupon_times(b.maturity, b.frequency.frequency)
 
