@@ -41,12 +41,12 @@ Sometimes it is most natural or convenient to expect a certain kind of `Rate` fr
 
   - `__ratetype(::Type{MyYield}) = FinanceModels.Rate{Float64, Continuous}`
 
-If the `CompoundingFrequency` is `Continuous`, then it's currently not necessary to define `__ratetype`, as it will fall back onto the generic method defined for `AbstractYieldCurve`s.
+If the `Frequency` is `Continuous`, then it's currently not necessary to define `__ratetype`, as it will fall back onto the generic method defined for `AbstractYieldCurve`s.
 
-If the preferred compounding frequency is `Periodic`, then you must either define the methods (`zero`, `forward`,...) for your type or to use the generic methods then you must define `FinanceModels.CompoundingFrequency(curve::MyCurve)` to return the `Periodic` compounding datatype of the rates to return. 
+If the preferred compounding frequency is `Periodic`, then you must either define the methods (`zero`, `forward`,...) for your type or to use the generic methods then you must define `FinanceModels.Frequency(curve::MyCurve)` to return the `Periodic` compounding datatype of the rates to return. 
 
 For example, if we wanted `MyCurve` to return `Periodic(1)` rates, then we would define:
 
-`FinanceModels.CompoundingFrequency(curve::MyCurve) = Periodic(1)`
+`FinanceModels.Frequency(curve::MyCurve) = Periodic(1)`
 
 This latter step is necessary and distinct from `__ratetype`. This is due to `__ratetype` relying on type-only information. The `Periodic` type contains as a datafield the compounding frequency. Therefore, the frequency is not known to the type system and is available only at runtime. 

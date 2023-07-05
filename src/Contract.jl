@@ -34,7 +34,7 @@ Use broadcasting to create a set of quotes given a collection of FinanceModels a
 """
 ZCBYield(yield, time) = Quote(discount(yield, time), Cashflow(1.0, time))
 
-struct Fixed{F<:FinanceCore.CompoundingFrequency,N<:Real,M<:Timepoint} <: AbstractBond
+struct Fixed{F<:FinanceCore.Frequency,N<:Real,M<:Timepoint} <: AbstractBond
     coupon_rate::N # coupon_rate / frequency is the actual payment amount
     frequency::F
     maturity::M
@@ -50,7 +50,7 @@ end
 # end
 
 
-struct Floating{F<:FinanceCore.CompoundingFrequency,N<:Real,M<:Timepoint,K} <: AbstractBond
+struct Floating{F<:FinanceCore.Frequency,N<:Real,M<:Timepoint,K} <: AbstractBond
     coupon_rate::N # coupon_rate / frequency is the actual payment amount
     frequency::F
     maturity::M
@@ -199,60 +199,6 @@ struct Forward{T<:FinanceCore.Timepoint,I<:FinanceCore.AbstractContract} <: Fina
     instrument::I
 end
 
-
-
-# convert ZCB to non-forward versions
-# function __process_forwards(qs::Vector{Quote{U,Forward{N,T}}}) where {N,T<:Cashflow,U}
-#     v = 1.0
-#     t = 0.0
-#     map(qs) do q
-#         v *= (q.price / q.instrument.instrument.amount)
-#         t = q.instrument.time + q.instrument.instrument.time
-#         Quote(v, Cashflow(1.0, t))
-#     end
-# end
-
-
-
-# # cashflows should be a vector of a vector of cashflows
-# function cashflow_matrix(instruments::Vector{Q}; resolution=1000) where {Q<:AbstractContract}
-#     vcf = collect.(instruments) # a vector of vector of cashflows
-#     ts = timepoints(instruments; resolution=resolution)
-#     m = zeros(round(Int, last(ts) ÷ step(ts)), length(vcf))
-#     for (i, cf) in enumerate(vcf)
-#         for c in cf
-#             m[round(Int, c.time ÷ step(ts)), i] = c.amount
-#         end
-#     end
-#     return m
-#     # for each obs determine the closest integer multiple of the gcd
-#     # fill in the matrix
-# end
-
-# function cashflow_matrix(quotes::Vector{Quote{T,U}}; resolution=1000) where {T,U}
-#     cashflow_matrix([q.instrument for q in quotes]; resolution=resolution)
-# end
-
-# function timepoints(instruments::Vector{Q}; resolution=1000) where {Q<:AbstractContract}
-#     # calculate the gcd of the timepoints 
-#     mapreduce(timepoints, merge_range, instruments)
-# end
-
-# function timepoints(quotes::Vector{Q}; resolution=1000) where {Q<:Quote}
-#     timepoints([q.instrument for q in quotes]; resolution=resolution)
-# end
-
-# timepoints(c::Cashflow) = c.time:c.time
-# timepoints(c::Bond.AbstractBond) = Bond.coupon_times(c)
-
-
-
-# function merge_range(a, b; resolution=1000)
-#     start = min(minimum(a), minimum(b))
-#     last = max(maximum(a), maximum(b))
-#     delta = gcd(Int(step(a) * resolution), Int(step(b) * resolution)) / resolution
-#     return start:delta:last
-# end
 
 # create a matrix of cashflows and a vector of timepoints
 # timepoints need not be spaced evenly

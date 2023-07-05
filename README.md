@@ -38,7 +38,7 @@ discount(yield,1.5)                           # 1 / (1 + 0.064 + 0.014) ^ 1.5
 
 Rates are types that wrap scalar values to provide information about how to determine `discount` and `accumulation` factors.
 
-There are two `CompoundingFrequency` types:
+There are two `Frequency` types:
 
 - `FinanceModels.Periodic(m)` for rates that compound `m` times per period (e.g. `m` times per year if working with annual rates).
 - `FinanceModels.Continuous()` for continuously compounding rates.
@@ -64,7 +64,7 @@ Periodic.([0.02,0.03,0.04],2)
 Continuous.([0.02,0.03,0.04]) 
 ```
 
-Rates can also be constructed by specifying the `CompoundingFrequency` and then passing a scalar rate:
+Rates can also be constructed by specifying the `Frequency` and then passing a scalar rate:
 
 ```julia
 Periodic(1)(0.05)
@@ -96,7 +96,7 @@ There is a set of constructor methods which will return a yield curve calibrated
 
 - `FinanceModels.Zero(rates,maturities)`  using a vector of zero rates (sometimes referred to as "spot" rates)
 - `FinanceModels.Forward(rates,maturities)` using a vector of forward rates
-- `FinanceModels.Par(rates,maturities)` takes a series of FinanceModels for securities priced at par. Assumes that maturities <= 1 year do not pay coupons and that after one year, pays coupons with frequency equal to the CompoundingFrequency of the corresponding rate (2 by default).
+- `FinanceModels.Par(rates,maturities)` takes a series of FinanceModels for securities priced at par. Assumes that maturities <= 1 year do not pay coupons and that after one year, pays coupons with frequency equal to the Frequency of the corresponding rate (2 by default).
 - `FinanceModels.CMT(rates,maturities)` takes the most commonly presented rate data (e.g. [Treasury.gov](https://www.treasury.gov/resource-center/data-chart-center/interest-rates/Pages/TextView.aspx?data=yield)) and bootstraps the curve given the combination of bills and bonds.
 - `FinanceModels.OIS(rates,maturities)` takes the most commonly presented rate data for overnight swaps and bootstraps the curve. Rates assume a single settlement for <1 year and quarterly settlements for 1 year and above.
 
@@ -128,7 +128,7 @@ Most of the above FinanceModels have the following defined (goal is to have them
 
 - `discount(curve,from,to)` or `discount(curve,to)` gives the discount factor
 - `accumulation(curve,from,to)` or `accumulation(curve,to)` gives the accumulation factor
-- `zero(curve,time)` or `zero(curve,time,CompoundingFrequency)` gives the zero-coupon spot rate for the given time.
+- `zero(curve,time)` or `zero(curve,time,Frequency)` gives the zero-coupon spot rate for the given time.
 - `forward(curve,from,to)` gives the zero rate between the two given times
 - `par(curve,time)` gives the coupon-paying par equivalent rate for the given time.
 
