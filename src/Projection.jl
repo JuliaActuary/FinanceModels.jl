@@ -23,7 +23,7 @@ abstract type ProjectionKind end
 
 struct CashflowProjection <: ProjectionKind end
 
-function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:Cashflow,M,K}
+@inline function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:Cashflow,M,K}
     for i in 1:1
         val = @next(rf, val, p.contract)
     end
@@ -31,11 +31,11 @@ function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:Cashflow
 end
 
 
-function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:Bond.Fixed,M,K}
+@inline function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:Bond.Fixed,M,K}
     b = p.contract
     ts = Bond.coupon_times(b)
+    coup = b.coupon_rate / b.frequency.frequency
     for t in ts
-        coup = b.coupon_rate / b.frequency.frequency
         amt = if t == last(ts)
             1.0 + coup
         else
@@ -47,7 +47,7 @@ function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:Bond.Fix
     return complete(rf, val)
 end
 
-function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:Bond.Floating,M,K}
+@inline function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:Bond.Floating,M,K}
     b = p.contract
     ts = Bond.coupon_times(b)
     for t in ts
@@ -65,18 +65,18 @@ function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:Bond.Flo
 end
 
 
-function Transducers.asfoldable(p::Projection{C,M,K}) where {C<:FinanceCore.Composite,M,K}
+@inline function Transducers.asfoldable(p::Projection{C,M,K}) where {C<:FinanceCore.Composite,M,K}
     ap = @set p.contract = p.contract.a
     bp = @set p.contract = p.contract.b
     (ap, bp) |> Cat()
 end
 
-function Transducers.asfoldable(p::Projection{C,M,K}) where {C<:Forward,M,K<:CashflowProjection}
+@inline function Transducers.asfoldable(p::Projection{C,M,K}) where {C<:Forward,M,K<:CashflowProjection}
     fwd_start = p.contract.time
     p_alt = @set p.contract = p.contract.instrument
     p_alt |> Map(cf -> @set cf.time += fwd_start)
 end
 
-function Transducers.asfoldable(p::Projection{C,M,K}) where {C<:Cashflow,M,K<:CashflowProjection}
+@inline function Transducers.asfoldable(p::Projection{C,M,K}) where {C<:Cashflow,M,K<:CashflowProjection}
     Ref(p.contract) |> Map(identity)
 end

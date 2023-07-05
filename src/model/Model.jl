@@ -15,7 +15,7 @@ include("Yield.jl")
 include("Volatility.jl")
 include("Equity.jl")
 
-function FinanceCore.present_value(model, c::FinanceCore.AbstractContract; cur_time=0.0)
+function FinanceCore.present_value(model, c::FinanceCore.AbstractContract, cur_time=0.0)
     p = Projection(c, model, CashflowProjection())
     xf = p |> Filter(cf -> cf.time >= cur_time) |> Map(cf -> FinanceCore.discount(model, cur_time, cf.time) * cf.amount)
     foldxl(+, xf)
