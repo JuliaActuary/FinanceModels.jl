@@ -82,11 +82,13 @@ end
     b = p.contract
     ts = Bond.coupon_times(b)
     for t in ts
-        # get the rate from the current time to next payment 
-        # out of the model and convert it to the contract's periodicity
         freq = b.frequency # e.g. `Periodic(2)`
         freq_scalar = freq.frequency  # the 2 from `Periodic(2)`
-        reference_rate = rate(freq(forward(p.model[b.key], t, t + 1 / freq_scalar)))
+
+        # get the rate from the current time to next payment 
+        # out of the model and convert it to the contract's periodicity
+        model = p.model[b.key]
+        reference_rate = rate(freq(forward(model, t, t + 1 / freq_scalar)))
         coup = (reference_rate + b.coupon_rate) / freq_scalar
         amt = if t == last(ts)
             1.0 + coup

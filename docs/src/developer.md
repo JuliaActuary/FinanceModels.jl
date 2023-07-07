@@ -4,6 +4,15 @@ CurrentModule = FinanceModels
 
 # Developer Notes
 
+ ## How are cashflows produced from a contract?
+
+When we `collect` a contract we get a vector of Cashflows. How does this work under the hood? 
+
+A contract is the logic that defines how cashflow are paid. Sometimes, this requires extra assumptions (e.g. a floating rate bond needs to know what current rates are to determine the payment) and sometimes this does not (a fixed bond effectively has predetermined obligations).
+
+A combination of a contract and the set of assumptions the define how that contract should behave is contained in a `Projection`. 
+
+** ..... OLD DOCS BELOW ...... **
 ## Custom Curve Types
 
 Types that subtype `FinanceModels.AbstractYieldCurve` should implement a few key methods:
