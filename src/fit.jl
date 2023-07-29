@@ -2,10 +2,58 @@ module Fit
 
 abstract type FitMethod end
 
+
+"""
+    Fit.Loss(function)
+
+`function` should be a loss measure, such as `x->x^2` or `x->abs(x)`. This is used by the optimization algorithm in `fit` to determine optimal parameters as defined by this loss function.
+
+A subtype of FitMethod.
+
+# Examples
+```julia
+julia> mod0 = Yield.Constant();
+
+julia> quotes = ZCBPrice([0.9, 0.8, 0.7,0.6]);
+
+julia> fit(mod0,quotes,Fit.Loss(x-x^2))
+
+              ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀Yield Curve (FinanceModels.Yield.Constant)⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀           
+              ┌────────────────────────────────────────────────────────────┐           
+     0.120649 │⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀│ Zero rates
+              │⠀⡆⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀│           
+              │⠀⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀│           
+              │⠀⣧⢰⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀│           
+              │⠀⣿⣾⠀⣀⣸⠀⢸⢳⣇⢀⣀⣀⣀⣀⣀⠀⡀⣀⣀⣀⡀⡀⣀⢀⣀⡀⡀⣀⢀⡀⣀⡀⢀⣀⡀⢀⡀⢀⣀⡀⢀⡀⠀⣀⡀⢀⡀⢀⣀⡀⢀⣀⠀⣀⡀⢀⣀⠀⢀│           
+              │⢠⢻⡟⡆⣿⡟⣦⠚⠀⢸⣾⠛⠛⠘⠛⠘⢲⡗⠛⠃⠛⠓⠓⠛⠚⠛⠑⠓⠛⠃⠓⠛⠑⠚⡟⠓⢻⡗⠚⠀⠓⠚⠑⠒⠃⠓⠚⠑⠚⠀⠓⠃⠘⠒⠃⠓⠃⠘⠒⠃│           
+              │⢸⢸⡇⢹⡏⠁⠉⠀⠀⠈⠉⠀⠀⠀⠀⠀⠀⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠁⠀⠈⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀│           
+   Continuous │⢸⢸⡇⢸⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀│           
+              │⢸⠀⠁⢸⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀│           
+              │⢸⠀⠀⠘⠇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀│           
+              │⡎⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀│           
+              │⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀│           
+              │⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀│           
+              │⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀│           
+     0.120649 │⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀│           
+              └────────────────────────────────────────────────────────────┘           
+              ⠀0⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀time⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀30⠀  
+
+```
+
+"""
 struct Loss{T} <: FitMethod
     fn::T
 end
 
+"""
+    Bootstrap()
+
+A singleton type which is passed to `fit` in order to 
+
+A subtype of FitMethod.
+
+# Examples
+"""
 struct Bootstrap <: FitMethod
     # spline method
 end
@@ -13,7 +61,74 @@ end
 
 end
 
+"""
+    __default_optic(model)
 
+ Returns the variables to optimize over for the given model. This is an optic/lens specifying which parameters of the modle can vary. See extended help for more.
+An optic argument is a singular or vector of lenses with an optional range of acceptable parameters.
+
+# Examples
+
+We might have a model as follows where we want `fit` to optize parameters `a` and `b`:
+
+```julia
+struct MyModel <:FinanceModels.AbstractModel
+        a 
+        b 
+end
+
+__default_optic(m::MyModel) = OptArgs([
+    @optic(_.a) => 0.0 .. 100.0,
+    @optic(_.b) => -10.0 .. 10.0,
+]...)
+```
+
+# Extended help
+
+An arbitrarily complex model may be the object we intend to fit - how does `fit` know what free variables are able to be solved for within the given model?
+`variables` is a singlular or vector optic argument. What does this mean?
+- An optic (or "lens") is a way to define an accessor to a given object. Example:
+
+```julia-repl
+julia> using Accessors, AccessibleOptimization, IntervalSets
+
+julia> obj = (a = "AA", b = "BB");
+
+julia> lens = @optic _.a
+(@optic _.a)
+
+julia> lens(obj)
+"AA"
+```
+An optic argument is a singular or vector of lenses with an optional range of acceptable parameters. For example, we might have a model as follows where we want 
+`fit` to optize parameters `a` and `b`:
+
+```julia
+struct MyModel <:FinanceModels.AbstractModel
+        a 
+        b 
+end
+
+__default_optic(m::MyModel) = OptArgs([
+    @optic(_.a) => 0.0 .. 100.0,
+    @optic(_.b) => -10.0 .. 10.0,
+]...)
+```
+In this way, fit know which arbitrary parameters in a given object may be modified. Technically, we are not modifying the immutable `MyModel`, but instead efficiently creating a new instance. This is enabled by [AccessibleOptimization.jl](https://gitlab.com/aplavin/AccessibleOptimization.jl).
+
+Note that not all opitmization algorithms want a bounded interval. In that case, simply leave off the paired range. The prior example would then become:
+
+```julia
+__default_optic(m::MyModel) = OptArgs([
+    @optic(_.a),
+    @optic(_.b),
+]...)
+```
+```
+
+    
+
+"""
 __default_optic(m::Yield.Constant) = OptArgs(@optic(_.rate.value) => -1.0 .. 1.0)
 __default_optic(m::Yield.IntermediateYieldCurve) = OptArgs(@optic(_.ys[end]) => 0.0 .. 1.0)
 __default_optic(m::Yield.NelsonSiegel) = OptArgs([

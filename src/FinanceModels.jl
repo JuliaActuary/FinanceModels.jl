@@ -1,7 +1,8 @@
 module FinanceModels
 
 import Dates
-using FinanceCore
+using Reexport
+@reexport using FinanceCore
 using FinanceCore: present_value, discount, accumulation
 using OptimizationOptimJL
 using OptimizationMetaheuristics

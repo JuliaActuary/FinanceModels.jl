@@ -17,9 +17,23 @@ maturity(b::AbstractBond) = b.maturity
 ZCBPrice(discount,maturity)
 ZCBPrice(yield::Vector)
 
-Takes discount factors. 
+Takes spot/zero discount factors and returns a `Quote` for the cashflow occuring at the given `maturity`.
 
 Use broadcasting to create a set of quotes given a collection of prices and maturities, e.g. `ZCBPrice.(FinanceModels,maturities)`.
+
+See also [`ZCBYield`](@ref)
+
+# Examples
+```julia-repl
+julia> ZCBPrice(0.5,10)
+Quote{Float64, Cashflow{Float64, Int64}}(0.5, Cashflow{Float64, Int64}(1.0, 10))
+
+julia> ZCBPrice([0.9,0.8,0.75])
+3-element Vector{Quote{Float64, Cashflow{Float64, Int64}}}:
+ Quote{Float64, Cashflow{Float64, Int64}}(0.9, Cashflow{Float64, Int64}(1.0, 1))
+ Quote{Float64, Cashflow{Float64, Int64}}(0.8, Cashflow{Float64, Int64}(1.0, 2))
+ Quote{Float64, Cashflow{Float64, Int64}}(0.75, Cashflow{Float64, Int64}(1.0, 3))
+ ```
 """
 ZCBPrice(price, time) = Quote(price, Cashflow(1.0, time))
 
@@ -28,12 +42,71 @@ ZCBPrice(price, time) = Quote(price, Cashflow(1.0, time))
 ZCBYield(yield,maturity)
 ZCBYield(yield::Vector)
 
+Returns a `Quote` for the cashflow occuring at the given `maturity` and the quoted value is derived from the given `yield`.
+
 Takes zero (sometimes called "spot") rates. Assumes annual effective compounding (`Periodic(1)``) unless given a `Rate` with a different compounding frequency.
 
 Use broadcasting to create a set of quotes given a collection of FinanceModels and maturities, e.g. `ZCBYield.(FinanceModels,maturities)`.
+
+See also [`ZCBPrice`](@ref)
+
+# Examples
+
+```julia-repl
+julia> ZCBYield(0.05,30)
+Quote{Float64, Cashflow{Float64, Int64}}(0.23137744865585788, Cashflow{Float64, Int64}(1.0, 30))
+
+julia> ZCBYield(Periodic(0.05,1),30)
+Quote{Float64, Cashflow{Float64, Int64}}(0.23137744865585788, Cashflow{Float64, Int64}(1.0, 30))
+
+julia> ZCBYield(Continuous(0.05),30)
+Quote{Float64, Cashflow{Float64, Int64}}(0.22313016014842982, Cashflow{Float64, Int64}(1.0, 30))
+
+julia> ZCBYield([0.04,0.05,0.045])
+3-element Vector{Quote{Float64, Cashflow{Float64, Int64}}}:
+ Quote{Float64, Cashflow{Float64, Int64}}(0.9615384615384615, Cashflow{Float64, Int64}(1.0, 1))
+ Quote{Float64, Cashflow{Float64, Int64}}(0.9070294784580498, Cashflow{Float64, Int64}(1.0, 2))
+ Quote{Float64, Cashflow{Float64, Int64}}(0.8762966040549094, Cashflow{Float64, Int64}(1.0, 3))
+```
 """
 ZCBYield(yield, time) = Quote(discount(yield, time), Cashflow(1.0, time))
 
+
+"""
+    Bond.Fixed(coupon_rate,frequency<:FinanceCore.Frequency,maturity)
+
+An object representing a fixed coupon bond. `coupon_rate` / `frequency` is the actual payment amount.
+
+Note that there are a number of convienience constructors which return a Quote for a `Bond.Fixed`: 
+
+- [`ParYield`](@ref)
+- [`ParSwapYield`](@ref)
+- [`CMTYield`](@ref)
+- [`OISYield`](@ref)
+
+See also [`Quote`](@ref).
+
+# Examples
+
+```julia-repl
+julia> Bond.Fixed(0.05,Periodic(2),3)
+FinanceModels.Bond.Fixed{Periodic, Float64, Int64}(0.05, Periodic(2), 3)
+
+julia> Bond.Fixed(0.05,Periodic(2),3) |> collect
+6-element Vector{Cashflow{Float64, Float64}}:
+ Cashflow{Float64, Float64}(0.025, 0.5)
+ Cashflow{Float64, Float64}(0.025, 1.0)
+ Cashflow{Float64, Float64}(0.025, 1.5)
+ Cashflow{Float64, Float64}(0.025, 2.0)
+ Cashflow{Float64, Float64}(0.025, 2.5)
+ Cashflow{Float64, Float64}(1.025, 3.0)
+
+
+julia> ParYield(0.05,10)
+Quote{Float64, FinanceModels.Bond.Fixed{Periodic, Float64, Int64}}(1.0, FinanceModels.Bond.Fixed{Periodic, Float64, Int64}(0.05, Periodic(2), 10))
+```
+
+"""
 struct Fixed{F<:FinanceCore.Frequency,N<:Real,M<:Timepoint} <: AbstractBond
     coupon_rate::N # coupon_rate / frequency is the actual payment amount
     frequency::F
@@ -44,12 +117,30 @@ function Base.isapprox(a::Fixed, b::Fixed)
     isapprox(a.coupon_rate, b.coupon_rate) && ==(a.frequency, b.frequency) && isapprox(a.maturity, b.maturity)
 end
 
-# function timesteps(b::AbstractBond)
-#     f = 1 / b.frequency.frequency
-#     f:f:b.maturity
-# end
+"""
+    Bond.Floating(coupon_rate,frequency<:FinanceCore.Frequency,maturity,model_key)
+
+An object representing a floating coupon bond. (`coupon_rate` + reference rate) / `frequency` is the actual payment amount, where the reference rate requires a `Projection` with a key/value pair where the key is the `model_key` argument and the value is the model which produces the reference rate.
 
 
+See also [`Quote`](@ref).
+
+# Examples
+
+```julia-repl
+julia> p = Projection(
+        Bond.Floating(0.02, Periodic(1), 3.0, "SOFR"),
+        Dict("SOFR" => Yield.Constant(0.05)),  # note the key/value store used for the model in the projection
+        CashflowProjection(),
+    );
+
+julia> collect(p)
+3-element Vector{Cashflow{Float64, Float64}}:
+    Cashflow{Float64, Float64}(0.07000000000000005, 1.0)
+    Cashflow{Float64, Float64}(0.07000000000000005, 2.0)
+    Cashflow{Float64, Float64}(1.07, 3.0)
+```
+"""
 struct Floating{F<:FinanceCore.Frequency,N<:Real,M<:Timepoint,K} <: AbstractBond
     coupon_rate::N # coupon_rate / frequency is the actual payment amount
     frequency::F
@@ -61,12 +152,19 @@ __coerce_periodic(y::Periodic) = y
 __coerce_periodic(y::T) where {T<:Int} = Periodic(y)
 
 """
-ParYield(yield,maturity)
+ParYield(yield, maturity; frequency=Periodic(2))
 ParYield(yield::Vector)
 
 Takes bond equivalent FinanceModels, and assumes that instruments <= one year maturity pay no coupons and that the rest pay semi-annual. Alternative, you may pass a `Rate` as the yield and the coupon frequency will be inferred from the `Rate`'s frequency. 
 
 Use broadcasting to create a set of quotes given a collection of FinanceModels and maturities, e.g. `ParYield.(FinanceModels,maturities)`.
+
+# Examples
+
+```julia-repl
+julia> ParYield(0.05,10)
+Quote{Float64, FinanceModels.Bond.Fixed{Periodic, Float64, Int64}}(1.0, FinanceModels.Bond.Fixed{Periodic, Float64, Int64}(0.05, Periodic(2), 10))
+```
 """
 function ParYield(yield, maturity; frequency=Periodic(2))
     # assume the frequency is two or infer it from the yield
@@ -82,18 +180,32 @@ function ParYield(yield::Rate{N,T}, maturity; frequency=Periodic(2)) where {T<:P
     return Quote(price, Fixed(coupon_rate, frequency, maturity))
 end
 
-# the fixed leg of the swap
+"""
+    ParSwapYield(yield, maturity; frequency=Periodic(4))
+
+Same as [`ParYield`](@ref), except the `frequency` is four times per period by default.
+"""
 function ParSwapYield(yield, maturity; frequency=Periodic(4))
     frequency = __coerce_periodic(frequency)
     ParYield(yield, maturity; frequency=frequency)
 end
 
 """
-CMTYield(yield,maturity)
-CMTYield(yield::Vector)
-Takes constant maturity (treasury) FinanceModels (bond equivalent), and assumes that instruments <= one year maturity pay no coupons and that the rest pay semi-annual.
+    CMTYield(yield,maturity)
+    CMTYield(yield::Vector)
+
+Returns a `Quote` for the correpsonding bond implied by the given bond equivalent `yield`, and assumes that instruments <= one year `maturity`` pay no coupons and that the rest pay semi-annual.
 
 Use broadcasting to create a set of quotes given a collection of FinanceModels and maturities, e.g. `CMTYield.(FinanceModels,maturities)`.
+
+See also [`Quote`](@ref), [`Bond.Fixed`](@ref)
+
+# Examples
+
+```
+julia> CMTYield(0.05,10)
+Quote{Float64, FinanceModels.Bond.Fixed{Periodic, Float64, Int64}}(1.0, FinanceModels.Bond.Fixed{Periodic, Float64, Int64}(0.05, Periodic(2), 10))
+```
 """
 function CMTYield(yield, maturity)
     # Assume maturity < 1 don't pay coupons and are therefore discount bonds
@@ -109,14 +221,23 @@ function CMTYield(yield, maturity)
 end
 
 """
-OISYield(yield [, maturity=eachindex(yield)]))
+OISYield(yield, maturity)
 
-Assumes that maturities less than or equal to 12 months are settled once (per Hull textbook, 4.7), otherwise quarterly and that the FinanceModels given are bond equivalent.
+Returns the implied `Quote` for the fixed bond implied by the given `yield` and `maturity`. Assumes that maturities less than or equal to 12 months are settled once (per Hull textbook, 4.7), otherwise quarterly and that the FinanceModels given are bond equivalent.
 
 Use broadcasting to create a set of quotes given a collection of FinanceModels and maturities, e.g. `OISYield.(FinanceModels,maturities)`.
 
+See also [`Quote`](@ref), [`Bond.Fixed`](@ref)
+
+# Examples
+
+```
+julia> OISYield(0.05,10)
+Quote{Float64, FinanceModels.Bond.Fixed{Periodic, Float64, Int64}}(1.0, FinanceModels.Bond.Fixed{Periodic, Float64, Int64}(0.05, Periodic(4), 10))
+```
+
 """
-function OISYield(yield, maturity=eachindex(yield))
+function OISYield(yield, maturity)
 
     if maturity <= 1
         return Quote(discount(yield, maturity), Fixed(0.0, Periodic(1), maturity))
@@ -128,8 +249,9 @@ function OISYield(yield, maturity=eachindex(yield))
 end
 
 """
-ForwardYields(yields,times) 
-Returns a vector of `Quote` corresponding to the . 
+    ForwardYields(yields,times) 
+
+Returns a vector of `Quote` corresponding to the yield at the given forward times. 
     
 # Examples
 ```julia-repl
@@ -155,6 +277,26 @@ end
 
 # Bond utility funcs
 
+"""
+    coupon_times(maturity, frequency)
+
+Generate coupon times for a bond with the given `maturity` and `frequency`.
+
+# Arguments
+- `maturity::Real`: The maturity of the bond.
+- `frequency::Real`: The coupon frequency of the bond.
+
+# Returns
+- An array of coupon times for the bond.
+
+# Examples
+```julia-repl
+julia> Bond.coupon_times(10, 2)
+0.5:0.5:10.0
+julia> Bond.coupon_times(Bond.Fixed(0.05,Periodic(4),20))
+0.25:0.25:20.0
+````
+"""
 function coupon_times(maturity, frequency)
     Δt = min(1 / frequency, maturity)
     times = maturity:-Δt:0
