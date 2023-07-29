@@ -9,15 +9,16 @@ makedocs(;
     format=Documenter.HTML(;
         prettyurls=get(ENV, "CI", "false") == "true",
         canonical="https://JuliaActuary.github.io/FinanceModels.jl",
-        assets=String[],
+        assets=String[]
     ),
     pages=[
         "Home" => "index.md",
+        "Contracts" => "contracts.md",
         "API Reference" => "api.md",
         "Developer Notes" => "developer.md",
-    ],
+    ]
 )
 
 deploydocs(;
-    repo="github.com/JuliaActuary/FinanceModels.jl",
+    repo="github.com/JuliaActuary/FinanceModels.jl"
 )

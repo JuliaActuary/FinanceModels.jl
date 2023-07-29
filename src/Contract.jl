@@ -1,6 +1,10 @@
 # Extending the Core contracts from FinanceCore
 
 ### Bonds 
+
+"""
+The `Bond` module provide a number of fixed-income contracts and related methods.
+"""
 module Bond
 import ..FinanceCore: Cashflow, Quote, AbstractContract, maturity, Timepoint
 using ..FinanceCore
@@ -14,8 +18,8 @@ maturity(b::AbstractBond) = b.maturity
 
 
 """
-ZCBPrice(discount,maturity)
-ZCBPrice(yield::Vector)
+    ZCBPrice(discount,maturity)
+    ZCBPrice(yield::Vector)
 
 Takes spot/zero discount factors and returns a `Quote` for the cashflow occuring at the given `maturity`.
 
@@ -24,7 +28,9 @@ Use broadcasting to create a set of quotes given a collection of prices and matu
 See also [`ZCBYield`](@ref)
 
 # Examples
+
 ```julia-repl
+
 julia> ZCBPrice(0.5,10)
 Quote{Float64, Cashflow{Float64, Int64}}(0.5, Cashflow{Float64, Int64}(1.0, 10))
 
@@ -33,14 +39,16 @@ julia> ZCBPrice([0.9,0.8,0.75])
  Quote{Float64, Cashflow{Float64, Int64}}(0.9, Cashflow{Float64, Int64}(1.0, 1))
  Quote{Float64, Cashflow{Float64, Int64}}(0.8, Cashflow{Float64, Int64}(1.0, 2))
  Quote{Float64, Cashflow{Float64, Int64}}(0.75, Cashflow{Float64, Int64}(1.0, 3))
- ```
+ 
+```
+
 """
 ZCBPrice(price, time) = Quote(price, Cashflow(1.0, time))
 
 
 """
-ZCBYield(yield,maturity)
-ZCBYield(yield::Vector)
+    ZCBYield(yield,maturity)
+    ZCBYield(yield::Vector)
 
 Returns a `Quote` for the cashflow occuring at the given `maturity` and the quoted value is derived from the given `yield`.
 
@@ -318,8 +326,19 @@ end
 
 end
 
+"""
+    CommonEquity()
+
+A singleton type representing a unit stock.
+
+See also: [`Option`](@ref).
+
+"""
 struct CommonEquity <: FinanceCore.AbstractContract end
 
+"""
+
+"""
 module Option
 import ..FinanceCore: AbstractContract, Timepoint
 
@@ -342,8 +361,26 @@ struct Forward{T<:FinanceCore.Timepoint,I<:FinanceCore.AbstractContract} <: Fina
 end
 
 
-# create a matrix of cashflows and a vector of timepoints
-# timepoints need not be spaced evenly
+"""
+    cashflows_timepoints(contracts)
+    cashflows_timepoints(quotes)
+
+Create a matrix of cashflows and a vector of timepoints for a collection of quotes or contracts. Timepoints need not be spaced evenly.
+
+This is used when constructing SmithWilson yield curves.
+
+# Arguments
+- `contracts` or `quotes`: A collection of `<:AbstractContract`s or `Quotes`.
+
+# Returns
+- A tuple `(m, times)` where `m` is a matrix of cashflows and `times` is a vector of timepoints.
+
+# Examples
+```julia-repl
+julia> FinanceModels.cashflows_timepoints(ParYield.([0.04,0.02,0.04],[1,4,4]))
+([0.02 0.01 0.02; 1.02 0.01 0.02; … ; 0.0 0.01 0.02; 0.0 1.01 1.02], [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0])
+```
+"""
 function cashflows_timepoints(qs)
     cfs = map(q -> collect(q), qs)
     times = map(cfs) do cf
