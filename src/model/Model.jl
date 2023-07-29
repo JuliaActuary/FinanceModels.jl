@@ -7,6 +7,11 @@ A singleton type representing a placeholder model for when you don't really need
 """
 struct NullModel <: AbstractModel end
 
+struct DateModel{M,T} <: AbstractModel
+    model::M
+    date::T
+end
+
 # useful for round-tripping or iterating on quotes?
 function Quote(m::M, c::C) where {M<:AbstractModel,C<:FinanceCore.AbstractContract}
     return Quote(pv(m, c), c)
