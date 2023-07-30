@@ -1,26 +1,65 @@
 
 abstract type AbstractProjection end
 
+"""
+    Projection(contract,model,kind)
+
+The set of `contract`s and assumptions (`model`) to project the `kind` of output desired. Some assets require a projection in order to be valued (e.g. a floating rate bond).
+
+If attempting to `collect` or otherwise reduce a contract (`<:AbstractContract`), by default it will get wrapped into a `Projection(contract,NullModel(),CashflowProjection())`
+"""
 struct Projection{C,M,K} <: AbstractProjection
     contract::C
     model::M
     kind::K
 end
 
-## ProjectionKind ###############################
-# controls what gets produced from the model,
-# e.g. if you just want cashflows or you want full amortization schedule you might define an AmortizationSchedule kind which shows principle, interest, etc.
+"""
+    abstract type ProjectionKind
 
+An abstract type that controls what gets produced from the model.
+
+Subtypes of `ProjectionKind` define the level of detail in the output of the model. For example, if you just want cashflows or you want a full amortization schedule, you might define an `AmortizationSchedule` kind which shows principle, interest, etc.
+
+After defining a new `ProjectionKind`, you need to define the how the projection works for that new output by extending either:
+
+```julia
+function Transducers.asfoldable(p::Projection{C,M,K}) where {C<:Cashflow,M,K<:CashflowProjection}
+    ...
+end
+```
+or 
+```julia
+function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:Cashflow,M,K<:CashflowProjection}
+    ...
+end
+```
+
+There are examples of this in the documentation.
+
+# Examples
+```julia
+julia> struct CashflowProjection <: ProjectionKind end
+CashflowProjection
+
+julia> struct AmortizationSchedule <: ProjectionKind end
+AmortizationSchedule
+"""
 abstract type ProjectionKind end
 
+"""
+    CashflowProjection()
+
+A concrete subtype of `ProjectionKind` which is the projection which returns only a reducible collection of `Cashflow`s. Use in conjunction with a [`Projection`](@ref).
+"""
 struct CashflowProjection <: ProjectionKind end
 
 # Collecting a Projection #######################
 # Map(identity) is a Transducer, for which `collect` is defined. More on Transducers below
 
-# collecting a Projection gives your the reducable defined below with __foldl__
+# collecting a Projection gives your the reducible defined below with __foldl__
 Base.collect(p::P) where {P<:AbstractProjection} = p |> Map(identity) |> collect
-# collecting a contract wraps the contract in with the default Proejction, defined next
+# collecting a contract wraps the contract in with the default Projection, defined next
 Base.collect(c::C) where {C<:FinanceCore.AbstractContract} = Projection(c) |> Map(identity) |> collect
 
 # Default Projections ##########################
@@ -104,7 +143,7 @@ end
 # we simply concatenate two reducible collections to create a composite contract
 @inline function Transducers.asfoldable(p::Projection{C,M,K}) where {C<:FinanceCore.Composite,M,K}
     # creates two sub-projections where the contract projected is decomposed to a non-composite contract
-    # and then conctanate the two projections together
+    # and then concatenate the two projections together
     ap = @set p.contract = p.contract.a
     bp = @set p.contract = p.contract.b
     (ap, bp) |> Cat()

@@ -7,8 +7,9 @@
 Say you wanted to model a contract that paid quarterly payments, and those payments occurred starting 15 days from the valuation date (first payment time = 15/365 = 0.057)
 
 Previously, you had two options:
-- Choose a discrete timestep to model (e.g. monthly, quarterly, annual) and then lump the cashflows into those timesteps. E.g. with monthly timesteps  of a unit payment of our contract, it might look like: `[1,0,0,1,0,0...]`
-- Keep track of two vectors: one for the payment and one for the times. In this case, that might look like: `cfs = [1,1,...]; `times = `[0.057, 0.307...]`
+
+1. Choose a discrete timestep to model (e.g. monthly, quarterly, annual) and then lump the cashflows into those timesteps. E.g. with monthly timesteps  of a unit payment of our contract, it might look like: `[1,0,0,1,0,0...]`
+2. Keep track of two vectors: one for the payment and one for the times. In this case, that might look like: `cfs = [1,1,...]; `times = `[0.057, 0.307...]`
 
 The former has inaccuracies due to the simplified timing and logical complication related to mapping the contracts natural periodicity into an arbitrary modeling choice. The latter becomes unwieldy and fails to take advantage of Julia's type system. 
 

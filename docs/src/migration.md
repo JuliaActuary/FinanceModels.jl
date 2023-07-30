@@ -8,12 +8,12 @@
 This re-write accomplishes three primary things:
 
 - Provide a composable set of **contracts** and **`Quotes`** 
-- Those contracts, when combined with a **model** produce a **`Cashflow`** via a flexibily defined `Projection`
+- Those contracts, when combined with a **model** produce a **`Cashflow`** via a flexibly defined `Projection`
 - **models** can be `fit` with a new unified API: `fit(model_type,quotes,fit_method)` 
 
 ### Migrating Code
 
-Previsously, the API pattern was, e.g.:
+Previously, the API pattern was, e.g.:
 
 ```julia
 model = Yields.Par(SmitWilson(...), rates,timepoints)
@@ -47,7 +47,7 @@ struct ABDiscountLine{A} <: FinanceModels.Yield.AbstractYieldModel
     b::A
 end
 
-# define the default constructor for convienience
+# define the default constructor for convenience
 ABDiscountLine() = ABDiscountLine(0.,0.)
 
 function FinanceCore.discount(m::ABDiscountLine,t)
@@ -56,8 +56,8 @@ function FinanceCore.discount(m::ABDiscountLine,t)
 end
 
 
-# `@optic` indciates what in our model variables needs to be updated (from AccessibleOptimization.jl)
-# `-1.0 .. 1.0` says to bound the search from negative to postive one (from IntervalSets.jl)
+# `@optic` indicates what in our model variables needs to be updated (from AccessibleOptimization.jl)
+# `-1.0 .. 1.0` says to bound the search from negative to positive one (from IntervalSets.jl)
 FinanceModels.__default_optic(m::ABDiscountLine) = OptArgs([
     @optic(_.a) => -1.0 .. 1.0,
     @optic(_.b) => -1.0 .. 1.0,

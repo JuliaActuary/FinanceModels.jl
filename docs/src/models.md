@@ -1,4 +1,4 @@
-# Models, Valuation, and Fitting
+# Models, Valuation, Projections, and Fitting
 
 ## Page Contents
 
@@ -70,7 +70,7 @@ convert(Yields.Continuous(),r)          # convert monthly rate to continuous
 
 #### Arithmetic
 
-Adding, substracting, multiplying, dividing, and comparing rates is supported.
+Adding, subtracting, multiplying, dividing, and comparing rates is supported.
 
 ## Available Models
 
