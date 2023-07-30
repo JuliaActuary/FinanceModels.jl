@@ -17,7 +17,6 @@ makedocs(;
         "Contracts" => "contracts.md",
         "Models, Valuation, and Fitting" => "models.md",
         "API Reference" => "api.md",
-        "Developer Notes" => "developer.md",
         "Migration Guide" => "migration.md",
         "FAQs" => "faq.md",
     ]

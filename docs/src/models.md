@@ -104,6 +104,13 @@ julia> discount(0.04,3)
 0.8889963586709148
 ```
 
+### Creating New Yield Models
+
+See the [Guide](guide.html) for an example of creating a model from scratch. Some additional aspects to note:
+
+- The only method that must be defined to calculate the [`present_value`](@ref) of something is [`discount`](@ref). Other methods will be inferred.
+- Other methods that are imputed by default, but can be extended include: [`accumulation`](@ref), [`forward`](@ref), [`par`](@ref), [`zero`](@ref), and [`rate`](@ref).
+
 ## Equity and Volatility Models
 
 ### Available Models - Option Valuation
@@ -113,3 +120,7 @@ julia> discount(0.04,3)
 ### Available Models - Volatility
 
 - [`Volatility.Constant`](@ref)
+
+#### Creating new Volatility Models
+
+A volatility model must extend `volatility(vol::Volatility.MyNewModel, strike_ratio, time_to_maturity)`.
