@@ -218,17 +218,9 @@ A guide which explains more about the components of the package and from-scratch
 
 ## Exported vs Un-exported Functions
 
-Generally, CamelCase methods which construct a datatype are exported as they are unlikely to conflict with other parts of code that may be written. For example, `rate` is un-exported (it must be called with `FinanceModels.rate(...)`) because `rate` is likely a very commonly defined variable within actuarial and financial contexts and there is a high risk of conflicting with defined variables.
+Generally, CamelCase methods which construct a datatype are exported as they are unlikely to conflict with other parts of code that may be written, but other components must either be qualified by the inner module (e.g. `Bond.Fixed`) or the package module, e.g. `FinanceModels.cashflow_timepoints` to use un-exported names.
 
 Consider using `import FinanceModels` which would require qualifying all methods, but alleviates any namespace conflicts and has the benefit of being explicit about the calls (internally we prefer this in the package design to keep dependencies and their usage clear). 
-
-## Internals
-
-For time-variant FinanceModels (ie yield *curves*), the inputs are converted to spot rates and interpolated using quadratic B-splines by default (see documentation for alternatives, such as linear interpolations).
-
-### Combination Implementation
-
-[Combinations](#combinations) track two different curve objects and are not combined into a single underlying data structure. This means that you may achieve better performance if you combine the rates before constructing a `FinanceModels` representation. The exception to this is `Constant` curves, which *do* get combined into a single structure that is as performant as pre-combined rate structure.
 
 ## Related Packages
 

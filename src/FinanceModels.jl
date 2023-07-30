@@ -23,7 +23,7 @@ include("utils.jl")
 include("Contract.jl")
 include("model/Model.jl")
 include("Projection.jl")
-include("Fit.jl")
+include("fit.jl")
 
 export Cashflow, Quote, Forward, CommonEquity, Option
 
