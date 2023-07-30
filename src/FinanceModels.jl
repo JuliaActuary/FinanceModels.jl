@@ -42,5 +42,5 @@ export Projection, CashflowProjection
 export pv
 export Fit, fit
 
-
+include("precompile.jl")
 end
