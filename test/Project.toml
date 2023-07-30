@@ -1,8 +1,6 @@
 [deps]
+Accessors = "7d9f7c33-5ae7-4f3b-8dc6-eff91059b697"
 ActuaryUtilities = "bdd23359-8b1c-4f88-b89b-d11982a786f4"
 DecFP = "55939f99-70c6-5e9b-8bb0-5071ed7d61fd"
+FinanceCore = "b9b1ffdd-6612-4b69-8227-7663be06e089"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
-Yields = "d7e99b2f-e7f3-4d9e-9f01-2338fc023ad3"
-
-[compat]
-ActuaryUtilities = "^2,^3"
