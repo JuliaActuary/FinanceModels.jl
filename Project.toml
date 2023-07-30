@@ -23,7 +23,7 @@ UnicodePlots = "b8865327-cd53-5732-bb35-84acbb429228"
 
 [compat]
 julia = "1.6"
-FinanceCore = "^1.1"
+FinanceCore = "^2"
 BSplineKit = "^0.16"
 IntervalSets = "^0.7"
 Transducers = "^0.4"
