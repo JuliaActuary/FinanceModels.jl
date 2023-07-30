@@ -51,7 +51,7 @@ using Transducers: __foldl__, @next, complete
 """
 A bond which pays down its par (one unit) in equal payments. 
 """
-struct PrincpleOnlyBond{F<:FinanceCore.Frequency} <: FinanceModels.Bond.AbstractBond
+struct PrincipleOnlyBond{F<:FinanceCore.Frequency} <: FinanceModels.Bond.AbstractBond
     frequency::F
     maturity::Float64
 end
@@ -60,7 +60,7 @@ end
 # There's two parts to customize:
 # 1. any initialization or state to keep track of
 # 2. The loop where we decide what gets returned at each timestep
-function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:PrincpleOnlyBond,M,K}
+function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:PrincipleOnlyBond,M,K}
     # initialization stuff
     b = p.contract # the contract within a projection
     ts = Bond.coupon_times(b) # works since it's a FinanceModels.Bond.AbstractBond with a frequency and maturity
@@ -78,7 +78,7 @@ end
 That's it! then we can use this fitting models, projections, quotes, etc. Here we simply collect the bond into an array of cashflows:
 
 ```julia-repl
-julia> PrincpleOnlyBond(Periodic(2),5.) |> collect
+julia> PrincipleOnlyBond(Periodic(2),5.) |> collect
 10-element Vector{Cashflow{Float64, Float64}}:
  Cashflow{Float64, Float64}(0.1, 0.5)
  Cashflow{Float64, Float64}(0.1, 1.0)
@@ -92,11 +92,11 @@ julia> PrincpleOnlyBond(Periodic(2),5.) |> collect
  Cashflow{Float64, Float64}(0.1, 5.0)
 ```
 
-Note that all contracst in FinanceModels.jl are currently *unit* contracts in that they assume a unit par value. 
+Note that all contracts in FinanceModels.jl are currently *unit* contracts in that they assume a unit par value. 
 
 #### More complex Contracts
 
-**When the cashflow depends on a model**. An example of this is a floating bond where the coupon paid depends on a view of forward rates. See [this section in the overview](overview.html#Contracts-that-depend-on-the-model-(or-multiple-models)) on projections for how this is handled.
+**When the cashflow depends on a model**. An example of this is a floating bond where the coupon paid depends on a view of forward rates. See [this section in the overview](guide.html#Contracts-that-depend-on-the-model-(or-multiple-models)) on projections for how this is handled.
 
 ## Availalbe Contracts & Modules
 

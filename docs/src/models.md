@@ -3,11 +3,11 @@
 ## Page Contents
 
 ```@contents
-Pages = ["contracts.md"]
+Pages = ["models.md"]
 Depth = 4
 ```
 
-## Introduction 
+## Introduction
 
 Conceptually, we have an iterative process:
 
@@ -72,7 +72,44 @@ convert(Yields.Continuous(),r)          # convert monthly rate to continuous
 
 Adding, subtracting, multiplying, dividing, and comparing rates is supported.
 
-## Available Models
+### Available Models - Yields
 
-TODO
+- [`Yield.Constant`](@ref)
+- Bootstrapped [`Spline`](@ref)
+- [`Yield.SmithWilson`](@ref)
+- [`Yield.NelsonSiegel`](@ref)
+- [`Yield.NelsonSiegelSvensson`](@ref)
 
+Yield models can also be composed. Here is an example of fitting rates and spread separately and then adding the two models together:
+
+```julia-repl
+julia> q_rate = ZCBYield([0.01,0.02,0.03]);
+
+julia> q_spread = ZCBYield([0.01,0.01,0.01]);
+
+julia> m_rate = fit(Spline.Linear(),q_rate,Fit.Bootstrap());⠀           
+
+julia> m_spread = fit(Spline.Linear(),q_spread,Fit.Bootstrap());
+
+julia> forward(m_spread + m_rate,0,1)
+Rate{Float64, Continuous}(0.01980262729617973, Continuous())
+
+julia> forward(m_spread + m_rate,0,1) |> Periodic(1)
+Rate{Float64, Periodic}(0.020000000000000018, Periodic(1))
+
+julia> discount(m_spread + m_rate,0,3)
+0.8889963586709149
+
+julia> discount(0.04,3)
+0.8889963586709148
+```
+
+## Equity and Volatility Models
+
+### Available Models - Option Valuation
+
+- [`Option.BlackScholesMerton`](@ref)
+
+### Available Models - Volatility
+
+- [`Volatility.Constant`](@ref)

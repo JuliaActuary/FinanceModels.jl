@@ -19,7 +19,7 @@ Transducers are a [rich and powerful way to express programs](https://www.youtub
 - To regular end-users who just use what is given to them here, the transducers internals are effectively completely hidden
 - To moderately advanced users who want to extend the functionality, as the examples show the only real exposure here is a weird function name ( `__foldl__`) with for loop with a `return` signature that has some extra information.
 
-A number of examples of extending the package are given on the [Overview](/overview) page and the of course the source code itself offers examples of existing `Projection`s and `Contract`s.
+A number of examples of extending the package are given on the [Guide](./guide.html) page and the of course the source code itself offers examples of existing `Projection`s and `Contract`s.
 
 
 ## I have another question

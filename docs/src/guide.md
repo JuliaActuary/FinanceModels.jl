@@ -1,4 +1,4 @@
-# FinanceModels.jl overview
+# FinanceModels.jl Guide
 
 ![A conceptual sketch of FinanceModels.jl](./assets/relations.png)
 
@@ -208,7 +208,11 @@ function FinanceModels.fit(m::ABDiscountLine, quotes, ...)
 end
 ```
 
-  - As an example, the splines (`Spline.Linear()`, `Spline.Cubic()`,...) are defined to use bootstrap by default: `fit(mod0::Spline.BSpline, quotes, method::Fit.Bootstrap)`
+- As an example, the splines (`Spline.Linear()`, `Spline.Cubic()`,...) are defined to use bootstrap by default: `fit(mod0::Spline.BSpline, quotes, method::Fit.Bootstrap)`
+
+### Using models without fitting
+
+While many of the examples show models being fit to observed prices, you can skip that step in practice if you want to define an assumed valuation model that does not intend to calibrate market prices.
 
 ## 6. `Projection`s
 
