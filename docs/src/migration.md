@@ -13,6 +13,12 @@ This re-write accomplishes three primary things:
 
 ### Migrating Code
 
+#### Update Dependencies
+
+You should remove `Yields` from your project's dependencies and add `FinanceModels` instead. ([link to Pkg documentation on how to do this](https://pkgdocs.julialang.org/v1/managing-packages/))
+
+#### API Changes
+
 Previously, the API pattern was, e.g.:
 
 ```julia
