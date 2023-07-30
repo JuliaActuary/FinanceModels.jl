@@ -22,7 +22,7 @@ Transducers = "28d57a85-8fef-5791-bfe6-a80928e7c999"
 UnicodePlots = "b8865327-cd53-5732-bb35-84acbb429228"
 
 [compat]
-julia = "1.8" #Bsplinekit 0.16 is 1.8 or above
+julia = "1.9" #Bsplinekit 0.16 is 1.8 or above and AccessibleOptimization's deps is 1.9
 FinanceCore = "^2"
 BSplineKit = "^0.16"
 IntervalSets = "^0.7"
