@@ -1,5 +1,12 @@
 # Contracts
 
+## Page Contents
+
+```@contents
+Pages = ["contracts.md"]
+Depth = 4
+```
+
 
 ## **Contracts** - A composable way to represent financial instruments
 
@@ -89,10 +96,26 @@ Note that all contracst in FinanceModels.jl are currently *unit* contracts in th
 
 #### More complex Contracts
 
-**When the cashflow depends on a model**. An example of this is a floating bond where the coupon paid depends on a view of forward rates. See section 6 on projections for how this is handled.
+**When the cashflow depends on a model**. An example of this is a floating bond where the coupon paid depends on a view of forward rates. See [this section in the overview](overview.html#Contracts-that-depend-on-the-model-(or-multiple-models)) on projections for how this is handled.
 
 ## Availalbe Contracts & Modules
 
+### `Bond` Module
+
 ```@autodocs
 Modules = [FinanceModels.Bond]
+```
+
+### Other Contracts
+
+```@docs
+Composite
+CommonEquity
+Forward
+```
+
+### Derivatives
+
+```@autodocs
+Modules = [FinanceModels.Option]
 ```
