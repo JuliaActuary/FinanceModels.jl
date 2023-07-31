@@ -1,5 +1,7 @@
 # FinanceModels.jl Guide
 
+**FinanceModels.jl** provides a set of composable contracts, models, and functions that allow for modeling of both simple and complex financial instruments. The resulting models, such as discount rates or term structures, can then be used across the JuliaActuary ecosystem to perform actuarial and financial analysis.
+
 ![A conceptual sketch of FinanceModels.jl](./assets/relations.png)
 
 ## 1. `Cashflow` - a fundamental financial type
@@ -45,7 +47,7 @@ using Transducers: __foldl__, @next, complete
 """
 A bond which pays down its par (one unit) in equal payments. 
 """
-struct PrincipleOnlyBond{F<:FinanceCore.Frequency} <: FinanceModels.Bond.AbstractBond
+struct PrincipalOnlyBond{F<:FinanceCore.Frequency} <: FinanceModels.Bond.AbstractBond
     frequency::F
     maturity::Float64
 end
@@ -54,7 +56,7 @@ end
 # There's two parts to customize:
 # 1. any initialization or state to keep track of
 # 2. The loop where we decide what gets returned at each timestep
-function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:PrincipleOnlyBond,M,K}
+function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:PrincipalOnlyBond,M,K}
     # initialization stuff
     b = p.contract # the contract within a projection
     ts = Bond.coupon_times(b) # works since it's a FinanceModels.Bond.AbstractBond with a frequency and maturity
@@ -69,10 +71,10 @@ function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:Principl
 end
 ```
 
-That's it! then we can use this fitting models, projections, quotes, etc. Here we simply collect the bond into an array of cashflows:
+That's it! then we can use this contract to fitting models, create projections, quotes, etc. Here we simply collect the bond into an array of cashflows:
 
 ```julia-repl
-julia> PrincipleOnlyBond(Periodic(2),5.) |> collect
+julia> PrincipalOnlyBond(Periodic(2),5.) |> collect
 10-element Vector{Cashflow{Float64, Float64}}:
  Cashflow{Float64, Float64}(0.1, 0.5)
  Cashflow{Float64, Float64}(0.1, 1.0)
@@ -86,11 +88,11 @@ julia> PrincipleOnlyBond(Periodic(2),5.) |> collect
  Cashflow{Float64, Float64}(0.1, 5.0)
 ```
 
-Note that all contracts in FinanceModels.jl are currently *unit* contracts in that they assume a unit par value. 
+Note that all contracts in FinanceModels.jl are currently *unit* contracts in that they assume a unit par value. Scale assets down to unit values before constructing the default contracts.
 
 #### More complex Contracts
 
-**When the cashflow depends on a model**. An example of this is a floating bond where the coupon paid depends on a view of forward rates. See section 6 on projections for how this is handled.
+**When the cashflow depends on a model**. An example of this is a floating bond where the coupon paid depends on a view of forward rates. See **Section 6 - Projections** for how this is handled.
 
 ## 3. `Quote`s - The observed price we need to fit a model to
 
@@ -138,7 +140,7 @@ end
 ABDiscountLine() = ABDiscountLine(0.,0.)
 
 function FinanceCore.discount(m::ABDiscountLine,t)
-    #discount rate is approximated by a straight lined, floored at 0.0 and capped at 1.0
+    #discount rate is approximated by a straight line, floored at 0.0 and capped at 1.0
     clamp(m.a*t + m.b, 0.0,1.0) 
 end
 
@@ -173,7 +175,7 @@ julia> map(q -> pv(m,q.instrument),quotes)
 ```plaintext
        Model                                                               Method
           |                                                                   |
-  	|------------|                                                     |---------------|
+    |------------|                                                     |---------------|
 fit(Spline.Cubic(), CMTYield.([0.04,0.05,0.055,0.06,0055],[1,2,3,4,5]), Fit.Bootstrap())
                     |-------------------------------------------------|
                                               |
@@ -257,7 +259,7 @@ struct Floating{F<:FinanceCore.Frequency,N<:Real,M<:Timepoint,K} <: AbstractBond
 end
 ``` 
 
-And how we can reference the associated model when projecting that contract. This is very similar to the definition of `__foldl__` for our `PrincipleOnlyBond`, except we are paying a coupon and referencing the scenario rate.
+And how we can reference the associated model when projecting that contract. This is very similar to the definition of `__foldl__` for our `PrincipalOnlyBond`, except we are paying a coupon and referencing the scenario rate.
 
 ```julia
 @inline function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:Bond.Floating,M,K}
@@ -302,7 +304,7 @@ And then define the loop for the amortization schedule output:
 
 ```julia
 # note the dispatch on `AmortizationSchedule` in the next line
-function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:PrincipleOnlyBond,M,K<:AmortizationSchedule}
+function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:PrincipalOnlyBond,M,K<:AmortizationSchedule}
     # initialization stuff
     b = p.contract # the contract within a projection
     ts = Bond.coupon_times(b) # works since it's a FinanceModels.Bond.AbstractBond with a frequency and maturity
@@ -322,7 +324,7 @@ We can now define the projection:
 
 ```julia-repl
 julia> p = Projection(
-           PrincipleOnlyBond(Periodic(2),5.),  # our contract
+           PrincipalOnlyBond(Periodic(2),5.),  # our contract
            NullModel(),                       # the projection doesn't need a model, so use the null model
            AmortizationSchedule(),            # specify the amortization schedule output
            );
@@ -330,7 +332,7 @@ julia> p = Projection(
 ```
 
 And then collect the values:
-
+[](url)
 ```julia-repl
 julia> collect(p)
 10-element Vector{NamedTuple{(:time, :payment, :outstanding), Tuple{Float64, Float64, Float64}}}:
