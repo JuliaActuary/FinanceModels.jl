@@ -13,7 +13,13 @@ export discount, zero, forward, par, pv
 
 abstract type AbstractYieldModel <: AbstractModel end
 
+"""
+    Constant(rate)
 
+A yield curve representing a flat term structure. 
+
+The solver will attempt to fit a discount rate with the range of: `-1.0 .. 1.0`
+"""
 struct Constant{R} <: AbstractYieldModel
     rate::R
 end

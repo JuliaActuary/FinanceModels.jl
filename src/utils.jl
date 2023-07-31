@@ -1,4 +1,4 @@
-N(x) = cdf(Normal(), x)
+N(x) = Distributions.cdf(Distributions.Normal(), x)
 
 function d1(S, K, τ, r, σ, q)
     return (log(S / K) + (r - q + σ^2 / 2) * τ) / (σ * √(τ))

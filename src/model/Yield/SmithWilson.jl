@@ -6,24 +6,30 @@ using ..LinearAlgebra
 using ..FinanceCore
 
 """
-    SmithWilson(zcq::Vector{ZeroCouponQuote}; ufr, α)
-    SmithWilson(swq::Vector{SwapQuote}; ufr, α)
-    SmithWilson(bbq::Vector{BulletBondQuote}; ufr, α)
-    SmithWilson(times<:AbstractVector, cashflows<:AbstractMatrix, prices<:AbstractVector; ufr, α)
-    SmithWilson(u, qb; ufr, α)
+    Yield.SmithWilson(u, qb; ufr=ufr, α=α)
+    Yield.SmithWilson(;ufr=ufr, α=α)
+
     
 Create a yield curve object that implements the Smith-Wilson interpolation/extrapolation scheme.
 
+To calibrate a curve, you generally want to construct the object without the `u` and `qb` arguments and call [`fit`](@ref) in conjunction with Quotes (`fit` requires no third parameter for SmithWilson curves). See **Examples** for what this looks like. 
 Positional arguments to construct a curve:
-
-- Quoted instrument as the first argument: either a `Vector` of `ZeroCouponQuote`s, `SwapQuote`s, or `BulletBondQuote`s, or 
-- A set of `times`, `cashflows`, and `prices`, or
 - A curve can be with `u` is the timepoints coming from the calibration, and `qb` is the internal parameterization of the curve that ensures that the calibration is correct. Users may prefer the other constructors but this mathematical constructor is also available.
 
 Required keyword arguments:
 
 - `ufr` is the Ultimate Forward Rate, the forward interest rate to which the yield curve tends, in continuous compounding convention. 
 - `α` is the parameter that governs the speed of convergence towards the Ultimate Forward Rate. It can be typed with `\\alpha[TAB]`
+
+# Examples
+
+```julia
+times = [1.0, 2.5, 5.6]
+prices = [0.9, 0.7, 0.5]
+qs = ZCBPrice.(prices, times)
+
+model = fit(Yield.SmithWilson(ufr=ufr, α=α), qs)
+```
 
 # Extended Help
 
