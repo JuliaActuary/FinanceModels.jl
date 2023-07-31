@@ -7,12 +7,12 @@
 
 
 A Nelson-Siegel yield curve model 
-Parameters of Nelson and Siegel (1987) parametric model:
+Parameters of Nelson and Siegel (1987) parametric model, along with default parameter ranges used in the fitting:
 
-- β₀ represents a long-term interest rate
-- β₁ represents a time-decay component
-- β₂ represents a hump
-- τ₁ controls the location of the hump
+- β₀ represents a long-term interest rate: `-10.0 .. 10.0`
+- β₁ represents a time-decay component: `-10.0 .. 10.0`
+- β₂ represents a hump: `-10.0 .. 10.0`
+- τ₁ controls the location of the hump: `0.0 .. 100.0`
 
 # Examples
 
@@ -61,14 +61,14 @@ FinanceCore.discount(ns::NelsonSiegel, t) = discount.(zero.(ns, t), t)
 
 Return the NelsonSiegelSvensson yield curve. The rates should be continuous zero spot rates. If `rates` are not `Rate`s, then they will be interpreted as `Continuous` `Rate`s.
 
-Parameters of Svensson (1994) parametric model:
+Parameters of Svensson (1994) parametric model, along with the default parameter bounds used in the fit routine:
 
-- τ₁ controls the location of the hump 
-- τ₁ controls the location of the second hump 
-- β₀ represents a long-term interest rate
-- β₁ represents a time-decay component
-- β₂ represents a hump
-- β₃ represents a second hum
+- τ₁ controls the location of the hump: `0.0 .. 100.0`
+- τ₁ controls the location of the second hump: `0.0 .. 100.0`
+- β₀ represents a long-term interest rate: `-10.0 .. 10.0`
+- β₁ represents a time-decay component: `-10.0 .. 10.0`
+- β₂ represents a hump: `-10.0 .. 10.0`
+- β₃ represents a second hump: `-10.0 .. 10.0`
 
 # Examples
 

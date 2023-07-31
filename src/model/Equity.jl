@@ -23,6 +23,8 @@ A struct representing the Black-Scholes-Merton model for equity prices.
 - `q`: The dividend yield.
 - `σ`: The volatility model of the underlying asset (see [`Volatility`](@ref) module)
 
+When [`fit`](@ref), the volatility will be solved-for; volatility itself is a sub-model that will be optimized with a default optimization bound of `0.0 .. 10.0`
+
 # Examples
 ```julia-repl
 julia> model = BlackScholesMerton(0.05, 0.02, 0.2)
