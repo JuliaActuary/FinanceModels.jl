@@ -6,7 +6,7 @@
 [![Coverage](https://codecov.io/gh/JuliaActuary/FinanceModels.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/JuliaActuary/FinanceModels.jl)
 
 
-> **NOTE**: Yields.jl is in the process of being re-written to FinanceModels.jl. See the `stable` docs for Yields.jl documentation while this package's master branch is readied for release of the new package/functionality.
+> **NOTE**: Yields.jl has been re-written to FinanceModels.jl, but existing Yields.jl should be easy to update. See the docs for a [migration guide](https://juliaactuary.github.io/FinanceModels.jl/stable/migration/) for guidance on updating from the prior version. Existing, pinned/compat code should not be affected as JuliaActuary follows Semantic Versioning for its releases.
 
 **FinanceModels.jl** provides a set of composable contracts, models, and functions that allow for modeling of both simple and complex financial instruments. The resulting models, such as discount rates or term structures, can then be used across the JuliaActuary ecosystem to perform actuarial and financial analysis.
 
