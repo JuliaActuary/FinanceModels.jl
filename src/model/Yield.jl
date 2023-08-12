@@ -339,7 +339,6 @@ end
 name(::Type{T}) where {T} = (isempty(T.parameters) ? T : T.name.wrapper)
 
 function Base.show(io::IO, curve::T) where {T<:AbstractYieldModel}
-    println() # blank line for padding
     r = zero(curve, 1)
     ylabel = isa(r.compounding, Continuous) ? "Continuous" : "Periodic($(r.compounding.frequency))"
     kind = name(typeof(curve))
