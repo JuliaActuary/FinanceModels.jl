@@ -28,6 +28,9 @@ times = [1.0, 2.5, 5.6]
 prices = [0.9, 0.7, 0.5]
 qs = ZCBPrice.(prices, times)
 
+ufr = 0.03
+α = 0.1
+
 model = fit(Yield.SmithWilson(ufr=ufr, α=α), qs)
 ```
 
