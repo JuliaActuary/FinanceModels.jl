@@ -243,7 +243,7 @@ end
 
 For example, the cashflows you generate for a floating rate bond is the current reference rate. Or maybe you have a stochastic volatility model and want to project forward option values. This type of dependency is handled like this:
 
-- define `model` as a relation that maps a key to a model. E.g. a Dict("SOFR" => NelsonSiegelSvensson(...))`
+- define `model` as a relation that maps a key to a model. E.g. a `Dict("SOFR" => NelsonSiegelSvensson(...))`
 - when defining the logic for the reducible collection/foldl, you can reference the `Projection.model` by the associated key.
 
 Here's how a floating bond is implemented:
