@@ -137,6 +137,34 @@ However, `Projection`s allow one to combine three elements which can be extended
 - the **model** which includes assumptions of how the contract will behave
 - a `ProjectionKind` which indicates the kind of output desired (cashflow stream, amortization schedule, etc...)
 
+
+#### Examples
+
+A fixed bond that needs no valuation model (`NullModel()`) to define its projected gross cashflows:
+
+```julia
+Projection(Bond.Fixed(0.04,Periodic(2),3),NullModel(),CashflowProjection())
+```
+
+#### Plotting Projections
+
+A `CashflowProjection` or a vector of `Cashflow`s can be plotted with the [Makie](https://makie.org/) family of plotting packages.
+
+```julia
+using FinanceModels, CairoMakie
+proj = Projection(Bond.Fixed(0.10,Periodic(2),20),NullModel(),CashflowProjection())
+# a stem plot:
+stem(proj)
+```
+
+Will produce: 
+
+![A stem plot of bond cashflows](https://github.com/JuliaActuary/ActuaryUtilities.jl/assets/711879/29480ce2-9691-4eb5-b656-a05394f7a2c2)
+
+
+
+### Fitting Models
+
 ### Fitting Models
 
 
