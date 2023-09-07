@@ -21,12 +21,22 @@ StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 Transducers = "28d57a85-8fef-5791-bfe6-a80928e7c999"
 UnicodePlots = "b8865327-cd53-5732-bb35-84acbb429228"
 
+[weakdeps]
+MakieCore = "20f20a25-4f0e-4fdf-b5d1-57303727442b"
+
+[extensions]
+# name of extension to the left
+# extension dependencies required to load the extension to the right
+# use a list for multiple extension dependencies
+FinanceModelsMakieCoreExt = "MakieCore"
+
 [compat]
 julia = "1.9" #Bsplinekit 0.16 is 1.8 or above and AccessibleOptimization's deps is 1.9
 FinanceCore = "^2"
 BSplineKit = "^0.16"
 IntervalSets = "^0.7"
 Transducers = "^0.4"
+MakieCore = "0.6"
 Optimization = "^3.15"
 OptimizationMetaheuristics = "^0.1.2"
 OptimizationOptimJL = "^0.1.9"
