@@ -98,24 +98,20 @@ Note that all contracts in FinanceModels.jl are currently *unit* contracts in th
 
 **When the cashflow depends on a model**. An example of this is a floating bond where the coupon paid depends on a view of forward rates. See [this section in the overview](guide.html#Contracts-that-depend-on-the-model-(or-multiple-models)) on projections for how this is handled.
 
-## Availalbe Contracts & Modules
+## Available Contracts & Modules
 
 ### `Bond` Module
 
-```@autodocs
+```@autodocs; canonical=false
 Modules = [FinanceModels.Bond]
 ```
 
 ### Other Contracts
 
-```@docs
-Composite
-CommonEquity
-Forward
-```
+- [Composite](@ref)
+- [CommonEquity](@ref)
+- [Forward](@ref)
 
 ### Derivatives
 
-```@autodocs
-Modules = [FinanceModels.Option]
-```
+- [FinanceModels.Option](@ref)

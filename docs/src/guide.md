@@ -2,7 +2,7 @@
 
 **FinanceModels.jl** provides a set of composable contracts, models, and functions that allow for modeling of both simple and complex financial instruments. The resulting models, such as discount rates or term structures, can then be used across the JuliaActuary ecosystem to perform actuarial and financial analysis.
 
-![A conceptual sketch of FinanceModels.jl](./assets/relations.png)
+![A conceptual sketch of FinanceModels.jl](assets/relations.png)
 
 ## 1. `Cashflow` - a fundamental financial type
 
@@ -332,7 +332,7 @@ julia> p = Projection(
 ```
 
 And then collect the values:
-[](url)
+
 ```julia-repl
 julia> collect(p)
 10-element Vector{NamedTuple{(:time, :payment, :outstanding), Tuple{Float64, Float64, Float64}}}:

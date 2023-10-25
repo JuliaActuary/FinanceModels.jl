@@ -38,6 +38,14 @@ If you need to extract the rate for some reason, you can get the rate by calling
 ```@index
 ```
 
+## Exported API
 ```@autodocs
-Modules = [FinanceModels]
+Modules = [FinanceModels, FinanceCore, FinanceModels.Bond, FinanceModels.Yield, FinanceModels.Spline, FinanceModels.Fit, FinanceModels.Volatility,FinanceModels.Option, FinanceModels.Equity]
+Private = false
+```
+
+## Unexported API
+```@autodocs
+Modules = [FinanceModels, FinanceCore, FinanceModels.Bond, FinanceModels.Yield, FinanceModels.Spline, FinanceModels.Fit, FinanceModels.Volatility,FinanceModels.Option, FinanceModels.Equity]
+Public = false
 ```

@@ -92,7 +92,7 @@ Note that there are a number of convienience constructors which return a Quote f
 - [`CMTYield`](@ref)
 - [`OISYield`](@ref)
 
-See also [`Quote`](@ref).
+See also [`FinanceCore.Quote`](@ref).
 
 # Examples
 
@@ -131,7 +131,7 @@ end
 An object representing a floating coupon bond. (`coupon_rate` + reference rate) / `frequency` is the actual payment amount, where the reference rate requires a `Projection` with a key/value pair where the key is the `model_key` argument and the value is the model which produces the reference rate.
 
 
-See also [`Quote`](@ref).
+See also [`FinanceCore.Quote`](@ref).
 
 # Examples
 
@@ -206,7 +206,7 @@ Returns a `Quote` for the correpsonding bond implied by the given bond equivalen
 
 Use broadcasting to create a set of quotes given a collection of FinanceModels and maturities, e.g. `CMTYield.(FinanceModels,maturities)`.
 
-See also [`Quote`](@ref), [`Bond.Fixed`](@ref)
+See also [`FinanceCore.Quote`](@ref), [`Bond.Fixed`](@ref)
 
 # Examples
 
@@ -235,7 +235,7 @@ Returns the implied `Quote` for the fixed bond implied by the given `yield` and 
 
 Use broadcasting to create a set of quotes given a collection of FinanceModels and maturities, e.g. `OISYield.(FinanceModels,maturities)`.
 
-See also [`Quote`](@ref), [`Bond.Fixed`](@ref)
+See also [`FinanceCore.Quote`](@ref), [`Bond.Fixed`](@ref)
 
 # Examples
 

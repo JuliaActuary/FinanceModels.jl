@@ -48,7 +48,7 @@ end
 """
     Bootstrap()
 
-A singleton type which is passed to `fit` in order to bootstrap [`Spline`](@ref)s. The curves are fit such that the spline passes through the zero rates of the curve. 
+A singleton type which is passed to `fit` in order to bootstrap [`Spline`](@ref FinanceModels.Spline)s. The curves are fit such that the spline passes through the zero rates of the curve. 
 
 A subtype of FitMethod.
 
@@ -153,24 +153,24 @@ __default_optim(m) = ECA()
 
 """
     fit(
-        mod0, 
+        model, 
         quotes, 
         method=Fit.Loss(x -> x^2);
-        variables=__default_optic(mod0), 
-        optimizer=__default_optim(mod0)
+        variables=__default_optic(model), 
+        optimizer=__default_optim(model)
         )
 
 Fit a model to a collection of quotes using a loss function and optimization method.
 
 ## Arguments
-- `mod0`: The initial model to fit, which is generally an instantiated but un-optimized model.
+- `model`: The initial model to fit, which is generally an instantiated but un-optimized model.
 - `quotes`: A collection of quotes to fit the model to.
 - `method::F=Fit.Loss(x -> x^2)`: The loss function to use for fitting the model. Defaults to the squared loss function. 
-  - `method` can also be `Bootstrap()`. If this is the case, `mod0` should be a spline such as `Spline.Linear()`, `Spline.Cubic()`...
-- `variables=__default_optic(mod0)`: The variables to optimize over. This is an optic specifying which parameters of the modle can vary. See extended help for more.
-- `optimizer=__default_optim(mod0)`: The optimization algorithm to use. The default optimization for a given model is ECA from Metahueristics.jl; see extended help for more on customizing the solver including setting the seed.
+  - `method` can also be `Bootstrap()`. If this is the case, `model` should be a spline such as `Spline.Linear()`, `Spline.Cubic()`...
+- `variables=__default_optic(model)`: The variables to optimize over. This is an optic specifying which parameters of the modle can vary. See extended help for more.
+- `optimizer=__default_optim(model)`: The optimization algorithm to use. The default optimization for a given model is ECA from Metahueristics.jl; see extended help for more on customizing the solver including setting the seed.
 
-The optimization routine will then attempt to modify parameters of `mod0` to best fit the quoted prices of the contracts underlying the `quotes` by calling `present_value(model,contract)`. The optimization will minimize the loss function specified within `Fit.Loss(...)`. 
+The optimization routine will then attempt to modify parameters of `model` to best fit the quoted prices of the contracts underlying the `quotes` by calling `present_value(model,contract)`. The optimization will minimize the loss function specified within `Fit.Loss(...)`. 
 
 Different types of quotes are appropriate for different kinds of models. For example, if you try to value a set of equtiy `EuroCall`s with a `Yield.Constant`, you will get an error because the `present_value(m<:Yield.Constant,o<:EuroCall)` is not defined.
 
@@ -179,11 +179,11 @@ Different types of quotes are appropriate for different kinds of models. For exa
 
 # Examples
 ```julia
-julia> mod0 = Yield.Constant();
+julia> model = Yield.Constant();
 
 julia> quotes = ZCBPrice([0.9, 0.8, 0.7,0.6]);
 
-julia> fit(mod0,quotes)
+julia> fit(model,quotes)
 
               ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀Yield Curve (FinanceModels.Yield.Constant)⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀           
               ┌────────────────────────────────────────────────────────────┐           
