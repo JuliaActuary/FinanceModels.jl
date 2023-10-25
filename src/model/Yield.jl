@@ -1,4 +1,3 @@
-
 module Yield
 import ..AbstractModel
 import ..FinanceCore
@@ -16,9 +15,10 @@ abstract type AbstractYieldModel <: AbstractModel end
 """
     Constant(rate)
 
-A yield curve representing a flat term structure. 
+A yield curve representing a flat term structure. `rate` can be a [`Rate`](@ref) object or a `Real` object.
 
-The solver will attempt to fit a discount rate with the range of: `-1.0 .. 1.0`
+
+If [`fit`](@ref FinanceModels.fit-Union{Tuple{F}, Tuple{Any, Any}, Tuple{Any, Any, F}} where F<:FinanceModels.Fit.Loss)ing with the default FinanceModels.jl settings, the solver will attempt to fit a discount rate with the range of: `-1.0 .. 1.0`
 """
 struct Constant{R} <: AbstractYieldModel
     rate::R
@@ -200,7 +200,7 @@ julia> FinanceCore.discount(fwd,1) # `curve` has effectively been reindexed to `
 
 While `ForwardStarting` could be nested so that, e.g. the third period's curve is the one-period forward of the second period's curve, it will be more efficient to reuse the initial curve from a runtime and compiler perspective.
 
-`ForwardStarting` is not used to construct a curve based on forward rates. See  [`Forward`](@ref) instead.
+`ForwardStarting` is not used to construct a curve based on forward rates. 
 """
 struct ForwardStarting{T,U} <: AbstractYieldModel
     curve::U

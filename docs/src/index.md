@@ -43,7 +43,7 @@ present_value(m_rate,Cashflow(10,3)) # 9.15...
 ## Overview of FinanceModels
 
 
-![A conceptual sketch of FinanceModels.jl](/docs/src/assets/relations.png)
+![A conceptual sketch of FinanceModels.jl](assets/relations.png)
 
 Often we start with observed or assumed values for existing contracts. We want to then use those assumed values to extend the valuation logic to new contracts. For example, we may have a set of bond yields which we then want to discount a series of insurance obligations.
 

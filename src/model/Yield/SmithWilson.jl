@@ -12,7 +12,7 @@ using ..FinanceCore
     
 Create a yield curve object that implements the Smith-Wilson interpolation/extrapolation scheme.
 
-To calibrate a curve, you generally want to construct the object without the `u` and `qb` arguments and call [`fit`](@ref) in conjunction with Quotes (`fit` requires no third parameter for SmithWilson curves). See **Examples** for what this looks like. 
+To calibrate a curve, you generally want to construct the object without the `u` and `qb` arguments and call [`fit`](@ref FinanceModels.fit-Union{Tuple{F}, Tuple{Any, Any}, Tuple{Any, Any, F}} where F<:FinanceModels.Fit.Loss) in conjunction with Quotes (`fit` requires no third parameter for SmithWilson curves). See **Examples** for what this looks like. 
 Positional arguments to construct a curve:
 - A curve can be with `u` is the timepoints coming from the calibration, and `qb` is the internal parameterization of the curve that ensures that the calibration is correct. Users may prefer the other constructors but this mathematical constructor is also available.
 
