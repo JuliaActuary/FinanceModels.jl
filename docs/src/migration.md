@@ -37,7 +37,7 @@ quotes = ParYield.(rates,timepoints)
 model = fit(SmithWilson(),quotes)
 ```
 
-#### Discussion
+#### Details of changes
 
 Previously the kind of contract, the implied quotes, the type of model, and how the fitting process worked were all combined into a single call (`Yields.Par`). This minimized the amount of code needed to construct a yield curve, but left it fairly cumbersome to extend the package. For example, for every new yield curve model, methods for `Par`, `CMT`, `OIS`, `Zero`, ... had to be defined. Additionally, all of the inputs needed to be yields - specifying a price was not available as an argument to fit. 
 
