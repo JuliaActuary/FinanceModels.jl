@@ -12,13 +12,26 @@ makedocs(;
         assets=String[]
     ),
     pages=[
-    # "Home" => "index.md",
-    # "Guide" => "guide.md",
-    # "Contracts" => "contracts.md",
-    # "Models, Valuation, and Fitting" => "models.md",
-    # "API Reference" => "api.md",
-    # "Migration Guide" => "migration.md",
-    # "FAQs" => "faq.md",
+        "Home" => "index.md",
+        "Guide" => [
+            "Introduction" => "introduction.md",
+            "Models, Valuation, and Fitting" => "models.md",
+            "Contracts" => "contracts.md",
+            "Rates" => "Rates.md",
+            "Migration Guide" => "migration.md",
+        ],
+        "Modules" => [
+            "FinanceModels" => "API/FinanceModels.md",
+            "FinanceCore" => "API/FinanceCore.md",
+            "Spline" => "API/Spline.md",
+            "Fit" => "API/Fit.md",
+            "Yield" => "API/Yield.md",
+            "Bond" => "API/Bond.md",
+            "Equity" => "API/Equity.md",
+            "Option" => "API/Option.md",
+            "Volatility" => "API/Volatility.md",
+        ],
+        "FAQs" => "faq.md",
     ],
     warnonly=true
 )
