@@ -48,7 +48,7 @@ end
 """
     Bootstrap()
 
-A singleton type which is passed to `fit` in order to bootstrap [`Spline`](@ref FinanceModels.Spline)s. The curves are fit such that the spline passes through the zero rates of the curve. 
+A singleton type which is passed to `fit` in order to bootstrap Splines. The curves are fit such that the spline passes through the zero rates of the curve. 
 
 A subtype of FitMethod.
 

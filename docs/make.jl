@@ -4,7 +4,7 @@ using Documenter
 makedocs(;
     modules=[FinanceModels, FinanceCore],
     authors="Alec Loudenback <alecloudenback@gmail.com> and contributors",
-    repo="https://github.com/JuliaActuary/FinanceModels.jl/blob/{commit}{path}#L{line}",
+    repo=Remotes.GitHub("JuliaActuary", "FinanceModels.jl"),
     sitename="FinanceModels.jl",
     format=Documenter.HTML(;
         prettyurls=get(ENV, "CI", "false") == "true",

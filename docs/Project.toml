@@ -1,3 +1,4 @@
 [deps]
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+FinanceCore = "b9b1ffdd-6612-4b69-8227-7663be06e089"
 FinanceModels = "77f2ae65-bdde-421f-ae9d-22f1af19dd76"
