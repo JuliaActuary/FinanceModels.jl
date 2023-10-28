@@ -32,8 +32,7 @@ makedocs(;
             "Volatility" => "API/Volatility.md",
         ],
         "FAQs" => "faq.md",
-    ],
-    warnonly=true
+    ]
 )
 
 deploydocs(;
