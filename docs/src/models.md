@@ -1,12 +1,5 @@
 # Models, Valuation, Projections, and Fitting
 
-## Page Contents
-
-```@contents
-Pages = ["models.md"]
-Depth = 4
-```
-
 ## Introduction
 
 Conceptually, we have an iterative process:
@@ -61,11 +54,20 @@ Continuous()(0.05)
 
 Convert rates between different types with `convert`. E.g.:
 
-```julia-repl
-r = Rate(Yields.Periodic(12),0.01)             # rate that compounds 12 times per rate period (ie monthly)
+```julia
+r = Rate(0.01,Periodic(12))             # rate that compounds 12 times per rate period (ie monthly)
 
 convert(Yields.Periodic(1),r)                  # convert monthly rate to annual effective
 convert(Yields.Continuous(),r)          # convert monthly rate to continuous
+```
+
+To get the scalar value out of the `Rate`, use `FinanceModels.rate(r)`:
+
+```julia-rel
+julia> r = Rate(0.01,Periodic(12));   
+julia> rate(r)
+0.01
+
 ```
 
 #### Arithmetic
@@ -74,11 +76,11 @@ Adding, subtracting, multiplying, dividing, and comparing rates is supported.
 
 ### Available Models - Yields
 
-- [`Yield.Constant`](@ref)
-- Bootstrapped [`Spline`](@ref)
-- [`Yield.SmithWilson`](@ref)
-- [`Yield.NelsonSiegel`](@ref)
-- [`Yield.NelsonSiegelSvensson`](@ref)
+- [`FinanceModels.Yield.Constant`](@ref)
+- Bootstrapped [`Spline`](@ref FinanceModels.Spline)s
+- [`FinanceModels.Yield.SmithWilson`](@ref)
+- [`FinanceModels.Yield.NelsonSiegel`](@ref)
+- [`FinanceModels.Yield.NelsonSiegelSvensson`](@ref)
 
 Yield models can also be composed. Here is an example of fitting rates and spread separately and then adding the two models together:
 
@@ -106,20 +108,20 @@ julia> discount(0.04,3)
 
 ### Creating New Yield Models
 
-See the [Guide](guide.html) for an example of creating a model from scratch. Some additional aspects to note:
+See the [FinanceModels.jl Guide](@ref) for an example of creating a model from scratch. Some additional aspects to note:
 
-- The only method that must be defined to calculate the [`present_value`](@ref) of something is [`discount`](@ref). Other methods will be inferred.
-- Other methods that are imputed by default, but can be extended include: [`accumulation`](@ref), [`forward`](@ref), [`par`](@ref), [`zero`](@ref), and [`rate`](@ref).
+- The only method that must be defined to calculate the [`FinanceCore.present_value`](@ref) of something is [`FinanceCore.discount`](@ref). Other methods will be inferred.
+- Other methods that are imputed by default, but can be extended include: [`FinanceCore.accumulation`](@ref), [`FinanceModels.forward`](@ref), [`FinanceModels.par`](@ref), [`FinanceModels.zero`](@ref), and [`FinanceModels.rate`](@ref).
 
 ## Equity and Volatility Models
 
 ### Available Models - Option Valuation
 
-- [`Option.BlackScholesMerton`](@ref)
+- [`FinanceModels.Equity.BlackScholesMerton`](@ref)
 
 ### Available Models - Volatility
 
-- [`Volatility.Constant`](@ref)
+- [`FinanceModels.Volatility.Constant`](@ref)
 
 #### Creating new Volatility Models
 

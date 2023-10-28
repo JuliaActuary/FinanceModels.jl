@@ -1,7 +1,7 @@
 """
 The `Equity` module provides equity-related model definitions.
 
-See also: the [`Volatility`](@ref) module.
+See also: the [`Volatility`](@ref FinanceModels.Volatility-API-Reference) module.
 """
 module Equity
 import ..AbstractModel
@@ -16,14 +16,14 @@ A struct representing the Black-Scholes-Merton model for equity prices.
 # Arguments
 - `r`: The risk-free rate.
 - `q`: The dividend yield.
-- `σ`: The volatility model of the underlying asset (see [`Volatility`](@ref) module) 
+- `σ`: The volatility model of the underlying asset (see [`Volatility`](@ref FinanceModels.Volatility-API-Reference) module) 
 
 # Fields
 - `r`: The risk-free rate.
 - `q`: The dividend yield.
-- `σ`: The volatility model of the underlying asset (see [`Volatility`](@ref) module)
+- `σ`: The volatility model of the underlying asset (see [`Volatility`](@ref FinanceModels.Volatility-API-Reference) module)
 
-When [`fit`](@ref), the volatility will be solved-for; volatility itself is a sub-model that will be optimized with a default optimization bound of `0.0 .. 10.0`
+When [`fit`](@ref FinanceModels.fit-Union{Tuple{F}, Tuple{Any, Any}, Tuple{Any, Any, F}} where F<:FinanceModels.Fit.Loss)ting, the volatility will be solved-for; volatility itself is a sub-model that will be optimized with a default optimization bound of `0.0 .. 10.0`
 
 # Examples
 ```julia-repl

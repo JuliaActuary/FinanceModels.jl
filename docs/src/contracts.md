@@ -1,13 +1,5 @@
 # Contracts
 
-## Page Contents
-
-```@contents
-Pages = ["contracts.md"]
-Depth = 4
-```
-
-
 ## **Contracts** - A composable way to represent financial instruments
 
 Contracts are a composable way to represent financial instruments. They are, in essence, anything that is a collection of cashflows. Contracts can be combined to represent more complex instruments. For example, a bond can be represented as a collection of cashflows that correspond to the coupon payments and the principal repayment.
@@ -96,26 +88,8 @@ Note that all contracts in FinanceModels.jl are currently *unit* contracts in th
 
 #### More complex Contracts
 
-**When the cashflow depends on a model**. An example of this is a floating bond where the coupon paid depends on a view of forward rates. See [this section in the overview](guide.html#Contracts-that-depend-on-the-model-(or-multiple-models)) on projections for how this is handled.
+**When the cashflow depends on a model**. An example of this is a floating bond where the coupon paid depends on a view of forward rates. See [this section in the overview](@ref Contracts-that-depend-on-the-model-(or-multiple-models)) on projections for how this is handled.
 
-## Availalbe Contracts & Modules
+## Available Contracts & Modules
 
-### `Bond` Module
-
-```@autodocs
-Modules = [FinanceModels.Bond]
-```
-
-### Other Contracts
-
-```@docs
-Composite
-CommonEquity
-Forward
-```
-
-### Derivatives
-
-```@autodocs
-Modules = [FinanceModels.Option]
-```
+See the Modules in the left navigation for details on available contracts/models/functions.
