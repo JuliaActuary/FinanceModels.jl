@@ -4,7 +4,6 @@ import Dates
 using Reexport
 @reexport using FinanceCore
 using FinanceCore: present_value, discount, accumulation
-using OptimizationOptimJL
 using OptimizationMetaheuristics
 using StaticArrays
 using IntervalSets
@@ -15,7 +14,7 @@ using Transducers
 import BSplineKit
 import UnicodePlots
 using Transducers: @next, complete, __foldl__, asfoldable
-import Distributions
+import SpecialFunctions
 
 
 
