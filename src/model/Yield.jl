@@ -6,7 +6,7 @@ import ..BSplineKit
 import UnicodePlots
 import ..Bond: coupon_times
 
-using FinanceCore: Continuous, Periodic, discount, accumulation, AbstractContract
+using ..FinanceCore: Continuous, Periodic, discount, accumulation, AbstractContract
 
 export discount, zero, forward, par, pv
 
