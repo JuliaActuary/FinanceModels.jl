@@ -12,7 +12,7 @@
 
 Additionally, the models can be used to project contracts through time: most basically as a series of cashflows but more complex output can be defined for contracts.
 
-![yield_curves](https://github.com/JuliaActuary/FinanceModels.jl/assets/711879/9a304448-c31c-4766-b2ba-6433a77fa12c)
+![yield_curves](https://github.com/JuliaActuary/FinanceModels.jl/assets/711879/5b8a486b-732f-486b-aeb4-a3d8c4ab8b04)
 
 
 ## QuickStart

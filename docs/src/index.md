@@ -13,7 +13,7 @@ CurrentModule = FinanceModels
 Additionally, the models can be used to project contracts through time: most basically as a series of cashflows but more complex output can be defined for contracts.
 
 
-![anim_fps2](https://user-images.githubusercontent.com/711879/174458687-860c5d7f-e125-46a9-a706-7d113f1e243b.gif)
+![anim_fps2](https://github.com/JuliaActuary/FinanceModels.jl/assets/711879/9a304448-c31c-4766-b2ba-6433a77fa12c)
 
 
 ## QuickStart
