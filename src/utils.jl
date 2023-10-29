@@ -1,4 +1,11 @@
-N(x) = Distributions.cdf(Distributions.Normal(), x)
+# all we need is cumulative normal, so avoid Distributions.jl dependency 
+# https://www.johndcook.com/blog/cpp_phi/
+
+function ϕ(x)
+    return 0.5 * SpecialFunctions.erfc(-x * √(0.5))
+end
+
+N(x) = ϕ(x)
 
 function d1(S, K, τ, r, σ, q)
     return (log(S / K) + (r - q + σ^2 / 2) * τ) / (σ * √(τ))

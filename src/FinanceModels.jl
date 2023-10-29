@@ -15,7 +15,7 @@ using Transducers
 import BSplineKit
 import UnicodePlots
 using Transducers: @next, complete, __foldl__, asfoldable
-import Distributions
+import SpecialFunctions
 
 
 

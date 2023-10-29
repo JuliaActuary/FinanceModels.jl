@@ -8,3 +8,26 @@
     y = fit(Spline.Linear(), CMTYield.(rates, mats), Fit.Bootstrap())
     @test y isa FinanceModels.Yield.AbstractYieldModel
 end
+
+@testset "Normal CDF" begin
+    # https://www.johndcook.com/blog/cpp_phi/
+
+    x = [
+        -3,
+        -1,
+        0.0,
+        0.5,
+        2.1
+    ]
+    target = [
+        0.00134989803163,
+        0.158655253931,
+        0.5,
+        0.691462461274,
+        0.982135579437
+    ]
+    @testset "confirm accuracy" for i in 1:5
+        @test isapprox(FinanceModels.ϕ(x[i]), target[i], atol=1e-12)
+    end
+
+end
