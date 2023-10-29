@@ -4,7 +4,6 @@ import Dates
 using Reexport
 @reexport using FinanceCore
 using FinanceCore: present_value, discount, accumulation
-using OptimizationOptimJL
 using OptimizationMetaheuristics
 using StaticArrays
 using IntervalSets
