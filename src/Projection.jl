@@ -208,3 +208,12 @@ function __rewrap(from, to)
     # we've hit bottom, so return `to`
     return to
 end
+
+
+function FinanceCore.present_value(model, p::FinanceModels.Projection{C,M,K}, cur_time=0.0) where
+{
+    C,M,K<:FinanceModels.CashflowProjection
+}
+    xf = p |> Filter(cf -> cf.time >= cur_time) |> Map(cf -> FinanceCore.discount(model, cur_time, cf.time) * cf.amount)
+    foldxl(+, xf)
+end
