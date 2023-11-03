@@ -37,3 +37,11 @@ function FinanceCore.present_value(model, c::FinanceCore.AbstractContract, cur_t
     xf = p |> Filter(cf -> cf.time >= cur_time) |> Map(cf -> FinanceCore.discount(model, cur_time, cf.time) * cf.amount)
     foldxl(+, xf)
 end
+
+function FinanceCore.present_value(model, p::FinanceModels.Projection{C,M,K}, cur_time=0.0) where
+{
+    C,M,K<:CashflowProjection
+}
+    xf = p |> Filter(cf -> cf.time >= cur_time) |> Map(cf -> FinanceCore.discount(model, cur_time, cf.time) * cf.amount)
+    foldxl(+, xf)
+end
