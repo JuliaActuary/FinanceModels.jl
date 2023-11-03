@@ -20,6 +20,7 @@ end
     @test collect(Bond.Fixed(0.05, Periodic(1), 1)) == [Cashflow(1.05, 1.0)]
 
     @test pv(Yield.Constant(0.05), Bond.Fixed(0.05, Periodic(1), 3.0)) ≈ 1.0
+    @test pv(Yield.Constant(0.05), p) ≈ 1.0
 end
 
 @testset "Floating Bonds" begin
