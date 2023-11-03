@@ -20,6 +20,7 @@ end
     @test collect(Bond.Fixed(0.05, Periodic(1), 1)) == [Cashflow(1.05, 1.0)]
 
     @test pv(Yield.Constant(0.05), Bond.Fixed(0.05, Periodic(1), 3.0)) ≈ 1.0
+    @test pv(Yield.Constant(0.05), p) ≈ 1.0
 end
 
 @testset "Floating Bonds" begin
@@ -47,6 +48,7 @@ end
     swap = InterestRateSwap(curve, 10)
     proj = Projection(swap, Dict("OIS" => curve), CashflowProjection())
     @test pv(0.04, proj |> collect) ≈ 0.0 atol = 1e-12
+    @test pv(0.04, proj) ≈ 0.0 atol = 1e-12
 end
 
 @testset "Transduced Contracts" begin
