@@ -429,7 +429,7 @@ end
 """
     InterestRateSwap(curve, tenor; model_key="OIS")
 
-A convenience method for creating an interest rate swap given a curve and a tenor via a `Composite` contract consisting of receiving a [fixed bond](@ref Bond.Fixed) and paying (i.e. [`Negative`](@ref FinanceCore.Negative)) [floating bond](@ref Bond.Floating). To switch directions of the pay/receive, simply wrap the swap with `Negative(...)`.
+A convenience method for creating an interest rate swap given a curve and a tenor via a `Composite` contract consisting of receiving a [fixed bond](@ref Bond.Fixed) and paying (i.e. the negative of) a [floating bond](@ref Bond.Floating).
 
 The notional is a unit (1.0) amount and assumed to settle four times per period.
 
