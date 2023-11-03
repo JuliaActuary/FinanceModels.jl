@@ -88,7 +88,48 @@ Note that all contracts in FinanceModels.jl are currently *unit* contracts in th
 
 #### More complex Contracts
 
-**When the cashflow depends on a model**. An example of this is a floating bond where the coupon paid depends on a view of forward rates. See [this section in the overview](@ref Contracts-that-depend-on-the-model-(or-multiple-models)) on projections for how this is handled.
+##### Transformations
+
+Contracts (`<:AbstractContract`) and [`Projection`](@ref)s can be modified to be scaled or transformed using the transformations in [Transducers.jl](https://juliafolds2.github.io/Transducers.jl/stable/#List-of-transducers) after importing that package.
+
+Most commonly, this is likely simply chaining `Map(...)` calls. Two use-cases of this may be to (1) scale the contract by a factor or (2) change the sign of the contract to indicate an obligation/liability instead of an asset. Examples of this:
+
+```julia-repl
+julia> using Transducers, FinanceModels
+
+julia> Bond.Fixed(0.05,Periodic(1),3) |> collect
+3-element Vector{Cashflow{Float64, Float64}}:
+ Cashflow{Float64, Float64}(0.05, 1.0)
+ Cashflow{Float64, Float64}(0.05, 2.0)
+ Cashflow{Float64, Float64}(1.05, 3.0)
+
+julia> Bond.Fixed(0.05,Periodic(1),3) |> Map(-) |> collect
+3-element Vector{Cashflow{Float64, Float64}}:
+ Cashflow{Float64, Float64}(-0.05, 1.0)
+ Cashflow{Float64, Float64}(-0.05, 2.0)
+ Cashflow{Float64, Float64}(-1.05, 3.0)
+
+julia> Bond.Fixed(0.05,Periodic(1),3) |> Map(-) |> Map(x->x*2) |> collect
+3-element Vector{Cashflow{Float64, Float64}}:
+ Cashflow{Float64, Float64}(-0.1, 1.0)
+ Cashflow{Float64, Float64}(-0.1, 2.0)
+ Cashflow{Float64, Float64}(-2.1, 3.0)
+```
+
+Another example of this is how `InterestRateSwap`[@ref] is implemented. It's simply a `Composite` contract of a positive fixed rate bond and a negative floating rate bond:
+
+```julia
+function InterestRateSwap(curve, tenor; model_key="OIS")
+    fixed_rate = par(curve, tenor; frequency=4)
+    fixed_leg = Bond.Fixed(rate(fixed_rate), Periodic(4), tenor)
+    float_leg = Bond.Floating(0.0, Periodic(4), tenor, model_key) |> Map(-)
+    return Composite(fixed_leg, float_leg)
+end
+```
+
+##### Cashflows are model dependent
+
+An example of this is a floating bond where the coupon paid depends on a view of forward rates. See [this section in the overview](@ref Contracts-that-depend-on-the-model-(or-multiple-models)) on projections for how this is handled.
 
 ## Available Contracts & Modules
 

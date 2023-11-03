@@ -60,7 +60,7 @@ struct CashflowProjection <: ProjectionKind end
 # collecting a Projection gives your the reducible defined below with __foldl__
 Base.collect(p::P) where {P<:AbstractProjection} = p |> Map(identity) |> collect
 # collecting a contract wraps the contract in with the default Projection, defined next
-Base.collect(c::C) where {C<:FinanceCore.AbstractContract} = Projection(c) |> Map(identity) |> collect
+Base.collect(c::C) where {C<:FinanceCore.AbstractContract} = Projection(c) |> collect
 
 # Default Projections ##########################
 
@@ -73,7 +73,7 @@ Projection(c, m) = Projection(c, m, CashflowProjection())
 
 # Reducibles ###################################
 
-# a more composible, efficient way to create a collection of things that you can apply subsequent transformations to 
+# a more composable, efficient way to create a collection of things that you can apply subsequent transformations to 
 # (and those transformations can be Transducers).
 # https://juliafolds2.github.io/Transducers.jl/stable/howto/reducibles/
 # https://www.youtube.com/watch?v=6mTbuzafcII
@@ -84,7 +84,7 @@ Projection(c, m) = Projection(c, m, CashflowProjection())
 # `__foldl__` where you can define the collection using a `for` loop
 # and `foldl__` you can also define state that is used within the loop
 
-# this wraps a contract in a default proejction and makes a contract a reducible collection of cashflows
+# this wraps a contract in a default projection and makes a contract a reducible collection of cashflows
 function Transducers.asfoldable(c::C) where {C<:FinanceCore.AbstractContract}
     Projection(c) |> Map(identity)
 end
@@ -95,6 +95,14 @@ end
         val = @next(rf, val, p.contract)
     end
     return complete(rf, val)
+end
+
+# If a Transducer has been combined with a contract into an Eduction
+# then unwrap the contract and apply the transducer to the projection
+@inline function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:Transducers.Eduction,M,K}
+    rf = __rewrap(p.contract.rf, rf)             # compose the xform with any othe existing transducers
+    p_alt = @set p.contract = p.contract.coll    # reset the contract to the underlying contract without transducers
+    Transducers.__foldl__(rf, val, p_alt)        # project with a newly combined reduction 
 end
 
 # 
@@ -159,4 +167,44 @@ end
 
 @inline function Transducers.asfoldable(p::Projection{C,M,K}) where {C<:Cashflow,M,K<:CashflowProjection}
     Ref(p.contract) |> Map(identity)
+end
+
+"""
+    __rewrap(from::Transducers.Reduction, to)
+    __rewrap(from, to)
+
+Used to unwrap a Reduction which is a composition of contracts and a transducer and apply the transducers to the associated projection instead of the transducer.
+
+For example, on its own a contract is not project-able, but wrapped in a (default) [`Projection`](@ref) it can be. But it may also be a lot more convienent 
+to construct contracts which have scaling or negated modifications and let that flow into a projection.
+
+# Examples
+
+```julia-repl
+julia> Bond.Fixed(0.05,Periodic(1),3) |> collect
+3-element Vector{Cashflow{Float64, Float64}}:
+ Cashflow{Float64, Float64}(0.05, 1.0)
+ Cashflow{Float64, Float64}(0.05, 2.0)
+ Cashflow{Float64, Float64}(1.05, 3.0)
+
+julia> Bond.Fixed(0.05,Periodic(1),3) |> Map(-) |> collect
+3-element Vector{Cashflow{Float64, Float64}}:
+ Cashflow{Float64, Float64}(-0.05, 1.0)
+ Cashflow{Float64, Float64}(-0.05, 2.0)
+ Cashflow{Float64, Float64}(-1.05, 3.0)
+
+julia> Bond.Fixed(0.05,Periodic(1),3) |> Map(-) |> Map(x->x*2) |> collect
+3-element Vector{Cashflow{Float64, Float64}}:
+ Cashflow{Float64, Float64}(-0.1, 1.0)
+ Cashflow{Float64, Float64}(-0.1, 2.0)
+ Cashflow{Float64, Float64}(-2.1, 3.0)
+```
+"""
+function __rewrap(from::Transducers.Reduction, to)
+    rfx = from.xform                    # get the transducer's "xform" from the projection's contract
+    __rewrap(from.inner, Transducers.Reduction(rfx, to))          # compose the xform with any othe existing transducers
+end
+function __rewrap(from, to)
+    # we've hit bottom, so return `to`
+    return to
 end
