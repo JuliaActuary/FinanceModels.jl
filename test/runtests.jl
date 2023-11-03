@@ -7,6 +7,7 @@ using Accessors
 
 using FinanceModels
 using Test
+using Transducers
 
 include("generic.jl")
 include("sp.jl")

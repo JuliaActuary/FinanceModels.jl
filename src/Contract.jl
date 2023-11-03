@@ -433,6 +433,27 @@ A convenience method for creating an interest rate swap given a curve and a teno
 
 The notional is a unit (1.0) amount and assumed to settle four times per period.
 
+
+A [`Projection`](@ref), with an indexable `model_key` is still needed to project a swap. See examples below for what this looks like.
+
+# Examples
+
+```julia-repl
+
+julia> curve = Yield.Constant(0.05);
+
+julia> swap = InterestRateSwap(curve,10);
+
+julia> Projection(swap,Dict("OIS" => curve),CashflowProjection()) |> collect
+80-element Vector{Cashflow{Float64, Float64}}:
+Cashflow{Float64, Float64}(0.012272234429039353, 0.25)
+Cashflow{Float64, Float64}(0.012272234429039353, 0.5)
+⋮
+Cashflow{Float64, Float64}(-0.012272234429039353, 9.75)
+Cashflow{Float64, Float64}(-1.0122722344290391, 10.0)
+
+```
+
 """
 function InterestRateSwap(curve, tenor; model_key="OIS")
     fixed_rate = par(curve, tenor; frequency=4)
