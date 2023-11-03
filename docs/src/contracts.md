@@ -116,6 +116,17 @@ julia> Bond.Fixed(0.05,Periodic(1),3) |> Map(-) |> Map(x->x*2) |> collect
  Cashflow{Float64, Float64}(-2.1, 3.0)
 ```
 
+Another example of this is how `InterestRateSwap`[@ref] is implemented. It's simply a `Composite` contract of a positive fixed rate bond and a negative floating rate bond:
+
+```julia
+function InterestRateSwap(curve, tenor; model_key="OIS")
+    fixed_rate = par(curve, tenor; frequency=4)
+    fixed_leg = Bond.Fixed(rate(fixed_rate), Periodic(4), tenor)
+    float_leg = Bond.Floating(0.0, Periodic(4), tenor, model_key) |> Map(-)
+    return Composite(fixed_leg, float_leg)
+end
+```
+
 ##### Cashflows are model dependent
 
 An example of this is a floating bond where the coupon paid depends on a view of forward rates. See [this section in the overview](@ref Contracts-that-depend-on-the-model-(or-multiple-models)) on projections for how this is handled.
