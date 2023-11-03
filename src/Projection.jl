@@ -209,7 +209,6 @@ function __rewrap(from, to)
     return to
 end
 
-
 function FinanceCore.present_value(model, p::FinanceModels.Projection{C,M,K}, cur_time=0.0) where
 {
     C,M,K<:FinanceModels.CashflowProjection
