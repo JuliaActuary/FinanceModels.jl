@@ -425,3 +425,18 @@ end
 function cashflows_timepoints(qs::Vector{Q}) where {Q<:Quote}
     cashflows_timepoints([q.instrument for q in qs])
 end
+
+"""
+    InterestRateSwap(curve, tenor; model_key="OIS")
+
+A convenience method for creating an interest rate swap given a curve and a tenor via a `Composite` contract consisting of receiving a [fixed bond](@ref Bond.Fixed) and paying (i.e. [`Negative`](@ref FinanceCore.Negative)) [floating bond](@ref Bond.Floating). To switch directions of the pay/receive, simply wrap the swap with `Negative(...)`.
+
+The notional is a unit (1.0) amount and assumed to settle four times per period.
+
+"""
+function InterestRateSwap(curve, tenor; model_key="OIS")
+    fixed_rate = par(curve, tenor; frequency=4)
+    fixed_leg = Bond.Fixed(rate(fixed_rate), Periodic(4), tenor)
+    float_leg = Bond.Floating(0.0, Periodic(4), tenor, model_key) |> Map(-)
+    return Composite(fixed_leg, float_leg)
+end

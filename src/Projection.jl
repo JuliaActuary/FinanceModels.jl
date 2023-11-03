@@ -60,7 +60,7 @@ struct CashflowProjection <: ProjectionKind end
 # collecting a Projection gives your the reducible defined below with __foldl__
 Base.collect(p::P) where {P<:AbstractProjection} = p |> Map(identity) |> collect
 # collecting a contract wraps the contract in with the default Projection, defined next
-Base.collect(c::C) where {C<:FinanceCore.AbstractContract} = Projection(c) |> Map(identity) |> collect
+Base.collect(c::C) where {C<:FinanceCore.AbstractContract} = Projection(c) |> collect
 
 # Default Projections ##########################
 
@@ -73,7 +73,7 @@ Projection(c, m) = Projection(c, m, CashflowProjection())
 
 # Reducibles ###################################
 
-# a more composible, efficient way to create a collection of things that you can apply subsequent transformations to 
+# a more composable, efficient way to create a collection of things that you can apply subsequent transformations to 
 # (and those transformations can be Transducers).
 # https://juliafolds2.github.io/Transducers.jl/stable/howto/reducibles/
 # https://www.youtube.com/watch?v=6mTbuzafcII
@@ -84,7 +84,7 @@ Projection(c, m) = Projection(c, m, CashflowProjection())
 # `__foldl__` where you can define the collection using a `for` loop
 # and `foldl__` you can also define state that is used within the loop
 
-# this wraps a contract in a default proejction and makes a contract a reducible collection of cashflows
+# this wraps a contract in a default projection and makes a contract a reducible collection of cashflows
 function Transducers.asfoldable(c::C) where {C<:FinanceCore.AbstractContract}
     Projection(c) |> Map(identity)
 end
@@ -95,6 +95,15 @@ end
         val = @next(rf, val, p.contract)
     end
     return complete(rf, val)
+end
+
+# If a Transducer has been combined with a contract into an Eduction
+# then unwrap the contract and apply the transducer to the projection
+@inline function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:Transducers.Eduction,M,K}
+    rfx = p.contract.rf.xform                    # get the transducer's "xform" from the projection's contract
+    rf = Transducers.Reduction(rfx, rf)          # compose the xform with any othe existing transducers
+    p_alt = @set p.contract = p.contract.coll    # reset the contract to the underlying contract without transducers
+    Transducers.__foldl__(rf, val, p_alt)        # project with a newly combined reduction 
 end
 
 # 
