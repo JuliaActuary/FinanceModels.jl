@@ -23,6 +23,18 @@ end
     @test pv(Yield.Constant(0.05), p) ≈ 1.0
 end
 
+@testset "AbstractArray of contracts" begin
+    c = Bond.Fixed(0.05, Periodic(1), 3.0)
+    p = Projection([c, c])
+    @test length(collect(p)) == 6
+    @test pv(Yield.Constant(0.00), p) ≈ 2.3
+    p = Projection([c, c |> Map(-)])
+    @test length(collect(p)) == 6
+    @test pv(Yield.Constant(0.00), p) ≈ 0.0
+
+
+
+end
 @testset "Floating Bonds" begin
     p = Projection(
         Bond.Floating(0.02, Periodic(1), 3.0, "SOFR"),
