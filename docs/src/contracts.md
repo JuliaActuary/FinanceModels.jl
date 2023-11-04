@@ -88,6 +88,22 @@ Note that all contracts in FinanceModels.jl are currently *unit* contracts in th
 
 #### More complex Contracts
 
+##### Sets of contracts
+
+Sets of contracts can be put in an `AbstractArray` contained (e.g. a `Vector`) and then handled together. For example, we combine two bonds as a portfolio to project together:
+
+```julia-repl
+julia> c1 = Bond.Fixed(0.05, Periodic(1), 2.0);
+julia> c2 = Bond.Fixed(0.04, Periodic(1), 2.0);
+
+julia> Projection([c1, c2]) |> collect
+4-element Vector{Cashflow{Float64, Float64}}:
+ Cashflow{Float64, Float64}(0.05, 1.0)
+ Cashflow{Float64, Float64}(1.05, 2.0)
+ Cashflow{Float64, Float64}(0.04, 1.0)
+ Cashflow{Float64, Float64}(1.04, 2.0)
+```
+
 ##### Transformations
 
 Contracts (`<:AbstractContract`) and [`Projection`](@ref)s can be modified to be scaled or transformed using the transformations in [Transducers.jl](https://juliafolds2.github.io/Transducers.jl/stable/#List-of-transducers) after importing that package.

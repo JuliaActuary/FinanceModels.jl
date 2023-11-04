@@ -88,6 +88,11 @@ Projection(c, m) = Projection(c, m, CashflowProjection())
 function Transducers.asfoldable(c::C) where {C<:FinanceCore.AbstractContract}
     Projection(c) |> Map(identity)
 end
+function Transducers.asfoldable(p::Projection{C,M,K}) where {C<:AbstractArray,M,K}
+    map(p.contract) do c
+        Projection(c, p.model, p.kind)
+    end |> Cat()
+end
 
 # A cashflow is the simplest, single item reducible collection
 @inline function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:Cashflow,M,K}
