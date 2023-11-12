@@ -72,6 +72,23 @@ function forward(t, rates, times)
         pushfirst!(rates, first(rates))
 
     end
+
+    f, fᵈ = __monotone_convex_fs(rates, times)
+
+    @show x = (t - times[i_time]) / (times[i_time+1] - times[i_time])
+    @show fᵈ, f
+    @show fᵈ[i_time+1], g(x, f[i_time], f[i_time+1], fᵈ[i_time+1])
+    return fᵈ[i_time+1] + g(x, f[i_time], f[i_time+1], fᵈ[i_time+1])
+
+
+
+
+end
+
+"""
+    returns a pair of vectors (f and fᵈ) used in Monotone Convext Yield Curve fitting
+"""
+function __monotone_convex_fs(rates, times)
     # step 1
     fᵈ = map(2:length(times)) do i
         (times[i] * rates[i] - times[i-1] * rates[i-1]) / (times[i] - times[i-1])
@@ -93,12 +110,11 @@ function forward(t, rates, times)
     for j in 2:(length(times)-1)
         f[j] = clamp(f[j], 0, 2 * min(fᵈ[j], fᵈ[j+1]))
     end
-    @show x = (t - times[i_time]) / (times[i_time+1] - times[i_time])
-    @show fᵈ, f
-    @show fᵈ[i_time+1], g(x, f[i_time], f[i_time+1], fᵈ[i_time+1])
-    return fᵈ[i_time+1] + g(x, f[i_time], f[i_time+1], fᵈ[i_time+1])
 
-
+    return f, fᵈ
+end
+function myzero(t, rates, times)
+    #TODO
 
 
 end
