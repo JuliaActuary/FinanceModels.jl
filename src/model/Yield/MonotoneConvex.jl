@@ -1,4 +1,16 @@
 
+function __issector1(g0, g1)
+    a = (g0 > 0) && (g1 >= -2 * g0) && (-0.5 * g0 >= g1)
+    b = (g0 < 0) && (g1 <= -2 * g0) && (-0.5 * g0 <= g1)
+    a || b
+end
+
+function __issector2(g0, g1)
+    a = (g0 > 0) && (g1 < -2 * g0)
+    b = (g0 < 0) && (g1 > -2 * g0)
+    a || b
+end
+
 # Hagan West - WILMOTT magazine pgs 75-81
 function g(x, f⁻, f, fᵈ)
     @show x, f⁻, f, fᵈ
@@ -7,6 +19,7 @@ function g(x, f⁻, f, fᵈ)
     A = -2 * g0
     B = -2 * g1
     if sign(g0) == sign(g1)
+        @show "(iv)"
         # sector (iv)
         η = g1 / (g1 + g0)
         α = -g0 * g1 / (g1 + g0)
@@ -18,10 +31,12 @@ function g(x, f⁻, f, fᵈ)
         end
 
 
-    elseif g1 < A && g0 > B
+    elseif __issector1(g0, g1)
+        @show "(i)"
         # sector (i)
         g0 * (1 - 4 * x + 3 * x^2) + g1 * (-2 * x + 3 * x^2)
-    elseif g1 > A
+    elseif __issector2(g0, g1)
+        @show "(ii)"
         # sector (ii)
         η = (g1 + 2 * g0) / (g1 - g0)
         if x < η
@@ -30,6 +45,7 @@ function g(x, f⁻, f, fᵈ)
             return g0 + (g1 - g0) * ((x - η) / (1 - η))^2
         end
     else
+        @show "(iii)"
         # sector (iii)
         η = 3 * g1 / (g1 - g0)
         if x > η
@@ -43,10 +59,14 @@ end
 
 function forward(t, rates, times)
     # the array indexing in the paper and psuedo-VBA is messy
+    t = min(t, last(times))
     N = length(times)
     times = collect(times)
     rates = collect(rates)
     i_time = findfirst(x -> x > t, times)
+    if i_time == nothing
+        i_time = N
+    end
     if !iszero(first(times))
         pushfirst!(times, zero(eltype(times)))
         pushfirst!(rates, first(rates))
@@ -85,7 +105,7 @@ end
 
 times = 1:5
 rates = [0.03, 0.04, 0.047, 0.06, 0.06]
-forward(1, rates, times)
+forward(5.19, rates, times)
 
 
 using Test
@@ -93,6 +113,6 @@ using Test
 @test forward(1, rates, times) ≈ 0.04
 @test forward(2, rates, times) ≈ 0.0555
 @test forward(2.5, rates, times) ≈ 0.0571254591368226
-@test forward(5, rates, times) ≈ 0.050252925
-@test forward(5.2, rates, times) ≈ 0.050252925
+@test forward(5, rates, times) ≈ 0.05025
+@test forward(5.2, rates, times) ≈ 0.05025
 
