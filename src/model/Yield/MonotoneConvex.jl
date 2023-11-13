@@ -57,22 +57,54 @@ function g(x, f⁻, f, fᵈ)
     end
 end
 
+function g_rate(x, f⁻, f, fᵈ)
+    @show x, f⁻, f, fᵈ
+    @show g0 = f⁻ - fᵈ
+    @show g1 = f - fᵈ
+    A = -2 * g0
+    B = -2 * g1
+    if sign(g0) == sign(g1)
+        @show "(iv)"
+        # sector (iv)
+        η = g1 / (g1 + g0)
+        α = -g0 * g1 / (g1 + g0)
+
+        if x < η
+            return α * x - (g0 - α) * ((η - x)^3 / η^2 - η) / 3
+        else
+            return (2 * α + g0) / 3 * η + α * (x - η) + (g1 - α) / 3 * (x - η)^3 / (1 - η)^2
+        end
+
+
+    elseif __issector1(g0, g1)
+        @show "(i)"
+        # sector (i)
+        g0 * (x - 2 * x^2 + x^3) + g1 * (-x^2 + x^3)
+    elseif __issector2(g0, g1)
+        @show "(ii)"
+        # sector (ii)
+        η = (g1 + 2 * g0) / (g1 - g0)
+        if x < η
+            return g0 * x
+        else
+            return g0 * x + ((g1 - g0) * (x - η)^3 / (1 - η)^2) / 3
+        end
+    else
+        @show "(iii)"
+        # sector (iii)
+        η = 3 * g1 / (g1 - g0)
+        if x > η
+            return (2 * g1 + g0) / 3 * η + g1 * (x - η)
+        else
+            return g1 * x - (g0 - g1) * ((η - x)^3 / η^2 - η) / 3
+        end
+
+    end
+end
+
 function forward(t, rates, times)
-    # the array indexing in the paper and psuedo-VBA is messy
-    t = min(t, last(times))
-    N = length(times)
-    times = collect(times)
-    rates = collect(rates)
-    i_time = findfirst(x -> x > t, times)
-    if i_time == nothing
-        i_time = N
-    end
-    if !iszero(first(times))
-        pushfirst!(times, zero(eltype(times)))
-        pushfirst!(rates, first(rates))
 
-    end
-
+    t, i_time, rates, times = __monotone_convex_init(t, rates, times)
     f, fᵈ = __monotone_convex_fs(rates, times)
 
     @show x = (t - times[i_time]) / (times[i_time+1] - times[i_time])
@@ -85,6 +117,26 @@ function forward(t, rates, times)
 
 end
 
+"""
+    returns the index associated with the time t, an initial rate vector, and a time vector
+"""
+function __monotone_convex_init(t, rates, times)
+    # the array indexing in the paper and psuedo-VBA is messy
+    t = min(t, last(times))
+    times = collect(times)
+    rates = collect(rates)
+    i_time = findfirst(x -> x > t, times)
+    if i_time == nothing
+        i_time = lastindex(times)
+    end
+    if !iszero(first(times))
+        pushfirst!(times, zero(eltype(times)))
+        pushfirst!(rates, first(rates))
+
+    end
+
+    return t, i_time, rates, times
+end
 """
     returns a pair of vectors (f and fᵈ) used in Monotone Convext Yield Curve fitting
 """
@@ -114,7 +166,20 @@ function __monotone_convex_fs(rates, times)
     return f, fᵈ
 end
 function myzero(t, rates, times)
-    #TODO
+    lt = last(times)
+    # if the time is greater than the last input time then extrapolate using the forwards
+    if t > lt
+        r = myzero(lt, rates, times)
+        return r * lt / t + forward(lt, rates, times) * (1 - lt / t)
+    end
+
+    t, i_time, rates, times = __monotone_convex_init(t, rates, times)
+    f, fᵈ = __monotone_convex_fs(rates, times)
+    x = (t - times[i_time]) / (times[i_time+1] - times[i_time])
+    @show G = g_rate(x, f[i_time], f[i_time+1], fᵈ[i_time+1])
+    return 1 / t * (times[i_time] * rates[i_time] + (t - times[i_time]) * fᵈ[i_time+1] + (times[i_time+1] - times[i_time]) * G)
+
+
 
 
 end
@@ -122,6 +187,7 @@ end
 times = 1:5
 rates = [0.03, 0.04, 0.047, 0.06, 0.06]
 forward(5.19, rates, times)
+myzero(1, rates, times)
 
 
 using Test
@@ -132,3 +198,9 @@ using Test
 @test forward(5, rates, times) ≈ 0.05025
 @test forward(5.2, rates, times) ≈ 0.05025
 
+@test myzero(0.5, rates, times) ≈ 0.02625
+@test myzero(1, rates, times) ≈ 0.03
+@test myzero(2, rates, times) ≈ 0.04
+@test myzero(2.5, rates, times) ≈ 0.0431375956535047
+@test myzero(5, rates, times) ≈ 0.06
+@test myzero(5.2, rates, times) ≈ 0.059625
