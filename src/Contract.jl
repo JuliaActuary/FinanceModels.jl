@@ -358,11 +358,30 @@ A European call option on the given contract with the given strike and maturity.
 
     EuroCall{S,K,M} <: FinanceCore.AbstractContract <: Any
 
-
-
-
 """
 struct EuroCall{S<:AbstractContract,K<:Real,M<:Timepoint} <: AbstractContract
+    underlying::S
+    strike::K
+    maturity::M
+end
+
+"""
+    EuroPut(contract,strike,maturity)
+
+A European put option on the given contract with the given strike and maturity.
+
+# Arguments
+ - contract::AbstractContract -  The underlying contract.
+ - strike::Real -  The strike price.
+ - maturity::Union{Real,Date} -  The maturity of the option.
+
+ Supertype Hierarchy
+≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡
+
+    EuroPut{S,K,M} <: FinanceCore.AbstractContract <: Any
+
+"""
+struct EuroPut{S<:AbstractContract,K<:Real,M<:Timepoint} <: AbstractContract
     underlying::S
     strike::K
     maturity::M

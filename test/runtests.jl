@@ -12,6 +12,7 @@ using Transducers
 include("generic.jl")
 include("sp.jl")
 
+include("Equity.jl")
 include("Yield.jl")
 include("CompositeYield.jl")
 include("SmithWilson.jl")

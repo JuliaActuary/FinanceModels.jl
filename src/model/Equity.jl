@@ -4,7 +4,13 @@ The `Equity` module provides equity-related model definitions.
 See also: the [`Volatility`](@ref FinanceModels.Volatility-API-Reference) module.
 """
 module Equity
+
 import ..AbstractModel
+import ..Volatility
+import ..Option
+import ..CommonEquity
+import ..eurocall, ..europut
+using ..FinanceCore
 
 abstract type AbstractEquityModel <: AbstractModel end
 
@@ -57,18 +63,20 @@ struct BlackScholesMerton{T,U,V} <: AbstractEquityModel
     r::T # risk free rate
     q::U # dividend yield
     σ::V # roughly equivalent to the volatility in the usual lognormal model multiplied by F^{1-β}_{0}
-    function BlackScholesMerton{T,U,V}(r, q, σ) where {T,U,V}
-        new{T,U,V}(rate(Continuous(r)), rate(Continuous(q)), σ)
+    # an inner constructor:
+
+    function BlackScholesMerton(r, q, σ::V) where {V}
+        rc = rate(Continuous(r))
+        qc = rate(Continuous(q))
+        new{typeof(rc),typeof(qc),V}(rc, qc, σ)
     end
 
 end
 
-end
-
 """
-    volatility(volatiltiy_model,strike_ratio,time_to_maturity)
+    volatility(volatility_model,strike_ratio,time_to_maturity)
 
-Returns the volatility associated with the moneyness (strike/price ratio) and time to maturity.
+Returns the volatility associated with the money-ness (strike/price ratio) and time to maturity.
 """
 function volatility(vol::Volatility.Constant, strike_ratio, time_to_maturity)
     return vol.σ
@@ -76,5 +84,10 @@ end
 
 function FinanceCore.present_value(model::M, c::Option.EuroCall{CommonEquity,K,T}) where {M<:Equity.BlackScholesMerton,K,T}
     eurocall(; S=1.0, K=c.strike, τ=c.maturity, r=model.r, q=model.q, σ=model.σ)
+end
+
+function FinanceCore.present_value(model::M, c::Option.EuroPut{CommonEquity,K,T}) where {M<:Equity.BlackScholesMerton,K,T}
+    europut(; S=1.0, K=c.strike, τ=c.maturity, r=model.r, q=model.q, σ=model.σ)
+end
 
 end
