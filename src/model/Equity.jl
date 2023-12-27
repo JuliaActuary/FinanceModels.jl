@@ -14,8 +14,8 @@ abstract type AbstractEquityModel <: AbstractModel end
 A struct representing the Black-Scholes-Merton model for equity prices.
 
 # Arguments
-- `r`: The risk-free rate.
-- `q`: The dividend yield.
+- `r`: The risk-free rate (continuously compounded scalar or a `FinanceCore.Rate` type).
+- `q`: The dividend yield (continuously compounded scalar or a `FinanceCore.Rate` type).
 - `σ`: The volatility model of the underlying asset (see [`Volatility`](@ref FinanceModels.Volatility-API-Reference) module) 
 
 # Fields
@@ -57,6 +57,10 @@ struct BlackScholesMerton{T,U,V} <: AbstractEquityModel
     r::T # risk free rate
     q::U # dividend yield
     σ::V # roughly equivalent to the volatility in the usual lognormal model multiplied by F^{1-β}_{0}
+    function BlackScholesMerton{T,U,V}(r, q, σ) where {T,U,V}
+        new{T,U,V}(rate(Continuous(r)), rate(Continuous(q)), σ)
+    end
+
 end
 
 end

@@ -47,4 +47,11 @@ end
     m = Equity.BlackScholesMerton(0.01, 0.02, Volatility.Constant())
     fit(m, qs)
     @test fit(m, qs).σ ≈ 0.15 atol = 1e-4
+
+    # test constructor with Rates
+    m = Equity.BlackScholesMerton(Continuous(0.01), Continuous(0.02), 0.15)
+    m = Equity.BlackScholesMerton(Periodic(0.01, 1), Periodic(0.02, 1), 0.15)
+    # periodic rates should convert to Continuous equivalent that's higher than the Continuous rate
+    @test m.r < 0.01
+    @test m.q < 0.02
 end
