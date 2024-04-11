@@ -32,6 +32,7 @@ makedocs(;
             "Volatility" => "API/Volatility.md",
         ],
         "FAQs" => "faq.md",
+        "Extensions" => "extensions.md",
     ]
 )
 

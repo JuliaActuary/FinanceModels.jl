@@ -1,7 +1,7 @@
 name = "FinanceModels"
 uuid = "77f2ae65-bdde-421f-ae9d-22f1af19dd76"
 authors = ["Alec Loudenback <alecloudenback@gmail.com> and contributors"]
-version = "4.8.0"
+version = "4.9.0"
 
 [deps]
 AccessibleOptimization = "d88a00a0-4a21-4fe4-a515-e2123c37b885"
@@ -22,9 +22,11 @@ UnicodePlots = "b8865327-cd53-5732-bb35-84acbb429228"
 
 [weakdeps]
 MakieCore = "20f20a25-4f0e-4fdf-b5d1-57303727442b"
+UnicodePlots = "b8865327-cd53-5732-bb35-84acbb429228"
 
 [extensions]
 FinanceModelsMakieCoreExt = "MakieCore"
+FinanceModelsUnicodePlots = "UnicodePlots"
 
 [compat]
 AccessibleOptimization = "^0.1.1"

@@ -12,7 +12,6 @@ using Accessors
 using LinearAlgebra
 using Transducers
 import DataInterpolations
-import UnicodePlots
 using Transducers: @next, complete, __foldl__, asfoldable
 import SpecialFunctions
 
