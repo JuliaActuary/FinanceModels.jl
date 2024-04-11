@@ -111,8 +111,19 @@ end
         maturity = [0.5, 1.0, 1.5, 2.0]
         zero = [5.0, 5.8, 6.4, 6.8] ./ 100
         zs = ZCBYield.(zero, maturity)
-        @testset "$i" for (i, curve) in enumerate([fit(Spline.Cubic(), zs, Fit.Bootstrap()), fit(Spline.Linear(), zs, Fit.Bootstrap()), fit(Spline.Quadratic(), zs, Fit.Bootstrap()), fit(Spline.BSpline(5), zs, Fit.Bootstrap())])
-
+        variants = [
+            Spline.Cubic(),
+            Spline.Linear(),
+            Spline.Quadratic(),
+            Spline.BSpline(5),
+            Spline.BSpline(3),
+            Spline.BSpline(1),
+            Spline.PolynomialSpline(1),
+            Spline.PolynomialSpline(2),
+            Spline.PolynomialSpline(3),
+        ]
+        @testset "Constructor $i" for (i, m) in enumerate(variants)
+            curve = fit(m, zs, Fit.Bootstrap())
             @test discount(curve, 1) ≈ 1 / 1.058
             @test discount(curve, 1.5) ≈ 1 / 1.064^1.5
             @test discount(curve, 2) ≈ 1 / 1.068^2

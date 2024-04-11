@@ -319,7 +319,7 @@ coupon_times(b::AbstractBond) = coupon_times(b.maturity, b.frequency.frequency)
 
 for op = (:ZCBPrice, :ZCBYield, :ParYield, :ParSwapYield, :CMTYield, :ForwardYield)
     eval(quote
-        $op(x::Vector; kwargs...) = $op.(x, eachindex(x); kwargs...)
+        $op(x::Vector; kwargs...) = $op.(x, float.(eachindex(x)); kwargs...)
     end)
 end
 

@@ -11,7 +11,7 @@ using AccessibleOptimization
 using Accessors
 using LinearAlgebra
 using Transducers
-import BSplineKit
+import DataInterpolations
 import UnicodePlots
 using Transducers: @next, complete, __foldl__, asfoldable
 import SpecialFunctions
