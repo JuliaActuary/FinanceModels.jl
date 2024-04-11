@@ -22,9 +22,11 @@ UnicodePlots = "b8865327-cd53-5732-bb35-84acbb429228"
 
 [weakdeps]
 MakieCore = "20f20a25-4f0e-4fdf-b5d1-57303727442b"
+UnicodePlots = "b8865327-cd53-5732-bb35-84acbb429228"
 
 [extensions]
 FinanceModelsMakieCoreExt = "MakieCore"
+FinanceModelsUnicodePlots = "UnicodePlots"
 
 [compat]
 AccessibleOptimization = "^0.1.1"

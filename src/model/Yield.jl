@@ -3,7 +3,6 @@ import ..AbstractModel
 import ..FinanceCore
 import ..Spline as Sp
 import ..DataInterpolations
-import UnicodePlots
 import ..Bond: coupon_times
 
 using ..FinanceCore: Continuous, Periodic, discount, accumulation, AbstractContract
@@ -349,27 +348,5 @@ function Base.:/(a, b::T) where {T<:AbstractYieldModel}
     return Constant(a) / b
 end
 
-
-# used to display simple type name in show method
-# https://stackoverflow.com/questions/70043313/get-simple-name-of-type-in-julia?noredirect=1#comment123823820_70043313
-name(::Type{T}) where {T} = (isempty(T.parameters) ? T : T.name.wrapper)
-
-function Base.show(io::IO, curve::T) where {T<:AbstractYieldModel}
-    r = zero(curve, 1)
-    ylabel = isa(r.compounding, Continuous) ? "Continuous" : "Periodic($(r.compounding.frequency))"
-    kind = name(typeof(curve))
-    l = UnicodePlots.lineplot(
-        0.0, #from 
-        30.0,  # to
-        t -> FinanceCore.rate(zero(curve, t)),
-        xlabel="time",
-        ylabel=ylabel,
-        compact=true,
-        name="Zero rates",
-        width=60,
-        title="Yield Curve ($kind)"
-    )
-    show(io, l)
-end
 
 end
