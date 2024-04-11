@@ -281,7 +281,7 @@ function fit(mod0, quotes, method::F=Fit.Loss(x -> x^2);
 
 end
 
-function fit(mod0::Spline.BSpline, quotes, method::Fit.Bootstrap)
+function fit(mod0::T, quotes, method::Fit.Bootstrap) where {T<:Spline.SplineCurve}
     discount_vector = [0.0]
     times = [maturity(quotes[1])]
 

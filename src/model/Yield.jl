@@ -2,7 +2,7 @@ module Yield
 import ..AbstractModel
 import ..FinanceCore
 import ..Spline as Sp
-import ..BSplineKit
+import ..DataInterpolations
 import UnicodePlots
 import ..Bond: coupon_times
 
@@ -33,8 +33,8 @@ Constant() = Constant(0.0)
 FinanceCore.discount(c::Constant, t) = FinanceCore.discount(c.rate, t)
 
 # used as the object which gets optmized before finally returning a completed spline
-struct IntermediateYieldCurve{U,V} <: AbstractYieldModel
-    b::Sp.BSpline
+struct IntermediateYieldCurve{T<:Sp.SplineCurve,U,V} <: AbstractYieldModel
+    b::T
     xs::Vector{U}
     ys::Vector{V} # here, ys are the discount factors
 end
@@ -60,11 +60,27 @@ function FinanceCore.discount(c::Spline, time)
 end
 
 function Spline(b::Sp.BSpline, xs, ys)
-    order = min(length(xs), b.order) # in case the length of xs is less than the spline order
-    int = BSplineKit.interpolate(xs, ys, BSplineKit.BSplineOrder(order))
-    return Spline(BSplineKit.extrapolate(int, BSplineKit.Smooth()))
+    order = min(length(xs) - 1, b.order) # in case the length of xs is less than the spline order
+    xs = float.(xs)
+    knot_type = if length(xs) < 3
+        :Uniform
+    else
+        :Average
+    end
+
+    return Spline(DataInterpolations.BSplineInterpolation(ys, xs, order, :Uniform, knot_type; extrapolate=true))
 end
 
+function Spline(b::Sp.PolynomialSpline, xs, ys)
+    order = min(length(xs) - 1, b.order) # in case the length of xs is less than the spline order
+    if order == 1
+        return Spline(DataInterpolations.LinearInterpolation(ys, xs; extrapolate=true))
+    elseif order == 2
+        return Spline(DataInterpolations.QuadraticSpline(ys, xs; extrapolate=true))
+    else
+        return Spline(DataInterpolations.CubicSpline(ys, xs; extrapolate=true))
+    end
+end
 
 include("Yield/SmithWilson.jl")
 include("Yield/NelsonSiegelSvensson.jl")
