@@ -70,10 +70,6 @@ julia> rate(r)
 
 ```
 
-#### Arithmetic
-
-Adding, subtracting, multiplying, dividing, and comparing rates is supported.
-
 ### Available Models - Yields
 
 - [`FinanceModels.Yield.Constant`](@ref)
@@ -81,6 +77,10 @@ Adding, subtracting, multiplying, dividing, and comparing rates is supported.
 - [`FinanceModels.Yield.SmithWilson`](@ref)
 - [`FinanceModels.Yield.NelsonSiegel`](@ref)
 - [`FinanceModels.Yield.NelsonSiegelSvensson`](@ref)
+
+#### Arithmetic
+
+Adding, subtracting, multiplying, dividing, and comparing rates is supported.
 
 Yield models can also be composed. Here is an example of fitting rates and spread separately and then adding the two models together:
 
@@ -105,6 +105,29 @@ julia> discount(m_spread + m_rate,0,3)
 julia> discount(0.04,3)
 0.8889963586709148
 ```
+
+!!! warning "Caution with Spreads"
+
+    It is fairly common to see spreads and rates provided separately where both are quoted in par convention. For example, US Treasury par rates with the associated par risk spreads. Because par rates are dependent on the amount and path of rates preceeding the given tenor, **it is not valid to construct a "spread curve" with par rates and then use it in composition with a "rate curve"**.
+    
+    That is, while the zero rates and spreads in the preceeding example allow for additive or subtractive composition, it is not the case for par rates and spreads. Note the different discount factors produced:
+
+    ```julia
+    q_rate = ParYield([0.01,0.02,0.03]);
+    q_spread = ParYield([0.01,0.01,0.01]);
+    q_yield = ParYield([0.02,0.03,0.04]);
+
+    m_rate = fit(Spline.Linear(),q_rate,Fit.Bootstrap());         
+    m_spread = fit(Spline.Linear(),q_spread,Fit.Bootstrap());
+    m_yield = fit(Spline.Linear(),q_yield,Fit.Bootstrap());
+
+    # The curves are different!
+    discount(m_spread + m_rate,3)
+    # 0.8889963586709149
+
+    discount(m_yield,3)
+    # 0.8864366955434709
+    ```
 
 ### Creating New Yield Models
 
