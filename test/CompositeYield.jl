@@ -17,6 +17,18 @@
 
         @test discount(yield, 1.0) ≈ 1 / (1 + riskfree[2] + spread[2])^1
         @test discount(yield, 1.5) ≈ 1 / (1 + riskfree[3] + spread[3])^1.5
+
+        rates = ZCBYield([0.01, 0.02, 0.03])
+        spreads = ZCBYield([0.02, 0.03, 0.04])
+        yields = ZCBYield([0.03, 0.05, 0.07])
+
+        r = fit(Spline.Linear(), rates, Fit.Bootstrap())
+        s = fit(Spline.Linear(), spreads, Fit.Bootstrap())
+        y = fit(Spline.Linear(), yields, Fit.Bootstrap())
+
+        @test discount(r + s, 1) ≈ discount(y, 1)
+        @test discount(r + s, 2) ≈ discount(y, 2)
+        @test discount(r + s, 3) ≈ discount(y, 3)
     end
 
     @testset "multiplicaiton and division" begin
