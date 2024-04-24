@@ -18,7 +18,6 @@ Reexport = "189a3867-3050-52da-a836-e630ba90ab69"
 SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 Transducers = "28d57a85-8fef-5791-bfe6-a80928e7c999"
-UnicodePlots = "b8865327-cd53-5732-bb35-84acbb429228"
 
 [weakdeps]
 MakieCore = "20f20a25-4f0e-4fdf-b5d1-57303727442b"
