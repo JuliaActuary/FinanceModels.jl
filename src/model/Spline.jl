@@ -44,7 +44,7 @@ julia> Spline.Linear()
 BSpline(2)
 ```
 """
-Linear() = BSpline(2)
+Linear() = BSpline(1)
 
 """
     Spline.Quadratic()
@@ -60,7 +60,7 @@ julia> Spline.Quadratic()
 BSpline(3)
 ```
 """
-Quadratic() = BSpline(3)
+Quadratic() = BSpline(2)
 
 """
     Spline.Cubic()
@@ -76,7 +76,7 @@ julia> Spline.Cubic()
 BSpline(4)
 ```
 """
-Cubic() = BSpline(4)
+Cubic() = BSpline(3)
 
 
 # used as the object which gets optmized before finally returning a completed spline
