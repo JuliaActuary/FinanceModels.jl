@@ -19,11 +19,17 @@ end
 struct MonotoneConvexUnInit
 end
 
+struct MonotoneConvexUnoptimized{T,U}
+    rates::Vector{T}
+    times::Vector{U}
+end
+
 MonotoneConvex() = MonotoneConvexUnInit()
 function (m::MonotoneConvexUnInit)(times)
     rates = zeros(length(times))
     MonotoneConvex(rates, times)
 end
+
 
 
 function __issector1(g0, g1)
@@ -148,25 +154,35 @@ function __monotone_convex_init(t, rates, times)
 
     return t, i_time, rates, times
 end
+
 """
     returns a pair of vectors (f and fᵈ) used in Monotone Convex Yield Curve fitting
 """
 function __monotone_convex_fs(rates, times)
     # step 1
-    fᵈ = map(2:length(times)) do i
-        (times[i] * rates[i] - times[i-1] * rates[i-1]) / (times[i] - times[i-1])
+    fᵈ = deepcopy(rates)
+    for i in 2:length(times)
+        fᵈ[i] = (times[i] * rates[i] - times[i-1] * rates[i-1]) / (times[i] - times[i-1])
     end
-    pushfirst!(fᵈ, 0)
     # step 2
-    f = map(2:length(times)-1) do i
-        (times[i] - times[i-1]) / (times[i+1] - times[i-1]) * fᵈ[i+1] +
-        (times[i+1] - times[i]) / (times[i+1] - times[i-1]) * fᵈ[i]
+    f = similar(rates, length(rates) + 1)
+    # fill in middle elements first, then do 1st and last
+    for i in 1:length(rates)-1
+        t_prior = if i == 1
+            0
+        else
+            times[i-1]
+        end
+
+        weight1 = (times[i] - t_prior) / (times[i+1] - t_prior)
+        weight2 = (times[i+1] - times[i]) / (times[i+1] - t_prior)
+        f[i+1] = weight1 * fᵈ[i+1] + weight2 * fᵈ[i]
     end
     # step 3
     # collar(a,b,c) = clamp(b, a, c)
-    pushfirst!(f, fᵈ[2] - 0.5 * (f[1] - fᵈ[2]))
-    fᵈ[end], f[end-1], fᵈ[end]
-    push!(f, fᵈ[end] - 0.5 * (f[end] - fᵈ[end]))
+    f[1] = fᵈ[1] - 0.5 * (f[2] - fᵈ[1])
+
+    f[end] = fᵈ[end] - 0.5 * (f[end-1] - fᵈ[end])
     f[1] = clamp(f[1], 0, 2 * fᵈ[2])
     f[end] = clamp(f[end], 0, 2 * fᵈ[end])
 
@@ -176,7 +192,8 @@ function __monotone_convex_fs(rates, times)
 
     return f, fᵈ
 end
-function myzero(t, rates, times)
+
+function myzero(t, rates, times, f, fᵈ)
     lt = last(times)
     # if the time is greater than the last input time then extrapolate using the forwards
     if t > lt
@@ -185,7 +202,6 @@ function myzero(t, rates, times)
     end
 
     t, i_time, rates, times = __monotone_convex_init(t, rates, times)
-    f, fᵈ = __monotone_convex_fs(rates, times)
     x = (t - times[i_time]) / (times[i_time+1] - times[i_time])
     G = g_rate(x, f[i_time], f[i_time+1], fᵈ[i_time+1])
     return 1 / t * (times[i_time] * rates[i_time] + (t - times[i_time]) * fᵈ[i_time+1] + (times[i_time+1] - times[i_time]) * G)
@@ -196,22 +212,43 @@ function myzero(t, rates, times)
 end
 
 function Base.zero(mc::MonotoneConvex, t)
+    lt = last(mc.times)
+    f, fᵈ = mc.f, mc.fᵈ
+    t, i_time, rates, times = __monotone_convex_init(t, mc.rates, mc.times)
+    # if the time is greater than the last input time then extrapolate using the forwards
+    if t > lt
+        r = myzero(lt, rates, times, f, fᵈ)
+        return r * lt / t + forward(lt, rates, times) * (1 - lt / t)
+    end
+
+    x = (t - times[i_time]) / (times[i_time+1] - times[i_time])
+    G = g_rate(x, f[i_time], f[i_time+1], fᵈ[i_time+1])
+    return Continuous(1 / t * (times[i_time] * rates[i_time] + (t - times[i_time]) * fᵈ[i_time+1] + (times[i_time+1] - times[i_time]) * G))
+
+end
+
+function FinanceCore.discount(mc::MonotoneConvex, t)
+    r = zero(mc, t)
+    return discount(r, t)
+end
+
+function Base.zero(mc::MonotoneConvexUnoptimized, t)
     lt = last(times)
     # if the time is greater than the last input time then extrapolate using the forwards
     if t > lt
-        r = myzero(lt, rates, times)
+        r = myzero(lt, rates, times, f, fᵈ)
         return r * lt / t + forward(lt, rates, times) * (1 - lt / t)
     end
 
     t, i_time, rates, times = __monotone_convex_init(t, rates, times)
-    f, fᵈ = mc.f, mc.fᵈ
+    f, fᵈ = __monotone_convex_fs(mc.rates, mc.times)
     x = (t - times[i_time]) / (times[i_time+1] - times[i_time])
     G = g_rate(x, f[i_time], f[i_time+1], fᵈ[i_time+1])
     return 1 / t * (times[i_time] * rates[i_time] + (t - times[i_time]) * fᵈ[i_time+1] + (times[i_time+1] - times[i_time]) * G)
 
 end
 
-function FinanceCore.discount(mc::MonotoneConvex, t)
+function FinanceCore.discount(mc::MonotoneConvexUnoptimized, t)
     r = zero(mc, t)
     return exp(-r * t)
 end

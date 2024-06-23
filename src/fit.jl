@@ -130,7 +130,8 @@ __default_optic(m::MyModel) = OptArgs([
 
 """
 __default_optic(m::Yield.Constant) = OptArgs(@optic(_.rate.value) => -1.0 .. 1.0)
-__default_optic(m::Yield.MonotoneConvex) = OptArgs(@optic(_.rates[*]) => -1.0 .. 1.0)
+__default_optic(m::Yield.MonotoneConvexUnInit) = OptArgs(@optic(_.rates) .=> -1.0 .. 1.0)
+__default_optic(m::Yield.MonotoneConvex) = OptArgs(@optic(_.rates) .=> -1.0 .. 1.0)
 __default_optic(m::Yield.IntermediateYieldCurve) = OptArgs(@optic(_.ys[end]) => 0.0 .. 1.0)
 __default_optic(m::Yield.NelsonSiegel) = OptArgs([
     @optic(_.τ₁) => 0.0 .. 100.0
@@ -282,18 +283,19 @@ function fit(mod0, quotes, method::F=Fit.Loss(x -> x^2);
 
 end
 
-function fit(mod0::Yield.MonotoneConvexUnInit, quotes, method;
+function fit(mod0::Yield.MonotoneConvexUnInit, quotes, method::F=Fit.Loss(x -> x^2);
     variables=__default_optic(mod0),
     optimizer=__default_optim(mod0)
-)
+) where
+{F<:Fit.Loss}
     # use maturities as the times
     # fit a vector of rates to the times
-    times = [maturity(q.contract) for q in quotes]
+    times = [maturity(q.instrument) for q in quotes]
     if !iszero(first(times))
         pushfirst!(times, zero(eltype(times)))
     end
     mc = mod0(times)
-    rates = fit(mc, quotes, method)
+    rates = fit(mc, quotes, method; variables, optimizer)
 end
 
 
