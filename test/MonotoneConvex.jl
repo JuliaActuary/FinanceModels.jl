@@ -12,6 +12,9 @@
 
     f, fᵈ = Yield.__monotone_convex_fs(rates, times)
 
+    @test all(f .== c.f)
+    @test all(fᵈ .== c.fᵈ)
+
     @test fᵈ[1] ≈ 0.0202 atol = 0.0001
     @test fᵈ[2] ≈ 0.0258 atol = 0.0001
     @test fᵈ[3] ≈ 0.0373 atol = 0.0001
@@ -24,6 +27,14 @@
     @test f[4] ≈ 0.0409 atol = 0.0001
     @test f[5] ≈ 0.0515 atol = 0.0001
     @test f[6] ≈ 0.0620 atol = 0.0001
+
+    @test FinanceModels.Yield.g(0.5, 0.018793076350927487, 0.023021969250703423, 0.020202707317519466) ≈ 0.0042 * (0.5)^2 - 0.0014 atol = 0.0001
+    @test FinanceModels.Yield.g(0, 0.023021969250703423, 0.03158945081076577, 0.02584123118388738) ≈ -0.0028 atol = 0.0001
+    @test FinanceModels.Yield.g(0.5, 0.023021969250703423, 0.03158945081076577, 0.02584123118388738) ≈ 0.0087 * (0.5)^2 − 0.0002 * 0.5 - 0.0028 atol = 0.0001
+    @test FinanceModels.Yield.g(0.5, 0.03158945081076577, 0.04089471650423902, 0.03733767043764417) ≈ -0.0063 * (0.5)^2 + 0.0156 * 0.5 - 0.0057 atol = 0.0001
+    @test FinanceModels.Yield.g(0.5, 0.04089471650423902, 0.051473984626221235, 0.04445176257083387) ≈ 0.0102 * (0.5)^2 + 0.0004 * 0.5 - 0.0036 atol = 0.0001
+    @test FinanceModels.Yield.g(0.5, 0.04089471650423902, 0.051473984626221235, 0.044451762570833877) ≈ -0.0105 * (0.5)^2 + 0.021 * 0.5 - 0.007 atol = 0.0001
+
 
     function r(t)
         if 0 <= t <= 1
@@ -49,5 +60,6 @@
     end
 
 
+    # TODO: More tests from
     # https://repository.up.ac.za/bitstream/handle/2263/25882/dissertation.pdf?sequence=1&isAllowed=y
 end

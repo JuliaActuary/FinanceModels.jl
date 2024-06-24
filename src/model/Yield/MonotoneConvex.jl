@@ -44,52 +44,51 @@ function __issector2(g0, g1)
     a || b
 end
 
+
 # Hagan West - WILMOTT magazine pgs 75-81
-function g(x, f⁻, f, fᵈ)
-    g0 = f⁻ - fᵈ
-    g1 = f - fᵈ
-    A = -2 * g0
-    B = -2 * g1
+function g(f⁻, f, fᵈ)
+    @show f⁻, f, fᵈ
+    @show g0 = f⁻ - fᵈ
+    @show g1 = f - fᵈ
     if sign(g0) == sign(g1)
         # sector (iv)
         η = g1 / (g1 + g0)
         α = -g0 * g1 / (g1 + g0)
 
         if x < η
-            return α + (g0 - α) * ((η - x) / η)^2
+            return x -> α + (g0 - α) * ((η - x) / η)^2
         else
-            return α + (g1 - α) * ((x - η) / (1 - η))^2
+            return x -> α + (g1 - α) * ((x - η) / (1 - η))^2
         end
 
 
     elseif __issector1(g0, g1)
         # sector (i)
-        g0 * (1 - 4 * x + 3 * x^2) + g1 * (-2 * x + 3 * x^2)
+        x -> g0 * (1 - 4 * x + 3 * x^2) + g1 * (-2 * x + 3 * x^2)
     elseif __issector2(g0, g1)
         # sector (ii)
         η = (g1 + 2 * g0) / (g1 - g0)
         if x < η
-            return g0
+            return x -> g0
         else
-            return g0 + (g1 - g0) * ((x - η) / (1 - η))^2
+            return x -> g0 + (g1 - g0) * ((x - η) / (1 - η))^2
         end
     else
         # sector (iii)
         η = 3 * g1 / (g1 - g0)
         if x > η
-            return g1
+            return x -> g1
         else
-            return g1 + (g0 - g1) * ((η - x) / η)^2
+            return x -> g1 + (g0 - g1) * ((η - x) / η)^2
         end
 
     end
 end
 
 function g_rate(x, f⁻, f, fᵈ)
-    g0 = f⁻ - fᵈ
-    g1 = f - fᵈ
-    A = -2 * g0
-    B = -2 * g1
+    @show x, f⁻, f, fᵈ
+    @show g0 = f⁻ - fᵈ
+    @show g1 = f - fᵈ
     if sign(g0) == sign(g1)
         # sector (iv)
         η = g1 / (g1 + g0)
@@ -104,6 +103,7 @@ function g_rate(x, f⁻, f, fᵈ)
 
     elseif __issector1(g0, g1)
         # sector (i)
+        @show "(i)"
         g0 * (x - 2 * x^2 + x^3) + g1 * (-x^2 + x^3)
     elseif __issector2(g0, g1)
         # sector (ii)
@@ -137,22 +137,12 @@ end
 """
     returns the index associated with the time t, an initial rate vector, and a time vector
 """
-function __monotone_convex_init(t, rates, times)
-    # the array indexing in the paper and psuedo-VBA is messy
-    t = min(t, last(times))
-    # times = collect(times)
-    # rates = collect(rates)
+function __i_time(t, times)
     i_time = findfirst(x -> x > t, times)
     if i_time == nothing
         i_time = lastindex(times)
     end
-    # if !iszero(first(times))
-    #     pushfirst!(times, zero(eltype(times)))
-    #     pushfirst!(rates, first(rates))
-
-    # end
-
-    return t, i_time, rates, times
+    return i_time
 end
 
 """
@@ -193,37 +183,33 @@ function __monotone_convex_fs(rates, times)
     return f, fᵈ
 end
 
-function myzero(t, rates, times, f, fᵈ)
-    lt = last(times)
-    # if the time is greater than the last input time then extrapolate using the forwards
-    if t > lt
-        r = myzero(lt, rates, times)
-        return r * lt / t + forward(lt, rates, times) * (1 - lt / t)
-    end
-
-    t, i_time, rates, times = __monotone_convex_init(t, rates, times)
-    x = (t - times[i_time]) / (times[i_time+1] - times[i_time])
-    G = g_rate(x, f[i_time], f[i_time+1], fᵈ[i_time+1])
-    return 1 / t * (times[i_time] * rates[i_time] + (t - times[i_time]) * fᵈ[i_time+1] + (times[i_time+1] - times[i_time]) * G)
-
-
-
-
-end
 
 function Base.zero(mc::MonotoneConvex, t)
     lt = last(mc.times)
     f, fᵈ = mc.f, mc.fᵈ
-    t, i_time, rates, times = __monotone_convex_init(t, mc.rates, mc.times)
-    # if the time is greater than the last input time then extrapolate using the forwards
     if t > lt
-        r = myzero(lt, rates, times, f, fᵈ)
-        return r * lt / t + forward(lt, rates, times) * (1 - lt / t)
+        r = Base.zero(mc, lt)
+        i_time = __i_time(t, mc.times)
+        return r * lt / t + forward(lt, mc.rates, mc.times) * (1 - lt / t)
     end
+    @show i_time = __i_time(t, mc.times)
+    # if the time is greater than the last input time then extrapolate using the forwards
 
-    x = (t - times[i_time]) / (times[i_time+1] - times[i_time])
-    G = g_rate(x, f[i_time], f[i_time+1], fᵈ[i_time+1])
-    return Continuous(1 / t * (times[i_time] * rates[i_time] + (t - times[i_time]) * fᵈ[i_time+1] + (times[i_time+1] - times[i_time]) * G))
+    x = if i_time == 1
+        x = t / times[i_time]
+    else
+        x = (t - times[i_time-1]) / (times[i_time] - times[i_time-1])
+    end
+    G = g(f[i_time], f[i_time+1], fᵈ[i_time])
+    return Continuous(1 / t * (times[i_time] * rates[i_time] + (t - times[i_time]) * fᵈ[i_time] + (times[i_time] - times[i_time-1]) * G))
+
+    # STATUS:
+    # intermediate G/other results OK
+    # need to get the right rate. Instead of last formula, trying the approach on pg 39 of 
+    # http://uu.diva-portal.org/smash/get/diva2:1477828/FULLTEXT01.pdf 
+    # and have added QuadGK and converted the G function to return a function of x instead of a calculated value 
+    # (also need to change the signature of associated test cases)
+    # QuadGK.quadgk(G,t)
 
 end
 

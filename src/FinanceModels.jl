@@ -15,6 +15,7 @@ import BSplineKit
 import UnicodePlots
 using Transducers: @next, complete, __foldl__, asfoldable
 import SpecialFunctions
+import QuadGK
 
 
 
