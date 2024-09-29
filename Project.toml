@@ -28,7 +28,7 @@ FinanceModelsMakieCoreExt = "MakieCore"
 FinanceModelsUnicodePlots = "UnicodePlots"
 
 [compat]
-AccessibleOptimization = "^0.1.1"
+AccessibleOptimization = "^0.1.2"
 Accessors = "^0.1"
 DataInterpolations = "5,6"
 Dates = "^1.6"
