@@ -1,7 +1,7 @@
 name = "FinanceModels"
 uuid = "77f2ae65-bdde-421f-ae9d-22f1af19dd76"
 authors = ["Alec Loudenback <alecloudenback@gmail.com> and contributors"]
-version = "4.11.0"
+version = "4.12.0"
 
 [deps]
 AccessibleOptimization = "d88a00a0-4a21-4fe4-a515-e2123c37b885"
@@ -28,16 +28,16 @@ FinanceModelsMakieCoreExt = "MakieCore"
 FinanceModelsUnicodePlots = "UnicodePlots"
 
 [compat]
-AccessibleOptimization = "^0.1.1"
+AccessibleOptimization = "^0.1.2"
 Accessors = "^0.1"
-DataInterpolations = "5"
+DataInterpolations = "5,6"
 Dates = "^1.6"
 FinanceCore = "^2.1"
 IntervalSets = "^0.7"
 LinearAlgebra = "1"
 MakieCore = "0.7, 0.8"
-Optimization = "^3.15"
-OptimizationMetaheuristics = "^0.1.2, 0.2"
+Optimization = "4"
+OptimizationMetaheuristics = "0.3"
 PrecompileTools = "^1.1"
 Reexport = "^1.2"
 SpecialFunctions = "2"
