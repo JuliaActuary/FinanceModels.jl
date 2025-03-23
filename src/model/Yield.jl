@@ -23,8 +23,8 @@ struct Constant{R} <: AbstractYieldModel
     rate::R
 end
 
-function Constant(rate::R) where {R<:Real}
-    Constant(FinanceCore.Rate(rate))
+function Constant(rate::R) where {R <: Real}
+    return Constant(FinanceCore.Rate(rate))
 end
 
 Constant() = Constant(0.0)
@@ -32,7 +32,7 @@ Constant() = Constant(0.0)
 FinanceCore.discount(c::Constant, t) = FinanceCore.discount(c.rate, t)
 
 # used as the object which gets optmized before finally returning a completed spline
-struct IntermediateYieldCurve{T<:Sp.SplineCurve,U,V} <: AbstractYieldModel
+struct IntermediateYieldCurve{T <: Sp.SplineCurve, U, V} <: AbstractYieldModel
     b::T
     xs::Vector{U}
     ys::Vector{V} # here, ys are the discount factors
@@ -67,17 +67,17 @@ function Spline(b::Sp.BSpline, xs, ys)
         :Average
     end
 
-    return Spline(DataInterpolations.BSplineInterpolation(ys, xs, order, :Uniform, knot_type; extrapolate=true))
+    return Spline(DataInterpolations.BSplineInterpolation(ys, xs, order, :Uniform, knot_type; extrapolation = DataInterpolations.ExtrapolationType.Extension))
 end
 
 function Spline(b::Sp.PolynomialSpline, xs, ys)
     order = min(length(xs) - 1, b.order) # in case the length of xs is less than the spline order
     if order == 1
-        return Spline(DataInterpolations.LinearInterpolation(ys, xs; extrapolate=true))
+        return Spline(DataInterpolations.LinearInterpolation(ys, xs; extrapolation = DataInterpolations.ExtrapolationType.Extension))
     elseif order == 2
-        return Spline(DataInterpolations.QuadraticSpline(ys, xs; extrapolate=true))
+        return Spline(DataInterpolations.QuadraticSpline(ys, xs; extrapolation = DataInterpolations.ExtrapolationType.Extension))
     else
-        return Spline(DataInterpolations.CubicSpline(ys, xs; extrapolate=true))
+        return Spline(DataInterpolations.CubicSpline(ys, xs; extrapolation = DataInterpolations.ExtrapolationType.Extension))
     end
 end
 
@@ -91,15 +91,15 @@ include("Yield/NelsonSiegelSvensson.jl")
 
 The discount factor for the yield curve `yc` for times `from` through `to`.
 """
-FinanceCore.discount(yc::T, from, to) where {T<:AbstractYieldModel} = discount(yc, to) / discount(yc, from)
+FinanceCore.discount(yc::T, from, to) where {T <: AbstractYieldModel} = discount(yc, to) / discount(yc, from)
 
 """
     forward(yc, from, to)˚
 
 The forward `Rate` implied by the yield curve `yc` between times `from` and `to`.
 """
-function FinanceCore.forward(yc::T, from, to=from + 1) where {T<:AbstractYieldModel}
-    Continuous(log(discount(yc, from) / discount(yc, to)) / (to - from))
+function FinanceCore.forward(yc::T, from, to = from + 1) where {T <: AbstractYieldModel}
+    return Continuous(log(discount(yc, from) / discount(yc, to)) / (to - from))
 end
 
 """
@@ -128,7 +128,7 @@ julia> Yields.par(c,2.5)
 Yields.Rate{Float64, Yields.Periodic}(0.03960780543711406, Yields.Periodic(2))
 ```
 """
-function par(curve, time; frequency=2)
+function par(curve, time; frequency = 2)
     mat_disc = discount(curve, time)
     coup_times = coupon_times(time, frequency)
     coupon_pv = sum(discount(curve, t) for t in coup_times)
@@ -148,7 +148,7 @@ end
 
 Return the zero rate for the curve at the given time.
 """
-function Base.zero(c::YC, time) where {YC<:AbstractYieldModel}
+function Base.zero(c::YC, time) where {YC <: AbstractYieldModel}
     df = discount(c, time)
     r = -log(df) / time
     return Continuous(r)
@@ -177,7 +177,7 @@ Can only be created via the public API by using the `+`, `-`, `*`, and `/` opera
 As this is double the normal operations when performing calculations, if you are using the curve in performance critical locations, you should consider transforming the inputs and 
 constructing a single curve object ahead of time.
 """
-struct CompositeYield{T,U,V} <: AbstractYieldModel
+struct CompositeYield{T, U, V} <: AbstractYieldModel
     r1::T
     r2::U
     op::V
@@ -217,13 +217,13 @@ While `ForwardStarting` could be nested so that, e.g. the third period's curve i
 
 `ForwardStarting` is not used to construct a curve based on forward rates. 
 """
-struct ForwardStarting{T,U} <: AbstractYieldModel
+struct ForwardStarting{T, U} <: AbstractYieldModel
     curve::U
     forwardstart::T
 end
 
 function FinanceCore.discount(c::ForwardStarting, to)
-    FinanceCore.discount(c.curve, c.forwardstart, to + c.forwardstart)
+    return FinanceCore.discount(c.curve, c.forwardstart, to + c.forwardstart)
 end
 
 """
@@ -239,11 +239,11 @@ function Base.:+(a::Constant, b::Constant)
     return Constant(a.rate + b.rate)
 end
 
-function Base.:+(a::T, b) where {T<:AbstractYieldModel}
+function Base.:+(a::T, b) where {T <: AbstractYieldModel}
     return a + Constant(b)
 end
 
-function Base.:+(a, b::T) where {T<:AbstractYieldModel}
+function Base.:+(a, b::T) where {T <: AbstractYieldModel}
     return Constant(a) + b
 end
 
@@ -279,11 +279,11 @@ function Base.:*(a::Constant, b::Constant)
     )
 end
 
-function Base.:*(a::T, b) where {T<:AbstractYieldModel}
+function Base.:*(a::T, b) where {T <: AbstractYieldModel}
     return a * Constant(b)
 end
 
-function Base.:*(a, b::T) where {T<:AbstractYieldModel}
+function Base.:*(a, b::T) where {T <: AbstractYieldModel}
     return Constant(a) * b
 end
 
@@ -297,14 +297,14 @@ function Base.:-(a::AbstractYieldModel, b::AbstractYieldModel)
 end
 
 function Base.:-(a::Constant, b::Constant)
-    Constant(a.rate - b.rate)
+    return Constant(a.rate - b.rate)
 end
 
-function Base.:-(a::T, b) where {T<:AbstractYieldModel}
+function Base.:-(a::T, b) where {T <: AbstractYieldModel}
     return a - Constant(b)
 end
 
-function Base.:-(a, b::T) where {T<:AbstractYieldModel}
+function Base.:-(a, b::T) where {T <: AbstractYieldModel}
     return Constant(a) - b
 end
 
@@ -340,11 +340,11 @@ function Base.:/(a::Constant, b::Constant)
     )
 end
 
-function Base.:/(a::T, b) where {T<:AbstractYieldModel}
+function Base.:/(a::T, b) where {T <: AbstractYieldModel}
     return a / Constant(b)
 end
 
-function Base.:/(a, b::T) where {T<:AbstractYieldModel}
+function Base.:/(a, b::T) where {T <: AbstractYieldModel}
     return Constant(a) / b
 end
 
