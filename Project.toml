@@ -20,11 +20,11 @@ StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 Transducers = "28d57a85-8fef-5791-bfe6-a80928e7c999"
 
 [weakdeps]
-MakieCore = "20f20a25-4f0e-4fdf-b5d1-57303727442b"
+Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
 UnicodePlots = "b8865327-cd53-5732-bb35-84acbb429228"
 
 [extensions]
-FinanceModelsMakieCoreExt = "MakieCore"
+FinanceModelsMakieExt = "Makie"
 FinanceModelsUnicodePlots = "UnicodePlots"
 
 [compat]
@@ -35,7 +35,7 @@ Dates = "^1.6"
 FinanceCore = "^2.1"
 IntervalSets = "^0.7"
 LinearAlgebra = "1"
-MakieCore = "0.8,0.9"
+Makie = "0.24"
 Optimization = "4"
 OptimizationMetaheuristics = "0.3"
 PrecompileTools = "^1.1"
