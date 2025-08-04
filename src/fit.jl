@@ -154,7 +154,7 @@ __default_optic(m::Volatility.Constant) = OptArgs(@optic(_.σ) => -0.0 .. 10.0)
 
 
 __default_optim(m) = ECA()
-__default_optim(m::Yield.IntermediateYieldCurve{T}) where {T <: Spline.SplineCurve} = OptimizationOptimJL.Newton()
+__default_optim(m::Yield.IntermediateYieldCurve{T}) where {T <: Spline.SplineCurve} = OptimizationOptimJL.NelderMeade()
 
 __default_utype(m) = SVector
 __default_utype(m::Yield.IntermediateYieldCurve{T}) where {T <: Spline.SplineCurve} = Vector
@@ -339,6 +339,4 @@ function __loss_single_function(loss_method, quotes)
         end
     end
     return Base.Fix2(OptimizationFunction(loss, DifferentiationInterface.SecondOrder(AutoForwardDiff(), AutoForwardDiff())), quotes) # a function that takes a model and returns the loss
-    # ops = OptProblemSpec(Base.Fix2(OptimizationFunction(loss, Optimization.AutoForwardDiff()), data), Vector{Float64}, mod0, vars, cons)
-
 end
