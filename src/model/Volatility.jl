@@ -1,4 +1,3 @@
-
 module Volatility
 import ..AbstractModel
 

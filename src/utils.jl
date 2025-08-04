@@ -1,4 +1,4 @@
-# all we need is cumulative normal, so avoid Distributions.jl dependency 
+# all we need is cumulative normal, so avoid Distributions.jl dependency
 # https://www.johndcook.com/blog/cpp_phi/
 
 function ϕ(x)
@@ -42,7 +42,7 @@ This is the same as the formulation presented in the [dividend extension of the 
 - Yields.jl can assist with converting rates to continuously compounded if you need to perform conversions.
 
 """
-function eurocall(; S=1.0, K=1.0, τ=1, r, σ, q=0.0)
+function eurocall(; S = 1.0, K = 1.0, τ = 1, r, σ, q = 0.0)
     iszero(τ) && return max(zero(S), S - K)
     d₁ = d1(S, K, τ, r, σ, q)
     d₂ = d2(S, K, τ, r, σ, q)
@@ -77,7 +77,7 @@ This is the same as the formulation presented in the [dividend extension of the 
 - Yields.jl can assist with converting rates to continuously compounded if you need to perform conversions.
 
 """
-function europut(; S=1.0, K=1.0, τ=1, r, σ, q=0.0)
+function europut(; S = 1.0, K = 1.0, τ = 1, r, σ, q = 0.0)
     iszero(τ) && return max(zero(S), K - S)
     d₁ = d1(S, K, τ, r, σ, q)
     d₂ = d2(S, K, τ, r, σ, q)

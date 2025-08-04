@@ -5,12 +5,14 @@ Modules = [FinanceModels.Yield]
 ```
 
 ## Exported API
+
 ```@autodocs
 Modules = [FinanceModels.Yield]
 Private = false
 ```
 
 ## Unexported API
+
 ```@autodocs
 Modules = [FinanceModels.Yield]
 Public = false

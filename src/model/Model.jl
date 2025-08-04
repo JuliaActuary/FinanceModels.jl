@@ -1,5 +1,5 @@
 abstract type AbstractModel end
-Base.Broadcast.broadcastable(x::T) where {T<:AbstractModel} = Ref(x)
+Base.Broadcast.broadcastable(x::T) where {T <: AbstractModel} = Ref(x)
 
 """
     NullModel()
@@ -8,7 +8,7 @@ A singleton type representing a placeholder model for when you don't really need
 struct NullModel <: AbstractModel end
 
 # useful for round-tripping or iterating on quotes?
-function Quote(m::M, c::C) where {M<:AbstractModel,C<:FinanceCore.AbstractContract}
+function Quote(m::M, c::C) where {M <: AbstractModel, C <: FinanceCore.AbstractContract}
     return Quote(pv(m, c), c)
 end
 
@@ -33,8 +33,8 @@ a = Option.EuroCall(CommonEquity(), 1.0, 1.0)
 pv(m, a) # ≈ 0.05410094201902403
 ```
 """
-function FinanceCore.present_value(model, c::FinanceCore.AbstractContract, cur_time=0.0)
+function FinanceCore.present_value(model, c::FinanceCore.AbstractContract, cur_time = 0.0)
     p = Projection(c, model, CashflowProjection())
     xf = p |> Filter(cf -> cf.time >= cur_time) |> Map(cf -> FinanceCore.discount(model, cur_time, cf.time) * cf.amount)
-    foldxl(+, xf)
+    return foldxl(+, xf)
 end

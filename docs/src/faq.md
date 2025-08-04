@@ -68,9 +68,6 @@ discount(c_rf+c_s,20) ≈ discount(c_y,20) # false
 
 ```
 
-
-
 ## I have another question
 
 Ask on the discussion forum here: [https://github.com/JuliaActuary/FinanceModels.jl/discussions](https://github.com/JuliaActuary/FinanceModels.jl/discussions)
-

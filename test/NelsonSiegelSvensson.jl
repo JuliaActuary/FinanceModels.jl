@@ -1,6 +1,6 @@
 @testset "NelsonSiegelSvensson" begin
 
-    # Per this technical note, the target/source rates should be interpreted as continuous rates: 
+    # Per this technical note, the target/source rates should be interpreted as continuous rates:
     # https://www.ecb.europa.eu/stats/financial_markets_and_interest_rates/euro_area_yield_curves/html/technical_notes.pdf
 
     # EURAAA_20191111 at https://www.ecb.europa.eu/stats/financial_markets_and_interest_rates/euro_area_yield_curves/html/index.en.html
@@ -30,8 +30,8 @@
         # Nelson-Siegel-Svensson package example at https://nelson-siegel-svensson.readthedocs.io/en/latest/usage.html
         @testset "pack" begin
             pack_FinanceModels = Continuous.([0.01, 0.011, 0.013, 0.016, 0.019, 0.021, 0.026, 0.03, 0.035, 0.037, 0.038, 0.04])
-            pack_maturities = [10e-5, 0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 10.0, 15.0, 20.0, 25.0, 30.0]
-            c_param = Yield.NelsonSiegel(5.0, 0.04495841387198023, -0.03537510042719209, 0.0031561222355027227,)
+            pack_maturities = [10.0e-5, 0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 10.0, 15.0, 20.0, 25.0, 30.0]
+            c_param = Yield.NelsonSiegel(5.0, 0.04495841387198023, -0.03537510042719209, 0.0031561222355027227)
 
             @testset "zero rates: $t" for (t, r) in zip(pack_maturities, pack_FinanceModels)
                 @test zero(c_param, t) ≈ r atol = 0.005
@@ -59,7 +59,7 @@
 
         end
         @testset "EURAAA_20191111 w parms given" begin
-            c = Yield.NelsonSiegelSvensson(2.435976, 2.536963, 0.629440 / 100, -1.218082 / 100, 12.114098 / 100, -14.181117 / 100)
+            c = Yield.NelsonSiegelSvensson(2.435976, 2.536963, 0.62944 / 100, -1.218082 / 100, 12.114098 / 100, -14.181117 / 100)
 
             @testset "zero rates: $t" for (t, r) in zip(euraaa_maturities, euraaa_zeros)
                 @test FinanceModels.zero(c, t) ≈ r atol = 0.005
