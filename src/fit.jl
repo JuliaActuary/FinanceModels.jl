@@ -130,7 +130,7 @@ __default_optic(m::MyModel) = OptArgs([
 
 """
 __default_optic(m::Yield.Constant) = OptArgs(@optic(_.rate.value) => -1.0 .. 1.0)
-__default_optic(m::Yield.IntermediateYieldCurve) = OptArgs(@optic(_.ys[end]) => 0.0 .. 1.0)
+__default_optic(m::Yield.IntermediateYieldCurve{T}) where {T <: Spline.SplineCurve} = OptArgs(@optic(_.ys[end]))
 __default_optic(m::Yield.NelsonSiegel) = OptArgs(
     [
         @optic(_.τ₁) => 0.0 .. 100.0
@@ -154,6 +154,12 @@ __default_optic(m::Volatility.Constant) = OptArgs(@optic(_.σ) => -0.0 .. 10.0)
 
 
 __default_optim(m) = ECA()
+__default_optim(m::Yield.IntermediateYieldCurve{T}) where {T <: Spline.SplineCurve} = OptimizationOptimJL.Newton()
+
+__default_utype(m) = SVector
+__default_utype(m::Yield.IntermediateYieldCurve{T}) where {T <: Spline.SplineCurve} = Vector
+
+__default_loss(m) = Fit.Loss(x -> x^2)
 
 """
     fit(
@@ -241,7 +247,7 @@ julia> lens(obj)
 "AA"
 ```
 An optic argument is a singular or vector of lenses with an optional range of acceptable parameters. For example, we might have a model as follows where we want 
-`fit` to optize parameters `a` and `b`:
+`fit` to optimize parameters `a` and `b`:
 
 ```julia
 struct MyModel <:FinanceModels.AbstractModel
@@ -256,7 +262,7 @@ __default_optic(m::MyModel) = OptArgs([
 ```
 In this way, fit know which arbitrary parameters in a given object may be modified. Technically, we are not modifying the immutable `MyModel`, but instead efficiently creating a new instance. This is enabled by [AccessibleOptimization.jl](https://gitlab.com/aplavin/AccessibleOptimization.jl).
 
-Note that not all opitmization algorithms want a bounded interval. In that case, simply leave off the paired range. The prior example would then become:
+Note that not all optimization algorithms want a bounded interval. In that case, simply leave off the paired range. The prior example would then become:
 
 ```julia
 __default_optic(m::MyModel) = OptArgs([
@@ -269,18 +275,24 @@ __default_optic(m::MyModel) = OptArgs([
 
 ## Additional Examples
 
-See the tutorials in the package documentation for FinanceModels.jl or the docstrings of FinanceModels.jl's avaiable model types.
+See the tutorials in the package documentation for FinanceModels.jl or the docstrings of FinanceModels.jl's available model types.
 """
 function fit(
-        mod0, quotes, method::F = Fit.Loss(x -> x^2);
+        mod0,
+        quotes,
+        method::F = __default_loss(mod0);
         variables = __default_optic(mod0),
+        utype = __default_utype(mod0),
         optimizer = __default_optim(mod0)
     ) where
     {F <: Fit.Loss}
+    # @show optimizer
+    # @show variables
+    # @show mod0, typeof(mod0)
     # find the rate that minimizes the loss function w.r.t. the calculated price vs the quotes
     f = __loss_single_function(method, quotes)
-    # some solvers want a `Vector` instead of `SVector`
-    ops = OptProblemSpec(f, SVector, mod0, variables)
+    # some solvers want a `Vector` instead of `SVector` for utype (override __default_utype(m))
+    ops = OptProblemSpec(f, utype, mod0, variables)
     sol = solve(ops, optimizer)
     return sol.uobj
 
@@ -326,5 +338,7 @@ function __loss_single_function(loss_method, quotes)
             loss_method.fn(present_value(m, q.instrument) - q.price)
         end
     end
-    return Base.Fix2(loss, quotes) # a function that takes a model and returns the loss
+    return Base.Fix2(OptimizationFunction(loss, DifferentiationInterface.SecondOrder(AutoForwardDiff(), AutoForwardDiff())), quotes) # a function that takes a model and returns the loss
+    # ops = OptProblemSpec(Base.Fix2(OptimizationFunction(loss, Optimization.AutoForwardDiff()), data), Vector{Float64}, mod0, vars, cons)
+
 end

@@ -5,6 +5,8 @@ using Reexport
 @reexport using FinanceCore
 using FinanceCore: present_value, discount, accumulation
 using OptimizationMetaheuristics
+import OptimizationOptimJL
+import DifferentiationInterface
 using StaticArrays
 using IntervalSets
 using AccessibleOptimization
