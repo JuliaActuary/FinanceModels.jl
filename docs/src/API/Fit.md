@@ -5,12 +5,14 @@ Modules = [FinanceModels.Fit]
 ```
 
 ## Exported API
+
 ```@autodocs
 Modules = [FinanceModels.Fit]
 Private = false
 ```
 
 ## Unexported API
+
 ```@autodocs
 Modules = [FinanceModels.Fit]
 Public = false

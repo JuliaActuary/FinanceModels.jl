@@ -2,16 +2,16 @@ using FinanceModels
 using Documenter
 
 makedocs(;
-    modules=[FinanceModels, FinanceCore],
-    authors="Alec Loudenback <alecloudenback@gmail.com> and contributors",
-    repo=Remotes.GitHub("JuliaActuary", "FinanceModels.jl"),
-    sitename="FinanceModels.jl",
-    format=Documenter.HTML(;
-        prettyurls=get(ENV, "CI", "false") == "true",
-        canonical="https://JuliaActuary.github.io/FinanceModels.jl",
-        assets=String[]
+    modules = [FinanceModels, FinanceCore],
+    authors = "Alec Loudenback <alecloudenback@gmail.com> and contributors",
+    repo = Remotes.GitHub("JuliaActuary", "FinanceModels.jl"),
+    sitename = "FinanceModels.jl",
+    format = Documenter.HTML(;
+        prettyurls = get(ENV, "CI", "false") == "true",
+        canonical = "https://JuliaActuary.github.io/FinanceModels.jl",
+        assets = String[]
     ),
-    pages=[
+    pages = [
         "Home" => "index.md",
         "Guide" => [
             "Introduction" => "introduction.md",
@@ -37,5 +37,5 @@ makedocs(;
 )
 
 deploydocs(;
-    repo="github.com/JuliaActuary/FinanceModels.jl"
+    repo = "github.com/JuliaActuary/FinanceModels.jl"
 )

@@ -5,12 +5,14 @@ Modules = [FinanceCore]
 ```
 
 ## Exported API
+
 ```@autodocs
 Modules = [FinanceCore]
 Private = false
 ```
 
 ## Unexported API
+
 ```@autodocs
 Modules = [FinanceCore]
 Public = false

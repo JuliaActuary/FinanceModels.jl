@@ -51,20 +51,19 @@ end
 @testset "bootstrapped class of curves" begin
 
 
-
     @testset "short curve" begin
         zs = ZCBYield.([0.0, 0.05], [1, 2])
         z = fit(Spline.Cubic(), zs, Fit.Bootstrap())
 
-        @test zero(z, 1) ≈ Periodic(0.00, 1)
-        @test discount(z, 1) ≈ 1.00
+        @test zero(z, 1) ≈ Periodic(0.0, 1)
+        @test discount(z, 1) ≈ 1.0
         @test zero(z, 2) ≈ Periodic(0.05, 1)
 
         # test no times constructor
         zs = ZCBYield([0.0, 0.05])
         z = fit(Spline.Cubic(), zs, Fit.Bootstrap())
-        @test zero(z, 1) ≈ Periodic(0.00, 1)
-        @test discount(z, 1) ≈ 1.00
+        @test zero(z, 1) ≈ Periodic(0.0, 1)
+        @test discount(z, 1) ≈ 1.0
         @test zero(z, 2) ≈ Periodic(0.05, 1)
     end
 
@@ -74,7 +73,7 @@ end
         par = [6.0, 8.0, 9.5, 10.5, 11.0, 11.25, 11.38, 11.44, 11.48, 11.5] ./ 100
         spot = [6.0, 8.08, 9.72, 10.86, 11.44, 11.71, 11.83, 11.88, 11.89, 11.89] ./ 100
 
-        # the forwards for 7+ have been adjusted from the table - perhaps rounding issues are exacerbated 
+        # the forwards for 7+ have been adjusted from the table - perhaps rounding issues are exacerbated
         # in the text? forwards for <= 6 matched so reasonably confident that the algo is correct
         # fwd = [6.,10.2,13.07,14.36,13.77,13.1,12.55,12.2,11.97,11.93] ./ 100 # from text
         fwd = [6.0, 10.2, 13.07, 14.36, 13.77, 13.1, 12.61, 12.14, 12.05, 11.84] ./ 100  # modified
@@ -151,10 +150,10 @@ end
 
 
         @testset "discounts: $t" for (t, r) in enumerate(forwards)
-            @test discount(curve, t) ≈ reduce((v, r) -> v / (1 + r), forwards[1:t]; init=1.0)
+            @test discount(curve, t) ≈ reduce((v, r) -> v / (1 + r), forwards[1:t]; init = 1.0)
         end
 
-        # test from ActuaryUtilities 
+        # test from ActuaryUtilities
 
         @testset "pv with vector discount rates" begin
             cf = [100, 100]
@@ -177,7 +176,7 @@ end
         qs = ForwardYields(forwards)
 
         @testset "discounts: $t" for (t, r) in enumerate(forwards)
-            @test discount(curve, t) ≈ reduce((v, r) -> v / (1 + r), forwards[1:t]; init=1.0)
+            @test discount(curve, t) ≈ reduce((v, r) -> v / (1 + r), forwards[1:t]; init = 1.0)
         end
 
         @test accumulation(curve, 0, 1) ≈ 1.05
@@ -200,7 +199,6 @@ end
         # addition / subtraction
         @test discount(curve + 0.1, 1) ≈ 1 / 1.15
         @test discount(curve - 0.03, 1) ≈ 1 / 1.02
-
 
 
         @testset "with specified non integer timepoints" begin
@@ -231,7 +229,6 @@ end
     end
 
 
-
     @testset "actual cmt treasury" begin
         # Fabozzi 5-5,5-6
         cmt = [5.25, 5.5, 5.75, 6.0, 6.25, 6.5, 6.75, 6.8, 7.0, 7.1, 7.15, 7.2, 7.3, 7.35, 7.4, 7.5, 7.6, 7.6, 7.7, 7.8] ./ 100
@@ -255,7 +252,7 @@ end
 
         # Hull, problem 4.34
         adj = ((1 + 0.051813 / 2)^2 - 1) * 100
-        cmt = [4.0816, adj, 5.4986, 5.8620] ./ 100
+        cmt = [4.0816, adj, 5.4986, 5.862] ./ 100
         mats = [0.5, 1.0, 1.5, 2.0]
         curve = fit(Spline.Linear(), CMTYield.(cmt, mats), Fit.Bootstrap())
         targets = Continuous.([4.0405, 5.1293, 5.4429, 5.8085] ./ 100)
@@ -285,7 +282,7 @@ end
         ois = [1.8, 2.0, 2.2, 2.5, 3.0, 4.0] ./ 100
         mats = [1 / 12, 1 / 4, 1 / 2, 1, 2, 5]
         qs = OISYield.(ois, mats)
-        targets = Continuous.([0.017987, 0.019950, 0.021880, 0.024693, 0.029994, 0.040401])
+        targets = Continuous.([0.017987, 0.01995, 0.02188, 0.024693, 0.029994, 0.040401])
 
         curve = fit(Spline.Linear(), qs, Fit.Bootstrap())
         @testset "bootstrapped rates" for (mat, target) in zip(mats, targets)
@@ -315,9 +312,9 @@ end
 
         c = Yield.Constant(0.04)
         @testset "misc combinations" for t in 0.5:0.5:5
-            @test FinanceModels.par(c, t; frequency=1) ≈ FinanceModels.Periodic(0.04, 1)
+            @test FinanceModels.par(c, t; frequency = 1) ≈ FinanceModels.Periodic(0.04, 1)
             @test FinanceModels.par(c, t) ≈ FinanceModels.Periodic(0.04, 1)
-            @test FinanceModels.par(c, t, frequency=4) ≈ FinanceModels.Periodic(0.04, 1)
+            @test FinanceModels.par(c, t, frequency = 4) ≈ FinanceModels.Periodic(0.04, 1)
         end
 
         @test FinanceModels.par(c, 0.6) ≈ FinanceModels.Periodic(0.04, 1)

@@ -23,4 +23,3 @@ include("NelsonSiegelSvensson.jl")
 
 include("extensions.jl")
 #TODO EconomicScenarioGenerators.jl integration tests
-

@@ -16,7 +16,6 @@ using Transducers: @next, complete, __foldl__, asfoldable
 import SpecialFunctions
 
 
-
 include("utils.jl")
 include("Contract.jl")
 include("model/Model.jl")

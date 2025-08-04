@@ -1,6 +1,7 @@
 ```@meta
 CurrentModule = FinanceModels
 ```
+
 # FinanceModels.jl
 
 [![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://JuliaActuary.github.io/FinanceModels.jl/stable)
@@ -12,9 +13,7 @@ CurrentModule = FinanceModels
 
 Additionally, the models can be used to project contracts through time: most basically as a series of cashflows but more complex output can be defined for contracts.
 
-
 ![anim_fps2](https://github.com/JuliaActuary/FinanceModels.jl/assets/711879/9a304448-c31c-4766-b2ba-6433a77fa12c)
-
 
 ## QuickStart
 
@@ -41,7 +40,6 @@ present_value(m_rate,Cashflow(10,3)) # 9.15...
 ```
 
 ## Overview of FinanceModels
-
 
 ![A conceptual sketch of FinanceModels.jl](assets/relations.png)
 
@@ -82,8 +80,7 @@ FinanceModels offers a way to define new contracts as well.
 
 A `Cashflow`s obligation are themselves a contract, but other contracts can be considered as essentially anything that can be combined with assumptions (a **model**) to derive a collection of cashflows.
 
-For example, a obligation that pays 1.75 at time 2 could be represented as: `Cashflow(1.75,2)`. 
-
+For example, a obligation that pays 1.75 at time 2 could be represented as: `Cashflow(1.75,2)`.
 
 ### Models
 
@@ -106,7 +103,6 @@ The models can be used to compute various rates of interest:
 - `zero(curve,time)` or `zero(curve,time,Frequency)` gives the zero-coupon spot rate for the given time.
 - `forward(curve,from,to)` gives the zero rate between the two given times
 - `par(curve,time;frequency=2)` gives the coupon-paying par equivalent rate for the given time.
-
 
 Other models include:
 
@@ -151,7 +147,7 @@ julia> fit(Spline.PolynomialSpline(3), q_rate, Fit.Bootstrap()) # after importin
 
 ### Projections
 
-Most basically, we can project a contract into a series of `Cashflow`s: 
+Most basically, we can project a contract into a series of `Cashflow`s:
 
 ```julia-repl
 julia> b = Bond.Fixed(0.04,Periodic(2),3)
@@ -173,7 +169,6 @@ However, `Projection`s allow one to combine three elements which can be extended
 - the **model** which includes assumptions of how the contract will behave
 - a `ProjectionKind` which indicates the kind of output desired (cashflow stream, amortization schedule, etc...)
 
-
 #### Examples
 
 A fixed bond that needs no valuation model (`NullModel()`) to define its projected gross cashflows:
@@ -193,31 +188,27 @@ proj = Projection(Bond.Fixed(0.10,Periodic(2),20),NullModel(),CashflowProjection
 stem(proj)
 ```
 
-Will produce: 
+Will produce:
 
 ![A stem plot of bond cashflows](https://github.com/JuliaActuary/ActuaryUtilities.jl/assets/711879/29480ce2-9691-4eb5-b656-a05394f7a2c2)
 
-
-
 ### Fitting Models
 
 ### Fitting Models
-
 
 ```plaintext
        Model                                                               Method
           |                                                                   |
-  	|------------|                                                     |---------------|
+   |------------|                                                     |---------------|
 fit(Spline.Cubic(), CMTYield.([0.04,0.05,0.055,0.06,0055],[1,2,3,4,5]), Fit.Bootstrap())
                     |-------------------------------------------------|
                                               |
                                               Quotes
 ```
 
- - **Model** could be `Spline.Linear()`, `Yield.NelsonSiegelSvensson()`, `Equity.BlackScholesMerton(...)`, etc.
- - **Quote** could be `CMTYield`s, `ParYield`s, `Option.Eurocall`, etc.
- - **Method** could be `Fit.Loss(x->x^2)`, `Fit.Loss(x->abs(x))`, `Fit.Bootstrap()`, etc.
-
+- **Model** could be `Spline.Linear()`, `Yield.NelsonSiegelSvensson()`, `Equity.BlackScholesMerton(...)`, etc.
+- **Quote** could be `CMTYield`s, `ParYield`s, `Option.Eurocall`, etc.
+- **Method** could be `Fit.Loss(x->x^2)`, `Fit.Loss(x->abs(x))`, `Fit.Bootstrap()`, etc.
 
 This unified way to fit models offers a much simpler way to extend functionality to new models or contract types.
 
@@ -284,7 +275,7 @@ A guide which explains more about the components of the package and from-scratch
 
 Generally, CamelCase methods which construct a datatype are exported as they are unlikely to conflict with other parts of code that may be written. For example, `rate` is un-exported (it must be called with `FinanceModels.rate(...)`) because `rate` is likely a very commonly defined variable within actuarial and financial contexts and there is a high risk of conflicting with defined variables.
 
-Consider using `import FinanceModels` which would require qualifying all methods, but alleviates any namespace conflicts and has the benefit of being explicit about the calls (internally we prefer this in the package design to keep dependencies and their usage clear). 
+Consider using `import FinanceModels` which would require qualifying all methods, but alleviates any namespace conflicts and has the benefit of being explicit about the calls (internally we prefer this in the package design to keep dependencies and their usage clear).
 
 ## Internals
 

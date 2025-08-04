@@ -36,13 +36,13 @@ struct NelsonSiegel{T} <: AbstractYieldModel
     β₁::T
     β₂::T
 
-    function NelsonSiegel(τ₁::T, β₀::T, β₁::T, β₂::T) where {T<:Real}
+    function NelsonSiegel(τ₁::T, β₀::T, β₁::T, β₂::T) where {T <: Real}
         (τ₁ <= 0) && throw(DomainError("Wrong tau parameter ranges (must be positive)"))
         return new{T}(τ₁, β₀, β₁, β₂)
     end
 end
 
-function NelsonSiegel(τ₁=1.0)
+function NelsonSiegel(τ₁ = 1.0)
     return NelsonSiegel(τ₁, 1.0, 0.0, 0.0)
 end
 
@@ -51,7 +51,7 @@ function Base.zero(ns::NelsonSiegel, t)
         # zero rate is undefined for t = 0
         t += eps()
     end
-    Continuous.(ns.β₀ .+ ns.β₁ .* (1.0 .- exp.(-t ./ ns.τ₁)) ./ (t ./ ns.τ₁) .+ ns.β₂ .* ((1.0 .- exp.(-t ./ ns.τ₁)) ./ (t ./ ns.τ₁) .- exp.(-t ./ ns.τ₁)))
+    return Continuous.(ns.β₀ .+ ns.β₁ .* (1.0 .- exp.(-t ./ ns.τ₁)) ./ (t ./ ns.τ₁) .+ ns.β₂ .* ((1.0 .- exp.(-t ./ ns.τ₁)) ./ (t ./ ns.τ₁) .- exp.(-t ./ ns.τ₁)))
 end
 FinanceCore.discount(ns::NelsonSiegel, t) = discount.(zero.(ns, t), t)
 
@@ -109,13 +109,13 @@ struct NelsonSiegelSvensson{T} <: AbstractYieldModel
     end
 end
 
-NelsonSiegelSvensson(τ₁=1.0, τ₂=1.0) = NelsonSiegelSvensson(τ₁, τ₂, 0.0, 0.0, 0.0, 0.0)
+NelsonSiegelSvensson(τ₁ = 1.0, τ₂ = 1.0) = NelsonSiegelSvensson(τ₁, τ₂, 0.0, 0.0, 0.0, 0.0)
 
 function Base.zero(nss::NelsonSiegelSvensson, t)
     if iszero(t)
         # zero rate is undefined for t = 0
         t += eps()
     end
-    Continuous.(nss.β₀ .+ nss.β₁ .* (1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .+ nss.β₂ .* ((1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .- exp.(-t ./ nss.τ₁)) .+ nss.β₃ .* ((1.0 .- exp.(-t ./ nss.τ₂)) ./ (t ./ nss.τ₂) .- exp.(-t ./ nss.τ₂)))
+    return Continuous.(nss.β₀ .+ nss.β₁ .* (1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .+ nss.β₂ .* ((1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .- exp.(-t ./ nss.τ₁)) .+ nss.β₃ .* ((1.0 .- exp.(-t ./ nss.τ₂)) ./ (t ./ nss.τ₂) .- exp.(-t ./ nss.τ₂)))
 end
 FinanceCore.discount(nss::NelsonSiegelSvensson, t) = discount.(zero.(nss, t), t)

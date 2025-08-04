@@ -23,7 +23,6 @@ using PrecompileTools    # this is a small dependency
         fit(Yield.NelsonSiegelSvensson(), q_rate)
 
 
-
         present_value(model_rate, Cashflow(1.0, 1.0))
 
         first(q_rate).instrument |> collect
