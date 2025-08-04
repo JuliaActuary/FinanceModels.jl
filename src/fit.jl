@@ -130,7 +130,6 @@ __default_optic(m::MyModel) = OptArgs([
 
 """
 __default_optic(m::Yield.Constant) = OptArgs(@optic(_.rate.value) => -1.0 .. 1.0)
-__default_optic(m::Yield.IntermediateYieldCurve{T}) where {T <: Spline.SplineCurve} = OptArgs(@optic(_.ys[end]))
 __default_optic(m::Yield.NelsonSiegel) = OptArgs(
     [
         @optic(_.τ₁) => 0.0 .. 100.0
@@ -154,7 +153,11 @@ __default_optic(m::Volatility.Constant) = OptArgs(@optic(_.σ) => -0.0 .. 10.0)
 
 
 __default_optim(m) = ECA()
-__default_optim(m::Yield.IntermediateYieldCurve{T}) where {T <: Spline.SplineCurve} = OptimizationOptimJL.Newton()
+# __default_optim(m::Yield.IntermediateYieldCurve)  = OptimizationOptimJL.Newton()
+__default_optim(m::Yield.IntermediateYieldCurve) = OptimizationOptimJL.NelderMead()
+# __default_optim(m::Yield.IntermediateYieldCurve)  = Optimization.LBFGS()
+__default_optic(m::Yield.IntermediateYieldCurve) = OptArgs(@optic(_.ys[end]))
+# __default_optic(m::Yield.IntermediateYieldCurve) = OptArgs(@optic(_.ys[end]) => 0.0 .. 1.0)
 
 __default_utype(m) = SVector
 __default_utype(m::Yield.IntermediateYieldCurve{T}) where {T <: Spline.SplineCurve} = Vector
@@ -294,11 +297,13 @@ function fit(
     # some solvers want a `Vector` instead of `SVector` for utype (override __default_utype(m))
     ops = OptProblemSpec(f, utype, mod0, variables)
     sol = solve(ops, optimizer)
+    # @show sol
     return sol.uobj
 
 end
 
 function fit(mod0::T, quotes, method::Fit.Bootstrap) where {T <: Spline.SplineCurve}
+
     discount_vector = [0.0]
     times = [maturity(quotes[1])]
 
@@ -312,6 +317,7 @@ function fit(mod0::T, quotes, method::Fit.Bootstrap) where {T <: Spline.SplineCu
         push!(times, maturity(q))
         push!(discount_vector, 0.0)
         m = Yield.IntermediateYieldCurve(mod0, times, discount_vector)
+        # @show discount_vector
         discount_vector[i] = let
             m = fit(m, [q], Fit.Loss(x -> x^2))
             discount(m, times[i])
@@ -319,6 +325,7 @@ function fit(mod0::T, quotes, method::Fit.Bootstrap) where {T <: Spline.SplineCu
 
     end
     zero_vec = -log.(clamp.(discount_vector, 0.00001, 1)) ./ times
+    # @show discount_vector, zero_vec
     return Yield.Spline(mod0, [zero(eltype(times)); times], [first(zero_vec); zero_vec])
     # return Yield.Spline(mod0, times, zero_vec)
 
@@ -333,11 +340,15 @@ function fit(mod0::Yield.SmithWilson, quotes)
 end
 
 function __loss_single_function(loss_method, quotes)
+    # @show quotes
     function loss(m, quotes)
-        return mapreduce(+, quotes) do q
+        x = mapreduce(+, quotes) do q
             loss_method.fn(present_value(m, q.instrument) - q.price)
         end
+        # @show x
+        return x
     end
+    # return Base.Fix2(OptimizationFunction(loss, AutoForwardDiff()), quotes) # a function that takes a model and returns the loss
     return Base.Fix2(OptimizationFunction(loss, DifferentiationInterface.SecondOrder(AutoForwardDiff(), AutoForwardDiff())), quotes) # a function that takes a model and returns the loss
     # ops = OptProblemSpec(Base.Fix2(OptimizationFunction(loss, Optimization.AutoForwardDiff()), data), Vector{Float64}, mod0, vars, cons)
 
