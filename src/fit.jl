@@ -154,7 +154,7 @@ __default_optic(m::Volatility.Constant) = OptArgs(@optic(_.σ) => -0.0 .. 10.0)
 
 
 __default_optim(m) = ECA()
-__default_optim(m::Yield.IntermediateYieldCurve{T}) where {T <: Spline.SplineCurve} = OptimizationOptimJL.NelderMeade()
+__default_optim(m::Yield.IntermediateYieldCurve{T}) where {T <: Spline.SplineCurve} = OptimizationOptimJL.NelderMead()
 
 __default_utype(m) = SVector
 __default_utype(m::Yield.IntermediateYieldCurve{T}) where {T <: Spline.SplineCurve} = Vector
