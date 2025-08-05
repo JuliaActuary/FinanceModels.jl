@@ -6,6 +6,8 @@ using Reexport
 using FinanceCore: present_value, discount, accumulation
 using OptimizationMetaheuristics
 import DifferentiationInterface
+import Optimization
+import OptimizationOptimJL
 using StaticArrays
 using IntervalSets
 using AccessibleOptimization
@@ -15,7 +17,6 @@ using Transducers
 import DataInterpolations
 using Transducers: @next, complete, __foldl__, asfoldable
 import SpecialFunctions
-import OptimizationNLopt
 
 include("utils.jl")
 include("Contract.jl")

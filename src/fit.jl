@@ -130,7 +130,7 @@ __default_optic(m::MyModel) = OptArgs([
 
 """
 __default_optic(m::Yield.Constant) = OptArgs(@optic(_.rate.value) => -1.0 .. 1.0)
-__default_optic(m::Yield.IntermediateYieldCurve{T}) where {T <: Spline.SplineCurve} = OptArgs(@optic(_.ys[end]))
+__default_optic(m::Yield.IntermediateYieldCurve{T}) where {T <: Spline.SplineCurve} = OptArgs(@optic(_.ys[end]) => 0.0 .. 1.0)
 __default_optic(m::Yield.NelsonSiegel) = OptArgs(
     [
         @optic(_.τ₁) => 0.0 .. 100.0
@@ -154,7 +154,7 @@ __default_optic(m::Volatility.Constant) = OptArgs(@optic(_.σ) => -0.0 .. 10.0)
 
 
 __default_optim(m) = ECA()
-__default_optim(m::Yield.IntermediateYieldCurve{T}) where {T <: Spline.SplineCurve} = OptimizationNLopt.NLopt.LN_NELDERMEAD()
+__default_optim(m::T) where {T <: Spline.SplineCurve} = OptimizationOptimJL.Newton()
 
 __default_utype(m) = SVector
 
@@ -286,11 +286,22 @@ function fit(
     ) where
     {F <: Fit.Loss}
     # find the rate that minimizes the loss function w.r.t. the calculated price vs the quotes
-    f = __loss_single_function(method, quotes)
+    f = __loss_single_function(mod0, method, quotes)
     # some solvers want a `Vector` instead of `SVector` for utype (override __default_utype(m))
     ops = OptProblemSpec(f, utype, mod0, variables)
     sol = solve(ops, optimizer)
     return sol.uobj
+
+end
+
+function fit(mod0::T, quotes, method::F) where {T <: Spline.SplineCurve, F <: Fit.Loss}
+    times = sort!(maturity.(quotes))
+
+
+    optf = __spline_loss_function(mod0, times, __default_loss(mod0), quotes)
+    prob = Optimization.OptimizationProblem(optf, fill(0.05, length(quotes)))
+    sol = solve(prob, __default_optim(mod0))
+    return Yield.Spline(mod0, times, sol.u)
 
 end
 
@@ -328,12 +339,26 @@ function fit(mod0::Yield.SmithWilson, quotes)
 
 end
 
-function __loss_single_function(loss_method, quotes)
+function __loss_single_function(mod0, loss_method, quotes)
     function loss(m, quotes)
         return mapreduce(+, quotes) do q
             p = present_value(m, q.instrument)
             l = loss_method.fn(p - q.price)
         end
     end
-    return Base.Fix2(OptimizationFunction(loss), quotes) # a function that takes a model and returns the loss
+    return Base.Fix2(Optimization.OptimizationFunction(loss), quotes) # a function that takes a model and returns the loss
+end
+
+function __spline_loss_function(mod0::T, times, loss_method, quotes) where {T <: Spline.SplineCurve}
+    function loss(u, p)
+        m = Yield.Spline(mod0, times, u)
+        return mapreduce(+, quotes) do q
+            p = present_value(m, q.instrument)
+            loss_method.fn(p - q.price)
+        end
+    end
+    return Optimization.OptimizationFunction(
+        loss,
+        DifferentiationInterface.SecondOrder(AutoForwardDiff(), AutoForwardDiff())
+    )
 end
