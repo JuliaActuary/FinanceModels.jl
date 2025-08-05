@@ -55,7 +55,7 @@ end
         zs = ZCBYield.([0.0, 0.05], [1, 2])
         z = fit(Spline.Cubic(), zs, Fit.Bootstrap())
 
-        @test zero(z, 1) ≈ Periodic(0.0, 1)
+        @test isapprox(zero(z, 1), Periodic(0.0, 1); atol = 1.0e-12)
         @test discount(z, 1) ≈ 1.0
         @test zero(z, 2) ≈ Periodic(0.05, 1)
 

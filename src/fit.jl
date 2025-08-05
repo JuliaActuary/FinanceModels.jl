@@ -285,9 +285,6 @@ function fit(
         optimizer = __default_optim(mod0)
     ) where
     {F <: Fit.Loss}
-    # @show optimizer
-    # @show variables
-    # @show mod0, typeof(mod0)
     # find the rate that minimizes the loss function w.r.t. the calculated price vs the quotes
     f = __loss_single_function(method, quotes)
     # some solvers want a `Vector` instead of `SVector` for utype (override __default_utype(m))
