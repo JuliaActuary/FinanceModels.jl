@@ -11,12 +11,20 @@
 
 Additionally, the models can be used to project contracts through time: most basically as a series of cashflows but more complex output can be defined for contracts.
 
+> [!NOTE]
+> **Model Fitting**: To use the `fit` function for calibrating models to market data, you need to load one of the optimization packages:
+> - `using OptimizationMetaheuristics` (recommended for global optimization)
+> - `using OptimizationOptimJL` (for gradient-based optimization)
+> 
+> This keeps FinanceModels fast to load (~1.4s) while still providing full functionality when needed.
+
 ![yield_curves](https://github.com/JuliaActuary/FinanceModels.jl/assets/711879/5b8a486b-732f-486b-aeb4-a3d8c4ab8b04)
 
 ## QuickStart
 
 ```julia
 using FinanceModels
+using OptimizationMetaheuristics  # Required for model fitting
 
 # a set of market-observed prices we wish to calibrate the model to
 # annual effective unless otherwise specified
@@ -111,7 +119,7 @@ Other models include:
 In interactive sessions (e.g. REPL, Notebooks, VS Code, etc.) you can get a pretty printing of yield curves by also using `UnicodePlots.jl`, for example:
 
 ```julia-repl
-julia> using FinanceModels
+julia> using FinanceModels, OptimizationMetaheuristics
 julia> q_rate = ZCBYield.([0.01, 0.02, 0.03,0.04,0.03],[1,3,5,10,20]);
 julia> fit(Spline.PolynomialSpline(3), q_rate)
 FinanceModels.Yield.Spline{DataInterpolations.CubicSpline{Vector{Float64}, Vector{Float64}, Vector{Float64}, Vector{Float64}, true, Float64}}([0.009950330853168092, 0.009950330853168092, 0.019802627296179747, 0.02955880224154443, 0.0, 1.0, 2.0, 3.0])
