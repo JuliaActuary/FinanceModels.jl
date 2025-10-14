@@ -15,10 +15,18 @@ Additionally, the models can be used to project contracts through time: most bas
 
 ![anim_fps2](https://github.com/JuliaActuary/FinanceModels.jl/assets/711879/9a304448-c31c-4766-b2ba-6433a77fa12c)
 
+> [!NOTE]
+> **Model Fitting**: To use the `fit` function for calibrating models to market data, you need to load one of the optimization packages:
+> - `using OptimizationMetaheuristics` (recommended for global optimization)
+> - `using OptimizationOptimJL` (for gradient-based optimization)
+> 
+> This keeps FinanceModels fast to load (~1.4s) while still providing full functionality when needed.
+
 ## QuickStart
 
 ```julia
 using FinanceModels
+using OptimizationMetaheuristics  # Required for model fitting
 
 # a set of market-observed prices we wish to calibrate the model to
 # annual effective unless otherwise specified
