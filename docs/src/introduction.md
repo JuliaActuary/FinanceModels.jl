@@ -11,9 +11,9 @@ Say you wanted to model a contract that paid quarterly payments, and those payme
 Previously, you had two options:
 
 1. Choose a discrete timestep to model (e.g. monthly, quarterly, annual) and then lump the cashflows into those timesteps. E.g. with monthly timesteps  of a unit payment of our contract, it might look like: `[1,0,0,1,0,0...]`
-2. Keep track of two vectors: one for the payment and one for the times. In this case, that might look like: `cfs = [1,1,...]; `times = `[0.057, 0.307...]`
+2. Keep track of two vectors: one for the payment and one for the times. In this case, that might look like: `cfs = [1,1,...];`times = `[0.057, 0.307...]`
 
-The former has inaccuracies due to the simplified timing and logical complication related to mapping the contracts natural periodicity into an arbitrary modeling choice. The latter becomes unwieldy and fails to take advantage of Julia's type system. 
+The former has inaccuracies due to the simplified timing and logical complication related to mapping the contracts natural periodicity into an arbitrary modeling choice. The latter becomes unwieldy and fails to take advantage of Julia's type system.
 
 The new solution: `Cashflow`s. Our example above would become: `[Cashflow(1,0.057), Cashflow(1,0.307),...]`
 
@@ -27,7 +27,7 @@ Examples:
 - `Bond`s:
   - `Bond.Fixed`, `Bond.Floating`
 - `Option`s:
-  - `Option.EuroCall` and `Option.EuroPut` 
+  - `Option.EuroCall` and `Option.EuroPut`
 - Compositional contracts:
   - `Forward`to represent an instrument that is relative to a forward point in time.
   - `Composite` to represent the combination of two other instruments.  
@@ -116,7 +116,6 @@ A number of convenience functions are included to construct a `Quote`:
 - `OISYield`
 - `ForwardYields`
 
-
 ## 4. **Models** - Not just yield curves anymore
 
 - **Yield Curves**: all of Yields.jl yield models are included in the initial FinanceModels.jl release
@@ -168,9 +167,7 @@ julia> map(q -> pv(m,q.instrument),quotes)
  0.6
 ```
 
-
 ## 5. `fit` - The standardized API for all models, quotes, and methods
-
 
 ```plaintext
        Model                                                               Method
@@ -182,9 +179,9 @@ fit(Spline.Cubic(), CMTYield.([0.04,0.05,0.055,0.06,0055],[1,2,3,4,5]), Fit.Boot
                                               Quotes
 ```
 
- - **Model** could be `Spline.Linear()`, `Yield.NelsonSiegelSvensson()`, `Equity.BlackScholesMerton(...)`, etc.
- - **Quote** could be `CMTYield`s, `ParYield`s, `Option.Eurocall`, etc.
- - **Method** could be `Fit.Loss(x->x^2)`, `Fit.Loss(x->abs(x))`, `Fit.Bootstrap()`, etc.
+- **Model** could be `Spline.Linear()`, `Yield.NelsonSiegelSvensson()`, `Equity.BlackScholesMerton(...)`, etc.
+- **Quote** could be `CMTYield`s, `ParYield`s, `Option.Eurocall`, etc.
+- **Method** could be `Fit.Loss(x->x^2)`, `Fit.Loss(x->abs(x))`, `Fit.Bootstrap()`, etc.
 
 The benefit of this versus the old Yields.jl API is:
 
@@ -202,11 +199,11 @@ Model fitting can be customized:
 - the **optimization algorithm** by defining a method `FinanceModels.__default_optim__(m::ABDiscountLine) = OptimizationOptimJL.Newton()`
   - you may need to change the `__default_optic` to be unbounded (simply omit the `=>` and subsequent bounds)
   - The default is OptimizationMetaheuristics.ECA()
-- The **general algorithm** can be customized by creating a new method for fit: 
+- The **general algorithm** can be customized by creating a new method for fit:
 
  ```julia
 function FinanceModels.fit(m::ABDiscountLine, quotes, ...)
-	# custom code for fitting your model here
+ # custom code for fitting your model here
 end
 ```
 
@@ -232,8 +229,8 @@ end
 
 `contract` is obvious, so let's talk more about the second two:
 
-- `model` is the same kind of thing we discussed above. Some contracts (e.g. a floating rate bond). We can still decompose a floating rate bond into a set of cashflows, but we need a model. 
-  - There are also projections which don't need a model (e.g. fixed bonds) and for that there's the generic `NullModel()` 
+- `model` is the same kind of thing we discussed above. Some contracts (e.g. a floating rate bond). We can still decompose a floating rate bond into a set of cashflows, but we need a model.
+  - There are also projections which don't need a model (e.g. fixed bonds) and for that there's the generic `NullModel()`
 - `kind` defines what we'll return from the projection.
   - `CashflowProjection()` says we just want a `Cashflow[...]` vector
   - ... but if we wanted to extend this such that we got a vector containing cashflows, capital factors, default rates, etc we could define a new projection type (e.g. we might call the above `AssetDetailProjection()`
@@ -257,7 +254,7 @@ struct Floating{F<:FinanceCore.Frequency,N<:Real,M<:Timepoint,K} <: AbstractBond
     maturity::M
     key::K
 end
-``` 
+```
 
 And how we can reference the associated model when projecting that contract. This is very similar to the definition of `__foldl__` for our `PrincipalOnlyBond`, except we are paying a coupon and referencing the scenario rate.
 
@@ -292,7 +289,7 @@ In this post we've now defined two assets that can work seamlessly with projecti
 
 While `CashflowProjection` is the most common (and the only one built into the initial release of FinanceModels), a `Projection` can be created which handles different kinds of outputs in the same manner as projecting just basic cashflows. For example, you may want to output an amortization schedule, or a financial statement, or an account value roll-forward. The `Projection` is able to handle these custom outputs by dispatching on the third element in a `Projection`.
 
-Let's extend the example of a principle-only bond from section 2 above. Our goal is to create a basic amortization schedule which shows the payment made and outstanding balance. 
+Let's extend the example of a principle-only bond from section 2 above. Our goal is to create a basic amortization schedule which shows the payment made and outstanding balance.
 
 First, we create a new subtype of `ProjectionKind`:
 
@@ -300,6 +297,7 @@ First, we create a new subtype of `ProjectionKind`:
 struct AmortizationSchedule <: FinanceModels.ProjectionKind
 end
 ```
+
 And then define the loop for the amortization schedule output:
 
 ```julia
@@ -347,4 +345,3 @@ julia> collect(p)
  (time = 4.5, payment = 0.1, outstanding = 0.10000000000000014)
  (time = 5.0, payment = 0.1, outstanding = 1.3877787807814457e-16)
 ```
-

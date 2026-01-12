@@ -2,8 +2,7 @@ module Yield
 import ..AbstractModel
 import ..FinanceCore
 import ..Spline as Sp
-import ..BSplineKit
-import UnicodePlots
+import ..DataInterpolations
 import ..Bond: coupon_times
 
 using ..FinanceCore: Continuous, Periodic, discount, accumulation, AbstractContract
@@ -24,8 +23,8 @@ struct Constant{R} <: AbstractYieldModel
     rate::R
 end
 
-function Constant(rate::R) where {R<:Real}
-    Constant(FinanceCore.Rate(rate))
+function Constant(rate::R) where {R <: Real}
+    return Constant(FinanceCore.Rate(rate))
 end
 
 Constant() = Constant(0.0)
@@ -33,8 +32,8 @@ Constant() = Constant(0.0)
 FinanceCore.discount(c::Constant, t) = FinanceCore.discount(c.rate, t)
 
 # used as the object which gets optmized before finally returning a completed spline
-struct IntermediateYieldCurve{U,V} <: AbstractYieldModel
-    b::Sp.BSpline
+struct IntermediateYieldCurve{T <: Sp.SplineCurve, U, V} <: AbstractYieldModel
+    b::T
     xs::Vector{U}
     ys::Vector{V} # here, ys are the discount factors
 end
@@ -60,11 +59,27 @@ function FinanceCore.discount(c::Spline, time)
 end
 
 function Spline(b::Sp.BSpline, xs, ys)
-    order = min(length(xs), b.order) # in case the length of xs is less than the spline order
-    int = BSplineKit.interpolate(xs, ys, BSplineKit.BSplineOrder(order))
-    return Spline(BSplineKit.extrapolate(int, BSplineKit.Smooth()))
+    order = min(length(xs) - 1, b.order) # in case the length of xs is less than the spline order
+    xs = float.(xs)
+    knot_type = if length(xs) < 3
+        :Uniform
+    else
+        :Average
+    end
+
+    return Spline(DataInterpolations.BSplineInterpolation(ys, xs, order, :Uniform, knot_type; extrapolation = DataInterpolations.ExtrapolationType.Extension))
 end
 
+function Spline(b::Sp.PolynomialSpline, xs, ys)
+    order = min(length(xs) - 1, b.order) # in case the length of xs is less than the spline order
+    if order == 1
+        return Spline(DataInterpolations.LinearInterpolation(ys, xs; extrapolation = DataInterpolations.ExtrapolationType.Extension))
+    elseif order == 2
+        return Spline(DataInterpolations.QuadraticSpline(ys, xs; extrapolation = DataInterpolations.ExtrapolationType.Extension))
+    else
+        return Spline(DataInterpolations.CubicSpline(ys, xs; extrapolation = DataInterpolations.ExtrapolationType.Extension))
+    end
+end
 
 include("Yield/SmithWilson.jl")
 include("Yield/NelsonSiegelSvensson.jl")
@@ -77,15 +92,15 @@ include("Yield/MonotoneConvex.jl")
 
 The discount factor for the yield curve `yc` for times `from` through `to`.
 """
-FinanceCore.discount(yc::T, from, to) where {T<:AbstractYieldModel} = discount(yc, to) / discount(yc, from)
+FinanceCore.discount(yc::T, from, to) where {T <: AbstractYieldModel} = discount(yc, to) / discount(yc, from)
 
 """
     forward(yc, from, to)˚
 
 The forward `Rate` implied by the yield curve `yc` between times `from` and `to`.
 """
-function FinanceCore.forward(yc::T, from, to=from + 1) where {T<:AbstractYieldModel}
-    Continuous(log(discount(yc, from) / discount(yc, to)) / (to - from))
+function FinanceCore.forward(yc::T, from, to = from + 1) where {T <: AbstractYieldModel}
+    return Continuous(log(discount(yc, from) / discount(yc, to)) / (to - from))
 end
 
 """
@@ -114,7 +129,7 @@ julia> Yields.par(c,2.5)
 Yields.Rate{Float64, Yields.Periodic}(0.03960780543711406, Yields.Periodic(2))
 ```
 """
-function par(curve, time; frequency=2)
+function par(curve, time; frequency = 2)
     mat_disc = discount(curve, time)
     coup_times = coupon_times(time, frequency)
     coupon_pv = sum(discount(curve, t) for t in coup_times)
@@ -134,7 +149,7 @@ end
 
 Return the zero rate for the curve at the given time.
 """
-function Base.zero(c::YC, time) where {YC<:AbstractYieldModel}
+function Base.zero(c::YC, time) where {YC <: AbstractYieldModel}
     df = discount(c, time)
     r = -log(df) / time
     return Continuous(r)
@@ -162,8 +177,46 @@ Can only be created via the public API by using the `+`, `-`, `*`, and `/` opera
 
 As this is double the normal operations when performing calculations, if you are using the curve in performance critical locations, you should consider transforming the inputs and 
 constructing a single curve object ahead of time.
+
+Curves can be added or subtracted together, but note that this is not always the same thing as adding or subtracting spreads with rates. If spreads and base rates are expressed as zero rates, then the curve addition/subtraction has the same effect as re-fitting the yield model with the rate+spread inputs added together first. Non-zero rates (e.g. par rates) do not have this same property. Zero-coupon rates have a direct, linear relationship with the underlying discount factors. Par-coupon rates have a complex, non-linear relationship with the underlying discount factors and so the curve addition/subtraction does not work the same way.
+
+## Examples
+
+```julia
+rates = [0.01, 0.01, 0.03, 0.05, 0.07, 0.16, 0.35, 0.92, 1.40, 1.74, 2.31, 2.41] ./ 100
+spreads = [0.01, 0.01, 0.03, 0.05, 0.07, 0.16, 0.35, 0.92, 1.40, 1.74, 2.31, 2.41] ./ 100
+mats = [1 / 12, 2 / 12, 3 / 12, 6 / 12, 1, 2, 3, 5, 7, 10, 20, 30]
+
+
+### Zero coupon rates/spreads
+
+q_rf_z = ZCBYield.(rates,mats)
+q_s_z = ZCBYield.(spreads,mats)
+q_y_z = ZCBYield.(rates + spreads,mats)
+
+c_rf_z = fit(Spline.Linear(),q_rf_z,Fit.Bootstrap())
+c_s_z = fit(Spline.Linear(),q_s_z,Fit.Bootstrap())
+c_y_z = fit(Spline.Linear(),q_y_z,Fit.Bootstrap())
+
+# adding curves when the spreads were zero spreads works
+@test discount(c_rf_z+c_s_z,20) ≈ discount(c_y_z,20)
+
+
+### Par coupon rates/spreads
+
+q_rf = CMTYield.(rates,mats)
+q_s = CMTYield.(spreads,mats)
+q_y = CMTYield.(rates + spreads,mats)
+
+c_rf = fit(Spline.Linear(),q_rf,Fit.Bootstrap())
+c_s = fit(Spline.Linear(),q_s,Fit.Bootstrap())
+c_y = fit(Spline.Linear(),q_y,Fit.Bootstrap())
+
+# adding curves when the spreads were par spreads does not work
+@test !(discount(c_rf+c_s,20) ≈ discount(c_y,20))
+```
 """
-struct CompositeYield{T,U,V} <: AbstractYieldModel
+struct CompositeYield{T, U, V} <: AbstractYieldModel
     r1::T
     r2::U
     op::V
@@ -203,13 +256,13 @@ While `ForwardStarting` could be nested so that, e.g. the third period's curve i
 
 `ForwardStarting` is not used to construct a curve based on forward rates. 
 """
-struct ForwardStarting{T,U} <: AbstractYieldModel
+struct ForwardStarting{T, U} <: AbstractYieldModel
     curve::U
     forwardstart::T
 end
 
 function FinanceCore.discount(c::ForwardStarting, to)
-    FinanceCore.discount(c.curve, c.forwardstart, to + c.forwardstart)
+    return FinanceCore.discount(c.curve, c.forwardstart, to + c.forwardstart)
 end
 
 """
@@ -225,11 +278,11 @@ function Base.:+(a::Constant, b::Constant)
     return Constant(a.rate + b.rate)
 end
 
-function Base.:+(a::T, b) where {T<:AbstractYieldModel}
+function Base.:+(a::T, b) where {T <: AbstractYieldModel}
     return a + Constant(b)
 end
 
-function Base.:+(a, b::T) where {T<:AbstractYieldModel}
+function Base.:+(a, b::T) where {T <: AbstractYieldModel}
     return Constant(a) + b
 end
 
@@ -265,11 +318,11 @@ function Base.:*(a::Constant, b::Constant)
     )
 end
 
-function Base.:*(a::T, b) where {T<:AbstractYieldModel}
+function Base.:*(a::T, b) where {T <: AbstractYieldModel}
     return a * Constant(b)
 end
 
-function Base.:*(a, b::T) where {T<:AbstractYieldModel}
+function Base.:*(a, b::T) where {T <: AbstractYieldModel}
     return Constant(a) * b
 end
 
@@ -283,14 +336,14 @@ function Base.:-(a::AbstractYieldModel, b::AbstractYieldModel)
 end
 
 function Base.:-(a::Constant, b::Constant)
-    Constant(a.rate - b.rate)
+    return Constant(a.rate - b.rate)
 end
 
-function Base.:-(a::T, b) where {T<:AbstractYieldModel}
+function Base.:-(a::T, b) where {T <: AbstractYieldModel}
     return a - Constant(b)
 end
 
-function Base.:-(a, b::T) where {T<:AbstractYieldModel}
+function Base.:-(a, b::T) where {T <: AbstractYieldModel}
     return Constant(a) - b
 end
 
@@ -326,35 +379,13 @@ function Base.:/(a::Constant, b::Constant)
     )
 end
 
-function Base.:/(a::T, b) where {T<:AbstractYieldModel}
+function Base.:/(a::T, b) where {T <: AbstractYieldModel}
     return a / Constant(b)
 end
 
-function Base.:/(a, b::T) where {T<:AbstractYieldModel}
+function Base.:/(a, b::T) where {T <: AbstractYieldModel}
     return Constant(a) / b
 end
 
-
-# used to display simple type name in show method
-# https://stackoverflow.com/questions/70043313/get-simple-name-of-type-in-julia?noredirect=1#comment123823820_70043313
-name(::Type{T}) where {T} = (isempty(T.parameters) ? T : T.name.wrapper)
-
-function Base.show(io::IO, curve::T) where {T<:AbstractYieldModel}
-    r = zero(curve, 1)
-    ylabel = isa(r.compounding, Continuous) ? "Continuous" : "Periodic($(r.compounding.frequency))"
-    kind = name(typeof(curve))
-    l = UnicodePlots.lineplot(
-        0.0, #from 
-        30.0,  # to
-        t -> FinanceCore.rate(zero(curve, t)),
-        xlabel="time",
-        ylabel=ylabel,
-        compact=true,
-        name="Zero rates",
-        width=60,
-        title="Yield Curve ($kind)"
-    )
-    show(io, l)
-end
 
 end

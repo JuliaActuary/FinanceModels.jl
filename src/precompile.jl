@@ -20,8 +20,10 @@ using PrecompileTools    # this is a small dependency
         model_rate = fit(Spline.Linear(), q_rate, Fit.Bootstrap())
         fit(Spline.Quadratic(), q_rate, Fit.Bootstrap())
         fit(Spline.Cubic(), q_rate, Fit.Bootstrap())
+        model_rate = fit(Spline.Linear(), q_rate)
+        fit(Spline.Quadratic(), q_rate)
+        fit(Spline.Cubic(), q_rate)
         fit(Yield.NelsonSiegelSvensson(), q_rate)
-
 
 
         present_value(model_rate, Cashflow(1.0, 1.0))

@@ -4,12 +4,11 @@
 
 ### Yields.jl is now FinanceModels.jl
 
-
 This re-write accomplishes three primary things:
 
-- Provide a composable set of **contracts** and **`Quotes`** 
+- Provide a composable set of **contracts** and **`Quotes`**
 - Those contracts, when combined with a **model** produce a **`Cashflow`** via a flexibly defined `Projection`
-- **models** can be `fit` with a new unified API: `fit(model_type,quotes,fit_method)` 
+- **models** can be `fit` with a new unified API: `fit(model_type,quotes,fit_method)`
 
 ### Migrating Code
 
@@ -39,7 +38,7 @@ model = fit(SmithWilson(),quotes)
 
 #### Details of changes
 
-Previously the kind of contract, the implied quotes, the type of model, and how the fitting process worked were all combined into a single call (`Yields.Par`). This minimized the amount of code needed to construct a yield curve, but left it fairly cumbersome to extend the package. For example, for every new yield curve model, methods for `Par`, `CMT`, `OIS`, `Zero`, ... had to be defined. Additionally, all of the inputs needed to be yields - specifying a price was not available as an argument to fit. 
+Previously the kind of contract, the implied quotes, the type of model, and how the fitting process worked were all combined into a single call (`Yields.Par`). This minimized the amount of code needed to construct a yield curve, but left it fairly cumbersome to extend the package. For example, for every new yield curve model, methods for `Par`, `CMT`, `OIS`, `Zero`, ... had to be defined. Additionally, all of the inputs needed to be yields - specifying a price was not available as an argument to fit.
 
 With the new design of the package, creating a completely new model is much easier, as only the model itself and the valuation primitives need to be defined. For example, defining a new yield curve type that works to value contracts instrument quotes only requires defining the `discount` method. To allow the model to be `fit` requires only defining a default set of parameters to optimize with `__default_optic`:
 

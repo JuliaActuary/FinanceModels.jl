@@ -1,4 +1,4 @@
-# test extending type and that various generic methods are defined 
+# test extending type and that various generic methods are defined
 # to fulfill the API of AbstractYieldCurve
 @testset "generic methods and type extensions" begin
     struct MyYield <: Yield.AbstractYieldModel
@@ -15,7 +15,6 @@
     @test discount(my, 1, 2) ≈ exp(-0.05 * 1)
     @test accumulation(my, 1, 2) ≈ exp(0.05 * 1)
     @test accumulation(my, 1) ≈ exp(0.05 * 1)
-
 
 
     @test FinanceModels.par(my, 1) |> FinanceModels.rate > 0
