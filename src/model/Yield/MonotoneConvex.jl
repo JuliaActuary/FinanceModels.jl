@@ -1,7 +1,29 @@
 """
-An unfit Monotone Convex Yield Curve Model will simply have 
+    MonotoneConvex(rates, times)
 
+A Monotone Convex yield curve model implementing the Hagan-West interpolation method.
 
+This interpolation method guarantees:
+- Continuous forward rates
+- Positive forward rates (when input rates imply positive forwards)
+- Monotone convex forward curves that match discrete forward rates at knot points
+
+The implementation follows the Hagan-West method as described in WILMOTT magazine.
+
+# Examples
+```julia
+prices = [0.98, 0.955, 0.92, 0.88, 0.830]
+times = [1, 2, 3, 4, 5]
+rates = @. -log(prices) / times
+
+c = Yield.MonotoneConvex(rates, times)
+zero(c, 2.5)  # Get the zero rate at t=2.5
+discount(c, 2.5)  # Get the discount factor at t=2.5
+```
+
+# References
+- Hagan & West, "Interpolation Methods for Curve Construction", WILMOTT magazine
+- Dehlbom, "Interpolation of the yield curve" (http://uu.diva-portal.org/smash/get/diva2:1477828/FULLTEXT01.pdf)
 """
 struct MonotoneConvex{T,U} <: AbstractYieldModel
     f::Vector{T}
@@ -17,11 +39,6 @@ end
 
 
 struct MonotoneConvexUnInit
-end
-
-struct MonotoneConvexUnoptimized{T,U}
-    rates::Vector{T}
-    times::Vector{U}
 end
 
 MonotoneConvex() = MonotoneConvexUnInit()
@@ -46,49 +63,46 @@ end
 
 
 # Hagan West - WILMOTT magazine pgs 75-81
-function g(f⁻, f, fᵈ)
-    @show f⁻, f, fᵈ
-    @show g0 = f⁻ - fᵈ
-    @show g1 = f - fᵈ
+# Returns the g function value at x, where g represents the deviation from discrete forward
+function g(x, f⁻, f, fᵈ)
+    g0 = f⁻ - fᵈ
+    g1 = f - fᵈ
     if sign(g0) == sign(g1)
         # sector (iv)
         η = g1 / (g1 + g0)
         α = -g0 * g1 / (g1 + g0)
 
         if x < η
-            return x -> α + (g0 - α) * ((η - x) / η)^2
+            return α + (g0 - α) * ((η - x) / η)^2
         else
-            return x -> α + (g1 - α) * ((x - η) / (1 - η))^2
+            return α + (g1 - α) * ((x - η) / (1 - η))^2
         end
-
 
     elseif __issector1(g0, g1)
         # sector (i)
-        x -> g0 * (1 - 4 * x + 3 * x^2) + g1 * (-2 * x + 3 * x^2)
+        return g0 * (1 - 4 * x + 3 * x^2) + g1 * (-2 * x + 3 * x^2)
     elseif __issector2(g0, g1)
         # sector (ii)
         η = (g1 + 2 * g0) / (g1 - g0)
         if x < η
-            return x -> g0
+            return g0
         else
-            return x -> g0 + (g1 - g0) * ((x - η) / (1 - η))^2
+            return g0 + (g1 - g0) * ((x - η) / (1 - η))^2
         end
     else
         # sector (iii)
         η = 3 * g1 / (g1 - g0)
         if x > η
-            return x -> g1
+            return g1
         else
-            return x -> g1 + (g0 - g1) * ((η - x) / η)^2
+            return g1 + (g0 - g1) * ((η - x) / η)^2
         end
-
     end
 end
 
 function g_rate(x, f⁻, f, fᵈ)
-    @show x, f⁻, f, fᵈ
-    @show g0 = f⁻ - fᵈ
-    @show g1 = f - fᵈ
+    g0 = f⁻ - fᵈ
+    g1 = f - fᵈ
     if sign(g0) == sign(g1)
         # sector (iv)
         η = g1 / (g1 + g0)
@@ -100,10 +114,8 @@ function g_rate(x, f⁻, f, fᵈ)
             return (2 * α + g0) / 3 * η + α * (x - η) + (g1 - α) / 3 * (x - η)^3 / (1 - η)^2
         end
 
-
     elseif __issector1(g0, g1)
         # sector (i)
-        @show "(i)"
         g0 * (x - 2 * x^2 + x^3) + g1 * (-x^2 + x^3)
     elseif __issector2(g0, g1)
         # sector (ii)
@@ -125,13 +137,29 @@ function g_rate(x, f⁻, f, fᵈ)
     end
 end
 
-function forward(t, rates, times)
+# Forward rate at time t for a MonotoneConvex model
+function forward(mc::MonotoneConvex, t)
+    f, fᵈ, times = mc.f, mc.fᵈ, mc.times
+    lt = last(times)
 
-    t, i_time, rates, times = __monotone_convex_init(t, rates, times)
-    f, fᵈ = __monotone_convex_fs(rates, times)
+    # Extrapolation: constant forward beyond last time
+    if t >= lt
+        return fᵈ[end]
+    end
 
-    x = (t - times[i_time]) / (times[i_time+1] - times[i_time])
-    return fᵈ[i_time+1] + g(x, f[i_time], f[i_time+1], fᵈ[i_time+1])
+    i_time = __i_time(t, times)
+
+    if i_time == 1
+        # First interval: from 0 to times[1]
+        x = t / times[1]
+        return fᵈ[1] + g(x, f[1], f[2], fᵈ[1])
+    else
+        # Interval from times[i_time-1] to times[i_time]
+        t_prev = times[i_time-1]
+        t_curr = times[i_time]
+        x = (t - t_prev) / (t_curr - t_prev)
+        return fᵈ[i_time] + g(x, f[i_time], f[i_time+1], fᵈ[i_time])
+    end
 end
 
 """
@@ -185,79 +213,42 @@ end
 
 
 function Base.zero(mc::MonotoneConvex, t)
-    lt = last(mc.times)
-    f, fᵈ = mc.f, mc.fᵈ
+    f, fᵈ, rates, times = mc.f, mc.fᵈ, mc.rates, mc.times
+    lt = last(times)
+
+    # Handle t=0 case (limit is instantaneous forward at t=0)
+    if t == 0
+        return Continuous(f[1])
+    end
+
+    # Extrapolation beyond last time point using constant forward
     if t > lt
-        r = Base.zero(mc, lt)
-        i_time = __i_time(t, mc.times)
-        return r * lt / t + forward(lt, mc.rates, mc.times) * (1 - lt / t)
+        r_lt = rate(Base.zero(mc, lt))  # extract scalar rate for calculation
+        f_lt = fᵈ[end]  # forward at last point
+        return Continuous(r_lt * lt / t + f_lt * (1 - lt / t))
     end
-    @show i_time = __i_time(t, mc.times)
-    # if the time is greater than the last input time then extrapolate using the forwards
 
-    x = if i_time == 1
-        x = t / times[i_time]
+    i_time = __i_time(t, times)
+
+    # Calculate normalized position x in interval and interval bounds
+    if i_time == 1
+        # First interval: from 0 to times[1]
+        x = t / times[1]
+        G = g_rate(x, f[1], f[2], fᵈ[1])
+        # r(t) = (1/t) * [t * fᵈ[1] + times[1] * G(x)]
+        return Continuous(fᵈ[1] + times[1] * G / t)
     else
-        x = (t - times[i_time-1]) / (times[i_time] - times[i_time-1])
+        # Interval from times[i_time-1] to times[i_time]
+        t_prev = times[i_time-1]
+        t_curr = times[i_time]
+        x = (t - t_prev) / (t_curr - t_prev)
+        G = g_rate(x, f[i_time], f[i_time+1], fᵈ[i_time])
+        # r(t) = (1/t) * [t_prev * r_prev + (t - t_prev) * fᵈ[i] + (t_curr - t_prev) * G(x)]
+        return Continuous((t_prev * rates[i_time-1] + (t - t_prev) * fᵈ[i_time] + (t_curr - t_prev) * G) / t)
     end
-    G = g(f[i_time], f[i_time+1], fᵈ[i_time])
-    return Continuous(1 / t * (times[i_time] * rates[i_time] + (t - times[i_time]) * fᵈ[i_time] + (times[i_time] - times[i_time-1]) * G))
-
-    # STATUS:
-    # intermediate G/other results OK
-    # need to get the right rate. Instead of last formula, trying the approach on pg 39 of 
-    # http://uu.diva-portal.org/smash/get/diva2:1477828/FULLTEXT01.pdf 
-    # and have added QuadGK and converted the G function to return a function of x instead of a calculated value 
-    # (also need to change the signature of associated test cases)
-    # QuadGK.quadgk(G,t)
-
 end
 
 function FinanceCore.discount(mc::MonotoneConvex, t)
     r = zero(mc, t)
     return discount(r, t)
 end
-
-function Base.zero(mc::MonotoneConvexUnoptimized, t)
-    lt = last(times)
-    # if the time is greater than the last input time then extrapolate using the forwards
-    if t > lt
-        r = myzero(lt, rates, times, f, fᵈ)
-        return r * lt / t + forward(lt, rates, times) * (1 - lt / t)
-    end
-
-    t, i_time, rates, times = __monotone_convex_init(t, rates, times)
-    f, fᵈ = __monotone_convex_fs(mc.rates, mc.times)
-    x = (t - times[i_time]) / (times[i_time+1] - times[i_time])
-    G = g_rate(x, f[i_time], f[i_time+1], fᵈ[i_time+1])
-    return 1 / t * (times[i_time] * rates[i_time] + (t - times[i_time]) * fᵈ[i_time+1] + (times[i_time+1] - times[i_time]) * G)
-
-end
-
-function FinanceCore.discount(mc::MonotoneConvexUnoptimized, t)
-    r = zero(mc, t)
-    return exp(-r * t)
-end
-
-times = 1:5
-rates = [0.03, 0.04, 0.047, 0.06, 0.06]
-# forward(5.19, rates, times)
-# myzero(1, rates, times)
-
-
-# using Test
-# @test forward(0.5, rates, times) ≈ 0.02875
-# @test forward(1, rates, times) ≈ 0.04
-# @test forward(2, rates, times) ≈ 0.0555
-# @test forward(2.5, rates, times) ≈ 0.0571254591368226
-# @test forward(5, rates, times) ≈ 0.05025
-# @test forward(5.2, rates, times) ≈ 0.05025
-
-# @test myzero(0.5, rates, times) ≈ 0.02625
-# @test myzero(1, rates, times) ≈ 0.03
-# @test myzero(2, rates, times) ≈ 0.04
-# @test myzero(2.5, rates, times) ≈ 0.0431375956535047
-# @test myzero(5, rates, times) ≈ 0.06
-# @test myzero(5.2, rates, times) ≈ 0.059625
-
-

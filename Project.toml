@@ -1,7 +1,7 @@
 name = "FinanceModels"
 uuid = "77f2ae65-bdde-421f-ae9d-22f1af19dd76"
-authors = ["Alec Loudenback <alecloudenback@gmail.com> and contributors"]
 version = "4.4.0"
+authors = ["Alec Loudenback <alecloudenback@gmail.com> and contributors"]
 
 [deps]
 AccessibleOptimization = "d88a00a0-4a21-4fe4-a515-e2123c37b885"
@@ -30,7 +30,7 @@ FinanceModelsMakieCoreExt = "MakieCore"
 [compat]
 AccessibleOptimization = "^0.1.1"
 Accessors = "^0.1"
-BSplineKit = "^0.16"
+BSplineKit = "0.19.1"
 Dates = "^1.6"
 FinanceCore = "^2.1"
 IntervalSets = "^0.7"

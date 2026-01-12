@@ -33,7 +33,6 @@
     @test FinanceModels.Yield.g(0.5, 0.023021969250703423, 0.03158945081076577, 0.02584123118388738) ≈ 0.0087 * (0.5)^2 − 0.0002 * 0.5 - 0.0028 atol = 0.0001
     @test FinanceModels.Yield.g(0.5, 0.03158945081076577, 0.04089471650423902, 0.03733767043764417) ≈ -0.0063 * (0.5)^2 + 0.0156 * 0.5 - 0.0057 atol = 0.0001
     @test FinanceModels.Yield.g(0.5, 0.04089471650423902, 0.051473984626221235, 0.04445176257083387) ≈ 0.0102 * (0.5)^2 + 0.0004 * 0.5 - 0.0036 atol = 0.0001
-    @test FinanceModels.Yield.g(0.5, 0.04089471650423902, 0.051473984626221235, 0.044451762570833877) ≈ -0.0105 * (0.5)^2 + 0.021 * 0.5 - 0.007 atol = 0.0001
 
 
     function r(t)
@@ -55,8 +54,23 @@
     end
 
 
+    # Test zero rates against reference function (tolerance needed due to rounded coefficients in r(t))
     @testset for t in range(0, 5, 30)
-        @test zero(c, t) ≈ r(t)
+        @test rate(zero(c, t)) ≈ r(t) atol = 0.0001
+    end
+
+    # Test that zero rates match exactly at the knot points
+    @testset "knot points" begin
+        for (i, t) in enumerate(times)
+            @test rate(zero(c, t)) ≈ rates[i]
+        end
+    end
+
+    # Test that discount factors match original prices at knot points
+    @testset "discount factors" begin
+        for (i, t) in enumerate(times)
+            @test discount(c, t) ≈ prices[i]
+        end
     end
 
 
