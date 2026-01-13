@@ -3,7 +3,7 @@
     # Interpolation of the yield curve, Gustaf Dehlbom
     # http://uu.diva-portal.org/smash/get/diva2:1477828/FULLTEXT01.pdf
 
-    prices = [0.98, 0.955, 0.92, 0.88, 0.830]
+    prices = [0.98, 0.955, 0.92, 0.88, 0.83]
     times = [1, 2, 3, 4, 5]
     quotes = ZCBPrice.(prices, times)
     rates = @. -log(prices) / times
@@ -26,7 +26,7 @@
     @test f[3] ≈ 0.0316 atol = 0.0001
     @test f[4] ≈ 0.0409 atol = 0.0001
     @test f[5] ≈ 0.0515 atol = 0.0001
-    @test f[6] ≈ 0.0620 atol = 0.0001
+    @test f[6] ≈ 0.062 atol = 0.0001
 
     @test FinanceModels.Yield.g(0.5, 0.018793076350927487, 0.023021969250703423, 0.020202707317519466) ≈ 0.0042 * (0.5)^2 - 0.0014 atol = 0.0001
     @test FinanceModels.Yield.g(0, 0.023021969250703423, 0.03158945081076577, 0.02584123118388738) ≈ -0.0028 atol = 0.0001
@@ -39,7 +39,7 @@
         if 0 <= t <= 1
             return 0.0014t^2 + 0.0188
         elseif 1 <= t <= 1.0233
-            return -0.0028 / t + 0.0230
+            return -0.0028 / t + 0.023
         elseif 1.0233 <= t <= 2
             return 0.0029t^2 - 0.0088t - 0.0058 / t + 0.0319
         elseif 2 <= t <= 3
@@ -103,12 +103,12 @@
         c = Yield.MonotoneConvex(yields, ref_times)
 
         @testset "t=$t" for (i, t) in enumerate(ref_times)
-            @test rate(zero(c, t)) ≈ yields[i] atol = 1e-10
+            @test rate(zero(c, t)) ≈ yields[i] atol = 1.0e-10
         end
     end
 
     @testset "fit with ZCBPrice" begin
-        prices = [0.98, 0.955, 0.92, 0.88, 0.830]
+        prices = [0.98, 0.955, 0.92, 0.88, 0.83]
         times = [1, 2, 3, 4, 5]
         quotes = ZCBPrice.(prices, times)
 
@@ -116,7 +116,7 @@
 
         # Verify discount factors match prices
         @testset "discount at t=$t" for (i, t) in enumerate(times)
-            @test discount(c, t) ≈ prices[i] atol = 1e-6
+            @test discount(c, t) ≈ prices[i] atol = 1.0e-6
         end
     end
 
