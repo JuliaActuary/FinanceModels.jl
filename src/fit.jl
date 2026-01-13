@@ -132,21 +132,25 @@ __default_optic(m::MyModel) = OptArgs([
 __default_optic(m::Yield.Constant) = OptArgs(@optic(_.rate.value) => -1.0 .. 1.0)
 __default_optic(m::Yield.MonotoneConvexUnInit) = OptArgs(@optic(_.rates) .=> -1.0 .. 1.0)
 __default_optic(m::Yield.MonotoneConvex) = OptArgs(@optic(_.rates) .=> -1.0 .. 1.0)
-__default_optic(m::Yield.IntermediateYieldCurve) = OptArgs(@optic(_.ys[end]) => 0.0 .. 1.0)
-__default_optic(m::Yield.NelsonSiegel) = OptArgs([
-    @optic(_.τ₁) => 0.0 .. 100.0
-    @optic(_.β₀) => -10.0 .. 10.0
-    @optic(_.β₁) => -10.0 .. 10.0
-    @optic(_.β₂) => -10.0 .. 10.0
-]...)
-__default_optic(m::Yield.NelsonSiegelSvensson) = OptArgs([
-    @optic(_.τ₁) => 0.0 .. 100.0,
-    @optic(_.τ₂) => 0.0 .. 100.0,
-    @optic(_.β₀) => -10.0 .. 10.0,
-    @optic(_.β₁) => -10.0 .. 10.0,
-    @optic(_.β₂) => -10.0 .. 10.0,
-    @optic(_.β₃) => -10.0 .. 10.0,
-]...)
+__default_optic(m::Yield.IntermediateYieldCurve{T}) where {T <: Spline.SplineCurve} = OptArgs(@optic(_.ys[end]) => 0.0 .. 1.0)
+__default_optic(m::Yield.NelsonSiegel) = OptArgs(
+    [
+        @optic(_.τ₁) => 0.0 .. 100.0
+        @optic(_.β₀) => -10.0 .. 10.0
+        @optic(_.β₁) => -10.0 .. 10.0
+        @optic(_.β₂) => -10.0 .. 10.0
+    ]...
+)
+__default_optic(m::Yield.NelsonSiegelSvensson) = OptArgs(
+    [
+        @optic(_.τ₁) => 0.0 .. 100.0,
+        @optic(_.τ₂) => 0.0 .. 100.0,
+        @optic(_.β₀) => -10.0 .. 10.0,
+        @optic(_.β₁) => -10.0 .. 10.0,
+        @optic(_.β₂) => -10.0 .. 10.0,
+        @optic(_.β₃) => -10.0 .. 10.0,
+    ]...
+)
 __default_optic(m::Equity.BlackScholesMerton) = __default_optic(m.σ)
 __default_optic(m::Volatility.Constant) = OptArgs(@optic(_.σ) => -0.0 .. 10.0)
 
@@ -307,8 +311,18 @@ function fit(mod0::Yield.MonotoneConvexUnInit, quotes, method::F=Fit.Loss(x -> x
     rates = fit(mc, quotes, method; variables, optimizer)
 end
 
+function fit(mod0::T, quotes, method::F) where {T <: Spline.SplineCurve, F <: Fit.Loss}
+    times = sort!(maturity.(quotes))
 
-function fit(mod0::Spline.BSpline, quotes, method::Fit.Bootstrap)
+
+    optf = __spline_loss_function(mod0, times, __default_loss(mod0), quotes)
+    prob = Optimization.OptimizationProblem(optf, fill(0.05, length(quotes)))
+    sol = solve(prob, __default_optim(mod0))
+    return Yield.Spline(mod0, times, sol.u)
+
+end
+
+function fit(mod0::T, quotes, method::Fit.Bootstrap) where {T <: Spline.SplineCurve}
     discount_vector = [0.0]
     times = [maturity(quotes[1])]
 
