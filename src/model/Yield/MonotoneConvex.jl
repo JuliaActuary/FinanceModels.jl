@@ -167,7 +167,7 @@ end
 """
 function __i_time(t, times)
     i_time = findfirst(x -> x > t, times)
-    if i_time == nothing
+    if isnothing(i_time)
         i_time = lastindex(times)
     end
     return i_time
