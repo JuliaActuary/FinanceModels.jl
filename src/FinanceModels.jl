@@ -17,7 +17,6 @@ using Transducers
 import DataInterpolations
 using Transducers: @next, complete, __foldl__, asfoldable
 import SpecialFunctions
-import QuadGK
 
 include("utils.jl")
 include("Contract.jl")

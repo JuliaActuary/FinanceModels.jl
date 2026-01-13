@@ -1,7 +1,7 @@
 name = "FinanceModels"
 uuid = "77f2ae65-bdde-421f-ae9d-22f1af19dd76"
-authors = ["Alec Loudenback <alecloudenback@gmail.com> and contributors"]
 version = "4.15.0"
+authors = ["Alec Loudenback <alecloudenback@gmail.com> and contributors"]
 
 [deps]
 AccessibleOptimization = "d88a00a0-4a21-4fe4-a515-e2123c37b885"
@@ -16,7 +16,6 @@ Optimization = "7f7a1694-90dd-40f0-9382-eb1efda571ba"
 OptimizationMetaheuristics = "3aafef2f-86ae-4776-b337-85a36adf0b55"
 OptimizationOptimJL = "36348300-93cb-4f02-beb5-3c3902f8871e"
 PrecompileTools = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
-QuadGK = "1fd47b50-473d-5c70-9696-f719f8f3bcdc"
 Reexport = "189a3867-3050-52da-a836-e630ba90ab69"
 SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
