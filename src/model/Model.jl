@@ -8,8 +8,8 @@ A singleton type representing a placeholder model for when you don't really need
 struct NullModel <: AbstractModel end
 
 # useful for round-tripping or iterating on quotes?
-function Quote(m::M, c::C) where {M <: AbstractModel, C <: FinanceCore.AbstractContract}
-    return Quote(pv(m, c), c)
+function FinanceCore.Quote(m::M, c::C) where {M <: AbstractModel, C <: FinanceCore.AbstractContract}
+    return FinanceCore.Quote(pv(m, c), c)
 end
 
 include("Spline.jl")
