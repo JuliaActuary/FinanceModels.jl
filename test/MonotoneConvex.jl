@@ -74,6 +74,62 @@
     end
 
 
-    # TODO: More tests from
-    # https://repository.up.ac.za/bitstream/handle/2263/25882/dissertation.pdf?sequence=1&isAllowed=y
+    # Tests from Google TF Quant Finance
+    # https://github.com/google/tf-quant-finance/blob/master/tf_quant_finance/rates/hagan_west/monotone_convex_test.py
+
+    @testset "TF Quant Finance - interpolated yields" begin
+        # test_interpolated_yields_with_yields Example1
+        # Reference times and yields (zero rates in percent)
+        ref_times = [1.0, 2.0, 3.0, 4.0]
+        yields = [5.0, 4.75, 4.533333, 4.775] ./ 100  # convert to decimal
+
+        c = Yield.MonotoneConvex(yields, ref_times)
+
+        # Interpolation times and expected yields
+        interp_times = [0.25, 0.5, 1.0, 2.0, 3.0, 1.1, 2.5, 2.9, 3.6, 4.0]
+        expected = [5.1171875, 5.09375, 5.0, 4.75, 4.533333, 4.9746, 4.624082, 4.535422, 4.661777, 4.775] ./ 100
+
+        @testset "t=$t" for (i, t) in enumerate(interp_times)
+            @test rate(zero(c, t)) ≈ expected[i] atol = 0.0001
+        end
+    end
+
+    @testset "TF Quant Finance - yields at knot points" begin
+        # test_interpolated_yields_with_yields Example2
+        # Verifies exact interpolation at knot points
+        ref_times = [0.1, 0.2, 0.21]
+        yields = [0.1, 0.2, 0.3]
+
+        c = Yield.MonotoneConvex(yields, ref_times)
+
+        @testset "t=$t" for (i, t) in enumerate(ref_times)
+            @test rate(zero(c, t)) ≈ yields[i] atol = 1e-10
+        end
+    end
+
+    @testset "fit with ZCBPrice" begin
+        prices = [0.98, 0.955, 0.92, 0.88, 0.830]
+        times = [1, 2, 3, 4, 5]
+        quotes = ZCBPrice.(prices, times)
+
+        c = fit(Yield.MonotoneConvex(), quotes)
+
+        # Verify discount factors match prices
+        @testset "discount at t=$t" for (i, t) in enumerate(times)
+            @test discount(c, t) ≈ prices[i] atol = 1e-6
+        end
+    end
+
+    @testset "fit with ParYield" begin
+        par_rates = [0.02, 0.025, 0.03, 0.035, 0.04]
+        times = [1, 2, 3, 4, 5]
+        quotes = ParYield.(par_rates, times)
+
+        c = fit(Yield.MonotoneConvex(), quotes)
+
+        # Verify par rates match
+        @testset "par at t=$t" for (i, t) in enumerate(times)
+            @test rate(par(c, t)) ≈ par_rates[i] atol = 0.0001
+        end
+    end
 end
