@@ -61,8 +61,14 @@ function __issector2(g0, g1)
 end
 
 
-# Hagan West - WILMOTT magazine pgs 75-81
-# Returns the g function value at x, where g represents the deviation from discrete forward
+"""
+    g(x, f⁻, f, fᵈ)
+
+Compute the deviation of the instantaneous forward rate from the discrete forward
+rate at normalized position x ∈ [0, 1] within an interval. Following Hagan-West,
+g(x) = f(x) - fᵈ with boundary conditions g₀ = f⁻ - fᵈ and g₁ = f - fᵈ that determine
+the sector-specific polynomial used for interpolation.
+"""
 function g(x, f⁻, f, fᵈ)
     g0 = f⁻ - fᵈ
     g1 = f - fᵈ
@@ -99,6 +105,14 @@ function g(x, f⁻, f, fᵈ)
     end
 end
 
+"""
+    g_rate(x, f⁻, f, fᵈ)
+
+Compute the integrated deviation G(x) = ∫₀ˣ g(u) du, which captures how the
+instantaneous forward curve deviates from the discrete forward across an interval.
+This quantity feeds into the zero-rate relation r(t) = fᵈ + (Δt / t) ⋅ G(x) used by
+the Hagan-West construction.
+"""
 function g_rate(x, f⁻, f, fᵈ)
     g0 = f⁻ - fᵈ
     g1 = f - fᵈ
