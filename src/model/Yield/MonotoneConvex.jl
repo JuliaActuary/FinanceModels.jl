@@ -25,15 +25,15 @@ discount(c, 2.5)  # Get the discount factor at t=2.5
 - Hagan & West, "Interpolation Methods for Curve Construction", WILMOTT magazine
 - Dehlbom, "Interpolation of the yield curve" (http://uu.diva-portal.org/smash/get/diva2:1477828/FULLTEXT01.pdf)
 """
-struct MonotoneConvex{T,U} <: AbstractYieldModel
+struct MonotoneConvex{T, U} <: AbstractYieldModel
     f::Vector{T}
     fᵈ::Vector{T}
     rates::Vector{T}
     times::Vector{U}
     # inner constructor ensures f consistency with rates at construction
-    function MonotoneConvex(rates::Vector{T}, times::Vector{U}) where {T,U}
+    function MonotoneConvex(rates::Vector{T}, times::Vector{U}) where {T, U}
         f, fᵈ = __monotone_convex_fs(rates, times)
-        new{T,U}(f, fᵈ, rates, times)
+        return new{T, U}(f, fᵈ, rates, times)
     end
 end
 
@@ -44,21 +44,20 @@ end
 MonotoneConvex() = MonotoneConvexUnInit()
 function (m::MonotoneConvexUnInit)(times)
     rates = zeros(length(times))
-    MonotoneConvex(rates, times)
+    return MonotoneConvex(rates, times)
 end
-
 
 
 function __issector1(g0, g1)
     a = (g0 > 0) && (g1 >= -2 * g0) && (-0.5 * g0 >= g1)
     b = (g0 < 0) && (g1 <= -2 * g0) && (-0.5 * g0 <= g1)
-    a || b
+    return a || b
 end
 
 function __issector2(g0, g1)
     a = (g0 > 0) && (g1 < -2 * g0)
     b = (g0 < 0) && (g1 > -2 * g0)
-    a || b
+    return a || b
 end
 
 
@@ -103,7 +102,7 @@ end
 function g_rate(x, f⁻, f, fᵈ)
     g0 = f⁻ - fᵈ
     g1 = f - fᵈ
-    if sign(g0) == sign(g1)
+    return if sign(g0) == sign(g1)
         # sector (iv)
         η = g1 / (g1 + g0)
         α = -g0 * g1 / (g1 + g0)
@@ -155,10 +154,10 @@ function forward(mc::MonotoneConvex, t)
         return fᵈ[1] + g(x, f[1], f[2], fᵈ[1])
     else
         # Interval from times[i_time-1] to times[i_time]
-        t_prev = times[i_time-1]
+        t_prev = times[i_time - 1]
         t_curr = times[i_time]
         x = (t - t_prev) / (t_curr - t_prev)
-        return fᵈ[i_time] + g(x, f[i_time], f[i_time+1], fᵈ[i_time])
+        return fᵈ[i_time] + g(x, f[i_time], f[i_time + 1], fᵈ[i_time])
     end
 end
 
@@ -180,32 +179,32 @@ function __monotone_convex_fs(rates, times)
     # step 1
     fᵈ = deepcopy(rates)
     for i in 2:length(times)
-        fᵈ[i] = (times[i] * rates[i] - times[i-1] * rates[i-1]) / (times[i] - times[i-1])
+        fᵈ[i] = (times[i] * rates[i] - times[i - 1] * rates[i - 1]) / (times[i] - times[i - 1])
     end
     # step 2
     f = similar(rates, length(rates) + 1)
     # fill in middle elements first, then do 1st and last
-    for i in 1:length(rates)-1
+    for i in 1:(length(rates) - 1)
         t_prior = if i == 1
             0
         else
-            times[i-1]
+            times[i - 1]
         end
 
-        weight1 = (times[i] - t_prior) / (times[i+1] - t_prior)
-        weight2 = (times[i+1] - times[i]) / (times[i+1] - t_prior)
-        f[i+1] = weight1 * fᵈ[i+1] + weight2 * fᵈ[i]
+        weight1 = (times[i] - t_prior) / (times[i + 1] - t_prior)
+        weight2 = (times[i + 1] - times[i]) / (times[i + 1] - t_prior)
+        f[i + 1] = weight1 * fᵈ[i + 1] + weight2 * fᵈ[i]
     end
     # step 3
     # collar(a,b,c) = clamp(b, a, c)
     f[1] = fᵈ[1] - 0.5 * (f[2] - fᵈ[1])
 
-    f[end] = fᵈ[end] - 0.5 * (f[end-1] - fᵈ[end])
+    f[end] = fᵈ[end] - 0.5 * (f[end - 1] - fᵈ[end])
     f[1] = clamp(f[1], 0, 2 * fᵈ[2])
     f[end] = clamp(f[end], 0, 2 * fᵈ[end])
 
-    for j in 2:(length(times)-1)
-        f[j] = clamp(f[j], 0, 2 * min(fᵈ[j], fᵈ[j+1]))
+    for j in 2:(length(times) - 1)
+        f[j] = clamp(f[j], 0, 2 * min(fᵈ[j], fᵈ[j + 1]))
     end
 
     return f, fᵈ
@@ -239,12 +238,12 @@ function Base.zero(mc::MonotoneConvex, t)
         return Continuous(fᵈ[1] + times[1] * G / t)
     else
         # Interval from times[i_time-1] to times[i_time]
-        t_prev = times[i_time-1]
+        t_prev = times[i_time - 1]
         t_curr = times[i_time]
         x = (t - t_prev) / (t_curr - t_prev)
-        G = g_rate(x, f[i_time], f[i_time+1], fᵈ[i_time])
+        G = g_rate(x, f[i_time], f[i_time + 1], fᵈ[i_time])
         # r(t) = (1/t) * [t_prev * r_prev + (t - t_prev) * fᵈ[i] + (t_curr - t_prev) * G(x)]
-        return Continuous((t_prev * rates[i_time-1] + (t - t_prev) * fᵈ[i_time] + (t_curr - t_prev) * G) / t)
+        return Continuous((t_prev * rates[i_time - 1] + (t - t_prev) * fᵈ[i_time] + (t_curr - t_prev) * G) / t)
     end
 end
 
