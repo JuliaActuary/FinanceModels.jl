@@ -155,7 +155,7 @@ __default_optic(m::Equity.BlackScholesMerton) = __default_optic(m.σ)
 __default_optic(m::Volatility.Constant) = OptArgs(@optic(_.σ) => -0.0 .. 10.0)
 
 
-__default_optim(m) = ECA()
+__default_optim(m) = ECA(options=OptimizationMetaheuristics.Metaheuristics.Options(seed=123))
 __default_optim(m::T) where {T <: Spline.SplineCurve} = OptimizationOptimJL.Newton()
 
 __default_utype(m) = SVector
@@ -179,7 +179,7 @@ Fit a model to a collection of quotes using a loss function and optimization met
 - `method::F=Fit.Loss(x -> x^2)`: The loss function to use for fitting the model. Defaults to the squared loss function. 
   - `method` can also be `Bootstrap()`. If this is the case, `model` should be a spline such as `Spline.Linear()`, `Spline.Cubic()`...
 - `variables=__default_optic(model)`: The variables to optimize over. This is an optic specifying which parameters of the modle can vary. See extended help for more.
-- `optimizer=__default_optim(model)`: The optimization algorithm to use. The default optimization for a given model is ECA from Metahueristics.jl; see extended help for more on customizing the solver including setting the seed.
+- `optimizer=__default_optim(model)`: The optimization algorithm to use. The default optimization for a given model is ECA from Metaheuristics.jl with a fixed seed for reproducibility; see extended help for more on customizing the solver including setting the seed.
 
 The optimization routine will then attempt to modify parameters of `model` to best fit the quoted prices of the contracts underlying the `quotes` by calling `present_value(model,contract)`. The optimization will minimize the loss function specified within `Fit.Loss(...)`. 
 
@@ -222,9 +222,10 @@ julia> fit(model,quotes)
 
 ## Customizing the Solver
 
-The default solver is `ECA()` from Metahueristics.jl. This is a stochastic global optimizer which will run with a random seed by default.
- - To make the seed static, you can specify the kwarg to `fit` with a customized ECA: e.g. `fit(...;optimizer=ECA(seed=123))`
- - A number of options are available for `ECA()` or you may specify a different solver.
+The default solver is `ECA(options=OptimizationMetaheuristics.Metaheuristics.Options(seed=123))` from Metaheuristics.jl. This is a stochastic global optimizer which uses a fixed seed (123) by default to ensure reproducibility.
+ - To use a different seed, import `OptimizationMetaheuristics` and specify the kwarg to `fit` with a customized ECA: e.g. `fit(...;optimizer=ECA(options=OptimizationMetaheuristics.Metaheuristics.Options(seed=456)))`
+ - To use a random seed, you can omit the seed option: e.g. `fit(...;optimizer=ECA())`
+ - A number of options are available for `OptimizationMetaheuristics.Metaheuristics.Options()` or you may specify a different solver.
  - More documentation is available from the upstream packages:
    - [Metaheuristics.jl](https://jmejia8.github.io/Metaheuristics.jl/stable/)
    - [Optimization.jl](https://docs.sciml.ai/Optimization/stable/)
