@@ -193,4 +193,14 @@
             end
         end
     end
+
+    @testset "allocation checks" begin
+        rates = [0.01, 0.02, 0.03]
+        times = [1.0, 2.0, 3.0]
+        c = Yield.MonotoneConvex(rates, times)
+        Yield.forward(c, 1.5)
+        zero(c, 1.5)
+        @test @allocated(Yield.forward(c, 1.5)) == 0
+        @test @allocated(zero(c, 1.5)) == 0
+    end
 end

@@ -178,12 +178,13 @@ end
 """
     returns the index associated with the time t, an initial rate vector, and a time vector
 """
-function __i_time(t, times)
-    i_time = findfirst(x -> x > t, times)
-    if isnothing(i_time)
-        i_time = lastindex(times)
+@inline function __i_time(t, times)
+    for i in eachindex(times)
+        if times[i] > t
+            return i
+        end
     end
-    return i_time
+    return lastindex(times)
 end
 
 """
