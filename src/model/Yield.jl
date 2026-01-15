@@ -130,16 +130,28 @@ Yields.Rate{Float64, Yields.Periodic}(0.03960780543711406, Yields.Periodic(2))
 ```
 """
 function par(curve, time; frequency = 2)
-    mat_disc = discount(curve, time)
     coup_times = coupon_times(time, frequency)
+    mat_disc = discount(curve, time)
     coupon_pv = sum(discount(curve, t) for t in coup_times)
     Δt = step(coup_times)
     r = (1 - mat_disc) / coupon_pv
-    cfs = [t == last(coup_times) ? 1 + r : r for t in coup_times]
-    # `sign(r)`` is used instead of `1` because there are times when the coupons are negative so we want to flip the sign
-    cfs = [-1; cfs]
-    r = FinanceCore.internal_rate_of_return(cfs, [0; coup_times])
-    frequency_inner = min(1 / Δt, max(1 / Δt, frequency))
+    
+    # Build cash flows: initial outflow of -1, then coupons r, final coupon+principal 1+r
+    # Pre-allocate arrays for better performance
+    n = length(coup_times)
+    cfs = Vector{typeof(r)}(undef, n + 1)
+    times = Vector{typeof(Δt)}(undef, n + 1)
+    
+    cfs[1] = -one(r)
+    times[1] = zero(Δt)
+    
+    @inbounds for i in 1:n
+        cfs[i + 1] = i == n ? 1 + r : r
+        times[i + 1] = coup_times[i]
+    end
+    
+    r = FinanceCore.internal_rate_of_return(cfs, times)
+    frequency_inner = 1 / Δt  # Simplified from min(1 / Δt, max(1 / Δt, frequency))
     r = convert(Periodic(frequency_inner), r)
     return r
 end
