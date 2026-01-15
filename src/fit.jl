@@ -285,15 +285,15 @@ function fit(
     ) where
     {F <: Fit.Loss}
     # find the rate that minimizes the loss function w.r.t. the calculated price vs the quotes
-    # Create a negative loss function (as log-likelihood) since AccessibleModels negates for minimization
-    function negloglike(m, qs)
+    # AccessibleModels uses maximization internally, so we negate the loss to minimize it
+    function neg_loss_fn(m, qs)
         loss = mapreduce(+, qs) do q
             p = present_value(m, q.instrument)
             method.fn(p - q.price)
         end
-        return -loss  # Negate because AccessibleModels will negate again to minimize
+        return -loss
     end
-    amodel = AccessibleModel(Base.Fix2(negloglike, quotes), mod0, variables)
+    amodel = AccessibleModel(Base.Fix2(neg_loss_fn, quotes), mod0, variables)
     prob = Optimization.OptimizationProblem(amodel)
     sol = Optimization.solve(prob, optimizer, amodel)
     return getobj(sol)
