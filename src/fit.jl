@@ -64,8 +64,8 @@ end
 """
     __default_optic(model)
 
- Returns the variables to optimize over for the given model. This is an optic/lens specifying which parameters of the modle can vary. See extended help for more.
-An optic argument is a singular or vector of lenses with an optional range of acceptable parameters.
+ Returns the variables to optimize over for the given model. This is an optic/lens specifying which parameters of the model can vary. See extended help for more.
+An optic argument is a tuple of optic => interval pairs specifying which model parameters to optimize and their bounds.
 
 # Examples
 
@@ -77,20 +77,20 @@ struct MyModel <:FinanceModels.AbstractModel
         b 
 end
 
-__default_optic(m::MyModel) = OptArgs([
+__default_optic(m::MyModel) = (
     @optic(_.a) => 0.0 .. 100.0,
     @optic(_.b) => -10.0 .. 10.0,
-]...)
+)
 ```
 
 # Extended help
 
 An arbitrarily complex model may be the object we intend to fit - how does `fit` know what free variables are able to be solved for within the given model?
-`variables` is a singlular or vector optic argument. What does this mean?
+`variables` is a tuple of optic => interval pairs. What does this mean?
 - An optic (or "lens") is a way to define an accessor to a given object. Example:
 
 ```julia-repl
-julia> using Accessors, AccessibleOptimization, IntervalSets
+julia> using Accessors, AccessibleModels, IntervalSets
 
 julia> obj = (a = "AA", b = "BB");
 
@@ -100,7 +100,7 @@ julia> lens = @optic _.a
 julia> lens(obj)
 "AA"
 ```
-An optic argument is a singular or vector of lenses with an optional range of acceptable parameters. For example, we might have a model as follows where we want 
+An optic argument is a tuple of optic => interval pairs. For example, we might have a model as follows where we want 
 `fit` to optize parameters `a` and `b`:
 
 ```julia
@@ -109,50 +109,46 @@ struct MyModel <:FinanceModels.AbstractModel
         b 
 end
 
-__default_optic(m::MyModel) = OptArgs([
+__default_optic(m::MyModel) = (
     @optic(_.a) => 0.0 .. 100.0,
     @optic(_.b) => -10.0 .. 10.0,
-]...)
+)
 ```
-In this way, fit know which arbitrary parameters in a given object may be modified. Technically, we are not modifying the immutable `MyModel`, but instead efficiently creating a new instance. This is enabled by [AccessibleOptimization.jl](https://gitlab.com/aplavin/AccessibleOptimization.jl).
+In this way, fit know which arbitrary parameters in a given object may be modified. Technically, we are not modifying the immutable `MyModel`, but instead efficiently creating a new instance. This is enabled by [AccessibleModels.jl](https://github.com/JuliaAPlavin/AccessibleModels.jl).
 
-Note that not all opitmization algorithms want a bounded interval. In that case, simply leave off the paired range. The prior example would then become:
+Note that not all optimization algorithms want a bounded interval. In that case, simply leave off the paired range. The prior example would then become:
 
 ```julia
-__default_optic(m::MyModel) = OptArgs([
-    @optic(_.a),
-    @optic(_.b),
-]...)
+__default_optic(m::MyModel) = (
+    (@optic(_.a),),
+    (@optic(_.b),),
+)
 ```
 ```
 
     
 
 """
-__default_optic(m::Yield.Constant) = OptArgs(@optic(_.rate.value) => -1.0 .. 1.0)
-__default_optic(m::Yield.MonotoneConvexUnInit) = OptArgs(@optic(_.rates) .=> -1.0 .. 1.0)
-__default_optic(m::Yield.MonotoneConvex) = OptArgs(@optic(_.rates) .=> -1.0 .. 1.0)
-__default_optic(m::Yield.IntermediateYieldCurve{T}) where {T <: Spline.SplineCurve} = OptArgs(@optic(_.ys[end]) => 0.0 .. 1.0)
-__default_optic(m::Yield.NelsonSiegel) = OptArgs(
-    [
-        @optic(_.τ₁) => 0.0 .. 100.0
-        @optic(_.β₀) => -10.0 .. 10.0
-        @optic(_.β₁) => -10.0 .. 10.0
-        @optic(_.β₂) => -10.0 .. 10.0
-    ]...
-)
-__default_optic(m::Yield.NelsonSiegelSvensson) = OptArgs(
-    [
+__default_optic(m::Yield.Constant) = ((@optic(_.rate.value) => -1.0 .. 1.0),)
+__default_optic(m::Yield.MonotoneConvexUnInit) = Tuple(@optic(_.rates) .=> -1.0 .. 1.0)
+__default_optic(m::Yield.MonotoneConvex) = Tuple(@optic(_.rates) .=> -1.0 .. 1.0)
+__default_optic(m::Yield.IntermediateYieldCurve{T}) where {T <: Spline.SplineCurve} = ((@optic(_.ys[end]) => 0.0 .. 1.0),)
+__default_optic(m::Yield.NelsonSiegel) = (
+        @optic(_.τ₁) => 0.0 .. 100.0,
+        @optic(_.β₀) => -10.0 .. 10.0,
+        @optic(_.β₁) => -10.0 .. 10.0,
+        @optic(_.β₂) => -10.0 .. 10.0,
+    )
+__default_optic(m::Yield.NelsonSiegelSvensson) = (
         @optic(_.τ₁) => 0.0 .. 100.0,
         @optic(_.τ₂) => 0.0 .. 100.0,
         @optic(_.β₀) => -10.0 .. 10.0,
         @optic(_.β₁) => -10.0 .. 10.0,
         @optic(_.β₂) => -10.0 .. 10.0,
         @optic(_.β₃) => -10.0 .. 10.0,
-    ]...
-)
-__default_optic(m::Equity.BlackScholesMerton) = __default_optic(m.σ)
-__default_optic(m::Volatility.Constant) = OptArgs(@optic(_.σ) => -0.0 .. 10.0)
+    )
+__default_optic(m::Equity.BlackScholesMerton{T,U,V}) where {T,U,V<:Volatility.Constant} = ((@optic(_.σ.σ) => 0.0 .. 10.0),)
+__default_optic(m::Volatility.Constant) = ((@optic(_.σ) => 0.0 .. 10.0),)
 
 
 __default_optim(m) = ECA(options=OptimizationMetaheuristics.Metaheuristics.Options(seed=123))
@@ -178,7 +174,7 @@ Fit a model to a collection of quotes using a loss function and optimization met
 - `quotes`: A collection of quotes to fit the model to.
 - `method::F=Fit.Loss(x -> x^2)`: The loss function to use for fitting the model. Defaults to the squared loss function. 
   - `method` can also be `Bootstrap()`. If this is the case, `model` should be a spline such as `Spline.Linear()`, `Spline.Cubic()`...
-- `variables=__default_optic(model)`: The variables to optimize over. This is an optic specifying which parameters of the modle can vary. See extended help for more.
+- `variables=__default_optic(model)`: The variables to optimize over. This is a tuple of optic => interval pairs specifying which parameters of the model can vary. See extended help for more.
 - `optimizer=__default_optim(model)`: The optimization algorithm to use. The default optimization for a given model is ECA from Metaheuristics.jl with a fixed seed for reproducibility; see extended help for more on customizing the solver including setting the seed.
 
 The optimization routine will then attempt to modify parameters of `model` to best fit the quoted prices of the contracts underlying the `quotes` by calling `present_value(model,contract)`. The optimization will minimize the loss function specified within `Fit.Loss(...)`. 
@@ -229,16 +225,16 @@ The default solver is `ECA(options=OptimizationMetaheuristics.Metaheuristics.Opt
  - More documentation is available from the upstream packages:
    - [Metaheuristics.jl](https://jmejia8.github.io/Metaheuristics.jl/stable/)
    - [Optimization.jl](https://docs.sciml.ai/Optimization/stable/)
-   - [AccessibleOptimization.jl](https://gitlab.com/aplavin/AccessibleOptimization.jl)
+   - [AccessibleModels.jl](https://github.com/JuliaAPlavin/AccessibleModels.jl)
 
 ## Defining the variables
 
 An arbitrarily complex model may be the object we intend to fit - how does `fit` know what free variables are able to be solved for within the given model?
-`variables` is a singular or vector optic argument. What does this mean?
+`variables` is a tuple of optic => interval pairs. What does this mean?
 - An optic (or "lens") is a way to define an accessor to a given object. Example:
 
 ```julia-repl
-julia> using Accessors, AccessibleOptimization, IntervalSets
+julia> using Accessors, AccessibleModels, IntervalSets
 
 julia> obj = (a = "AA", b = "BB");
 
@@ -248,7 +244,7 @@ julia> lens = @optic _.a
 julia> lens(obj)
 "AA"
 ```
-An optic argument is a singular or vector of lenses with an optional range of acceptable parameters. For example, we might have a model as follows where we want 
+An optic argument is a tuple of optic => interval pairs. For example, we might have a model as follows where we want 
 `fit` to optimize parameters `a` and `b`:
 
 ```julia
@@ -257,20 +253,20 @@ struct MyModel <:FinanceModels.AbstractModel
      b 
 end
 
-__default_optic(m::MyModel) = OptArgs([
+__default_optic(m::MyModel) = (
     @optic(_.a) => 0.0 .. 100.0,
     @optic(_.b) => -10.0 .. 10.0,
-]...)
+)
 ```
-In this way, fit know which arbitrary parameters in a given object may be modified. Technically, we are not modifying the immutable `MyModel`, but instead efficiently creating a new instance. This is enabled by [AccessibleOptimization.jl](https://gitlab.com/aplavin/AccessibleOptimization.jl).
+In this way, fit know which arbitrary parameters in a given object may be modified. Technically, we are not modifying the immutable `MyModel`, but instead efficiently creating a new instance. This is enabled by [AccessibleModels.jl](https://github.com/JuliaAPlavin/AccessibleModels.jl).
 
 Note that not all optimization algorithms want a bounded interval. In that case, simply leave off the paired range. The prior example would then become:
 
 ```julia
-__default_optic(m::MyModel) = OptArgs([
-    @optic(_.a),
-    @optic(_.b),
-]...)
+__default_optic(m::MyModel) = (
+    (@optic(_.a),),
+    (@optic(_.b),),
+)
 ```
 ```
 
@@ -289,11 +285,18 @@ function fit(
     ) where
     {F <: Fit.Loss}
     # find the rate that minimizes the loss function w.r.t. the calculated price vs the quotes
-    f = __loss_single_function(mod0, method, quotes)
-    # some solvers want a `Vector` instead of `SVector` for utype (override __default_utype(m))
-    ops = OptProblemSpec(f, utype, mod0, variables)
-    sol = solve(ops, optimizer)
-    return sol.uobj
+    # Create a negative loss function (as log-likelihood) since AccessibleModels negates for minimization
+    function negloglike(m, qs)
+        loss = mapreduce(+, qs) do q
+            p = present_value(m, q.instrument)
+            method.fn(p - q.price)
+        end
+        return -loss  # Negate because AccessibleModels will negate again to minimize
+    end
+    amodel = AccessibleModel(Base.Fix2(negloglike, quotes), mod0, variables)
+    prob = Optimization.OptimizationProblem(amodel)
+    sol = Optimization.solve(prob, optimizer, amodel)
+    return getobj(sol)
 
 end
 

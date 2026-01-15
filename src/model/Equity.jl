@@ -82,12 +82,19 @@ function volatility(vol::Volatility.Constant, strike_ratio, time_to_maturity)
     return vol.σ
 end
 
+# Convenience method for when σ is already a number (e.g., Float64)
+function volatility(vol::Real, strike_ratio, time_to_maturity)
+    return vol
+end
+
 function FinanceCore.present_value(model::M, c::Option.EuroCall{CommonEquity, K, T}) where {M <: Equity.BlackScholesMerton, K, T}
-    return eurocall(; S = 1.0, K = c.strike, τ = c.maturity, r = model.r, q = model.q, σ = model.σ)
+    σ_val = volatility(model.σ, c.strike, c.maturity)
+    return eurocall(; S = 1.0, K = c.strike, τ = c.maturity, r = model.r, q = model.q, σ = σ_val)
 end
 
 function FinanceCore.present_value(model::M, c::Option.EuroPut{CommonEquity, K, T}) where {M <: Equity.BlackScholesMerton, K, T}
-    return europut(; S = 1.0, K = c.strike, τ = c.maturity, r = model.r, q = model.q, σ = model.σ)
+    σ_val = volatility(model.σ, c.strike, c.maturity)
+    return europut(; S = 1.0, K = c.strike, τ = c.maturity, r = model.r, q = model.q, σ = σ_val)
 end
 
 end

@@ -10,7 +10,7 @@ import Optimization
 import OptimizationOptimJL
 using StaticArrays
 using IntervalSets
-using AccessibleOptimization
+using AccessibleModels
 using Accessors
 using LinearAlgebra
 using Transducers
