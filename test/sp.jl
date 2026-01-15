@@ -22,6 +22,16 @@ end
     @test pv(Yield.Constant(0.05), p) ≈ 1.0
 end
 
+@testset "Quote IRR" begin
+    bond = Bond.Fixed(0.05, Periodic(1), 3.0)
+    bond_quote = Quote(1.0, bond)
+    @test rate(irr(bond_quote)) ≈ 0.05 atol = 1.0e-10
+
+    price = pv(Yield.Constant(0.04), bond)
+    bond_quote_at_price = Quote(price, bond)
+    @test rate(irr(bond_quote_at_price)) ≈ 0.04 atol = 1.0e-10
+end
+
 @testset "AbstractArray of contracts" begin
     c = Bond.Fixed(0.05, Periodic(1), 3.0)
     p = Projection([c, c])
