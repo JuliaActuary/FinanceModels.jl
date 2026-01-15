@@ -137,16 +137,18 @@ function par(curve, time; frequency = 2)
     r = (1 - mat_disc) / coupon_pv
     
     # Build cash flows: initial outflow of -1, then coupons r, final coupon+principal 1+r
+    # Pre-allocate arrays for better performance
     n = length(coup_times)
     cfs = Vector{typeof(r)}(undef, n + 1)
+    times = Vector{typeof(Δt)}(undef, n + 1)
+    
     cfs[1] = -one(r)
-    last_idx = n + 1
+    times[1] = zero(Δt)
+    
     @inbounds for i in 1:n
         cfs[i + 1] = i == n ? 1 + r : r
+        times[i + 1] = coup_times[i]
     end
-    
-    # Build times array
-    times = vcat(zero(Δt), collect(coup_times))
     
     r = FinanceCore.internal_rate_of_return(cfs, times)
     frequency_inner = 1 / Δt  # Simplified from min(1 / Δt, max(1 / Δt, frequency))
