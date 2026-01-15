@@ -83,6 +83,7 @@ end
 
 include("Yield/SmithWilson.jl")
 include("Yield/NelsonSiegelSvensson.jl")
+include("Yield/MonotoneConvex.jl")
 
 ## Generic and Fallbacks
 """

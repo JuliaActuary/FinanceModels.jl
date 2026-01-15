@@ -130,6 +130,8 @@ __default_optic(m::MyModel) = OptArgs([
 
 """
 __default_optic(m::Yield.Constant) = OptArgs(@optic(_.rate.value) => -1.0 .. 1.0)
+__default_optic(m::Yield.MonotoneConvexUnInit) = OptArgs(@optic(_.rates) .=> -1.0 .. 1.0)
+__default_optic(m::Yield.MonotoneConvex) = OptArgs(@optic(_.rates) .=> -1.0 .. 1.0)
 __default_optic(m::Yield.IntermediateYieldCurve{T}) where {T <: Spline.SplineCurve} = OptArgs(@optic(_.ys[end]) => 0.0 .. 1.0)
 __default_optic(m::Yield.NelsonSiegel) = OptArgs(
     [
@@ -231,7 +233,7 @@ The default solver is `ECA()` from Metahueristics.jl. This is a stochastic globa
 ## Defining the variables
 
 An arbitrarily complex model may be the object we intend to fit - how does `fit` know what free variables are able to be solved for within the given model?
-`variables` is a singlular or vector optic argument. What does this mean?
+`variables` is a singular or vector optic argument. What does this mean?
 - An optic (or "lens") is a way to define an accessor to a given object. Example:
 
 ```julia-repl
@@ -292,6 +294,38 @@ function fit(
     sol = solve(ops, optimizer)
     return sol.uobj
 
+end
+
+function fit(mod0::Yield.MonotoneConvexUnInit, quotes, method::F=Fit.Loss(x -> x^2);
+    optimizer=ECA(seed=123)
+) where {F<:Fit.Loss}
+    # Extract times from quotes (sorted)
+    times = sort([maturity(q.instrument) for q in quotes])
+
+    # Create loss function for MonotoneConvex
+    loss = __monotone_convex_loss_function(times, method, quotes)
+
+    # Bounds for rates: typically between -0.5 and 1.0
+    lb = fill(-0.5, length(times))
+    ub = fill(1.0, length(times))
+
+    # Initial guess - use simple approximation from prices if available
+    x0 = fill(0.05, length(times))
+
+    prob = Optimization.OptimizationProblem(loss, x0; lb, ub)
+    sol = solve(prob, optimizer)
+    return Yield.MonotoneConvex(sol.u, times)
+end
+
+function __monotone_convex_loss_function(times, loss_method, quotes)
+    function loss(u, p)
+        m = Yield.MonotoneConvex(u, times)
+        return mapreduce(+, quotes) do q
+            pv = present_value(m, q.instrument)
+            loss_method.fn(pv - q.price)
+        end
+    end
+    return Optimization.OptimizationFunction(loss)
 end
 
 function fit(mod0::T, quotes, method::F) where {T <: Spline.SplineCurve, F <: Fit.Loss}
