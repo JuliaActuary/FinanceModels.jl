@@ -335,10 +335,9 @@ Return the internal rate of return (yield to maturity) implied by the quote's pr
 """
 function FinanceCore.internal_rate_of_return(q::Quote)
     cashflows = collect(q.instrument)
-    isempty(cashflows) && throw(ArgumentError("Quote instrument has no cashflows."))
     time_zero = zero(FinanceCore.timepoint(first(cashflows)))
     rate = FinanceCore.internal_rate_of_return([Cashflow(-q.price, time_zero); cashflows])
-    return q.instrument isa Bond.AbstractBond ? convert(q.instrument.frequency, rate) : rate
+    return rate
 end
 
 """

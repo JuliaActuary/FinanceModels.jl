@@ -30,6 +30,15 @@ end
     price = pv(Yield.Constant(0.04), bond)
     bond_quote_at_price = Quote(price, bond)
     @test rate(irr(bond_quote_at_price)) ≈ 0.04 atol = 1.0e-10
+
+    cashflow_quote = Quote(0.95, Cashflow(1.0, 1.0))
+    @test rate(irr(cashflow_quote)) ≈ (1 / 0.95 - 1) atol = 1.0e-10
+
+    semi_bond = Bond.Fixed(0.05, Periodic(2), 2.0)
+    semi_bond_quote = Quote(1.0, semi_bond)
+    expected = irr([Cashflow(-semi_bond_quote.price, 0.0); collect(semi_bond)])
+    @test rate(irr(semi_bond_quote)) ≈ rate(expected) atol = 1.0e-10
+    @test irr(semi_bond_quote).compounding == Periodic(1)
 end
 
 @testset "AbstractArray of contracts" begin
