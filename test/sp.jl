@@ -36,8 +36,8 @@ end
 
     semi_bond = Bond.Fixed(0.05, Periodic(2), 2.0)
     semi_bond_quote = Quote(1.0, semi_bond)
-    expected = irr([Cashflow(-semi_bond_quote.price, 0.0); collect(semi_bond)])
-    @test rate(irr(semi_bond_quote)) ≈ rate(expected) atol = 1.0e-10
+    expected_rate = rate(convert(Periodic(1), Rate(semi_bond.coupon_rate, semi_bond.frequency)))
+    @test rate(irr(semi_bond_quote)) ≈ expected_rate atol = 1.0e-10
     @test irr(semi_bond_quote).compounding == Periodic(1)
 end
 
