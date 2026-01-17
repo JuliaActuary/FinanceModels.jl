@@ -22,6 +22,25 @@ end
     @test pv(Yield.Constant(0.05), p) ≈ 1.0
 end
 
+@testset "Quote IRR" begin
+    bond = Bond.Fixed(0.05, Periodic(1), 3.0)
+    bond_quote = Quote(1.0, bond)
+    @test rate(irr(bond_quote)) ≈ 0.05 atol = 1.0e-10
+
+    price = pv(Yield.Constant(0.04), bond)
+    bond_quote_at_price = Quote(price, bond)
+    @test rate(irr(bond_quote_at_price)) ≈ 0.04 atol = 1.0e-10
+
+    cashflow_quote = Quote(0.95, Cashflow(1.0, 1.0))
+    @test rate(irr(cashflow_quote)) ≈ (1 / 0.95 - 1) atol = 1.0e-10
+
+    semi_bond = Bond.Fixed(0.05, Periodic(2), 2.0)
+    semi_bond_quote = Quote(1.0, semi_bond)
+    expected_rate = rate(convert(Periodic(1), Rate(semi_bond.coupon_rate, semi_bond.frequency)))
+    @test rate(irr(semi_bond_quote)) ≈ expected_rate atol = 1.0e-10
+    @test irr(semi_bond_quote).compounding == Periodic(1)
+end
+
 @testset "AbstractArray of contracts" begin
     c = Bond.Fixed(0.05, Periodic(1), 3.0)
     p = Projection([c, c])

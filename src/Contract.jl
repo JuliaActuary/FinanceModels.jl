@@ -329,6 +329,18 @@ module Bond
 end
 
 """
+    FinanceCore.internal_rate_of_return(q::Quote)
+
+Return the internal rate of return (yield to maturity) implied by the quote's price and cashflows.
+"""
+function FinanceCore.internal_rate_of_return(q::Quote)
+    cashflows = collect(q.instrument)
+    time_zero = zero(FinanceCore.timepoint(first(cashflows)))
+    rate = FinanceCore.internal_rate_of_return([Cashflow(-q.price, time_zero); cashflows])
+    return rate
+end
+
+"""
     CommonEquity()
 
 A singleton type representing a unit stock.
