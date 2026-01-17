@@ -44,7 +44,7 @@ Quote{Float64, FinanceModels.Bond.Fixed{Periodic, Float64, Int64}}(
 1.0, 
 FinanceModels.Bond.Fixed{Periodic, Float64, Int64}(0.040000000000000036, Periodic(2), 10))
 </code></pre><p>A number of convenience functions are included to construct a <code>Quote</code>:</p><ul><li><code>ZCBPrice</code> and <code>ZCBYield</code></li><li><code>ParYield</code></li><li><code>CMTYield</code></li><li><code>OISYield</code></li><li><code>ForwardYields</code></li></ul><h2 id="4.-**Models**-Not-just-yield-curves-anymore"><a class="docs-heading-anchor" href="#4.-**Models**-Not-just-yield-curves-anymore">4. <strong>Models</strong> - Not just yield curves anymore</a><a id="4.-**Models**-Not-just-yield-curves-anymore-1"></a><a class="docs-heading-anchor-permalink" href="#4.-**Models**-Not-just-yield-curves-anymore" title="Permalink"></a></h2><ul><li><strong>Yield Curves</strong>: all of Yields.jl yield models are included in the initial FinanceModels.jl release</li><li><strong>Equities and Options</strong>: The initial release includes <code>BlackScholesMerton</code> option pricing and one can use constant or spline volatility models</li><li><strong>Others</strong> more to come in the future</li></ul><h3 id="Creating-a-new-model"><a class="docs-heading-anchor" href="#Creating-a-new-model">Creating a new model</a><a id="Creating-a-new-model-1"></a><a class="docs-heading-anchor-permalink" href="#Creating-a-new-model" title="Permalink"></a></h3><p>Here we&#39;ll do a complete implementation of a yield curve model where the discount rate is approximated by a straight line (often called an AB line from the <code>y=ax+b</code> formula.</p><pre><code class="language-julia hljs"> using FinanceModels, FinanceCore
- using AccessibleOptimization 
+ using AccessibleModels 
  using IntervalSets
  
 struct ABDiscountLine{A} &lt;: FinanceModels.Yield.AbstractYieldModel
@@ -60,12 +60,12 @@ function FinanceCore.discount(m::ABDiscountLine,t)
 end
 
 
-# `@optic` indicates what in our model variables needs to be updated (from AccessibleOptimization.jl)
+# `@optic` indicates what in our model variables needs to be updated (from AccessibleModels.jl)
 # `-1.0 .. 1.0` says to bound the search from negative to positive one (from IntervalSets.jl)
-FinanceModels.__default_optic(m::ABDiscountLine) = OptArgs([
+FinanceModels.__default_optic(m::ABDiscountLine) = (
     @optic(_.a) =&gt; -1.0 .. 1.0,
     @optic(_.b) =&gt; -1.0 .. 1.0,
-]...)
+)
 
 quotes = ZCBPrice([0.9, 0.8, 0.7,0.6])
 
@@ -143,4 +143,4 @@ end</code></pre><p>We can now define the projection:</p><pre><code class="langua
  (time = 3.5, payment = 0.1, outstanding = 0.30000000000000016)
  (time = 4.0, payment = 0.1, outstanding = 0.20000000000000015)
  (time = 4.5, payment = 0.1, outstanding = 0.10000000000000014)
- (time = 5.0, payment = 0.1, outstanding = 1.3877787807814457e-16)</code></pre></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../">« Home</a><a class="docs-footer-nextpage" href="../models/">Models, Valuation, and Fitting »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.16.1 on <span class="colophon-date" title="Thursday 15 January 2026 05:18">Thursday 15 January 2026</span>. Using Julia version 1.12.4.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+ (time = 5.0, payment = 0.1, outstanding = 1.3877787807814457e-16)</code></pre></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../">« Home</a><a class="docs-footer-nextpage" href="../models/">Models, Valuation, and Fitting »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.16.1 on <span class="colophon-date" title="Saturday 17 January 2026 03:53">Saturday 17 January 2026</span>. Using Julia version 1.12.4.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
