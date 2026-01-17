@@ -128,7 +128,7 @@ Here we'll do a complete implementation of a yield curve model where the discoun
 
 ```julia
  using FinanceModels, FinanceCore
- using AccessibleOptimization 
+ using AccessibleModels 
  using IntervalSets
  
 struct ABDiscountLine{A} <: FinanceModels.Yield.AbstractYieldModel
@@ -144,12 +144,12 @@ function FinanceCore.discount(m::ABDiscountLine,t)
 end
 
 
-# `@optic` indicates what in our model variables needs to be updated (from AccessibleOptimization.jl)
+# `@optic` indicates what in our model variables needs to be updated (from AccessibleModels.jl)
 # `-1.0 .. 1.0` says to bound the search from negative to positive one (from IntervalSets.jl)
-FinanceModels.__default_optic(m::ABDiscountLine) = OptArgs([
+FinanceModels.__default_optic(m::ABDiscountLine) = (
     @optic(_.a) => -1.0 .. 1.0,
     @optic(_.b) => -1.0 .. 1.0,
-]...)
+)
 
 quotes = ZCBPrice([0.9, 0.8, 0.7,0.6])
 
