@@ -27,9 +27,6 @@ Transducers = "28d57a85-8fef-5791-bfe6-a80928e7c999"
 MakieCore = "20f20a25-4f0e-4fdf-b5d1-57303727442b"
 UnicodePlots = "b8865327-cd53-5732-bb35-84acbb429228"
 
-[sources]
-FinanceCore = {path = "/Users/alecloudenback/.julia/dev/FinanceCore"}
-
 [extensions]
 FinanceModelsMakieCoreExt = "MakieCore"
 FinanceModelsUnicodePlots = "UnicodePlots"
