@@ -129,7 +129,7 @@ __default_optic(m::MyModel) = (
     
 
 """
-__default_optic(m::Yield.Constant) = ((@optic(_.rate.value) => -1.0 .. 1.0),)
+__default_optic(m::Yield.Constant) = ((@optic(_.rate.continuous_value) => -1.0 .. 1.0),)
 __default_optic(m::Yield.MonotoneConvexUnInit) = Tuple(@optic(_.rates) .=> -1.0 .. 1.0)
 __default_optic(m::Yield.MonotoneConvex) = Tuple(@optic(_.rates) .=> -1.0 .. 1.0)
 __default_optic(m::Yield.IntermediateYieldCurve{T}) where {T <: Spline.SplineCurve} = ((@optic(_.ys[end]) => 0.0 .. 1.0),)
@@ -151,7 +151,7 @@ __default_optic(m::Equity.BlackScholesMerton{T,U,V}) where {T,U,V<:Volatility.Co
 __default_optic(m::Volatility.Constant) = ((@optic(_.σ) => 0.0 .. 10.0),)
 
 
-__default_optim(m) = ECA(options=OptimizationMetaheuristics.Metaheuristics.Options(seed=123))
+__default_optim(m) = OptimizationOptimJL.LBFGS()
 __default_optim(m::T) where {T <: Spline.SplineCurve} = OptimizationOptimJL.Newton()
 
 __default_utype(m) = SVector
@@ -175,7 +175,7 @@ Fit a model to a collection of quotes using a loss function and optimization met
 - `method::F=Fit.Loss(x -> x^2)`: The loss function to use for fitting the model. Defaults to the squared loss function. 
   - `method` can also be `Bootstrap()`. If this is the case, `model` should be a spline such as `Spline.Linear()`, `Spline.Cubic()`...
 - `variables=__default_optic(model)`: The variables to optimize over. This is a tuple of optic => interval pairs specifying which parameters of the model can vary. See extended help for more.
-- `optimizer=__default_optim(model)`: The optimization algorithm to use. The default optimization for a given model is ECA from Metaheuristics.jl with a fixed seed for reproducibility; see extended help for more on customizing the solver including setting the seed.
+- `optimizer=__default_optim(model)`: The optimization algorithm to use. The default optimization for a given model is `LBFGS()` from Optim.jl (via OptimizationOptimJL), a quasi-Newton method with automatic differentiation via ForwardDiff. See extended help for more on customizing the solver.
 
 The optimization routine will then attempt to modify parameters of `model` to best fit the quoted prices of the contracts underlying the `quotes` by calling `present_value(model,contract)`. The optimization will minimize the loss function specified within `Fit.Loss(...)`. 
 
@@ -218,12 +218,10 @@ julia> fit(model,quotes)
 
 ## Customizing the Solver
 
-The default solver is `ECA(options=OptimizationMetaheuristics.Metaheuristics.Options(seed=123))` from Metaheuristics.jl. This is a stochastic global optimizer which uses a fixed seed (123) by default to ensure reproducibility.
- - To use a different seed, import `OptimizationMetaheuristics` and specify the kwarg to `fit` with a customized ECA: e.g. `fit(...;optimizer=ECA(options=OptimizationMetaheuristics.Metaheuristics.Options(seed=456)))`
- - To use a random seed, you can omit the seed option: e.g. `fit(...;optimizer=ECA())`
- - A number of options are available for `OptimizationMetaheuristics.Metaheuristics.Options()` or you may specify a different solver.
+The default solver is `LBFGS()` from Optim.jl (via OptimizationOptimJL). This is a quasi-Newton method that uses automatic differentiation (ForwardDiff) to compute gradients efficiently.
+ - Any solver from OptimizationOptimJL can be used, e.g. `fit(...; optimizer=OptimizationOptimJL.Newton())` or `fit(...; optimizer=OptimizationOptimJL.NelderMead())`.
  - More documentation is available from the upstream packages:
-   - [Metaheuristics.jl](https://jmejia8.github.io/Metaheuristics.jl/stable/)
+   - [Optim.jl](https://julianlsolvers.github.io/Optim.jl/stable/)
    - [Optimization.jl](https://docs.sciml.ai/Optimization/stable/)
    - [AccessibleModels.jl](https://github.com/JuliaAPlavin/AccessibleModels.jl)
 
@@ -294,14 +292,20 @@ function fit(
         return -loss
     end
     amodel = AccessibleModel(Base.Fix2(neg_loss_fn, quotes), mod0, variables)
-    prob = Optimization.OptimizationProblem(amodel)
-    sol = Optimization.solve(prob, optimizer, amodel)
-    return getobj(sol)
+    tf = AccessibleModels.transformed_func(amodel)
+    optf = Optimization.OptimizationFunction((args...) -> -tf(args...), AutoForwardDiff())
+    x0 = collect(AccessibleModels.transformed_vec(amodel))
+    bounds = AccessibleModels.transformed_bounds(amodel)
+    lb = haskey(bounds, :lb) ? collect(bounds.lb) : nothing
+    ub = haskey(bounds, :ub) ? collect(bounds.ub) : nothing
+    prob = Optimization.OptimizationProblem(optf, x0, AccessibleModels.rawdata(amodel); lb, ub)
+    sol = Optimization.solve(prob, optimizer)
+    return AccessibleModels.from_transformed(sol.u, amodel)
 
 end
 
 function fit(mod0::Yield.MonotoneConvexUnInit, quotes, method::F=Fit.Loss(x -> x^2);
-    optimizer=ECA(seed=123)
+    optimizer=OptimizationOptimJL.LBFGS()
 ) where {F<:Fit.Loss}
     # Extract times from quotes (sorted)
     times = sort([maturity(q.instrument) for q in quotes])
@@ -317,7 +321,7 @@ function fit(mod0::Yield.MonotoneConvexUnInit, quotes, method::F=Fit.Loss(x -> x
     x0 = fill(0.05, length(times))
 
     prob = Optimization.OptimizationProblem(loss, x0; lb, ub)
-    sol = solve(prob, optimizer)
+    sol = Optimization.solve(prob, optimizer)
     return Yield.MonotoneConvex(sol.u, times)
 end
 
@@ -329,7 +333,7 @@ function __monotone_convex_loss_function(times, loss_method, quotes)
             loss_method.fn(pv - q.price)
         end
     end
-    return Optimization.OptimizationFunction(loss)
+    return Optimization.OptimizationFunction(loss, AutoForwardDiff())
 end
 
 function fit(mod0::T, quotes, method::F) where {T <: Spline.SplineCurve, F <: Fit.Loss}
@@ -338,7 +342,7 @@ function fit(mod0::T, quotes, method::F) where {T <: Spline.SplineCurve, F <: Fi
 
     optf = __spline_loss_function(mod0, times, __default_loss(mod0), quotes)
     prob = Optimization.OptimizationProblem(optf, fill(0.05, length(quotes)))
-    sol = solve(prob, __default_optim(mod0))
+    sol = Optimization.solve(prob, __default_optim(mod0))
     return Yield.Spline(mod0, times, sol.u)
 
 end

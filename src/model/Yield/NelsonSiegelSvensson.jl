@@ -36,10 +36,15 @@ struct NelsonSiegel{T} <: AbstractYieldModel
     β₁::T
     β₂::T
 
-    function NelsonSiegel(τ₁::T, β₀::T, β₁::T, β₂::T) where {T <: Real}
+    function NelsonSiegel(τ₁::T, β₀::T, β₁::T, β₂::T) where {T}
         (τ₁ <= 0) && throw(DomainError("Wrong tau parameter ranges (must be positive)"))
         return new{T}(τ₁, β₀, β₁, β₂)
     end
+end
+
+function NelsonSiegel(τ₁, β₀, β₁, β₂)
+    T = promote_type(typeof(τ₁), typeof(β₀), typeof(β₁), typeof(β₂))
+    return NelsonSiegel(convert(T, τ₁), convert(T, β₀), convert(T, β₁), convert(T, β₂))
 end
 
 function NelsonSiegel(τ₁ = 1.0)
@@ -107,6 +112,11 @@ struct NelsonSiegelSvensson{T} <: AbstractYieldModel
         (τ₁ <= 0 || τ₂ <= 0) && throw(DomainError("Wrong tau parameter ranges (must be positive)"))
         return new{T}(τ₁, τ₂, β₀, β₁, β₂, β₃)
     end
+end
+
+function NelsonSiegelSvensson(τ₁, τ₂, β₀, β₁, β₂, β₃)
+    T = promote_type(typeof(τ₁), typeof(τ₂), typeof(β₀), typeof(β₁), typeof(β₂), typeof(β₃))
+    return NelsonSiegelSvensson(convert(T, τ₁), convert(T, τ₂), convert(T, β₀), convert(T, β₁), convert(T, β₂), convert(T, β₃))
 end
 
 NelsonSiegelSvensson(τ₁ = 1.0, τ₂ = 1.0) = NelsonSiegelSvensson(τ₁, τ₂, 0.0, 0.0, 0.0, 0.0)
