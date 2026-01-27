@@ -42,6 +42,10 @@ struct NelsonSiegel{T} <: AbstractYieldModel
     end
 end
 
+# Promote mixed argument types to a common type so the inner constructor's
+# `where {T}` constraint is satisfied. This is needed for ForwardDiff, which
+# passes Dual numbers for the parameters being differentiated while the
+# remaining parameters stay as Float64.
 function NelsonSiegel(τ₁, β₀, β₁, β₂)
     T = promote_type(typeof(τ₁), typeof(β₀), typeof(β₁), typeof(β₂))
     return NelsonSiegel(convert(T, τ₁), convert(T, β₀), convert(T, β₁), convert(T, β₂))
@@ -114,6 +118,7 @@ struct NelsonSiegelSvensson{T} <: AbstractYieldModel
     end
 end
 
+# See NelsonSiegel promotion comment above.
 function NelsonSiegelSvensson(τ₁, τ₂, β₀, β₁, β₂, β₃)
     T = promote_type(typeof(τ₁), typeof(τ₂), typeof(β₀), typeof(β₁), typeof(β₂), typeof(β₃))
     return NelsonSiegelSvensson(convert(T, τ₁), convert(T, τ₂), convert(T, β₀), convert(T, β₁), convert(T, β₂), convert(T, β₃))
