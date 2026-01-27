@@ -293,11 +293,20 @@ function fit(
     end
     amodel = AccessibleModel(Base.Fix2(neg_loss_fn, quotes), mod0, variables)
     tf = AccessibleModels.transformed_func(amodel)
-    optf = Optimization.OptimizationFunction((args...) -> -tf(args...), AutoForwardDiff())
+    optf = Optimization.OptimizationFunction((x, p) -> convert(eltype(x), -tf(x, p)), AutoForwardDiff())
     x0 = collect(AccessibleModels.transformed_vec(amodel))
     bounds = AccessibleModels.transformed_bounds(amodel)
     lb = haskey(bounds, :lb) ? collect(bounds.lb) : nothing
     ub = haskey(bounds, :ub) ? collect(bounds.ub) : nothing
+    # Ensure x0 is strictly interior to avoid Fminbox boundary warnings
+    # and to avoid degenerate starting points (e.g., σ=0 for Black-Scholes)
+    if lb !== nothing && ub !== nothing
+        for i in eachindex(x0)
+            if x0[i] <= lb[i] || x0[i] >= ub[i]
+                x0[i] = (lb[i] + ub[i]) / 2
+            end
+        end
+    end
     prob = Optimization.OptimizationProblem(optf, x0, AccessibleModels.rawdata(amodel); lb, ub)
     sol = Optimization.solve(prob, optimizer)
     return AccessibleModels.from_transformed(sol.u, amodel)
@@ -313,14 +322,12 @@ function fit(mod0::Yield.MonotoneConvexUnInit, quotes, method::F=Fit.Loss(x -> x
     # Create loss function for MonotoneConvex
     loss = __monotone_convex_loss_function(times, method, quotes)
 
-    # Bounds for rates: typically between -0.5 and 1.0
-    lb = fill(-0.5, length(times))
-    ub = fill(1.0, length(times))
+    # Initial guess - use a non-uniform guess to avoid NaN in MonotoneConvex
+    # (a flat initial guess causes 0/0 in the g function due to division by zero in sector iv)
+    n = length(times)
+    x0 = collect(range(0.01, 0.05, length=n))
 
-    # Initial guess - use simple approximation from prices if available
-    x0 = fill(0.05, length(times))
-
-    prob = Optimization.OptimizationProblem(loss, x0; lb, ub)
+    prob = Optimization.OptimizationProblem(loss, x0)
     sol = Optimization.solve(prob, optimizer)
     return Yield.MonotoneConvex(sol.u, times)
 end
