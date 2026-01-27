@@ -294,7 +294,7 @@ function Base.:+(a::T, b) where {T <: AbstractYieldModel}
     return a + Constant(b)
 end
 
-function Base.:+(a, b::T) where {T <: AbstractYieldModel}
+function Base.:+(a::Union{Real,Rate}, b::T) where {T <: AbstractYieldModel}
     return Constant(a) + b
 end
 
@@ -334,7 +334,7 @@ function Base.:*(a::T, b) where {T <: AbstractYieldModel}
     return a * Constant(b)
 end
 
-function Base.:*(a, b::T) where {T <: AbstractYieldModel}
+function Base.:*(a::Union{Real,Rate}, b::T) where {T <: AbstractYieldModel}
     return Constant(a) * b
 end
 
@@ -355,7 +355,7 @@ function Base.:-(a::T, b) where {T <: AbstractYieldModel}
     return a - Constant(b)
 end
 
-function Base.:-(a, b::T) where {T <: AbstractYieldModel}
+function Base.:-(a::Union{Real,Rate}, b::T) where {T <: AbstractYieldModel}
     return Constant(a) - b
 end
 
@@ -395,7 +395,7 @@ function Base.:/(a::T, b) where {T <: AbstractYieldModel}
     return a / Constant(b)
 end
 
-function Base.:/(a, b::T) where {T <: AbstractYieldModel}
+function Base.:/(a::Union{Real,Rate}, b::T) where {T <: AbstractYieldModel}
     return Constant(a) / b
 end
 

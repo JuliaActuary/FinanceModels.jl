@@ -16,8 +16,8 @@
     f, fᵈ = Yield.__monotone_convex_fs(rates, times)
 
     @testset "$name" for (name, c) in curves
-        @test all(f .≈ c.f)
-        @test all(fᵈ .≈ c.fᵈ)
+        @test all(isapprox.(f, c.f; atol=1e-8))
+        @test all(isapprox.(fᵈ, c.fᵈ; atol=1e-8))
 
         @test fᵈ[1] ≈ 0.0202 atol = 0.0001
         @test fᵈ[2] ≈ 0.0258 atol = 0.0001

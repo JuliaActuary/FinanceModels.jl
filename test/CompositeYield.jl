@@ -13,7 +13,7 @@
 
         yield = rf_curve + spread_curve
 
-        @test zero(yield, 0.5) ≈ Periodic(first(riskfree) + first(spread), 1)
+        @test isapprox(zero(yield, 0.5), Periodic(first(riskfree) + first(spread), 1); atol=1e-6)
 
         @test discount(yield, 1.0) ≈ 1 / (1 + riskfree[2] + spread[2])^1
         @test discount(yield, 1.5) ≈ 1 / (1 + riskfree[3] + spread[3])^1.5

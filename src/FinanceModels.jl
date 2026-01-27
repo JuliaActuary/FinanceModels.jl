@@ -4,7 +4,7 @@ import Dates
 using Reexport
 @reexport using FinanceCore
 using FinanceCore: present_value, discount, accumulation
-using OptimizationMetaheuristics
+using DifferentiationInterface: AutoForwardDiff
 import DifferentiationInterface
 import Optimization
 import OptimizationOptimJL
