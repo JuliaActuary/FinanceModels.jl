@@ -1,0 +1,225 @@
+# Stochastic Interest Rate Models
+
+## Introduction
+
+FinanceModels.jl includes stochastic short-rate models that are first-class yield models. Because Vasicek, Cox-Ingersoll-Ross (CIR), and Hull-White all have closed-form zero-coupon bond prices, they implement `discount(model, t)` analytically. This means the entire existing valuation infrastructure -- `zero`, `forward`, `par`, `present_value`, and `fit` -- works unchanged with these models.
+
+For stochastic-cashflow analysis (e.g. Monte Carlo valuation), `simulate()` generates scenario yield curves that also plug into the existing `present_value`.
+
+## Available Models
+
+| Model | Dynamics | Parameters |
+|:------|:---------|:-----------|
+| [`ShortRate.Vasicek`](@ref FinanceModels.ShortRate.Vasicek) | `dr = a(b - r)dt + σ dW` | `a`, `b`, `σ`, `initial` |
+| [`ShortRate.CoxIngersollRoss`](@ref FinanceModels.ShortRate.CoxIngersollRoss) | `dr = a(b - r)dt + σ√r dW` | `a`, `b`, `σ`, `initial` |
+| [`ShortRate.HullWhite`](@ref FinanceModels.ShortRate.HullWhite) | `dr = (θ(t) - ar)dt + σ dW` | `a`, `σ`, `curve` |
+
+Where:
+- `a` is the speed of mean reversion
+- `b` is the long-term mean rate
+- `σ` is the volatility
+- `initial` is the initial short rate `r₀` (a `Rate` or scalar)
+- `curve` is an existing yield model (for Hull-White, which calibrates to an initial term structure)
+
+## Constructing Models
+
+### Vasicek
+
+The Vasicek model is the simplest mean-reverting short-rate model. The short rate `r(t)` reverts to a long-term level `b` at speed `a`, with constant volatility `σ`.
+
+```julia
+using FinanceModels
+
+v = ShortRate.Vasicek(0.136, 0.0168, 0.0119, Continuous(0.01))
+```
+
+The `initial` rate can be passed as a scalar (interpreted as continuous) or as an explicit `Rate`:
+
+```julia
+# These are equivalent:
+ShortRate.Vasicek(0.136, 0.0168, 0.0119, 0.01)
+ShortRate.Vasicek(0.136, 0.0168, 0.0119, Continuous(0.01))
+```
+
+### Cox-Ingersoll-Ross
+
+The CIR model is similar to Vasicek but the volatility is proportional to `√r`, which prevents negative rates when the Feller condition `2ab > σ²` is satisfied.
+
+```julia
+cir = ShortRate.CoxIngersollRoss(0.3, 0.05, 0.1, Continuous(0.03))
+```
+
+### Hull-White
+
+The Hull-White model takes an existing yield curve and adds stochastic dynamics. The drift is calibrated so that the model exactly reproduces the initial term structure.
+
+```julia
+curve = fit(Spline.Cubic(), CMTYield.([0.04, 0.05, 0.055, 0.06], [1, 5, 10, 30]), Fit.Bootstrap())
+hw = ShortRate.HullWhite(0.1, 0.01, curve)
+
+# discount factors match the initial curve exactly:
+discount(hw, 10) == discount(curve, 10) # true
+```
+
+## Using Stochastic Models as Yield Curves
+
+Since these models implement `discount()`, all standard yield curve operations work:
+
+```julia
+v = ShortRate.Vasicek(0.136, 0.0168, 0.0119, Continuous(0.01))
+
+# Discount factors (closed-form zero-coupon bond prices)
+discount(v, 5)        # P(0, 5)
+discount(v, 2, 10)    # P(2, 10)
+
+# Zero rates
+zero(v, 5)            # continuous zero rate at t=5
+
+# Forward rates
+forward(v, 2, 3)      # forward rate from t=2 to t=3
+
+# Par yields
+par(v, 10)            # par yield at t=10
+```
+
+### Valuing Fixed-Income Contracts
+
+Since stochastic models are yield models, `present_value` works directly for deterministic-cashflow instruments:
+
+```julia
+v = ShortRate.Vasicek(0.136, 0.0168, 0.0119, Continuous(0.01))
+bond = Bond.Fixed(0.05, Periodic(2), 10)
+
+# Analytical present value using closed-form discount factors
+pv(v, bond)
+```
+
+## Calibrating Models with `fit`
+
+Stochastic models support calibration via `fit`, using the same API as all other models. The optimizer uses ForwardDiff automatic differentiation to find parameters that best match observed market quotes.
+
+```julia
+# Observed market zero-coupon yields
+quotes = ZCBYield.([0.02, 0.025, 0.03], [1, 5, 10])
+
+# Initial guess
+v0 = ShortRate.Vasicek(0.1, 0.02, 0.01, Continuous(0.01))
+
+# Fit to market data
+v_fitted = fit(v0, quotes)
+
+# Verify: the fitted model reprices the quotes
+map(q -> pv(v_fitted, q.instrument), quotes)
+```
+
+The default parameter bounds for fitting are:
+
+| Model | `a` | `b` | `σ` |
+|:------|:----|:----|:----|
+| Vasicek | `0.0 .. 5.0` | `-0.1 .. 0.5` | `0.0 .. 1.0` |
+| CIR | `0.0 .. 5.0` | `-0.1 .. 0.5` | `0.0 .. 1.0` |
+| Hull-White | `0.0 .. 5.0` | -- | `0.0 .. 1.0` |
+
+Custom bounds can be passed via the `variables` keyword argument to `fit`.
+
+## Monte Carlo Simulation
+
+### Generating Scenarios with `simulate`
+
+`simulate` uses Euler-Maruyama discretisation to generate interest-rate paths. Each path is returned as a [`RatePath`](@ref FinanceModels.RatePath), which is itself an `AbstractYieldModel` -- so `discount`, `zero`, `forward`, `par`, and `present_value` all work on individual scenarios.
+
+```julia
+using Random
+
+v = ShortRate.Vasicek(0.136, 0.0168, 0.0119, Continuous(0.01))
+
+scenarios = simulate(v;
+    n_scenarios = 1000,    # number of paths
+    timestep    = 1/12,    # monthly steps
+    horizon     = 30.0,    # 30-year horizon
+    rng         = MersenneTwister(42),  # reproducible
+)
+
+length(scenarios)            # 1000
+scenarios[1] isa RatePath    # true
+
+# Each scenario is a full yield model:
+discount(scenarios[1], 5)
+zero(scenarios[1], 10)
+present_value(scenarios[1], Bond.Fixed(0.05, Periodic(2), 10))
+```
+
+### Monte Carlo Present Value with `pv_mc`
+
+`pv_mc` is a convenience function that simulates scenarios and averages `present_value` across them:
+
+```julia
+v = ShortRate.Vasicek(0.136, 0.0168, 0.0119, Continuous(0.01))
+bond = Bond.Fixed(0.05, Periodic(2), 10)
+
+# Monte Carlo expected PV
+mc = pv_mc(v, bond; n_scenarios=5000, timestep=1/12)
+
+# Compare to analytical (closed-form) PV
+analytical = pv(v, bond)
+
+# These should be close (within ~1-2% for 5000 scenarios)
+```
+
+The signature is:
+
+```julia
+pv_mc(model, contract;
+    n_scenarios = 1000,
+    timestep    = 1/12,
+    horizon     = nothing,   # defaults to maturity + 1
+    rng         = Random.default_rng(),
+)
+```
+
+### Working with Individual Scenarios
+
+Since each scenario is a yield model, you can do per-scenario analysis:
+
+```julia
+v = ShortRate.Vasicek(0.136, 0.0168, 0.0119, Continuous(0.01))
+bond = Bond.Fixed(0.05, Periodic(2), 10)
+
+scenarios = simulate(v; n_scenarios=1000, timestep=1/12, horizon=11.0)
+
+# Distribution of present values
+pvs = [pv(sc, bond) for sc in scenarios]
+
+# Percentiles
+sort!(pvs)
+p95 = pvs[950]   # 95th percentile PV
+p05 = pvs[50]    # 5th percentile PV
+mean_pv = sum(pvs) / length(pvs)
+```
+
+## Mean Reversion Behaviour
+
+A key feature of these models is mean reversion. With strong mean reversion (`a` large), the long-term zero rate converges to `b`:
+
+```julia
+# Strong mean reversion: long-term rate approaches b=0.05
+v_strong = ShortRate.Vasicek(2.0, 0.05, 0.01, Continuous(0.10))
+zero(v_strong, 30)  # close to Continuous(0.05)
+
+# Weak mean reversion: initial rate persists longer
+v_weak = ShortRate.Vasicek(0.01, 0.05, 0.01, Continuous(0.10))
+zero(v_weak, 30)    # still far from 0.05
+```
+
+## Summary
+
+| Function | Description |
+|:---------|:------------|
+| `discount(model, t)` | Closed-form ZCB price `P(0,t)` |
+| `zero(model, t)` | Continuous zero rate at `t` |
+| `forward(model, t1, t2)` | Forward rate from `t1` to `t2` |
+| `par(model, t)` | Par yield at `t` |
+| `pv(model, contract)` | Analytical present value |
+| `fit(model, quotes)` | Calibrate to market data |
+| `simulate(model; ...)` | Generate `Vector{RatePath}` scenarios |
+| `pv_mc(model, contract; ...)` | Monte Carlo expected present value |
