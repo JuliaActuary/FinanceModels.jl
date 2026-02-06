@@ -23,4 +23,5 @@ include("NelsonSiegelSvensson.jl")
 include("MonotoneConvex.jl")
 
 include("extensions.jl")
+include("Stochastic.jl")
 #TODO EconomicScenarioGenerators.jl integration tests

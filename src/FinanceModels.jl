@@ -17,6 +17,7 @@ using Transducers
 import DataInterpolations
 using Transducers: @next, complete, __foldl__, asfoldable
 import SpecialFunctions
+using Random
 
 include("utils.jl")
 include("Contract.jl")
@@ -37,6 +38,7 @@ using .Yield: par
 export par
 
 export Equity, Volatility
+export ShortRate, AbstractStochasticModel, RatePath, simulate, pv_mc
 export Projection, CashflowProjection
 export pv
 export Fit, fit

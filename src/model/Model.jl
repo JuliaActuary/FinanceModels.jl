@@ -16,6 +16,7 @@ include("Spline.jl")
 include("Yield.jl")
 include("Volatility.jl")
 include("Equity.jl")
+include("Stochastic.jl")
 
 """
     present_value(model,contract,current_time=0.0)
