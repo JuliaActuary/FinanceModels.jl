@@ -176,6 +176,163 @@ using Random
         end
     end
 
+    @testset "Hull-White ZCB options" begin
+        # Reference: Hull "Options, Futures, and Other Derivatives" Technical Note 31
+        # a=0.08, σ=0.01, flat 10% continuous, T=1, S=5, L=100, K=68
+        hw_hull = ShortRate.HullWhite(0.08, 0.01, Yield.Constant(Continuous(0.10)))
+
+        @testset "Hull textbook example" begin
+            call_price = present_value(hw_hull, Option.ZCBCall(1.0, 5.0, 0.68))
+            # Hull gives call ≈ 0.00439 per unit (0.439 per 100 face)
+            @test call_price ≈ 0.00439 atol = 0.0005
+        end
+
+        @testset "tf-quant-finance reference (a=0.03, σ=0.02, flat 1%)" begin
+            # Reference: google/tf-quant-finance zero_coupon_bond_option_test.py
+            hw_tf = ShortRate.HullWhite(0.03, 0.02, Yield.Constant(Continuous(0.01)))
+
+            # T=1, S=5, K = P(0,5)/P(0,1) (ATM forward)
+            K1 = exp(-0.01 * 5) / exp(-0.01 * 1)
+            call1 = present_value(hw_tf, Option.ZCBCall(1.0, 5.0, K1))
+            @test call1 ≈ 0.02817777 atol = 1e-5
+
+            # T=2, S=4, K = P(0,4)/P(0,2) (ATM forward)
+            K2 = exp(-0.01 * 4) / exp(-0.01 * 2)
+            call2 = present_value(hw_tf, Option.ZCBCall(2.0, 4.0, K2))
+            @test call2 ≈ 0.02042677 atol = 1e-5
+        end
+
+        @testset "put-call parity" begin
+            # Call - Put = P(0,S) - K·P(0,T) for ZCB options
+            hw_pcp = ShortRate.HullWhite(0.1, 0.015, Yield.Constant(Continuous(0.05)))
+            T, S, K = 1.0, 5.0, 0.75
+            call = present_value(hw_pcp, Option.ZCBCall(T, S, K))
+            put  = present_value(hw_pcp, Option.ZCBPut(T, S, K))
+            P0S = discount(hw_pcp, S)
+            P0T = discount(hw_pcp, T)
+            @test call - put ≈ P0S - K * P0T atol = 1e-10
+        end
+    end
+
+    @testset "Hull-White caps and floors" begin
+        # Reference: google/tf-quant-finance cap_floor_test.py
+        # a=0.03, σ=0.02, flat 1% continuous, quarterly, 1-year cap, notional=1 (per unit)
+        hw_cap = ShortRate.HullWhite(0.03, 0.02, Yield.Constant(Continuous(0.01)))
+
+        @testset "tf-quant-finance cap reference values" begin
+            # Strike 1%, quarterly, 1-year cap
+            # tf-quant-finance expected: 0.4072088281493774 for notional=100
+            # Our Cap is per unit notional, so expected = 0.004072088...
+            cap_1pct = present_value(hw_cap, Option.Cap(0.01, 4, 1.0))
+            @test cap_1pct * 100 ≈ 0.40720883 atol = 0.001
+
+            # Strike 2%
+            cap_2pct = present_value(hw_cap, Option.Cap(0.02, 4, 1.0))
+            @test cap_2pct * 100 ≈ 0.14283513 atol = 0.001
+
+            # Strike 3%
+            cap_3pct = present_value(hw_cap, Option.Cap(0.03, 4, 1.0))
+            @test cap_3pct * 100 ≈ 0.03980642 atol = 0.001
+        end
+
+        @testset "cap-floor parity" begin
+            # Cap(K) - Floor(K) = forward swap value
+            # = P(0,τ) - P(0,Nτ) - K·τ·Σ_{i=2}^{N} P(0,iτ)
+            hw_cf = ShortRate.HullWhite(0.1, 0.015, Yield.Constant(Continuous(0.05)))
+            strike = 0.05
+            freq = 2
+            mat = 5.0
+            τ = 1.0 / freq
+            n_periods = round(Int, mat * freq)
+
+            cap  = present_value(hw_cf, Option.Cap(strike, freq, mat))
+            flr  = present_value(hw_cf, Option.Floor(strike, freq, mat))
+
+            # Compute the forward swap value from the curve
+            annuity = sum(discount(hw_cf, i * τ) for i in 2:n_periods)
+            swap_value = discount(hw_cf, τ) - discount(hw_cf, n_periods * τ) - strike * τ * annuity
+            @test cap - flr ≈ swap_value atol = 1e-8
+        end
+
+        @testset "cap increases with volatility" begin
+            hw_lo = ShortRate.HullWhite(0.1, 0.005, Yield.Constant(Continuous(0.03)))
+            hw_hi = ShortRate.HullWhite(0.1, 0.020, Yield.Constant(Continuous(0.03)))
+            cap_lo = present_value(hw_lo, Option.Cap(0.03, 4, 2.0))
+            cap_hi = present_value(hw_hi, Option.Cap(0.03, 4, 2.0))
+            @test cap_hi > cap_lo
+        end
+    end
+
+    @testset "Hull-White swaptions" begin
+        # Reference: google/tf-quant-finance swaption_test.py
+        # a=0.03, σ=0.02, flat 1% continuous, 1y into 1y quarterly, fixed rate 1.1%
+        hw_sw = ShortRate.HullWhite(0.03, 0.02, Yield.Constant(Continuous(0.01)))
+
+        @testset "tf-quant-finance swaption reference values" begin
+            # Payer swaption: expiry=1, swap maturity=2, strike=0.011, quarterly
+            # tf-quant-finance expected: 0.7163243383624043 for notional=100
+            payer = Option.Swaption(1.0, 2.0, 0.011, 4; payer = true)
+            payer_price = present_value(hw_sw, payer)
+            @test payer_price * 100 ≈ 0.71632434 atol = 0.01
+
+            # Receiver swaption
+            # tf-quant-finance expected: 0.813482544626056 for notional=100
+            receiver = Option.Swaption(1.0, 2.0, 0.011, 4; payer = false)
+            receiver_price = present_value(hw_sw, receiver)
+            @test receiver_price * 100 ≈ 0.81348254 atol = 0.01
+        end
+
+        @testset "put-call parity for swaptions" begin
+            # Payer - Receiver = PV of forward swap
+            hw_pcp = ShortRate.HullWhite(0.1, 0.015, Yield.Constant(Continuous(0.05)))
+            expiry = 1.0
+            swap_mat = 6.0
+            strike = 0.05
+            freq = 2
+            τ = 1.0 / freq
+
+            payer    = present_value(hw_pcp, Option.Swaption(expiry, swap_mat, strike, freq; payer = true))
+            receiver = present_value(hw_pcp, Option.Swaption(expiry, swap_mat, strike, freq; payer = false))
+
+            # Compute the forward swap value from the curve
+            n_payments = round(Int, (swap_mat - expiry) * freq)
+            payment_times = [expiry + i * τ for i in 1:n_payments]
+            annuity = sum(discount(hw_pcp, Ti) for Ti in payment_times)
+            fwd_swap = discount(hw_pcp, expiry) - discount(hw_pcp, swap_mat) - strike * τ * annuity
+            @test payer - receiver ≈ fwd_swap atol = 1e-6
+        end
+
+        @testset "swaption increases with volatility" begin
+            hw_lo = ShortRate.HullWhite(0.1, 0.005, Yield.Constant(Continuous(0.03)))
+            hw_hi = ShortRate.HullWhite(0.1, 0.020, Yield.Constant(Continuous(0.03)))
+            sw_lo = present_value(hw_lo, Option.Swaption(1.0, 6.0, 0.03, 2))
+            sw_hi = present_value(hw_hi, Option.Swaption(1.0, 6.0, 0.03, 2))
+            @test sw_hi > sw_lo
+        end
+    end
+
+    @testset "Hull-White fit to swaptions" begin
+        # Demonstrate that fit() works for Hull-White with derivative quotes
+        hw0 = ShortRate.HullWhite(0.05, 0.01, Yield.Constant(Continuous(0.03)))
+
+        # Generate "market" swaption prices from a known model
+        hw_true = ShortRate.HullWhite(0.1, 0.015, Yield.Constant(Continuous(0.03)))
+        instruments = [
+            Option.Swaption(1.0, 6.0, 0.03, 2),
+            Option.Swaption(2.0, 7.0, 0.03, 2),
+            Option.Swaption(3.0, 8.0, 0.03, 2),
+        ]
+        quotes = [Quote(present_value(hw_true, inst), inst) for inst in instruments]
+
+        hw_fit = fit(hw0, quotes)
+        @test hw_fit isa ShortRate.HullWhite
+
+        # Fitted model should reprice the quotes
+        for q in quotes
+            @test present_value(hw_fit, q.instrument) ≈ q.price rtol = 0.05
+        end
+    end
+
     @testset "RatePath as yield model" begin
         # Construct a RatePath manually and verify it works
         import DataInterpolations

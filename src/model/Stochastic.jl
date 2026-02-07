@@ -250,3 +250,225 @@ function pv_mc(model::AbstractStochasticModel, contract;
     total = sum(FinanceCore.present_value(sc, contract) for sc in scenarios)
     return total / n_scenarios
 end
+
+# ─── Hull-White derivative pricing (ZCB options, caps, swaptions) ────────────
+#
+# Reference: Brigo & Mercurio (2006) "Interest Rate Models", Chapter 3
+#            Hull (2018) "Options, Futures, and Other Derivatives", Ch. 32
+#            Jamshidian (1989) "An Exact Bond Option Formula"
+
+# Hull-White B(t,T) function
+function _hw_B(a, t, T)
+    τ = T - t
+    if abs(a) < 1e-12
+        return τ
+    else
+        return (1 - exp(-a * τ)) / a
+    end
+end
+
+# Instantaneous forward rate f(0,t) from the initial curve
+function _hw_forward_rate(curve, t)
+    ε = min(t, 1e-6)
+    if t < 1e-10
+        return -log(FinanceCore.discount(curve, 1e-6)) / 1e-6
+    else
+        return -(log(FinanceCore.discount(curve, t + ε)) - log(FinanceCore.discount(curve, t - ε))) / (2ε)
+    end
+end
+
+# Hull-White ZCB price P(t,T) given r(t), used in Jamshidian decomposition
+# ln P(t,T) = ln(P(0,T)/P(0,t)) + B(t,T)·f(0,t) - σ²/(4a)·B(t,T)²·(1-exp(-2at))
+function _hw_zcb(m::ShortRate.HullWhite, t, T, r_t)
+    a, σ = m.a, m.σ
+    P0t = FinanceCore.discount(m.curve, t)
+    P0T = FinanceCore.discount(m.curve, T)
+    B_tT = _hw_B(a, t, T)
+    f0t = _hw_forward_rate(m.curve, t)
+    if abs(a) < 1e-12
+        lnA = log(P0T / P0t) + B_tT * f0t - 0.5 * σ^2 * t * B_tT^2
+    else
+        lnA = log(P0T / P0t) + B_tT * f0t - σ^2 / (4a) * B_tT^2 * (1 - exp(-2a * t))
+    end
+    return exp(lnA - B_tT * r_t)
+end
+
+"""
+    _hw_zcb_option_price(m::ShortRate.HullWhite, T, S, K)
+
+Closed-form price of a European call and put on a zero-coupon bond
+under the Hull-White one-factor model.
+
+Returns `(call_price, put_price)`.
+
+- `T`: option expiry
+- `S`: bond maturity (S > T)
+- `K`: strike price
+
+Reference: Brigo & Mercurio (2006), Proposition 3.2.1
+"""
+function _hw_zcb_option_price(m::ShortRate.HullWhite, T, S, K)
+    a, σ = m.a, m.σ
+    P0T = FinanceCore.discount(m.curve, T)
+    P0S = FinanceCore.discount(m.curve, S)
+
+    # σ_P: volatility of the ZCB price at expiry
+    B_TS = _hw_B(a, T, S)
+    if abs(a) < 1e-12
+        σ_P = σ * B_TS * sqrt(T)
+    else
+        σ_P = σ * B_TS * sqrt((1 - exp(-2a * T)) / (2a))
+    end
+
+    if σ_P < 1e-15
+        # Degenerate case: no vol → intrinsic value
+        call = max(P0S - K * P0T, 0.0)
+        put  = max(K * P0T - P0S, 0.0)
+        return (call, put)
+    end
+
+    h = (1 / σ_P) * log(P0S / (K * P0T)) + σ_P / 2
+
+    call = P0S * N(h) - K * P0T * N(h - σ_P)
+    put  = K * P0T * N(-h + σ_P) - P0S * N(-h)
+    return (call, put)
+end
+
+# ─── present_value for ZCB options ───────────────────────────────────────────
+
+function FinanceCore.present_value(m::ShortRate.HullWhite, c::Option.ZCBCall)
+    call, _ = _hw_zcb_option_price(m, c.expiry, c.bond_maturity, c.strike)
+    return call
+end
+
+function FinanceCore.present_value(m::ShortRate.HullWhite, c::Option.ZCBPut)
+    _, put = _hw_zcb_option_price(m, c.expiry, c.bond_maturity, c.strike)
+    return put
+end
+
+# ─── present_value for Caps and Floors ───────────────────────────────────────
+#
+# A caplet paying max(L(T_{i-1},T_i) - K, 0)·τ at T_i is equivalent to
+# (1 + K·τ) puts on a ZCB with maturity T_i, strike 1/(1+K·τ), expiring at T_{i-1}.
+#
+# Similarly a floorlet = (1 + K·τ) calls on a ZCB.
+
+function FinanceCore.present_value(m::ShortRate.HullWhite, c::Option.Cap)
+    K = c.strike
+    freq = c.frequency isa FinanceCore.Frequency ? c.frequency.frequency : c.frequency
+    τ = 1.0 / freq
+    # Payment dates: τ, 2τ, ..., maturity
+    # Caplet i: reset at T_{i-1}, pays at T_i
+    # First caplet (reset at 0, pay at τ) is typically excluded (rate already known)
+    n_periods = round(Int, c.maturity * freq)
+    K_bond = 1.0 / (1.0 + K * τ)
+    total = 0.0
+    for i in 2:n_periods
+        T_reset = (i - 1) * τ   # option expiry = reset date
+        T_pay   = i * τ         # bond maturity = payment date
+        _, put = _hw_zcb_option_price(m, T_reset, T_pay, K_bond)
+        total += (1.0 + K * τ) * put
+    end
+    return total
+end
+
+function FinanceCore.present_value(m::ShortRate.HullWhite, c::Option.Floor)
+    K = c.strike
+    freq = c.frequency isa FinanceCore.Frequency ? c.frequency.frequency : c.frequency
+    τ = 1.0 / freq
+    n_periods = round(Int, c.maturity * freq)
+    K_bond = 1.0 / (1.0 + K * τ)
+    total = 0.0
+    for i in 2:n_periods
+        T_reset = (i - 1) * τ
+        T_pay   = i * τ
+        call, _ = _hw_zcb_option_price(m, T_reset, T_pay, K_bond)
+        total += (1.0 + K * τ) * call
+    end
+    return total
+end
+
+# ─── present_value for European Swaptions (Jamshidian decomposition) ─────────
+#
+# A payer swaption = right to enter a pay-fixed swap at expiry T₀.
+# The underlying swap has payment dates T₁,...,Tₙ with coupon c and frequency f.
+# At expiry the swap value (per unit notional) is:
+#   V(r) = 1 - P(T₀,Tₙ;r) - c·τ·∑ P(T₀,Tᵢ;r)
+# which is positive when rates are high (payer benefits).
+#
+# Jamshidian (1989): find r* where V(r*)=0, then
+#   Payer = ∑ [c·τ·Put(T₀,Tᵢ,Kᵢ)] + Put(T₀,Tₙ,Kₙ)
+#   where Kᵢ = P(T₀,Tᵢ;r*)
+#
+# For a receiver swaption, replace Put with Call.
+
+function FinanceCore.present_value(m::ShortRate.HullWhite, c::Option.Swaption)
+    T0 = c.expiry
+    freq = c.frequency isa FinanceCore.Frequency ? c.frequency.frequency : c.frequency
+    τ = 1.0 / freq
+    coupon = c.strike
+
+    # Payment dates of the underlying swap
+    n_payments = round(Int, (c.swap_maturity - T0) * freq)
+    payment_times = [T0 + i * τ for i in 1:n_payments]
+
+    # Step 1: Find r* such that the swap has zero value at T0
+    # Swap value at T0 given r(T0) = r:
+    #   V(r) = 1 - P(T0,Tn;r) - c·τ·∑ P(T0,Ti;r)
+    function swap_value(r)
+        total = 1.0
+        for (i, Ti) in enumerate(payment_times)
+            P_Ti = _hw_zcb(m, T0, Ti, r)
+            total -= coupon * τ * P_Ti
+            if i == length(payment_times)
+                total -= P_Ti  # principal repayment
+            end
+        end
+        return total
+    end
+
+    # Bisection to find r*
+    r_star = _bisect(swap_value, -0.5, 0.5)
+
+    # Step 2: Compute strike prices Ki = P(T0, Ti; r*)
+    # Step 3: Sum ZCB options
+    price = 0.0
+    for (i, Ti) in enumerate(payment_times)
+        Ki = _hw_zcb(m, T0, Ti, r_star)
+        if c.payer
+            # Payer swaption = sum of ZCB puts
+            _, put = _hw_zcb_option_price(m, T0, Ti, Ki)
+            price += coupon * τ * put
+            if i == length(payment_times)
+                price += put  # principal
+            end
+        else
+            # Receiver swaption = sum of ZCB calls
+            call, _ = _hw_zcb_option_price(m, T0, Ti, Ki)
+            price += coupon * τ * call
+            if i == length(payment_times)
+                price += call  # principal
+            end
+        end
+    end
+    return price
+end
+
+# Simple bisection solver
+function _bisect(f, lo, hi; tol = 1e-12, maxiter = 200)
+    flo = f(lo)
+    for _ in 1:maxiter
+        mid = (lo + hi) / 2
+        fmid = f(mid)
+        if abs(fmid) < tol || (hi - lo) / 2 < tol
+            return mid
+        end
+        if sign(fmid) == sign(flo)
+            lo = mid
+            flo = fmid
+        else
+            hi = mid
+        end
+    end
+    return (lo + hi) / 2
+end
