@@ -197,6 +197,55 @@ p05 = pvs[50]    # 5th percentile PV
 mean_pv = sum(pvs) / length(pvs)
 ```
 
+### Projecting Cashflows Across Scenarios
+
+For fixed-coupon bonds, the cashflows themselves don't change across scenarios -- only the discount factors (and thus the present value) change. You can get the cashflows directly with `collect`:
+
+```julia
+bond = Bond.Fixed(0.05, Periodic(2), 3)
+collect(bond)
+# 6-element Vector{Cashflow}:
+#  Cashflow(0.025, 0.5)
+#  Cashflow(0.025, 1.0)
+#  ...
+#  Cashflow(1.025, 3.0)
+```
+
+For **floating-rate bonds**, the cashflows depend on forward rates, which differ across scenarios. Use `Projection` with a `Dict` mapping the reference rate key to the scenario's yield model:
+
+```julia
+using FinanceModels, Random
+
+v = ShortRate.Vasicek(0.136, 0.0168, 0.0119, Continuous(0.01))
+scenarios = simulate(v; n_scenarios=3, timestep=1/12, horizon=4.0,
+                     rng=MersenneTwister(42))
+
+# Floating bond: 2% spread over "SOFR", semiannual, 3-year
+bond_float = Bond.Floating(0.02, Periodic(2), 3.0, "SOFR")
+
+for (i, sc) in enumerate(scenarios)
+    proj = Projection(bond_float, Dict("SOFR" => sc), CashflowProjection())
+    cfs = collect(proj)
+    println("Scenario $i cashflows:")
+    for cf in cfs
+        println("  t=$(cf.time): $(round(cf.amount; digits=4))")
+    end
+end
+# Each scenario produces different coupon amounts because the
+# forward rates from each RatePath are different.
+```
+
+This also works with composite contracts like interest rate swaps, where the floating leg references a scenario:
+
+```julia
+curve = Yield.Constant(0.05)
+swap = InterestRateSwap(curve, 5)
+
+sc = scenarios[1]
+proj = Projection(swap, Dict("OIS" => sc), CashflowProjection())
+cfs = collect(proj)  # net cashflows (received fixed, paid floating)
+```
+
 ## Mean Reversion Behaviour
 
 A key feature of these models is mean reversion. With strong mean reversion (`a` large), the long-term zero rate converges to `b`:
