@@ -16,6 +16,7 @@ makedocs(;
         "Guide" => [
             "Introduction" => "introduction.md",
             "Models, Valuation, and Fitting" => "models.md",
+            "Stochastic Models" => "stochastic.md",
             "Contracts" => "contracts.md",
             "Rates" => "Rates.md",
             "Migration Guide" => "migration.md",
@@ -30,6 +31,7 @@ makedocs(;
             "Equity" => "API/Equity.md",
             "Option" => "API/Option.md",
             "Volatility" => "API/Volatility.md",
+            "ShortRate" => "API/ShortRate.md",
         ],
         "FAQs" => "faq.md",
         "Extensions" => "extensions.md",

@@ -400,6 +400,89 @@ struct EuroPut{S <: AbstractContract, K <: Real, M <: Timepoint} <: AbstractCont
     strike::K
     maturity::M
 end
+
+"""
+    ZCBCall(expiry, bond_maturity, strike)
+
+A European call option on a zero-coupon bond.
+The holder has the right to buy at time `expiry` a ZCB maturing at
+`bond_maturity` for `strike`.
+"""
+struct ZCBCall{T <: Real, S <: Real, K <: Real} <: AbstractContract
+    expiry::T
+    bond_maturity::S
+    strike::K
+end
+
+"""
+    ZCBPut(expiry, bond_maturity, strike)
+
+A European put option on a zero-coupon bond.
+The holder has the right to sell at time `expiry` a ZCB maturing at
+`bond_maturity` for `strike`.
+"""
+struct ZCBPut{T <: Real, S <: Real, K <: Real} <: AbstractContract
+    expiry::T
+    bond_maturity::S
+    strike::K
+end
+
+"""
+    Cap(strike, frequency, maturity)
+
+An interest rate cap — a portfolio of caplets that pay
+`max(L(Tᵢ₋₁,Tᵢ) - strike, 0) · τ` at each payment date `Tᵢ`,
+where `L` is the simply-compounded forward rate and `τ = 1/frequency`.
+
+The first caplet resets at time `τ` (the first period's rate is known).
+"""
+struct Cap{K <: Real, F, M <: Real} <: AbstractContract
+    strike::K
+    frequency::F
+    maturity::M
+end
+
+"""
+    Floor(strike, frequency, maturity)
+
+An interest rate floor — a portfolio of floorlets that pay
+`max(strike - L(Tᵢ₋₁,Tᵢ), 0) · τ` at each payment date `Tᵢ`.
+"""
+struct Floor{K <: Real, F, M <: Real} <: AbstractContract
+    strike::K
+    frequency::F
+    maturity::M
+end
+
+"""
+    Swaption(expiry, swap_maturity, strike, frequency; payer=true)
+
+A European swaption — the right to enter an interest rate swap at `expiry`.
+The underlying swap has payment dates from `expiry + 1/frequency` to
+`swap_maturity`, paying a fixed rate `strike`.
+
+- `payer=true` (default): right to pay fixed, receive floating
+- `payer=false`: right to receive fixed, pay floating
+"""
+struct Swaption{T <: Real, M <: Real, K <: Real, F} <: AbstractContract
+    expiry::T
+    swap_maturity::M
+    strike::K
+    frequency::F
+    payer::Bool
+end
+
+function Swaption(expiry, swap_maturity, strike, frequency; payer = true)
+    return Swaption(expiry, swap_maturity, strike, frequency, payer)
+end
+
+import ..FinanceCore: maturity
+maturity(c::ZCBCall) = c.bond_maturity
+maturity(c::ZCBPut) = c.bond_maturity
+maturity(c::Cap) = c.maturity
+maturity(c::Floor) = c.maturity
+maturity(c::Swaption) = c.swap_maturity
+
 end
 
 """
