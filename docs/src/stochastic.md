@@ -117,7 +117,7 @@ The default parameter bounds for fitting are:
 | Model | `a` | `b` | `σ` |
 |:------|:----|:----|:----|
 | Vasicek | `0.0 .. 5.0` | `-0.1 .. 0.5` | `0.0 .. 1.0` |
-| CIR | `0.0 .. 5.0` | `-0.1 .. 0.5` | `0.0 .. 1.0` |
+| CIR | `0.0 .. 5.0` | `0.0 .. 0.5` | `0.0 .. 1.0` |
 | Hull-White | `0.0 .. 5.0` | -- | `0.0 .. 1.0` |
 
 Custom bounds can be passed via the `variables` keyword argument to `fit`.
@@ -324,6 +324,29 @@ quotes = [Quote(present_value(hw_true, inst), inst) for inst in instruments]
 
 # Calibrate
 hw_fit = fit(hw0, quotes)
+```
+
+## Important Notes
+
+### Model Behaviour
+
+- **CIR Feller condition:** The CIR model requires `2ab > σ²` for the short rate to stay strictly positive. When this condition is violated, the rate can reach zero. The simulation uses the full truncation scheme (absorption at zero) in that case.
+- **Vasicek negative rates:** The Vasicek model allows negative rates by design. For very negative rates or long horizons, discount factors may exceed 1 (equivalently, zero rates are negative). This is consistent with observed negative-rate environments.
+
+### Performance Guidance
+
+- `simulate` allocates one `LinearInterpolation` per scenario. For 100k scenarios with a 30-year monthly horizon, expect execution times on the order of seconds.
+- `pv_mc` is embarrassingly parallel across scenarios but is not parallelised internally. For large-scale simulations, users can parallelise with `Threads.@threads` or `Distributed`:
+
+```julia
+using Base.Threads
+
+scenarios = simulate(v; n_scenarios=100_000, timestep=1/12, horizon=31.0)
+pvs = Vector{Float64}(undef, length(scenarios))
+@threads for i in eachindex(scenarios)
+    pvs[i] = present_value(scenarios[i], bond)
+end
+mean_pv = sum(pvs) / length(pvs)
 ```
 
 ## Summary

@@ -156,7 +156,7 @@ __default_optic(m::ShortRate.Vasicek) = (
 )
 __default_optic(m::ShortRate.CoxIngersollRoss) = (
     @optic(_.a) => 0.0 .. 5.0,
-    @optic(_.b) => -0.1 .. 0.5,
+    @optic(_.b) => 0.0 .. 0.5,
     @optic(_.σ) => 0.0 .. 1.0,
 )
 __default_optic(m::ShortRate.HullWhite) = (

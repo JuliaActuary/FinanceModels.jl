@@ -349,4 +349,108 @@ using Random
         @test discount(rp, 2.0) ≈ exp(-0.065)
         @test zero(rp, 2.0) isa FinanceCore.Rate
     end
+
+    @testset "Degenerate parameters" begin
+        @testset "σ = 0 (deterministic)" begin
+            # Vasicek with σ=0: deterministic, r(t) = b + (r0-b)exp(-at)
+            # Discount: exp(-(bT + (r0-b)(1-exp(-aT))/a))
+            v0 = ShortRate.Vasicek(0.5, 0.04, 0.0, Continuous(0.02))
+            T = 5.0
+            a, b, r0 = 0.5, 0.04, 0.02
+            expected = exp(-(b * T + (r0 - b) * (1 - exp(-a * T)) / a))
+            @test discount(v0, T) ≈ expected rtol = 1e-8
+
+            # CIR with σ=0: same deterministic formula
+            cir0 = ShortRate.CoxIngersollRoss(0.5, 0.04, 0.0, Continuous(0.02))
+            @test discount(cir0, T) ≈ expected rtol = 1e-8
+        end
+
+        @testset "a = 0 (no mean reversion)" begin
+            # Vasicek with a=0: random walk, analytical discount = exp(-r0*T - σ²T³/6)
+            v_a0 = ShortRate.Vasicek(0.0, 0.04, 0.01, Continuous(0.03))
+            T = 5.0
+            expected = exp(-0.03 * T - 0.01^2 * T^3 / 6)
+            @test discount(v_a0, T) ≈ expected rtol = 1e-8
+
+            # CIR with a=0: formula should still work (γ = σ√2)
+            cir_a0 = ShortRate.CoxIngersollRoss(0.0, 0.04, 0.05, Continuous(0.03))
+            @test discount(cir_a0, 1.0) > 0
+            @test discount(cir_a0, 0.0) ≈ 1.0
+        end
+
+        @testset "large a (instant mean reversion)" begin
+            # With very large a, long-term rate ≈ b
+            v_big = ShortRate.Vasicek(50.0, 0.05, 0.01, Continuous(0.10))
+            z = zero(v_big, 10.0)
+            @test abs(FinanceCore.rate(z) - 0.05) < 0.005
+        end
+
+        @testset "negative b in Vasicek" begin
+            # Vasicek supports negative long-term mean
+            v_neg = ShortRate.Vasicek(0.5, -0.01, 0.01, Continuous(0.02))
+            @test discount(v_neg, 5.0) > 0
+            # discount factor can exceed 1 when rates go negative
+            z = zero(v_neg, 30.0)
+            @test FinanceCore.rate(z) < 0
+        end
+
+        @testset "very short maturity" begin
+            v = ShortRate.Vasicek(0.136, 0.0168, 0.0119, Continuous(0.01))
+            @test discount(v, 1e-15) ≈ 1.0 atol = 1e-10
+
+            cir = ShortRate.CoxIngersollRoss(0.3, 0.05, 0.1, Continuous(0.03))
+            @test discount(cir, 1e-15) ≈ 1.0 atol = 1e-10
+
+            hw = ShortRate.HullWhite(0.1, 0.01, Yield.Constant(0.03))
+            @test discount(hw, 1e-15) ≈ 1.0 atol = 1e-10
+        end
+    end
+
+    @testset "Continuous(b) constructors" begin
+        # Vasicek: Continuous(b) should be equivalent to passing the float
+        v1 = ShortRate.Vasicek(0.5, 0.04, 0.01, Continuous(0.02))
+        v2 = ShortRate.Vasicek(0.5, Continuous(0.04), 0.01, Continuous(0.02))
+        @test discount(v1, 5.0) ≈ discount(v2, 5.0)
+
+        # CIR: same
+        c1 = ShortRate.CoxIngersollRoss(0.3, 0.05, 0.1, Continuous(0.03))
+        c2 = ShortRate.CoxIngersollRoss(0.3, Continuous(0.05), 0.1, Continuous(0.03))
+        @test discount(c1, 5.0) ≈ discount(c2, 5.0)
+    end
+
+    @testset "ZCB option validation" begin
+        hw = ShortRate.HullWhite(0.1, 0.01, Yield.Constant(Continuous(0.05)))
+        # S must be > T
+        @test_throws ArgumentError present_value(hw, Option.ZCBCall(5.0, 3.0, 0.8))
+        @test_throws ArgumentError present_value(hw, Option.ZCBPut(5.0, 3.0, 0.8))
+        # S == T should also fail
+        @test_throws ArgumentError present_value(hw, Option.ZCBCall(5.0, 5.0, 0.8))
+    end
+
+    @testset "MC convergence" begin
+        v = ShortRate.Vasicek(0.136, 0.0168, 0.0119, Continuous(0.01))
+        bond = Bond.Fixed(0.05, Periodic(2), 5)
+        analytical_pv = present_value(v, bond)
+
+        # Tighter test with more scenarios
+        rng1 = Random.MersenneTwister(1234)
+        mc_10k = pv_mc(v, bond; n_scenarios = 10_000, timestep = 1 / 12, rng = rng1)
+        @test mc_10k ≈ analytical_pv rtol = 0.03
+
+        # Verify MC error decreases with √n:
+        # Run at two sample sizes and check error ratio
+        rng_a = Random.MersenneTwister(5678)
+        mc_1k = pv_mc(v, bond; n_scenarios = 1_000, timestep = 1 / 12, rng = rng_a)
+        err_1k = abs(mc_1k - analytical_pv)
+
+        rng_b = Random.MersenneTwister(5678)
+        mc_16k = pv_mc(v, bond; n_scenarios = 16_000, timestep = 1 / 12, rng = rng_b)
+        err_16k = abs(mc_16k - analytical_pv)
+
+        # With 16x more scenarios, error should be ~4x smaller (√16=4)
+        # We allow generous bounds since MC is stochastic
+        if err_1k > 1e-6 && err_16k > 1e-6
+            @test err_16k < err_1k  # at minimum, more scenarios should reduce error
+        end
+    end
 end

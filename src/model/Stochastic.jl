@@ -16,7 +16,7 @@ module ShortRate
 import ..Yield
 import ..AbstractStochasticModel
 import ..FinanceCore
-using ..FinanceCore: Continuous, rate
+using ..FinanceCore: Continuous, Rate, rate
 
 """
     Vasicek(a, b, σ, initial)
@@ -27,9 +27,13 @@ Vasicek (1977) mean-reverting short-rate model:
 
 # Arguments
 - `a`: speed of mean reversion
-- `b`: long-term mean rate (continuous)
+- `b`: long-term mean rate (continuous compounding). Can be passed as a `Real` or `Continuous(b)`.
 - `σ`: volatility
 - `initial`: initial short rate `r₀` (a `Rate` object or `Real`)
+
+!!! note
+    The Vasicek model allows negative rates. For very negative rates or long horizons,
+    discount factors may exceed 1.
 """
 struct Vasicek{A,B,S,T} <: AbstractStochasticModel
     a::A
@@ -42,6 +46,9 @@ function Vasicek(a::Real, b::Real, σ::Real, initial::Real)
     return Vasicek(Float64(a), Float64(b), Float64(σ), Continuous(initial))
 end
 
+# Accept Continuous(b) for the long-term mean rate parameter
+Vasicek(a, b::Rate{<:Any,Continuous}, σ, initial) = Vasicek(a, rate(b), σ, initial)
+
 """
     CoxIngersollRoss(a, b, σ, initial)
 
@@ -51,9 +58,14 @@ Cox-Ingersoll-Ross (1985) mean-reverting short-rate model:
 
 # Arguments
 - `a`: speed of mean reversion
-- `b`: long-term mean rate (continuous)
+- `b`: long-term mean rate (continuous compounding). Can be passed as a `Real` or `Continuous(b)`.
 - `σ`: volatility
 - `initial`: initial short rate `r₀` (a `Rate` object or `Real`)
+
+!!! note "Feller condition"
+    The condition `2ab > σ²` is required for the variance process to stay strictly
+    positive. When violated, the short rate can reach zero; simulation uses absorption
+    at zero (full truncation scheme) in that case.
 """
 struct CoxIngersollRoss{A,B,S,T} <: AbstractStochasticModel
     a::A
@@ -65,6 +77,9 @@ end
 function CoxIngersollRoss(a::Real, b::Real, σ::Real, initial::Real)
     return CoxIngersollRoss(Float64(a), Float64(b), Float64(σ), Continuous(initial))
 end
+
+# Accept Continuous(b) for the long-term mean rate parameter
+CoxIngersollRoss(a, b::Rate{<:Any,Continuous}, σ, initial) = CoxIngersollRoss(a, rate(b), σ, initial)
 
 """
     HullWhite(a, σ, curve)
@@ -114,6 +129,15 @@ end
 # CIR ZCB price: P(0,T) = A(T) exp(-B(T) r₀)
 function FinanceCore.discount(m::ShortRate.CoxIngersollRoss, T)
     a, b, σ, r0 = m.a, m.b, m.σ, _initial_rate(m)
+    if abs(σ) < 1e-15
+        # Deterministic limit: dr = a(b-r)dt → r(t) = b + (r0-b)exp(-at)
+        # P(0,T) = exp(-∫₀ᵀ r(s)ds) = exp(-(bT + (r0-b)(1-exp(-aT))/a))
+        if abs(a) < 1e-12
+            return exp(-r0 * T)
+        else
+            return exp(-(b * T + (r0 - b) * (1 - exp(-a * T)) / a))
+        end
+    end
     γ = sqrt(a^2 + 2σ^2)
     expγT = exp(γ * T)
     denom = (γ + a) * (expγT - 1) + 2γ
@@ -181,8 +205,9 @@ function simulate(model::AbstractStochasticModel;
         cumulative[1] = 0.0
         r = _sim_initial_rate(model)
         for j in 1:n_steps
-            Z = _randn(rng)
-            r_new = _step(model, r, dt, sqrt_dt, Z)
+            Z = randn(rng)
+            t = (j - 1) * dt
+            r_new = _step(model, r, dt, sqrt_dt, Z, t)
             times[j + 1] = j * dt
             cumulative[j + 1] = cumulative[j] + 0.5 * (r + r_new) * dt
             r = r_new
@@ -196,14 +221,6 @@ function simulate(model::AbstractStochasticModel;
     return paths
 end
 
-# Standard normal via inverse CDF using erfinv (avoids Distributions.jl)
-function _randn(rng::Random.AbstractRNG)
-    u = rand(rng)
-    # Clamp to avoid ±Inf
-    u = clamp(u, 1e-10, 1 - 1e-10)
-    return sqrt(2.0) * SpecialFunctions.erfinv(2u - 1)
-end
-
 # Initial rate extractors for simulation
 _sim_initial_rate(m::ShortRate.Vasicek) = _initial_rate(m)
 _sim_initial_rate(m::ShortRate.CoxIngersollRoss) = _initial_rate(m)
@@ -214,20 +231,29 @@ function _sim_initial_rate(m::ShortRate.HullWhite)
 end
 
 # Euler-Maruyama step for each model
-function _step(m::ShortRate.Vasicek, r, dt, sqrt_dt, Z)
+function _step(m::ShortRate.Vasicek, r, dt, sqrt_dt, Z, t)
     return r + m.a * (m.b - r) * dt + m.σ * sqrt_dt * Z
 end
 
-function _step(m::ShortRate.CoxIngersollRoss, r, dt, sqrt_dt, Z)
+function _step(m::ShortRate.CoxIngersollRoss, r, dt, sqrt_dt, Z, t)
+    # Full truncation scheme (Lord, Koekkoek & Van Dijk, 2010)
     r_pos = max(r, 0.0)
-    return r + m.a * (m.b - r) * dt + m.σ * sqrt(r_pos) * sqrt_dt * Z
+    return max(r_pos + m.a * (m.b - r_pos) * dt + m.σ * sqrt(r_pos) * sqrt_dt * Z, 0.0)
 end
 
-function _step(m::ShortRate.HullWhite, r, dt, sqrt_dt, Z)
-    # θ(t) ≈ f'(0,t) + a f(0,t) + σ²/(2a)(1 - exp(-2at))
-    # For simulation from the initial curve we use a simplified drift
+function _step(m::ShortRate.HullWhite, r, dt, sqrt_dt, Z, t)
+    # θ(t) = f_t(0,t) + a·f(0,t) + (σ²/2a)·(1 - exp(-2at))
+    # where f(0,t) is the instantaneous forward rate from the initial curve
     a, σ = m.a, m.σ
-    return r + a * (_sim_initial_rate(m) - r) * dt + σ * sqrt_dt * Z
+    f0t = _hw_forward_rate(m.curve, t)
+    f0t_dt = _hw_forward_rate(m.curve, t + dt)
+    df_dt = (f0t_dt - f0t) / dt
+    if abs(a) < 1e-12
+        θ = df_dt + σ^2 * t
+    else
+        θ = df_dt + a * f0t + σ^2 / (2a) * (1 - exp(-2a * t))
+    end
+    return r + (θ - a * r) * dt + σ * sqrt_dt * Z
 end
 
 # ─── pv_mc: Monte Carlo expected present value ───────────────────────────────
@@ -239,6 +265,13 @@ end
 
 Estimate the expected present value of `contract` under the stochastic `model`
 by averaging `present_value` across simulated scenarios.
+
+!!! note
+    `pv_mc` is designed for fixed-cashflow instruments where each `RatePath` scenario
+    provides the discount factors. For floating-rate instruments whose cashflows depend
+    on the rate path, project cashflows per scenario using `Projection` instead.
+
+The `horizon` should cover the contract's maturity. The default (`maturity + 1`) ensures this.
 """
 function pv_mc(model::AbstractStochasticModel, contract;
                n_scenarios::Int = 1000,
@@ -267,12 +300,14 @@ function _hw_B(a, t, T)
     end
 end
 
-# Instantaneous forward rate f(0,t) from the initial curve
+# Instantaneous forward rate f(0,t) = -d/dt ln P(0,t) from the initial curve
 function _hw_forward_rate(curve, t)
-    ε = min(t, 1e-6)
-    if t < 1e-10
-        return -log(FinanceCore.discount(curve, 1e-6)) / 1e-6
+    ε = 1e-6
+    if t < ε
+        # One-sided difference at t ≈ 0
+        return -log(FinanceCore.discount(curve, ε)) / ε
     else
+        # Central difference
         return -(log(FinanceCore.discount(curve, t + ε)) - log(FinanceCore.discount(curve, t - ε))) / (2ε)
     end
 end
@@ -308,6 +343,7 @@ Returns `(call_price, put_price)`.
 Reference: Brigo & Mercurio (2006), Proposition 3.2.1
 """
 function _hw_zcb_option_price(m::ShortRate.HullWhite, T, S, K)
+    S > T || throw(ArgumentError("Bond maturity S=$S must be greater than option expiry T=$T"))
     a, σ = m.a, m.σ
     P0T = FinanceCore.discount(m.curve, T)
     P0S = FinanceCore.discount(m.curve, S)
@@ -428,7 +464,7 @@ function FinanceCore.present_value(m::ShortRate.HullWhite, c::Option.Swaption)
     end
 
     # Bisection to find r*
-    r_star = _bisect(swap_value, -0.5, 0.5)
+    r_star = _bisect(swap_value, -1.0, 1.0)
 
     # Step 2: Compute strike prices Ki = P(T0, Ti; r*)
     # Step 3: Sum ZCB options
@@ -454,9 +490,20 @@ function FinanceCore.present_value(m::ShortRate.HullWhite, c::Option.Swaption)
     return price
 end
 
-# Simple bisection solver
+# Simple bisection solver with automatic bracket widening
 function _bisect(f, lo, hi; tol = 1e-12, maxiter = 200)
-    flo = f(lo)
+    flo, fhi = f(lo), f(hi)
+    if sign(flo) == sign(fhi)
+        # Try widening the bounds
+        for _ in 1:5
+            lo, hi = 2lo, 2hi
+            flo, fhi = f(lo), f(hi)
+            sign(flo) != sign(fhi) && break
+        end
+        if sign(flo) == sign(fhi)
+            error("Bisection: no sign change found in [$lo, $hi]; f(lo)=$flo, f(hi)=$fhi")
+        end
+    end
     for _ in 1:maxiter
         mid = (lo + hi) / 2
         fmid = f(mid)
