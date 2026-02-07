@@ -748,4 +748,115 @@ using Random
             end
         end
     end
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # 4-arg discount(model, t, T, r_t)
+    # ──────────────────────────────────────────────────────────────────────────
+
+    @testset "4-arg discount(model, t, T, r_t)" begin
+        @testset "Vasicek" begin
+            a, b, σ, r0 = 0.136, 0.0168, 0.0119, 0.01
+            v = ShortRate.Vasicek(a, b, σ, Continuous(r0))
+
+            # P(0, T | r₀) should match discount(v, T)
+            for T in [1.0, 5.0, 10.0]
+                @test discount(v, 0.0, T, r0) ≈ discount(v, T) rtol = 1e-12
+            end
+
+            # Time-homogeneity: P(t, T | r) = P(0, T-t | r)
+            r_t = 0.03
+            for (t, T) in [(1.0, 5.0), (2.0, 7.0), (0.5, 3.0)]
+                @test discount(v, t, T, r_t) ≈ discount(
+                    ShortRate.Vasicek(a, b, σ, Continuous(r_t)), T - t
+                ) rtol = 1e-12
+            end
+
+            # P(t, t | r) = 1 for any r
+            @test discount(v, 3.0, 3.0, 0.05) ≈ 1.0
+        end
+
+        @testset "CIR" begin
+            a, b, σ, r0 = 0.3, 0.05, 0.1, 0.03
+            cir = ShortRate.CoxIngersollRoss(a, b, σ, Continuous(r0))
+
+            # P(0, T | r₀) should match discount(cir, T)
+            for T in [1.0, 5.0, 10.0]
+                @test discount(cir, 0.0, T, r0) ≈ discount(cir, T) rtol = 1e-12
+            end
+
+            # Time-homogeneity
+            r_t = 0.04
+            for (t, T) in [(1.0, 5.0), (2.0, 7.0)]
+                @test discount(cir, t, T, r_t) ≈ discount(
+                    ShortRate.CoxIngersollRoss(a, b, σ, Continuous(r_t)), T - t
+                ) rtol = 1e-12
+            end
+
+            # P(t, t | r) = 1
+            @test discount(cir, 2.0, 2.0, 0.05) ≈ 1.0
+        end
+
+        @testset "HullWhite" begin
+            curve = Yield.Constant(Continuous(0.05))
+            hw = ShortRate.HullWhite(0.1, 0.01, curve)
+
+            # P(0, T | f(0,0)) should match discount(hw, T) = P(0,T)
+            # For a flat continuous curve, f(0,0) = 0.05
+            f00 = 0.05
+            for T in [1.0, 5.0, 10.0]
+                @test discount(hw, 0.0, T, f00) ≈ discount(hw, T) rtol = 1e-8
+            end
+
+            # P(t, t | r) = 1
+            @test discount(hw, 3.0, 3.0, 0.05) ≈ 1.0
+
+            # Non-trivial t: P(t,T|r) should be positive and < 1 for positive r
+            @test 0 < discount(hw, 1.0, 5.0, 0.05) < 1
+        end
+    end
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # AD forward rate correctness
+    # ──────────────────────────────────────────────────────────────────────────
+
+    @testset "AD forward rate" begin
+        @testset "Flat curve: f(0,t) = constant" begin
+            # For a flat continuous rate c, f(0,t) = c for all t
+            c = 0.05
+            curve = Yield.Constant(Continuous(c))
+            for t in [0.0, 1.0, 5.0, 10.0]
+                @test FinanceModels._hw_forward_rate(curve, t) ≈ c atol = 1e-8
+            end
+        end
+
+        @testset "Non-flat curve: bootstrapped" begin
+            # Build a non-trivial curve and verify forward rate is smooth
+            quotes = ZCBYield.([0.02, 0.03, 0.04, 0.045], [1, 5, 10, 20])
+            m = fit(Spline.Linear(), quotes, Fit.Bootstrap())
+            # Forward rate should be positive and finite at various points
+            for t in [0.5, 1.0, 2.5, 5.0, 7.5, 10.0, 15.0]
+                f = FinanceModels._hw_forward_rate(m, t)
+                @test isfinite(f)
+                @test f > 0
+            end
+        end
+    end
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Input validation
+    # ──────────────────────────────────────────────────────────────────────────
+
+    @testset "Input validation" begin
+        @testset "simulate: timestep must be positive" begin
+            v = ShortRate.Vasicek(0.1, 0.05, 0.01, Continuous(0.03))
+            @test_throws ArgumentError simulate(v; timestep = 0.0)
+            @test_throws ArgumentError simulate(v; timestep = -0.1)
+        end
+
+        @testset "ZCB option: strike must be positive" begin
+            hw = ShortRate.HullWhite(0.1, 0.01, Yield.Constant(Continuous(0.05)))
+            @test_throws ArgumentError present_value(hw, Option.ZCBCall(1.0, 5.0, 0.0))
+            @test_throws ArgumentError present_value(hw, Option.ZCBCall(1.0, 5.0, -0.5))
+        end
+    end
 end

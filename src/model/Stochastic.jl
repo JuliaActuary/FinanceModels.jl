@@ -113,44 +113,50 @@ function _initial_rate(m::ShortRate.CoxIngersollRoss)
     return rate(Continuous(m.initial))
 end
 
-# Vasicek ZCB price: P(0,T) = A(T) exp(-B(T) r₀)
+# Vasicek ZCB price: P = A(τ) exp(-B(τ) r)
 # For small |a|, the general formula suffers from catastrophic cancellation
-# (two O(σ²T²/a) terms nearly cancel). Use a Taylor expansion instead.
-function FinanceCore.discount(m::ShortRate.Vasicek, T)
-    a, b, σ, r0 = m.a, m.b, m.σ, _initial_rate(m)
-    if abs(a * T) < 0.02
+# (two O(σ²τ²/a) terms nearly cancel). Use a Taylor expansion instead.
+function _vasicek_zcb(a, b, σ, r, τ)
+    if abs(a * τ) < 0.02
         # Taylor expansion in a, avoiding cancellation:
-        # B = T - aT²/2 + a²T³/6 - a³T⁴/24
-        # lnA = σ²T³/6 - a(bT²/2 + σ²T⁴/8) + a²(bT³/6 + 7σ²T⁵/120)
-        B = T * (1 - a * T / 2 + (a * T)^2 / 6 - (a * T)^3 / 24)
-        lnA = σ^2 * T^3 / 6 -
-               a * (b * T^2 / 2 + σ^2 * T^4 / 8) +
-               a^2 * (b * T^3 / 6 + 7 * σ^2 * T^5 / 120)
+        # B = τ - aτ²/2 + a²τ³/6 - a³τ⁴/24
+        # lnA = σ²τ³/6 - a(bτ²/2 + σ²τ⁴/8) + a²(bτ³/6 + 7σ²τ⁵/120)
+        B = τ * (1 - a * τ / 2 + (a * τ)^2 / 6 - (a * τ)^3 / 24)
+        lnA = σ^2 * τ^3 / 6 -
+               a * (b * τ^2 / 2 + σ^2 * τ^4 / 8) +
+               a^2 * (b * τ^3 / 6 + 7 * σ^2 * τ^5 / 120)
     else
-        B = (1 - exp(-a * T)) / a
-        lnA = (B - T) * (a^2 * b - 0.5 * σ^2) / a^2 - σ^2 * B^2 / (4a)
+        B = (1 - exp(-a * τ)) / a
+        lnA = (B - τ) * (a^2 * b - 0.5 * σ^2) / a^2 - σ^2 * B^2 / (4a)
     end
-    return exp(lnA - B * r0)
+    return exp(lnA - B * r)
 end
 
-# CIR ZCB price: P(0,T) = A(T) exp(-B(T) r₀)
-function FinanceCore.discount(m::ShortRate.CoxIngersollRoss, T)
-    a, b, σ, r0 = m.a, m.b, m.σ, _initial_rate(m)
+function FinanceCore.discount(m::ShortRate.Vasicek, T)
+    return _vasicek_zcb(m.a, m.b, m.σ, _initial_rate(m), T)
+end
+
+# CIR ZCB price: P = A(τ) exp(-B(τ) r)
+function _cir_zcb(a, b, σ, r, τ)
     if abs(σ) < 1e-15
         # Deterministic limit: dr = a(b-r)dt → r(t) = b + (r0-b)exp(-at)
-        # P(0,T) = exp(-∫₀ᵀ r(s)ds) = exp(-(bT + (r0-b)(1-exp(-aT))/a))
+        # P(0,τ) = exp(-∫₀ᵗ r(s)ds) = exp(-(bτ + (r-b)(1-exp(-aτ))/a))
         if abs(a) < 1e-12
-            return exp(-r0 * T)
+            return exp(-r * τ)
         else
-            return exp(-(b * T + (r0 - b) * (1 - exp(-a * T)) / a))
+            return exp(-(b * τ + (r - b) * (1 - exp(-a * τ)) / a))
         end
     end
     γ = sqrt(a^2 + 2σ^2)
-    expγT = exp(γ * T)
-    denom = (γ + a) * (expγT - 1) + 2γ
-    B = 2(expγT - 1) / denom
-    A = (2γ * exp((a + γ) * T / 2) / denom)^(2a * b / σ^2)
-    return A * exp(-B * r0)
+    expγτ = exp(γ * τ)
+    denom = (γ + a) * (expγτ - 1) + 2γ
+    B = 2(expγτ - 1) / denom
+    A = (2γ * exp((a + γ) * τ / 2) / denom)^(2a * b / σ^2)
+    return A * exp(-B * r)
+end
+
+function FinanceCore.discount(m::ShortRate.CoxIngersollRoss, T)
+    return _cir_zcb(m.a, m.b, m.σ, _initial_rate(m), T)
 end
 
 # Hull-White ZCB price: uses the initial curve + volatility correction
@@ -165,6 +171,50 @@ function FinanceCore.discount(m::ShortRate.HullWhite, T)
     # Hull-White discount is the curve discount (no volatility correction needed
     # for the initial yield curve – the model is calibrated to match it exactly)
     return P0T
+end
+
+# ─── Conditional discount P(t,T|r(t)) ────────────────────────────────────────
+
+"""
+    discount(m::ShortRate.Vasicek, t, T, r_t)
+
+Conditional zero-coupon bond price ``P(t,T \\mid r(t) = r_t)`` under the Vasicek model.
+Since the model is time-homogeneous, ``P(t,T|r) = P(0, T-t | r)``.
+"""
+FinanceCore.discount(m::ShortRate.Vasicek, t, T, r_t) = _vasicek_zcb(m.a, m.b, m.σ, r_t, T - t)
+
+"""
+    discount(m::ShortRate.CoxIngersollRoss, t, T, r_t)
+
+Conditional zero-coupon bond price ``P(t,T \\mid r(t) = r_t)`` under the CIR model.
+Since the model is time-homogeneous, ``P(t,T|r) = P(0, T-t | r)``.
+"""
+FinanceCore.discount(m::ShortRate.CoxIngersollRoss, t, T, r_t) = _cir_zcb(m.a, m.b, m.σ, r_t, T - t)
+
+"""
+    discount(m::ShortRate.HullWhite, t, T, r_t)
+
+Conditional zero-coupon bond price ``P(t,T \\mid r(t) = r_t)`` under the Hull-White model.
+Unlike Vasicek/CIR, this depends on `t` and `T` separately (not just `T-t`)
+because the model is calibrated to an initial term structure.
+
+Formula (Brigo & Mercurio 2006, Proposition 3.2.2):
+```math
+\\ln P(t,T) = \\ln\\frac{P(0,T)}{P(0,t)} + B(t,T) f(0,t) - \\frac{\\sigma^2}{4a} B(t,T)^2 (1 - e^{-2at}) - B(t,T) r_t
+```
+"""
+function FinanceCore.discount(m::ShortRate.HullWhite, t, T, r_t)
+    a, σ = m.a, m.σ
+    P0t = FinanceCore.discount(m.curve, t)
+    P0T = FinanceCore.discount(m.curve, T)
+    B_tT = _hw_B(a, t, T)
+    f0t = _hw_forward_rate(m.curve, t)
+    if abs(a) < 1e-12
+        lnA = log(P0T / P0t) + B_tT * f0t - 0.5 * σ^2 * t * B_tT^2
+    else
+        lnA = log(P0T / P0t) + B_tT * f0t - σ^2 / (4a) * B_tT^2 * (1 - exp(-2a * t))
+    end
+    return exp(lnA - B_tT * r_t)
 end
 
 # ─── RatePath: a simulated scenario as a yield model ─────────────────────────
@@ -200,6 +250,7 @@ function simulate(model::AbstractStochasticModel;
                   timestep::Real = 1 / 12,
                   horizon::Real = 30.0,
                   rng::Random.AbstractRNG = Random.default_rng())
+    timestep > 0 || throw(ArgumentError("timestep must be positive, got $timestep"))
     dt = Float64(timestep)
     n_steps = ceil(Int, horizon / dt)
     sqrt_dt = sqrt(dt)
@@ -232,9 +283,7 @@ end
 _sim_initial_rate(m::ShortRate.Vasicek) = _initial_rate(m)
 _sim_initial_rate(m::ShortRate.CoxIngersollRoss) = _initial_rate(m)
 function _sim_initial_rate(m::ShortRate.HullWhite)
-    # Instantaneous short rate from curve: -d/dT ln P(0,T) at T→0
-    ε = 1e-6
-    return -log(FinanceCore.discount(m.curve, ε)) / ε
+    return _hw_forward_rate(m.curve, 0.0)
 end
 
 # Euler-Maruyama step for each model
@@ -253,10 +302,11 @@ function _step(m::ShortRate.HullWhite, r, dt, sqrt_dt, Z, t)
     # where f(0,t) is the instantaneous forward rate from the initial curve
     a, σ = m.a, m.σ
     f0t = _hw_forward_rate(m.curve, t)
-    # Use fixed ε for df/dt (not dt, which would make drift timestep-dependent)
-    ε_deriv = 1e-4
-    f0t_plus = _hw_forward_rate(m.curve, t + ε_deriv)
-    df_dt = (f0t_plus - f0t) / ε_deriv
+    # df/dt via AD (nested AD: derivative of forward rate, which itself uses AD)
+    df_dt = DifferentiationInterface.derivative(
+        s -> _hw_forward_rate(m.curve, s),
+        AutoForwardDiff(), max(t, 1e-10)
+    )
     if abs(a) < 1e-12
         θ = df_dt + σ^2 * t
     else
@@ -309,32 +359,13 @@ function _hw_B(a, t, T)
     end
 end
 
-# Instantaneous forward rate f(0,t) = -d/dt ln P(0,t) from the initial curve
+# Instantaneous forward rate f(0,t) = -d/dt ln P(0,t) via automatic differentiation
 function _hw_forward_rate(curve, t)
-    ε = 1e-6
-    if t < ε
-        # One-sided difference at t ≈ 0
-        return -log(FinanceCore.discount(curve, ε)) / ε
-    else
-        # Central difference
-        return -(log(FinanceCore.discount(curve, t + ε)) - log(FinanceCore.discount(curve, t - ε))) / (2ε)
-    end
-end
-
-# Hull-White ZCB price P(t,T) given r(t), used in Jamshidian decomposition
-# ln P(t,T) = ln(P(0,T)/P(0,t)) + B(t,T)·f(0,t) - σ²/(4a)·B(t,T)²·(1-exp(-2at))
-function _hw_zcb(m::ShortRate.HullWhite, t, T, r_t)
-    a, σ = m.a, m.σ
-    P0t = FinanceCore.discount(m.curve, t)
-    P0T = FinanceCore.discount(m.curve, T)
-    B_tT = _hw_B(a, t, T)
-    f0t = _hw_forward_rate(m.curve, t)
-    if abs(a) < 1e-12
-        lnA = log(P0T / P0t) + B_tT * f0t - 0.5 * σ^2 * t * B_tT^2
-    else
-        lnA = log(P0T / P0t) + B_tT * f0t - σ^2 / (4a) * B_tT^2 * (1 - exp(-2a * t))
-    end
-    return exp(lnA - B_tT * r_t)
+    t_eval = max(t, 1e-10)  # avoid exactly zero for AD stability
+    return -DifferentiationInterface.derivative(
+        s -> log(FinanceCore.discount(curve, s)),
+        AutoForwardDiff(), t_eval
+    )
 end
 
 """
@@ -353,6 +384,7 @@ Reference: Brigo & Mercurio (2006), Proposition 3.2.1
 """
 function _hw_zcb_option_price(m::ShortRate.HullWhite, T, S, K)
     S > T || throw(ArgumentError("Bond maturity S=$S must be greater than option expiry T=$T"))
+    K > 0 || throw(ArgumentError("Strike K=$K must be positive"))
     a, σ = m.a, m.σ
     P0T = FinanceCore.discount(m.curve, T)
     P0S = FinanceCore.discount(m.curve, S)
@@ -463,7 +495,7 @@ function FinanceCore.present_value(m::ShortRate.HullWhite, c::Option.Swaption)
     function swap_value(r)
         total = 1.0
         for (i, Ti) in enumerate(payment_times)
-            P_Ti = _hw_zcb(m, T0, Ti, r)
+            P_Ti = FinanceCore.discount(m, T0, Ti, r)
             total -= coupon * τ * P_Ti
             if i == length(payment_times)
                 total -= P_Ti  # principal repayment
@@ -479,7 +511,7 @@ function FinanceCore.present_value(m::ShortRate.HullWhite, c::Option.Swaption)
     # Step 3: Sum ZCB options
     price = 0.0
     for (i, Ti) in enumerate(payment_times)
-        Ki = _hw_zcb(m, T0, Ti, r_star)
+        Ki = FinanceCore.discount(m, T0, Ti, r_star)
         if c.payer
             # Payer swaption = sum of ZCB puts
             _, put = _hw_zcb_option_price(m, T0, Ti, Ki)
