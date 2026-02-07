@@ -114,11 +114,11 @@ map(q -> present_value(v_fitted, q.instrument), quotes)
 
 The default parameter bounds for fitting are:
 
-| Model | `a` | `b` | `σ` |
-|:------|:----|:----|:----|
-| Vasicek | `0.0 .. 5.0` | `-0.1 .. 0.5` | `0.0 .. 1.0` |
-| CIR | `0.0 .. 5.0` | `0.0 .. 0.5` | `0.0 .. 1.0` |
-| Hull-White | `0.0 .. 5.0` | -- | `0.0 .. 1.0` |
+| Model | `a` | `b` | `σ` | `initial` |
+|:------|:----|:----|:----|:----------|
+| Vasicek | `0.0 .. 5.0` | `-0.1 .. 0.5` | `0.0 .. 1.0` | `-0.05 .. 0.2` |
+| CIR | `0.0 .. 5.0` | `0.0 .. 0.5` | `0.0 .. 1.0` | `0.0 .. 0.2` |
+| Hull-White | `0.0 .. 5.0` | -- | `0.0 .. 1.0` | -- |
 
 Custom bounds can be passed via the `variables` keyword argument to `fit`.
 
