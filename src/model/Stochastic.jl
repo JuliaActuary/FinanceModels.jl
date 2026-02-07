@@ -114,11 +114,18 @@ function _initial_rate(m::ShortRate.CoxIngersollRoss)
 end
 
 # Vasicek ZCB price: P(0,T) = A(T) exp(-B(T) r₀)
+# For small |a|, the general formula suffers from catastrophic cancellation
+# (two O(σ²T²/a) terms nearly cancel). Use a Taylor expansion instead.
 function FinanceCore.discount(m::ShortRate.Vasicek, T)
     a, b, σ, r0 = m.a, m.b, m.σ, _initial_rate(m)
-    if abs(a) < 1e-12
-        B = T
-        lnA = -0.5 * σ^2 * T^3 / 3
+    if abs(a * T) < 0.02
+        # Taylor expansion in a, avoiding cancellation:
+        # B = T - aT²/2 + a²T³/6 - a³T⁴/24
+        # lnA = σ²T³/6 - a(bT²/2 + σ²T⁴/8) + a²(bT³/6 + 7σ²T⁵/120)
+        B = T * (1 - a * T / 2 + (a * T)^2 / 6 - (a * T)^3 / 24)
+        lnA = σ^2 * T^3 / 6 -
+               a * (b * T^2 / 2 + σ^2 * T^4 / 8) +
+               a^2 * (b * T^3 / 6 + 7 * σ^2 * T^5 / 120)
     else
         B = (1 - exp(-a * T)) / a
         lnA = (B - T) * (a^2 * b - 0.5 * σ^2) / a^2 - σ^2 * B^2 / (4a)
@@ -194,7 +201,7 @@ function simulate(model::AbstractStochasticModel;
                   horizon::Real = 30.0,
                   rng::Random.AbstractRNG = Random.default_rng())
     dt = Float64(timestep)
-    n_steps = round(Int, horizon / dt)
+    n_steps = ceil(Int, horizon / dt)
     sqrt_dt = sqrt(dt)
 
     paths = Vector{RatePath}(undef, n_scenarios)
@@ -246,8 +253,10 @@ function _step(m::ShortRate.HullWhite, r, dt, sqrt_dt, Z, t)
     # where f(0,t) is the instantaneous forward rate from the initial curve
     a, σ = m.a, m.σ
     f0t = _hw_forward_rate(m.curve, t)
-    f0t_dt = _hw_forward_rate(m.curve, t + dt)
-    df_dt = (f0t_dt - f0t) / dt
+    # Use fixed ε for df/dt (not dt, which would make drift timestep-dependent)
+    ε_deriv = 1e-4
+    f0t_plus = _hw_forward_rate(m.curve, t + ε_deriv)
+    df_dt = (f0t_plus - f0t) / ε_deriv
     if abs(a) < 1e-12
         θ = df_dt + σ^2 * t
     else
