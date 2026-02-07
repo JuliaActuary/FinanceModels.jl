@@ -91,7 +91,7 @@ v = ShortRate.Vasicek(0.136, 0.0168, 0.0119, Continuous(0.01))
 bond = Bond.Fixed(0.05, Periodic(2), 10)
 
 # Analytical present value using closed-form discount factors
-pv(v, bond)
+present_value(v, bond)
 ```
 
 ## Calibrating Models with `fit`
@@ -109,7 +109,7 @@ v0 = ShortRate.Vasicek(0.1, 0.02, 0.01, Continuous(0.01))
 v_fitted = fit(v0, quotes)
 
 # Verify: the fitted model reprices the quotes
-map(q -> pv(v_fitted, q.instrument), quotes)
+map(q -> present_value(v_fitted, q.instrument), quotes)
 ```
 
 The default parameter bounds for fitting are:
@@ -161,7 +161,7 @@ bond = Bond.Fixed(0.05, Periodic(2), 10)
 mc = pv_mc(v, bond; n_scenarios=5000, timestep=1/12)
 
 # Compare to analytical (closed-form) PV
-analytical = pv(v, bond)
+analytical = present_value(v, bond)
 
 # These should be close (within ~1-2% for 5000 scenarios)
 ```
@@ -188,7 +188,7 @@ bond = Bond.Fixed(0.05, Periodic(2), 10)
 scenarios = simulate(v; n_scenarios=1000, timestep=1/12, horizon=11.0)
 
 # Distribution of present values
-pvs = [pv(sc, bond) for sc in scenarios]
+pvs = [present_value(sc, bond) for sc in scenarios]
 
 # Percentiles
 sort!(pvs)
@@ -211,6 +211,72 @@ v_weak = ShortRate.Vasicek(0.01, 0.05, 0.01, Continuous(0.10))
 zero(v_weak, 30)    # still far from 0.05
 ```
 
+## Hull-White Derivative Pricing
+
+The Hull-White model supports closed-form pricing of interest rate derivatives. Since `discount(hw, t)` simply returns the initial curve's discount factor (the model is calibrated to match the curve exactly), bond prices alone cannot identify `a` and `σ`. Instead, Hull-White is typically calibrated to **derivative prices** — caps, floors, swaptions, or zero-coupon bond options.
+
+### Zero-Coupon Bond Options
+
+```julia
+curve = Yield.Constant(Continuous(0.05))
+hw = ShortRate.HullWhite(0.1, 0.015, curve)
+
+# Call on a ZCB: right to buy at time T=1 a ZCB maturing at S=5 for strike K
+call = present_value(hw, Option.ZCBCall(1.0, 5.0, 0.75))
+put  = present_value(hw, Option.ZCBPut(1.0, 5.0, 0.75))
+```
+
+### Caps and Floors
+
+A cap is a portfolio of caplets, each paying `max(L - K, 0) · τ` where `L` is the simply-compounded forward rate. Under Hull-White, each caplet is equivalent to a scaled put on a zero-coupon bond.
+
+```julia
+hw = ShortRate.HullWhite(0.03, 0.02, Yield.Constant(Continuous(0.01)))
+
+# 3% strike, quarterly resets, 2-year maturity
+cap = present_value(hw, Option.Cap(0.03, 4, 2.0))
+flr = present_value(hw, Option.Floor(0.03, 4, 2.0))
+```
+
+Cap-floor parity holds: `Cap(K) - Floor(K) = forward swap value`.
+
+### Swaptions
+
+A European swaption gives the right to enter a swap at expiry. Pricing uses the Jamshidian (1989) decomposition into zero-coupon bond options.
+
+```julia
+hw = ShortRate.HullWhite(0.03, 0.02, Yield.Constant(Continuous(0.01)))
+
+# 1y into 4y payer swaption, 1.1% strike, quarterly
+payer = present_value(hw, Option.Swaption(1.0, 5.0, 0.011, 4; payer=true))
+
+# Receiver swaption
+receiver = present_value(hw, Option.Swaption(1.0, 5.0, 0.011, 4; payer=false))
+```
+
+### Calibrating Hull-White to Derivatives
+
+With derivative pricing, `fit` can calibrate Hull-White's `a` and `σ` to market swaption or cap prices:
+
+```julia
+curve = Yield.Constant(Continuous(0.03))
+
+# Initial guess
+hw0 = ShortRate.HullWhite(0.05, 0.01, curve)
+
+# Market swaption prices (here generated from a "true" model)
+hw_true = ShortRate.HullWhite(0.1, 0.015, curve)
+instruments = [
+    Option.Swaption(1.0, 6.0, 0.03, 2),
+    Option.Swaption(2.0, 7.0, 0.03, 2),
+    Option.Swaption(3.0, 8.0, 0.03, 2),
+]
+quotes = [Quote(present_value(hw_true, inst), inst) for inst in instruments]
+
+# Calibrate
+hw_fit = fit(hw0, quotes)
+```
+
 ## Summary
 
 | Function | Description |
@@ -219,7 +285,10 @@ zero(v_weak, 30)    # still far from 0.05
 | `zero(model, t)` | Continuous zero rate at `t` |
 | `forward(model, t1, t2)` | Forward rate from `t1` to `t2` |
 | `par(model, t)` | Par yield at `t` |
-| `pv(model, contract)` | Analytical present value |
+| `present_value(model, contract)` | Analytical present value |
+| `present_value(hw, Option.ZCBCall(...))` | Hull-White ZCB option price |
+| `present_value(hw, Option.Cap(...))` | Hull-White cap price |
+| `present_value(hw, Option.Swaption(...))` | Hull-White swaption price |
 | `fit(model, quotes)` | Calibrate to market data |
 | `simulate(model; ...)` | Generate `Vector{RatePath}` scenarios |
 | `pv_mc(model, contract; ...)` | Monte Carlo expected present value |
