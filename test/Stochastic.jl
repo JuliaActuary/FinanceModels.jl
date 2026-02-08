@@ -858,5 +858,80 @@ using Random
             @test_throws ArgumentError present_value(hw, Option.ZCBCall(1.0, 5.0, 0.0))
             @test_throws ArgumentError present_value(hw, Option.ZCBCall(1.0, 5.0, -0.5))
         end
+
+        @testset "Tenor validation: non-integer periods" begin
+            hw = ShortRate.HullWhite(0.1, 0.01, Yield.Constant(Continuous(0.05)))
+            # Cap maturity 1.3 with quarterly freq → 1.3 * 4 = 5.2, not integer
+            @test_throws ArgumentError present_value(hw, Option.Cap(0.05, 4, 1.3))
+            # Floor maturity 2.7 with semiannual freq → 2.7 * 2 = 5.4
+            @test_throws ArgumentError present_value(hw, Option.Floor(0.05, 2, 2.7))
+            # Swaption: swap tenor 1.3 with quarterly freq → 1.3 * 4 = 5.2
+            @test_throws ArgumentError present_value(hw, Option.Swaption(1.0, 2.3, 0.05, 4))
+            # Valid tenors should not throw
+            @test present_value(hw, Option.Cap(0.05, 4, 1.0)) isa Real
+            @test present_value(hw, Option.Floor(0.05, 2, 3.0)) isa Real
+            @test present_value(hw, Option.Swaption(1.0, 2.0, 0.05, 4)) isa Real
+        end
+    end
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Hull-White derivatives with non-flat curve
+    # ──────────────────────────────────────────────────────────────────────────
+
+    @testset "Hull-White derivatives with non-flat curve" begin
+        # Bootstrap a non-trivial term structure
+        quotes = ZCBYield.([0.02, 0.025, 0.035, 0.04], [1, 3, 7, 15])
+        curve = fit(Spline.Linear(), quotes, Fit.Bootstrap())
+        hw = ShortRate.HullWhite(0.1, 0.015, curve)
+
+        @testset "ZCB options satisfy put-call parity" begin
+            T, S, K = 1.0, 5.0, 0.75
+            call = present_value(hw, Option.ZCBCall(T, S, K))
+            put  = present_value(hw, Option.ZCBPut(T, S, K))
+            P0S = discount(hw, S)
+            P0T = discount(hw, T)
+            @test call - put ≈ P0S - K * P0T atol = 1e-10
+        end
+
+        @testset "Cap-floor parity" begin
+            strike = 0.04
+            freq = 2
+            mat = 4.0
+            τ = 1.0 / freq
+            n_periods = round(Int, mat * freq)
+            cap  = present_value(hw, Option.Cap(strike, freq, mat))
+            flr  = present_value(hw, Option.Floor(strike, freq, mat))
+            annuity = sum(discount(hw, i * τ) for i in 2:n_periods)
+            swap_value = discount(hw, τ) - discount(hw, n_periods * τ) - strike * τ * annuity
+            @test cap - flr ≈ swap_value atol = 1e-8
+        end
+
+        @testset "Simulation martingale test with non-flat curve" begin
+            rng = Random.MersenneTwister(42)
+            scenarios = simulate(hw; n_scenarios = 5000, timestep = 1 / 12, horizon = 11.0, rng)
+            for T in [1.0, 5.0, 10.0]
+                mc_disc = sum(discount(sc, T) for sc in scenarios) / 5000
+                @test mc_disc ≈ discount(curve, T) rtol = 0.02
+            end
+        end
+    end
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # T≈0 derivative pricing (immediate expiry)
+    # ──────────────────────────────────────────────────────────────────────────
+
+    @testset "T≈0 derivative pricing (immediate expiry)" begin
+        hw = ShortRate.HullWhite(0.1, 0.01, Yield.Constant(Continuous(0.05)))
+        P0S = discount(hw, 5.0)
+        # ITM call at T≈0: max(P(0,5) - K, 0) = P(0,5) - K
+        K_itm = P0S - 0.01
+        @test present_value(hw, Option.ZCBCall(1e-10, 5.0, K_itm)) ≈ P0S - K_itm atol = 1e-6
+        # OTM call at T≈0: max(P(0,5) - K, 0) = 0
+        K_otm = P0S + 0.01
+        @test present_value(hw, Option.ZCBCall(1e-10, 5.0, K_otm)) ≈ 0.0 atol = 1e-6
+        # ITM put at T≈0
+        @test present_value(hw, Option.ZCBPut(1e-10, 5.0, K_otm)) ≈ K_otm - P0S atol = 1e-6
+        # OTM put at T≈0
+        @test present_value(hw, Option.ZCBPut(1e-10, 5.0, K_itm)) ≈ 0.0 atol = 1e-6
     end
 end

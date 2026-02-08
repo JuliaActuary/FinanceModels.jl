@@ -159,18 +159,11 @@ function FinanceCore.discount(m::ShortRate.CoxIngersollRoss, T)
     return _cir_zcb(m.a, m.b, m.σ, _initial_rate(m), T)
 end
 
-# Hull-White ZCB price: uses the initial curve + volatility correction
+# Hull-White is calibrated to match the initial term structure exactly.
+# The model parameters (a, σ) affect derivative pricing and simulation,
+# not the initial curve discount factors.
 function FinanceCore.discount(m::ShortRate.HullWhite, T)
-    a, σ = m.a, m.σ
-    P0T = FinanceCore.discount(m.curve, T)
-    if abs(a) < 1e-12
-        B = T
-    else
-        B = (1 - exp(-a * T)) / a
-    end
-    # Hull-White discount is the curve discount (no volatility correction needed
-    # for the initial yield curve – the model is calibrated to match it exactly)
-    return P0T
+    return FinanceCore.discount(m.curve, T)
 end
 
 # ─── Conditional discount P(t,T|r(t)) ────────────────────────────────────────
@@ -255,6 +248,8 @@ function simulate(model::AbstractStochasticModel;
     n_steps = ceil(Int, horizon / dt)
     sqrt_dt = sqrt(dt)
 
+    drift_cache = _precompute_drift(model, dt, n_steps)
+
     paths = Vector{RatePath}(undef, n_scenarios)
     for i in 1:n_scenarios
         times = Vector{Float64}(undef, n_steps + 1)
@@ -265,7 +260,7 @@ function simulate(model::AbstractStochasticModel;
         for j in 1:n_steps
             Z = randn(rng)
             t = (j - 1) * dt
-            r_new = _step(model, r, dt, sqrt_dt, Z, t)
+            r_new = _step(model, r, dt, sqrt_dt, Z, t, drift_cache, j)
             times[j + 1] = j * dt
             cumulative[j + 1] = cumulative[j] + 0.5 * (r + r_new) * dt
             r = r_new
@@ -287,32 +282,40 @@ function _sim_initial_rate(m::ShortRate.HullWhite)
 end
 
 # Euler-Maruyama step for each model
-function _step(m::ShortRate.Vasicek, r, dt, sqrt_dt, Z, t)
+function _step(m::ShortRate.Vasicek, r, dt, sqrt_dt, Z, t, ::Nothing, j)
     return r + m.a * (m.b - r) * dt + m.σ * sqrt_dt * Z
 end
 
-function _step(m::ShortRate.CoxIngersollRoss, r, dt, sqrt_dt, Z, t)
+function _step(m::ShortRate.CoxIngersollRoss, r, dt, sqrt_dt, Z, t, ::Nothing, j)
     # Full truncation scheme (Lord, Koekkoek & Van Dijk, 2010)
     r_pos = max(r, 0.0)
     return max(r_pos + m.a * (m.b - r_pos) * dt + m.σ * sqrt(r_pos) * sqrt_dt * Z, 0.0)
 end
 
-function _step(m::ShortRate.HullWhite, r, dt, sqrt_dt, Z, t)
-    # θ(t) = f_t(0,t) + a·f(0,t) + (σ²/2a)·(1 - exp(-2at))
-    # where f(0,t) is the instantaneous forward rate from the initial curve
+function _step(m::ShortRate.HullWhite, r, dt, sqrt_dt, Z, t, θ_cache, j)
+    return r + (θ_cache[j] - m.a * r) * dt + m.σ * sqrt_dt * Z
+end
+
+# Compute θ(t) = f_t(0,t) + a·f(0,t) + (σ²/2a)·(1 - exp(-2at))
+# where f(0,t) is the instantaneous forward rate from the initial curve
+function _hw_theta(m::ShortRate.HullWhite, t)
     a, σ = m.a, m.σ
     f0t = _hw_forward_rate(m.curve, t)
-    # df/dt via AD (nested AD: derivative of forward rate, which itself uses AD)
     df_dt = DifferentiationInterface.derivative(
         s -> _hw_forward_rate(m.curve, s),
         AutoForwardDiff(), max(t, 1e-10)
     )
     if abs(a) < 1e-12
-        θ = df_dt + σ^2 * t
+        return df_dt + σ^2 * t
     else
-        θ = df_dt + a * f0t + σ^2 / (2a) * (1 - exp(-2a * t))
+        return df_dt + a * f0t + σ^2 / (2a) * (1 - exp(-2a * t))
     end
-    return r + (θ - a * r) * dt + σ * sqrt_dt * Z
+end
+
+# Pre-compute drift values: nothing for Vasicek/CIR, Vector{Float64} for HW
+_precompute_drift(::AbstractStochasticModel, dt, n_steps) = nothing
+function _precompute_drift(m::ShortRate.HullWhite, dt, n_steps)
+    return [_hw_theta(m, (j - 1) * dt) for j in 1:n_steps]
 end
 
 # ─── pv_mc: Monte Carlo expected present value ───────────────────────────────
@@ -437,7 +440,7 @@ function FinanceCore.present_value(m::ShortRate.HullWhite, c::Option.Cap)
     # Payment dates: τ, 2τ, ..., maturity
     # Caplet i: reset at T_{i-1}, pays at T_i
     # First caplet (reset at 0, pay at τ) is typically excluded (rate already known)
-    n_periods = round(Int, c.maturity * freq)
+    n_periods = _check_integer_periods(c.maturity, freq, "Cap maturity")
     K_bond = 1.0 / (1.0 + K * τ)
     total = 0.0
     for i in 2:n_periods
@@ -453,7 +456,7 @@ function FinanceCore.present_value(m::ShortRate.HullWhite, c::Option.Floor)
     K = c.strike
     freq = c.frequency isa FinanceCore.Frequency ? c.frequency.frequency : c.frequency
     τ = 1.0 / freq
-    n_periods = round(Int, c.maturity * freq)
+    n_periods = _check_integer_periods(c.maturity, freq, "Floor maturity")
     K_bond = 1.0 / (1.0 + K * τ)
     total = 0.0
     for i in 2:n_periods
@@ -486,7 +489,7 @@ function FinanceCore.present_value(m::ShortRate.HullWhite, c::Option.Swaption)
     coupon = c.strike
 
     # Payment dates of the underlying swap
-    n_payments = round(Int, (c.swap_maturity - T0) * freq)
+    n_payments = _check_integer_periods(c.swap_maturity - T0, freq, "Swap tenor")
     payment_times = [T0 + i * τ for i in 1:n_payments]
 
     # Step 1: Find r* such that the swap has zero value at T0
@@ -529,6 +532,15 @@ function FinanceCore.present_value(m::ShortRate.HullWhite, c::Option.Swaption)
         end
     end
     return price
+end
+
+# Validate that a value is an integer multiple of the period length
+function _check_integer_periods(value, freq, label)
+    n = value * freq
+    n_int = round(Int, n)
+    abs(n - n_int) < 1e-8 || throw(ArgumentError(
+        "$label ($value) must be an integer multiple of the period length (1/$freq)"))
+    return n_int
 end
 
 # Simple bisection solver with automatic bracket widening
