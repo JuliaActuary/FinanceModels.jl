@@ -34,6 +34,9 @@ export Spline
 
 export NullModel, Yield, discount, accumulation, zero, forward
 
+using .Yield: ZeroRateCurve
+export ZeroRateCurve
+
 using .Yield: par
 export par
 
