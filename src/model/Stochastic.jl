@@ -250,13 +250,17 @@ function simulate(model::AbstractStochasticModel;
 
     drift_cache = _precompute_drift(model, dt, n_steps)
 
+    # Determine element type from initial rate (may be a ForwardDiff.Dual)
+    r0 = _sim_initial_rate(model)
+    T = typeof(r0)
+
     paths = Vector{RatePath}(undef, n_scenarios)
     for i in 1:n_scenarios
         times = Vector{Float64}(undef, n_steps + 1)
-        cumulative = Vector{Float64}(undef, n_steps + 1)
+        cumulative = Vector{T}(undef, n_steps + 1)
         times[1] = 0.0
-        cumulative[1] = 0.0
-        r = _sim_initial_rate(model)
+        cumulative[1] = zero(T)
+        r = r0
         for j in 1:n_steps
             Z = randn(rng)
             t = (j - 1) * dt
