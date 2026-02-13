@@ -17,7 +17,6 @@ Private = false
 FinanceModels.simulate
 FinanceModels.pv_mc
 FinanceModels.short_rate
-FinanceModels.RatePath
 ```
 
 ## Unexported API
