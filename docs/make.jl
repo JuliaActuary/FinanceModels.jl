@@ -17,6 +17,7 @@ makedocs(;
             "Introduction" => "introduction.md",
             "Models, Valuation, and Fitting" => "models.md",
             "Stochastic Models" => "stochastic.md",
+            "Interpolation Methods" => "interpolation.md",
             "Contracts" => "contracts.md",
             "Rates" => "Rates.md",
             "Migration Guide" => "migration.md",

@@ -69,9 +69,19 @@ rate at normalized position x ∈ [0, 1] within an interval. Following Hagan-Wes
 g(x) = f(x) - fᵈ with boundary conditions g₀ = f⁻ - fᵈ and g₁ = f - fᵈ that determine
 the sector-specific polynomial used for interpolation.
 """
+# Check if boundary deviations are negligible (avoids 0/0 in sector formulas for flat curves)
+function _mc_negligible(g0, g1, fᵈ)
+    tol = 16 * eps(float(fᵈ))
+    return abs(g0) <= tol && abs(g1) <= tol
+end
+
 function g(x, f⁻, f, fᵈ)
     g0 = f⁻ - fᵈ
     g1 = f - fᵈ
+    # Near-flat interval: linear fallback avoids 0/0 and preserves AD partials
+    if _mc_negligible(g0, g1, fᵈ)
+        return g0 * (1 - x) + g1 * x
+    end
     if sign(g0) == sign(g1)
         # sector (iv)
         η = g1 / (g1 + g0)
@@ -116,15 +126,19 @@ the Hagan-West construction.
 function g_rate(x, f⁻, f, fᵈ)
     g0 = f⁻ - fᵈ
     g1 = f - fᵈ
+    # Near-flat interval: linear integral fallback avoids 0/0 and preserves AD partials
+    if _mc_negligible(g0, g1, fᵈ)
+        return g0 * x + (g1 - g0) * x^2 / 2  # ∫₀ˣ [g0(1-u) + g1·u] du
+    end
     return if sign(g0) == sign(g1)
         # sector (iv)
         η = g1 / (g1 + g0)
         α = -g0 * g1 / (g1 + g0)
 
         if x < η
-            return α * x - (g0 - α) * ((η - x)^3 / η^2 - η) / 3
+            α * x - (g0 - α) * ((η - x)^3 / η^2 - η) / 3
         else
-            return (2 * α + g0) / 3 * η + α * (x - η) + (g1 - α) / 3 * (x - η)^3 / (1 - η)^2
+            (2 * α + g0) / 3 * η + α * (x - η) + (g1 - α) / 3 * (x - η)^3 / (1 - η)^2
         end
 
     elseif __issector1(g0, g1)

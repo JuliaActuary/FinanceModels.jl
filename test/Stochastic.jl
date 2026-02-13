@@ -859,6 +859,20 @@ using Random
             @test_throws ArgumentError present_value(hw, Option.ZCBCall(1.0, 5.0, -0.5))
         end
 
+        @testset "Constructor parameter validation" begin
+            @test_throws ArgumentError ShortRate.Vasicek(0.1, 0.05, -0.01, 0.03)
+            @test ShortRate.Vasicek(0.1, 0.05, 0.0, 0.03) isa ShortRate.Vasicek
+
+            @test_throws ArgumentError ShortRate.CoxIngersollRoss(0.1, 0.05, -0.01, 0.03)
+            @test_throws ArgumentError ShortRate.CoxIngersollRoss(0.1, 0.05, 0.01, -0.01)
+            @test_logs (:warn, r"Feller") ShortRate.CoxIngersollRoss(0.1, 0.05, 0.3, 0.03)
+            @test_logs ShortRate.CoxIngersollRoss(0.3, 0.05, 0.1, 0.03)
+
+            curve = Yield.Constant(0.03)
+            @test_throws ArgumentError ShortRate.HullWhite(0.1, -0.01, curve)
+            @test ShortRate.HullWhite(0.1, 0.0, curve) isa ShortRate.HullWhite
+        end
+
         @testset "Tenor validation: non-integer periods" begin
             hw = ShortRate.HullWhite(0.1, 0.01, Yield.Constant(Continuous(0.05)))
             # Cap maturity 1.3 with quarterly freq → 1.3 * 4 = 5.2, not integer

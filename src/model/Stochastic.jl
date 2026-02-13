@@ -43,6 +43,7 @@ struct Vasicek{A,B,S,T} <: AbstractStochasticModel
 end
 
 function Vasicek(a::Real, b::Real, σ::Real, initial::Real)
+    σ >= 0 || throw(ArgumentError("volatility σ must be non-negative, got $σ"))
     return Vasicek(Float64(a), Float64(b), Float64(σ), Continuous(initial))
 end
 
@@ -75,6 +76,11 @@ struct CoxIngersollRoss{A,B,S,T} <: AbstractStochasticModel
 end
 
 function CoxIngersollRoss(a::Real, b::Real, σ::Real, initial::Real)
+    σ >= 0 || throw(ArgumentError("volatility σ must be non-negative, got $σ"))
+    initial >= 0 || throw(ArgumentError("initial rate must be non-negative for CIR, got $initial"))
+    if 2 * a * b <= σ^2
+        @warn "Feller condition 2ab > σ² violated (2·$(a)·$(b) = $(2*a*b) ≤ σ² = $(σ^2)). Short rate may reach zero."
+    end
     return CoxIngersollRoss(Float64(a), Float64(b), Float64(σ), Continuous(initial))
 end
 
@@ -99,6 +105,10 @@ struct HullWhite{A,S,C} <: AbstractStochasticModel
     a::A
     σ::S
     curve::C
+    function HullWhite(a::A, σ::S, curve::C) where {A,S,C}
+        σ >= 0 || throw(ArgumentError("volatility σ must be non-negative, got $σ"))
+        return new{A,S,C}(a, σ, curve)
+    end
 end
 
 end # module ShortRate
@@ -254,18 +264,21 @@ function simulate(model::AbstractStochasticModel;
     r0 = _sim_initial_rate(model)
     T = typeof(r0)
 
+    times = Vector{Float64}(undef, n_steps + 1)
+    times[1] = 0.0
+    for j in 1:n_steps
+        times[j + 1] = j * dt
+    end
+
     paths = Vector{RatePath}(undef, n_scenarios)
     for i in 1:n_scenarios
-        times = Vector{Float64}(undef, n_steps + 1)
         cumulative = Vector{T}(undef, n_steps + 1)
-        times[1] = 0.0
         cumulative[1] = zero(T)
         r = r0
         for j in 1:n_steps
             Z = randn(rng)
             t = (j - 1) * dt
             r_new = _step(model, r, dt, sqrt_dt, Z, t, drift_cache, j)
-            times[j + 1] = j * dt
             cumulative[j + 1] = cumulative[j] + 0.5 * (r + r_new) * dt
             r = r_new
         end
@@ -434,6 +447,9 @@ function FinanceCore.present_value(m::_GaussianModel, c::Option.ZCBPut)
     return put
 end
 
+_frequency_value(f::FinanceCore.Frequency) = f.frequency
+_frequency_value(f::Real) = f
+
 # ─── present_value for Caps and Floors ───────────────────────────────────────
 #
 # A caplet paying max(L(T_{i-1},T_i) - K, 0)·τ at T_i is equivalent to
@@ -443,11 +459,13 @@ end
 
 function FinanceCore.present_value(m::_GaussianModel, c::Option.Cap)
     K = c.strike
-    freq = c.frequency isa FinanceCore.Frequency ? c.frequency.frequency : c.frequency
+    freq = _frequency_value(c.frequency)
     τ = 1.0 / freq
     # Payment dates: τ, 2τ, ..., maturity
     # Caplet i: reset at T_{i-1}, pays at T_i
-    # First caplet (reset at 0, pay at τ) is typically excluded (rate already known)
+    # First caplet (reset at 0, pay at τ) is excluded: its rate is already known
+    # at valuation (standard market convention; see Hull 2018, §32.3).
+    # For forward-starting caps, adjust the contract maturity accordingly.
     n_periods = _check_integer_periods(c.maturity, freq, "Cap maturity")
     K_bond = 1.0 / (1.0 + K * τ)
     total = 0.0
@@ -462,7 +480,7 @@ end
 
 function FinanceCore.present_value(m::_GaussianModel, c::Option.Floor)
     K = c.strike
-    freq = c.frequency isa FinanceCore.Frequency ? c.frequency.frequency : c.frequency
+    freq = _frequency_value(c.frequency)
     τ = 1.0 / freq
     n_periods = _check_integer_periods(c.maturity, freq, "Floor maturity")
     K_bond = 1.0 / (1.0 + K * τ)
@@ -489,10 +507,13 @@ end
 #   where Kᵢ = P(T₀,Tᵢ;r*)
 #
 # For a receiver swaption, replace Put with Call.
+#
+# NOTE: Jamshidian decomposition requires monotonic bond prices in r, which holds
+# only for Gaussian models (Vasicek, Hull-White). For CIR, use pv_mc() instead.
 
 function FinanceCore.present_value(m::_GaussianModel, c::Option.Swaption)
     T0 = c.expiry
-    freq = c.frequency isa FinanceCore.Frequency ? c.frequency.frequency : c.frequency
+    freq = _frequency_value(c.frequency)
     τ = 1.0 / freq
     coupon = c.strike
 
@@ -578,7 +599,10 @@ function _bisect(f, lo, hi; tol = 1e-12, maxiter = 200)
             hi = mid
         end
     end
-    return (lo + hi) / 2
+    mid = (lo + hi) / 2
+    fmid = f(mid)
+    abs(fmid) < tol || @warn "Bisection: unconverged after $maxiter iterations (|f(x)| = $(abs(fmid)))"
+    return mid
 end
 
 # ─── short_rate: extract r(t) from a simulated RatePath ──────────────────────
@@ -590,6 +614,10 @@ The instantaneous short rate `r(t)` for a simulated scenario.
 
 `RatePath` stores the cumulative integral `∫₀ᵗ r(s) ds` as a `LinearInterpolation`.
 The short rate is the derivative of this cumulative integral.
+
+Because the cumulative integral is built from Euler-Maruyama trapezoidal steps, the
+returned rate is piecewise-constant within each timestep — an approximation to the
+continuous short-rate process, not the exact value.
 """
 function short_rate(path::RatePath, t)
     return DataInterpolations.derivative(path.interp, t)
