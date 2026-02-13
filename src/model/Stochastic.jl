@@ -250,13 +250,17 @@ function simulate(model::AbstractStochasticModel;
 
     drift_cache = _precompute_drift(model, dt, n_steps)
 
+    # Determine element type from initial rate (may be a ForwardDiff.Dual)
+    r0 = _sim_initial_rate(model)
+    T = typeof(r0)
+
     paths = Vector{RatePath}(undef, n_scenarios)
     for i in 1:n_scenarios
         times = Vector{Float64}(undef, n_steps + 1)
-        cumulative = Vector{Float64}(undef, n_steps + 1)
+        cumulative = Vector{T}(undef, n_steps + 1)
         times[1] = 0.0
-        cumulative[1] = 0.0
-        r = _sim_initial_rate(model)
+        cumulative[1] = zero(T)
+        r = r0
         for j in 1:n_steps
             Z = randn(rng)
             t = (j - 1) * dt
@@ -371,11 +375,15 @@ function _hw_forward_rate(curve, t)
     )
 end
 
+# Union type for Gaussian (normal) short-rate models that share the same
+# ZCB option formula (Black's formula with σ_P from the B(t,T) function).
+const _GaussianModel = Union{ShortRate.Vasicek, ShortRate.HullWhite}
+
 """
-    _hw_zcb_option_price(m::ShortRate.HullWhite, T, S, K)
+    _zcb_option_price(m::Union{ShortRate.Vasicek, ShortRate.HullWhite}, T, S, K)
 
 Closed-form price of a European call and put on a zero-coupon bond
-under the Hull-White one-factor model.
+under a Gaussian (Vasicek or Hull-White) one-factor model.
 
 Returns `(call_price, put_price)`.
 
@@ -385,12 +393,12 @@ Returns `(call_price, put_price)`.
 
 Reference: Brigo & Mercurio (2006), Proposition 3.2.1
 """
-function _hw_zcb_option_price(m::ShortRate.HullWhite, T, S, K)
+function _zcb_option_price(m::_GaussianModel, T, S, K)
     S > T || throw(ArgumentError("Bond maturity S=$S must be greater than option expiry T=$T"))
     K > 0 || throw(ArgumentError("Strike K=$K must be positive"))
     a, σ = m.a, m.σ
-    P0T = FinanceCore.discount(m.curve, T)
-    P0S = FinanceCore.discount(m.curve, S)
+    P0T = FinanceCore.discount(m, T)
+    P0S = FinanceCore.discount(m, S)
 
     # σ_P: volatility of the ZCB price at expiry
     B_TS = _hw_B(a, T, S)
@@ -416,13 +424,13 @@ end
 
 # ─── present_value for ZCB options ───────────────────────────────────────────
 
-function FinanceCore.present_value(m::ShortRate.HullWhite, c::Option.ZCBCall)
-    call, _ = _hw_zcb_option_price(m, c.expiry, c.bond_maturity, c.strike)
+function FinanceCore.present_value(m::_GaussianModel, c::Option.ZCBCall)
+    call, _ = _zcb_option_price(m, c.expiry, c.bond_maturity, c.strike)
     return call
 end
 
-function FinanceCore.present_value(m::ShortRate.HullWhite, c::Option.ZCBPut)
-    _, put = _hw_zcb_option_price(m, c.expiry, c.bond_maturity, c.strike)
+function FinanceCore.present_value(m::_GaussianModel, c::Option.ZCBPut)
+    _, put = _zcb_option_price(m, c.expiry, c.bond_maturity, c.strike)
     return put
 end
 
@@ -433,7 +441,7 @@ end
 #
 # Similarly a floorlet = (1 + K·τ) calls on a ZCB.
 
-function FinanceCore.present_value(m::ShortRate.HullWhite, c::Option.Cap)
+function FinanceCore.present_value(m::_GaussianModel, c::Option.Cap)
     K = c.strike
     freq = c.frequency isa FinanceCore.Frequency ? c.frequency.frequency : c.frequency
     τ = 1.0 / freq
@@ -446,13 +454,13 @@ function FinanceCore.present_value(m::ShortRate.HullWhite, c::Option.Cap)
     for i in 2:n_periods
         T_reset = (i - 1) * τ   # option expiry = reset date
         T_pay   = i * τ         # bond maturity = payment date
-        _, put = _hw_zcb_option_price(m, T_reset, T_pay, K_bond)
+        _, put = _zcb_option_price(m, T_reset, T_pay, K_bond)
         total += (1.0 + K * τ) * put
     end
     return total
 end
 
-function FinanceCore.present_value(m::ShortRate.HullWhite, c::Option.Floor)
+function FinanceCore.present_value(m::_GaussianModel, c::Option.Floor)
     K = c.strike
     freq = c.frequency isa FinanceCore.Frequency ? c.frequency.frequency : c.frequency
     τ = 1.0 / freq
@@ -462,7 +470,7 @@ function FinanceCore.present_value(m::ShortRate.HullWhite, c::Option.Floor)
     for i in 2:n_periods
         T_reset = (i - 1) * τ
         T_pay   = i * τ
-        call, _ = _hw_zcb_option_price(m, T_reset, T_pay, K_bond)
+        call, _ = _zcb_option_price(m, T_reset, T_pay, K_bond)
         total += (1.0 + K * τ) * call
     end
     return total
@@ -482,7 +490,7 @@ end
 #
 # For a receiver swaption, replace Put with Call.
 
-function FinanceCore.present_value(m::ShortRate.HullWhite, c::Option.Swaption)
+function FinanceCore.present_value(m::_GaussianModel, c::Option.Swaption)
     T0 = c.expiry
     freq = c.frequency isa FinanceCore.Frequency ? c.frequency.frequency : c.frequency
     τ = 1.0 / freq
@@ -517,14 +525,14 @@ function FinanceCore.present_value(m::ShortRate.HullWhite, c::Option.Swaption)
         Ki = FinanceCore.discount(m, T0, Ti, r_star)
         if c.payer
             # Payer swaption = sum of ZCB puts
-            _, put = _hw_zcb_option_price(m, T0, Ti, Ki)
+            _, put = _zcb_option_price(m, T0, Ti, Ki)
             price += coupon * τ * put
             if i == length(payment_times)
                 price += put  # principal
             end
         else
             # Receiver swaption = sum of ZCB calls
-            call, _ = _hw_zcb_option_price(m, T0, Ti, Ki)
+            call, _ = _zcb_option_price(m, T0, Ti, Ki)
             price += coupon * τ * call
             if i == length(payment_times)
                 price += call  # principal
@@ -571,4 +579,18 @@ function _bisect(f, lo, hi; tol = 1e-12, maxiter = 200)
         end
     end
     return (lo + hi) / 2
+end
+
+# ─── short_rate: extract r(t) from a simulated RatePath ──────────────────────
+
+"""
+    short_rate(path::RatePath, t)
+
+The instantaneous short rate `r(t)` for a simulated scenario.
+
+`RatePath` stores the cumulative integral `∫₀ᵗ r(s) ds` as a `LinearInterpolation`.
+The short rate is the derivative of this cumulative integral.
+"""
+function short_rate(path::RatePath, t)
+    return DataInterpolations.derivative(path.interp, t)
 end

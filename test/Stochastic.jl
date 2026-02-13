@@ -934,4 +934,152 @@ using Random
         # OTM put at T≈0
         @test present_value(hw, Option.ZCBPut(1e-10, 5.0, K_itm)) ≈ 0.0 atol = 1e-6
     end
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # HW 4-arg conditional discount with non-flat curve
+    # ──────────────────────────────────────────────────────────────────────────
+
+    @testset "HW conditional discount with non-flat curve" begin
+        quotes = ZCBYield.([0.02, 0.025, 0.035, 0.04], [1, 3, 7, 15])
+        curve = fit(Spline.Linear(), quotes, Fit.Bootstrap())
+        hw = ShortRate.HullWhite(0.1, 0.015, curve)
+        # P(t, t | r) = 1
+        @test discount(hw, 2.0, 2.0, 0.05) ≈ 1.0
+        # P(0, T | f(0,0)) ≈ P(0, T)
+        f00 = FinanceModels._hw_forward_rate(curve, 0.0)
+        for T in [1.0, 5.0, 10.0]
+            @test discount(hw, 0.0, T, f00) ≈ discount(hw, T) rtol = 1e-8
+        end
+    end
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # CIR simulation with Feller-violating parameters
+    # ──────────────────────────────────────────────────────────────────────────
+
+    @testset "CIR simulation with Feller violation" begin
+        # 2ab = 0.02 < σ² = 0.25 — Feller violated, truncation scheme needed
+        cir_fv = ShortRate.CoxIngersollRoss(0.1, 0.10, 0.50, Continuous(0.05))
+        rng = Random.MersenneTwister(42)
+        scenarios = simulate(cir_fv; n_scenarios = 100, timestep = 1 / 52, horizon = 5.0, rng)
+        # All discounts should be positive and finite
+        for sc in scenarios
+            @test discount(sc, 3.0) > 0
+            @test isfinite(discount(sc, 3.0))
+        end
+    end
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # pv_mc with Hull-White
+    # ──────────────────────────────────────────────────────────────────────────
+
+    @testset "pv_mc with Hull-White" begin
+        curve = Yield.Constant(Continuous(0.05))
+        hw = ShortRate.HullWhite(0.1, 0.02, curve)
+        bond = Bond.Fixed(0.05, Periodic(2), 5)
+        rng = Random.MersenneTwister(42)
+        mc_pv = pv_mc(hw, bond; n_scenarios = 2000, timestep = 1 / 12, rng)
+        analytical_pv = present_value(hw, bond)
+        @test mc_pv ≈ analytical_pv rtol = 0.03
+    end
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Vasicek derivative pricing
+    # ──────────────────────────────────────────────────────────────────────────
+
+    @testset "Vasicek derivative pricing" begin
+        v = ShortRate.Vasicek(0.1, 0.05, 0.015, Continuous(0.03))
+
+        @testset "ZCB call/put with put-call parity" begin
+            T, S, K = 1.0, 5.0, 0.75
+            call = present_value(v, Option.ZCBCall(T, S, K))
+            put  = present_value(v, Option.ZCBPut(T, S, K))
+            P0S = discount(v, S)
+            P0T = discount(v, T)
+            @test call - put ≈ P0S - K * P0T atol = 1e-10
+        end
+
+        @testset "cap-floor parity" begin
+            strike = 0.05
+            freq = 2
+            mat = 4.0
+            τ = 1.0 / freq
+            n_periods = round(Int, mat * freq)
+            cap  = present_value(v, Option.Cap(strike, freq, mat))
+            flr  = present_value(v, Option.Floor(strike, freq, mat))
+            annuity = sum(discount(v, i * τ) for i in 2:n_periods)
+            swap_value = discount(v, τ) - discount(v, n_periods * τ) - strike * τ * annuity
+            @test cap - flr ≈ swap_value atol = 1e-8
+        end
+
+        @testset "swaption payer-receiver parity" begin
+            expiry = 1.0
+            swap_mat = 6.0
+            strike = 0.05
+            freq = 2
+            τ = 1.0 / freq
+
+            payer    = present_value(v, Option.Swaption(expiry, swap_mat, strike, freq; payer = true))
+            receiver = present_value(v, Option.Swaption(expiry, swap_mat, strike, freq; payer = false))
+
+            n_payments = round(Int, (swap_mat - expiry) * freq)
+            payment_times = [expiry + i * τ for i in 1:n_payments]
+            annuity = sum(discount(v, Ti) for Ti in payment_times)
+            fwd_swap = discount(v, expiry) - discount(v, swap_mat) - strike * τ * annuity
+            @test payer - receiver ≈ fwd_swap atol = 1e-6
+        end
+
+        @testset "Vasicek matches HW with flat curve" begin
+            # Vasicek(a, b, σ, r₀) should give the same ZCB option prices as
+            # HullWhite(a, σ, flat_curve_at_vasicek_ZCB_prices) — but only if
+            # the HW curve exactly matches Vasicek's term structure.
+            # Simpler check: compare Vasicek option to HW with Vasicek as the curve.
+            # Since HW discount delegates to the curve, this is self-consistent.
+
+            # Use Vasicek itself as the "curve" for HW
+            hw_equiv = ShortRate.HullWhite(v.a, v.σ, v)
+
+            T, S, K = 1.0, 5.0, 0.75
+            v_call = present_value(v, Option.ZCBCall(T, S, K))
+            hw_call = present_value(hw_equiv, Option.ZCBCall(T, S, K))
+            @test v_call ≈ hw_call rtol = 1e-8
+
+            v_cap = present_value(v, Option.Cap(0.05, 2, 4.0))
+            hw_cap = present_value(hw_equiv, Option.Cap(0.05, 2, 4.0))
+            @test v_cap ≈ hw_cap rtol = 1e-8
+        end
+    end
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # short_rate accessor
+    # ──────────────────────────────────────────────────────────────────────────
+
+    @testset "short_rate accessor" begin
+        import DataInterpolations
+        # Manual RatePath: cumulative = [0, 0.03, 0.065, 0.10] at [0, 1, 2, 3]
+        # Linear interp slopes: 0.03 (0→1), 0.035 (1→2), 0.035 (2→3)
+        ts = [0.0, 1.0, 2.0, 3.0]
+        cum = [0.0, 0.03, 0.065, 0.10]
+        interp = DataInterpolations.LinearInterpolation(
+            cum, ts;
+            extrapolation = DataInterpolations.ExtrapolationType.Extension
+        )
+        rp = RatePath(interp)
+
+        # In the first segment [0,1], slope = 0.03
+        @test short_rate(rp, 0.5) ≈ 0.03
+        # In the second segment [1,2], slope = 0.035
+        @test short_rate(rp, 1.5) ≈ 0.035
+        # In the third segment [2,3], slope = 0.035
+        @test short_rate(rp, 2.5) ≈ 0.035
+
+        # Test with simulated paths
+        v = ShortRate.Vasicek(0.3, 0.05, 0.02, Continuous(0.03))
+        rng = Random.MersenneTwister(42)
+        scenarios = simulate(v; n_scenarios = 10, timestep = 1 / 12, horizon = 5.0, rng)
+        # short_rate should return finite positive-ish values (Vasicek can go negative)
+        for sc in scenarios
+            r = short_rate(sc, 2.5)
+            @test isfinite(r)
+        end
+    end
 end

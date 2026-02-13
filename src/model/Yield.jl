@@ -84,6 +84,7 @@ end
 include("Yield/SmithWilson.jl")
 include("Yield/NelsonSiegelSvensson.jl")
 include("Yield/MonotoneConvex.jl")
+include("Yield/ZeroRateCurve.jl")
 
 ## Generic and Fallbacks
 """

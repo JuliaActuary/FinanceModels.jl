@@ -82,6 +82,36 @@ forward(v, 2, 3)      # forward rate from t=2 to t=3
 par(v, 10)            # par yield at t=10
 ```
 
+### Conditional Discount Factors
+
+Stochastic models also support the **conditional** zero-coupon bond price
+`P(t, T | r(t) = r)` — the price at time `t` of a bond maturing at `T`,
+given that the short rate at `t` is `r`:
+
+```julia
+v = ShortRate.Vasicek(0.136, 0.0168, 0.0119, Continuous(0.01))
+
+# P(2, 10 | r(2) = 0.04) under Vasicek
+discount(v, 2.0, 10.0, 0.04)
+```
+
+This is distinct from the 2-argument form `discount(v, 10)` which gives the
+**unconditional** `P(0, T)` from the initial term structure.
+
+The conditional form is used internally for derivative pricing (swaption
+Jamshidian decomposition) and can be useful for scenario analysis where
+the short rate at a future time is known.
+
+### Extracting the Short Rate from a Simulated Path
+
+After simulation, you can extract the instantaneous short rate `r(t)` from a
+`RatePath` using `short_rate`:
+
+```julia
+scenarios = simulate(v; n_scenarios=10, timestep=1/12, horizon=10.0)
+short_rate(scenarios[1], 5.0)  # r(5) for the first scenario
+```
+
 ### Valuing Fixed-Income Contracts
 
 Since stochastic models are yield models, `present_value` works directly for deterministic-cashflow instruments:
@@ -260,9 +290,11 @@ v_weak = ShortRate.Vasicek(0.01, 0.05, 0.01, Continuous(0.10))
 zero(v_weak, 30)    # still far from 0.05
 ```
 
-## Hull-White Derivative Pricing
+## Gaussian Model Derivative Pricing
 
-The Hull-White model supports closed-form pricing of interest rate derivatives. Since `discount(hw, t)` simply returns the initial curve's discount factor (the model is calibrated to match the curve exactly), bond prices alone cannot identify `a` and `σ`. Instead, Hull-White is typically calibrated to **derivative prices** — caps, floors, swaptions, or zero-coupon bond options.
+Both the Vasicek and Hull-White models are Gaussian short-rate models and share the same closed-form ZCB option formula (Black's formula). This means all derivative pricing — ZCB options, caps, floors, and swaptions — works identically for both models.
+
+For Hull-White, since `discount(hw, t)` simply returns the initial curve's discount factor (the model is calibrated to match the curve exactly), bond prices alone cannot identify `a` and `σ`. Instead, Hull-White is typically calibrated to **derivative prices** — caps, floors, swaptions, or zero-coupon bond options.
 
 ### Zero-Coupon Bond Options
 
@@ -354,13 +386,15 @@ mean_pv = sum(pvs) / length(pvs)
 | Function | Description |
 |:---------|:------------|
 | `discount(model, t)` | Closed-form ZCB price `P(0,t)` |
+| `discount(model, t, T, r_t)` | Conditional ZCB price `P(t,T \| r(t)=r)` |
 | `zero(model, t)` | Continuous zero rate at `t` |
 | `forward(model, t1, t2)` | Forward rate from `t1` to `t2` |
 | `par(model, t)` | Par yield at `t` |
 | `present_value(model, contract)` | Analytical present value |
-| `present_value(hw, Option.ZCBCall(...))` | Hull-White ZCB option price |
-| `present_value(hw, Option.Cap(...))` | Hull-White cap price |
-| `present_value(hw, Option.Swaption(...))` | Hull-White swaption price |
+| `present_value(m, Option.ZCBCall(...))` | Vasicek/Hull-White ZCB option price |
+| `present_value(m, Option.Cap(...))` | Vasicek/Hull-White cap price |
+| `present_value(m, Option.Swaption(...))` | Vasicek/Hull-White swaption price |
 | `fit(model, quotes)` | Calibrate to market data |
 | `simulate(model; ...)` | Generate `Vector{RatePath}` scenarios |
 | `pv_mc(model, contract; ...)` | Monte Carlo expected present value |
+| `short_rate(path, t)` | Extract `r(t)` from a simulated `RatePath` |
