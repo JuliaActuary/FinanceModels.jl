@@ -49,6 +49,44 @@ struct BSpline <: SplineCurve
 end
 
 """
+    Spline.PCHIP()
+
+Piecewise Cubic Hermite Interpolating Polynomial (PCHIP). Local and monotonicity-preserving:
+each segment depends only on its immediate neighbors, so bumping one rate has bounded effect.
+Produces C1-continuous curves (continuous first derivative), giving smooth forward rates
+without the non-local coupling of cubic splines.
+
+PCHIP is the default interpolation for `ZeroRateCurve`.
+"""
+struct PCHIP <: SplineCurve end
+
+"""
+    Spline.Akima()
+
+Akima (1970) interpolation. Local and resistant to outlier-induced oscillation:
+each segment depends on a few neighboring points. Produces C1-continuous curves.
+
+Compared to PCHIP, Akima can produce slightly different shapes near inflection points.
+Both are local; PCHIP additionally preserves monotonicity.
+"""
+struct Akima <: SplineCurve end
+
+"""
+    Spline.MonotoneConvex()
+
+Hagan-West (2006) monotone convex interpolation. Finance-aware: guarantees positive
+continuous forward rates (when input rates imply positive forwards) and matches
+discrete forward rates at knot points. Produces the best KRD locality among smooth methods.
+
+Unlike other `SplineCurve` types that wrap DataInterpolations, this dispatches to
+`Yield.MonotoneConvex` which implements the Hagan-West sector-based polynomial construction.
+
+# References
+- Hagan & West, "Interpolation Methods for Curve Construction", Applied Mathematical Finance (2006)
+"""
+struct MonotoneConvex <: SplineCurve end
+
+"""
     Spline.Linear()
 
 Create a linear B-spline. This object is not a fitted spline itself, rather it is a placeholder object which will be a spline representing the data only after using within [`fit`](@ref FinanceModels.fit-Union{Tuple{F}, Tuple{Any, Any}, Tuple{Any, Any, F}} where F<:FinanceModels.Fit.Loss).

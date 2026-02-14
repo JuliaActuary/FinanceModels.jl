@@ -78,6 +78,14 @@ julia> rate(r)
 - [`FinanceModels.Yield.NelsonSiegel`](@ref)
 - [`FinanceModels.Yield.NelsonSiegelSvensson`](@ref)
 
+### Available Models - Stochastic Short Rates
+
+Stochastic short-rate models with closed-form zero-coupon bond prices. These are full yield models that also support Monte Carlo simulation. See the [Stochastic Models](@ref) guide for details and examples.
+
+- [`FinanceModels.ShortRate.Vasicek`](@ref)
+- [`FinanceModels.ShortRate.CoxIngersollRoss`](@ref)
+- [`FinanceModels.ShortRate.HullWhite`](@ref)
+
 #### Arithmetic
 
 Adding, subtracting, multiplying, dividing, and comparing rates is supported.

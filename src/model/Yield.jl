@@ -70,6 +70,14 @@ function Spline(b::Sp.BSpline, xs, ys)
     return Spline(DataInterpolations.BSplineInterpolation(ys, xs, order, :Uniform, knot_type; extrapolation = DataInterpolations.ExtrapolationType.Extension))
 end
 
+function Spline(::Sp.PCHIP, xs, ys)
+    return Spline(DataInterpolations.PCHIPInterpolation(ys, float.(xs); extrapolation = DataInterpolations.ExtrapolationType.Extension))
+end
+
+function Spline(::Sp.Akima, xs, ys)
+    return Spline(DataInterpolations.AkimaInterpolation(ys, float.(xs); extrapolation = DataInterpolations.ExtrapolationType.Extension))
+end
+
 function Spline(b::Sp.PolynomialSpline, xs, ys)
     order = min(length(xs) - 1, b.order) # in case the length of xs is less than the spline order
     if order == 1
@@ -84,6 +92,23 @@ end
 include("Yield/SmithWilson.jl")
 include("Yield/NelsonSiegelSvensson.jl")
 include("Yield/MonotoneConvex.jl")
+
+# callable interface for MonotoneConvex (matches Spline and ZeroRateCurve)
+(mc::MonotoneConvex)(t) = FinanceCore.discount(mc, t)
+
+"""
+    build_model(spline, tenors, rates)
+
+Build a yield model from a `SplineCurve` type descriptor, tenor times, and rates.
+Returns an `AbstractYieldModel` that supports `discount()` and callable `(t)` syntax.
+
+Used by `ZeroRateCurve` and the AD pathway in ActuaryUtilities to construct the
+interpolation model efficiently (once per gradient step rather than per discount call).
+"""
+build_model(spline::Sp.SplineCurve, tenors, rates) = Yield.Spline(spline, tenors, rates)
+build_model(::Sp.MonotoneConvex, tenors, rates) = Yield.MonotoneConvex(collect(rates), collect(float.(tenors)))
+
+include("Yield/ZeroRateCurve.jl")
 
 ## Generic and Fallbacks
 """

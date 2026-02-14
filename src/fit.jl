@@ -149,6 +149,22 @@ __default_optic(m::Yield.NelsonSiegelSvensson) = (
     )
 __default_optic(m::Equity.BlackScholesMerton{T,U,V}) where {T,U,V<:Volatility.Constant} = ((@optic(_.σ.σ) => 0.0 .. 10.0),)
 __default_optic(m::Volatility.Constant) = ((@optic(_.σ) => 0.0 .. 10.0),)
+__default_optic(m::ShortRate.Vasicek) = (
+    @optic(_.a) => 0.0 .. 5.0,
+    @optic(_.b) => -0.1 .. 0.5,
+    @optic(_.σ) => 0.0 .. 1.0,
+    @optic(_.initial.continuous_value) => -0.05 .. 0.2,
+)
+__default_optic(m::ShortRate.CoxIngersollRoss) = (
+    @optic(_.a) => 0.0 .. 5.0,
+    @optic(_.b) => 0.0 .. 0.5,
+    @optic(_.σ) => 0.0 .. 1.0,
+    @optic(_.initial.continuous_value) => 0.0 .. 0.2,
+)
+__default_optic(m::ShortRate.HullWhite) = (
+    @optic(_.a) => 0.0 .. 5.0,
+    @optic(_.σ) => 0.0 .. 1.0,
+)
 
 
 __default_optim(m) = OptimizationOptimJL.LBFGS()
