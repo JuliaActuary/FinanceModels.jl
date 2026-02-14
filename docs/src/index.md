@@ -64,6 +64,7 @@ Existing `struct`s:
 - `Composite` (combine two other contracts, e.g. into a swap)
 - `EuroCall`
 - `CommonEquity`
+- `Option.Cap`, `Option.Floor`, `Option.Swaption` (interest rate derivatives)
 
 Commonly, we deal with conventions that imply a contract and an observed price. For example, we may talk about a treasury yield of `0.03`. This is a description that implies a `Quote`ed price for an underling fixed bond. In FinanceModels, we could use `CMTYield(rate,tenor)` which would create a `Quote(price,Bond.Fixed(...))`. In this way, we can conveniently create a number of `Quote`s which can be used to fit models. Such convenience methods include:
 
@@ -103,6 +104,45 @@ The models can be used to compute various rates of interest:
 - `zero(curve,time)` or `zero(curve,time,Frequency)` gives the zero-coupon spot rate for the given time.
 - `forward(curve,from,to)` gives the zero rate between the two given times
 - `par(curve,time;frequency=2)` gives the coupon-paying par equivalent rate for the given time.
+
+#### `ZeroRateCurve` — direct construction
+
+Construct a zero-rate curve directly from rates and tenors, without fitting:
+
+```julia
+rates = [0.02, 0.025, 0.03, 0.035, 0.04]
+tenors = [1.0, 2.0, 3.0, 5.0, 10.0]
+zrc = ZeroRateCurve(rates, tenors)                          # default: MonotoneConvex
+zrc = ZeroRateCurve(rates, tenors, Spline.Linear())          # or Linear, PCHIP, Cubic, Akima
+```
+
+`ZeroRateCurve` is compatible with ForwardDiff dual numbers, making it the primary interface for automatic differentiation-based sensitivities in [ActuaryUtilities.jl](https://github.com/JuliaActuary/ActuaryUtilities.jl).
+
+#### Stochastic short-rate models
+
+Simulate interest rate paths under classical short-rate dynamics:
+
+- `ShortRate.Vasicek` — mean-reverting Gaussian: `dr = a(b - r)dt + σ dW`
+- `ShortRate.CoxIngersollRoss` — square-root volatility: `dr = a(b - r)dt + σ√r dW`
+- `ShortRate.HullWhite` — calibrated to an initial term structure: `dr = (θ(t) - ar)dt + σ dW`
+
+```julia
+using FinanceModels: ShortRate, simulate
+
+zrc = ZeroRateCurve([0.03, 0.03, 0.03, 0.03, 0.03], [1.0, 2.0, 3.0, 4.0, 5.0])
+hw = ShortRate.HullWhite(0.1, 0.01, zrc)
+
+# Monte Carlo simulation — returns a vector of RatePath scenarios
+scenarios = simulate(hw; n_scenarios=1000, timestep=1/12, horizon=30.0)
+
+# Expected present value of a contract under stochastic rates
+pv_mc(hw, Bond.Fixed(0.04, Periodic(1), 5); n_scenarios=1000)
+```
+
+Closed-form pricing for Gaussian models (Vasicek, Hull-White):
+- Zero-coupon bond options via `present_value(model, Option.ZCBCall(...))`
+- Interest rate caps and floors via `present_value(model, Option.Cap(...))`
+- European swaptions via Jamshidian decomposition: `present_value(model, Option.Swaption(...))`
 
 Other models include:
 
