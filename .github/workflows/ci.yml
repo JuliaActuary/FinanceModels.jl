@@ -1,7 +1,8 @@
 name: CI
 on:
-  - push
-  - pull_request
+  pull_request:
+  push:
+    branches: [master]
 jobs:
   test: # from https://github.com/simeonschaub/OptionalArgChecks.jl/blob/457488ef04ed68a37aff10af1cb3909f47a8230c/.github/workflows/ci.yml#L23-L37
     name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }}
