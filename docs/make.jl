@@ -8,7 +8,7 @@ makedocs(;
     sitename = "FinanceModels.jl",
     format = Documenter.HTML(;
         prettyurls = get(ENV, "CI", "false") == "true",
-        canonical = "https://JuliaActuary.github.io/FinanceModels.jl",
+        canonical = "https://docs.juliaactuary.org/FinanceModels",
         assets = String[]
     ),
     pages = [

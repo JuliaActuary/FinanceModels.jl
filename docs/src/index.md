@@ -4,8 +4,8 @@ CurrentModule = FinanceModels
 
 # FinanceModels.jl
 
-[![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://JuliaActuary.github.io/FinanceModels.jl/stable)
-[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://JuliaActuary.github.io/FinanceModels.jl/dev)
+[![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://docs.juliaactuary.org/FinanceModels/stable/)
+[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://docs.juliaactuary.org/FinanceModels/dev/)
 [![Build Status](https://github.com/JuliaActuary/FinanceModels.jl/workflows/CI/badge.svg)](https://github.com/JuliaActuary/FinanceModels.jl/actions)
 [![Coverage](https://codecov.io/gh/JuliaActuary/FinanceModels.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/JuliaActuary/FinanceModels.jl)
 
@@ -309,7 +309,7 @@ Adding, substracting, multiplying, dividing, and comparing rates is supported.
 
 ## Guide and Documentation
 
-A guide which explains more about the components of the package and from-scratch examples of extending the package is available in the [documenation](https://juliaactuary.github.io/FinanceModels.jl/dev/)
+A guide which explains more about the components of the package and from-scratch examples of extending the package is available in the [documenation](https://docs.juliaactuary.org/FinanceModels/dev/)
 
 ## Exported vs Un-exported Functions
 
