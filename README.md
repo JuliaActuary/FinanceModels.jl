@@ -1,11 +1,11 @@
 # FinanceModels.jl
 
-[![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://JuliaActuary.github.io/FinanceModels.jl/stable)
-[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://JuliaActuary.github.io/FinanceModels.jl/dev)
+[![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://docs.juliaactuary.org/FinanceModels/stable/)
+[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://docs.juliaactuary.org/FinanceModels/dev/)
 [![Build Status](https://github.com/JuliaActuary/FinanceModels.jl/workflows/CI/badge.svg)](https://github.com/JuliaActuary/FinanceModels.jl/actions)
 [![Coverage](https://codecov.io/gh/JuliaActuary/FinanceModels.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/JuliaActuary/FinanceModels.jl)
 
-> **NOTE**: Yields.jl has been re-written to FinanceModels.jl, but existing Yields.jl should be easy to update. See the docs for a [migration guide](https://juliaactuary.github.io/FinanceModels.jl/stable/migration/) for guidance on updating from the prior version. Existing, pinned/compat code should not be affected as JuliaActuary follows Semantic Versioning for its releases.
+> **NOTE**: Yields.jl has been re-written to FinanceModels.jl, but existing Yields.jl should be easy to update. See the docs for a [migration guide](https://docs.juliaactuary.org/FinanceModels/stable/migration/) for guidance on updating from the prior version. Existing, pinned/compat code should not be affected as JuliaActuary follows Semantic Versioning for its releases.
 
 **FinanceModels.jl** provides a set of composable contracts, models, and functions that allow for modeling of both simple and complex financial instruments. The resulting models, such as discount rates or term structures, can then be used across the JuliaActuary ecosystem to perform actuarial and financial analysis.
 
@@ -305,7 +305,7 @@ Adding, substracting, multiplying, dividing, and comparing rates is supported.
 
 ## Guide and Documentation
 
-A guide which explains more about the components of the package and from-scratch examples of extending the package is available in the [documenation](https://juliaactuary.github.io/FinanceModels.jl/dev/)
+A guide which explains more about the components of the package and from-scratch examples of extending the package is available in the [documenation](https://docs.juliaactuary.org/FinanceModels/dev/)
 
 ## Exported vs Un-exported Functions
 
