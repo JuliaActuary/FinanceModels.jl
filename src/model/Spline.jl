@@ -3,16 +3,16 @@ Spline is a module which offers various degree splines used for fitting or boots
 
 Available methods:
 
-- `Spline.BSpline(n)` where n is the nth order. A nth-order B-Spline is analogous to an (n-1)th order polynomial spline. That is, a 3rd/4th order BSpline is very similar to a quadratic/cubic spline respectively. BSplines are global in that a change in one point affects the entire spline (though the spline still passes through the other given points still).
+- `Spline.BSpline(d)` where d is the polynomial degree. A degree-d B-spline produces (d-1)th-order-continuous piecewise polynomials. That is, degree 2/3 is very similar to a quadratic/cubic spline respectively. BSplines are global in that a change in one point affects the entire spline (though the spline still passes through the other given points still).
 - `Spline.PolynomialSpline(n)` where n is the nth order.
 
 This object is not a fitted spline itself, rather it is a placeholder object which will be a spline representing the data only after using within [`fit`](@ref FinanceModels.fit-Union{Tuple{F}, Tuple{Any, Any}, Tuple{Any, Any, F}} where F<:FinanceModels.Fit.Loss).
 
 Convenience methods which create a `Spline.BSpline` object of the appropriate order:
 
-- `Spline.Linear()` equals `BSpline(2)`
-- `Spline.Quadratic()` equals `BSpline(3)`
-- `Spline.Cubic()` equals `BSpline(4)`
+- `Spline.Linear()` equals `BSpline(1)`
+- `Spline.Quadratic()` equals `BSpline(2)`
+- `Spline.Cubic()` equals `BSpline(3)`
 
 Notes on Fitting:
 - `fit(spline,quotes)` will fit entire curve at once, with knots equal to the maturity points of the `Quote`s
@@ -99,7 +99,7 @@ Create a linear B-spline. This object is not a fitted spline itself, rather it i
 # Examples
 ```julia
 julia> Spline.Linear()
-BSpline(2)
+BSpline(1)
 ```
 """
 Linear() = BSpline(1)
@@ -115,7 +115,7 @@ Create a quadratic B-spline. This object is not a fitted spline itself, rather i
 # Examples
 ```julia
 julia> Spline.Quadratic()
-BSpline(3)
+BSpline(2)
 ```
 """
 Quadratic() = BSpline(2)
@@ -131,7 +131,7 @@ Create a cubic B-spline. This object is not a fitted spline itself, rather it is
 # Examples
 ```julia
 julia> Spline.Cubic()
-BSpline(4)
+BSpline(3)
 ```
 """
 Cubic() = BSpline(3)

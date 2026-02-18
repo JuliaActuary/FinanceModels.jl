@@ -90,10 +90,12 @@
     end
 
     @testset "Cubic" begin
-        zrc = ZeroRateCurve(rates, tenors, Spline.Cubic())
+        cubic_rates = [0.02, 0.025, 0.03, 0.035, 0.04]
+        cubic_tenors = [1.0, 2.0, 5.0, 7.0, 10.0]
+        zrc = ZeroRateCurve(cubic_rates, cubic_tenors, Spline.Cubic())
 
         @testset "exact tenor points" begin
-            for (r, t) in zip(rates, tenors)
+            for (r, t) in zip(cubic_rates, cubic_tenors)
                 @test discount(zrc, t) ≈ exp(-r * t) atol = 1e-8
             end
         end
