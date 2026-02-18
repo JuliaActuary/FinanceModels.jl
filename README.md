@@ -114,6 +114,13 @@ zrc = ZeroRateCurve(rates, tenors)                          # default: MonotoneC
 zrc = ZeroRateCurve(rates, tenors, Spline.Linear())          # or Linear, PCHIP, Cubic, Akima
 ```
 
+You can also construct a `ZeroRateCurve` from any existing yield model (e.g. `Yield.Constant`, `Yield.NelsonSiegel`, a fitted spline curve) by sampling zero rates at specified tenors:
+
+```julia
+ns = Yield.NelsonSiegel(1.0, 0.04, -0.02, 0.01)
+zrc = ZeroRateCurve(ns, [1.0, 2.0, 5.0, 10.0, 20.0])
+```
+
 `ZeroRateCurve` is compatible with ForwardDiff dual numbers, making it the primary interface for automatic differentiation-based sensitivities in [ActuaryUtilities.jl](https://github.com/JuliaActuary/ActuaryUtilities.jl).
 
 #### Stochastic short-rate models

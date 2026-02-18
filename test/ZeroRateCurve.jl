@@ -45,6 +45,41 @@
         end
     end
 
+    @testset "from AbstractYieldModel" begin
+        @testset "round-trip with Constant" begin
+            c = Yield.Constant(0.05)
+            tenors = [1.0, 2.0, 5.0, 10.0]
+            zrc = ZeroRateCurve(c, tenors)
+            for t in tenors
+                @test discount(zrc, t) ≈ discount(c, t) atol = 1e-10
+            end
+        end
+
+        @testset "round-trip with NelsonSiegel" begin
+            ns = Yield.NelsonSiegel(1.0, 0.04, -0.02, 0.01)
+            tenors = [1.0, 2.0, 5.0, 10.0, 20.0]
+            zrc = ZeroRateCurve(ns, tenors)
+            for t in tenors
+                @test discount(zrc, t) ≈ discount(ns, t) atol = 1e-10
+            end
+        end
+
+        @testset "explicit spline kwarg" begin
+            c = Yield.Constant(0.04)
+            tenors = [1.0, 5.0, 10.0]
+            zrc = ZeroRateCurve(c, tenors; spline=Spline.Linear())
+            for t in tenors
+                @test discount(zrc, t) ≈ discount(c, t) atol = 1e-10
+            end
+        end
+
+        @testset "error on non-positive tenors" begin
+            c = Yield.Constant(0.05)
+            @test_throws ArgumentError ZeroRateCurve(c, [0.0, 1.0, 2.0])
+            @test_throws ArgumentError ZeroRateCurve(c, [-1.0, 1.0, 2.0])
+        end
+    end
+
     @testset "Cubic" begin
         zrc = ZeroRateCurve(rates, tenors, Spline.Cubic())
 
