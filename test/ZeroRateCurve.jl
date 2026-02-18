@@ -73,6 +73,15 @@
             end
         end
 
+        @testset "unsorted tenors are sorted automatically" begin
+            c = Yield.Constant(0.04)
+            zrc_sorted = ZeroRateCurve(c, [1.0, 5.0, 10.0])
+            zrc_unsorted = ZeroRateCurve(c, [10.0, 1.0, 5.0])
+            for t in [1.0, 3.0, 5.0, 7.0, 10.0]
+                @test discount(zrc_sorted, t) ≈ discount(zrc_unsorted, t) atol = 1e-10
+            end
+        end
+
         @testset "error on non-positive tenors" begin
             c = Yield.Constant(0.05)
             @test_throws ArgumentError ZeroRateCurve(c, [0.0, 1.0, 2.0])

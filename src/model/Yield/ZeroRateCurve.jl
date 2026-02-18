@@ -67,8 +67,10 @@ ZeroRateCurve(rates, tenors) = ZeroRateCurve(rates, tenors, Sp.MonotoneConvex())
 function ZeroRateCurve(curve::AbstractYieldModel, tenors; spline=Sp.MonotoneConvex())
     all(t -> t > zero(t), tenors) || throw(ArgumentError(
         "All tenors must be positive (t > 0). The zero rate is undefined at t = 0."))
-    rates = [-log(FinanceCore.discount(curve, t)) / t for t in tenors]
-    return ZeroRateCurve(rates, collect(float.(tenors)), spline)
+    tenors_f = collect(float.(tenors))
+    rates = [-log(FinanceCore.discount(curve, t)) / t for t in tenors_f]
+    perm = sortperm(tenors_f)
+    return ZeroRateCurve(rates[perm], tenors_f[perm], spline)
 end
 
 function FinanceCore.discount(zrc::ZeroRateCurve, t)
