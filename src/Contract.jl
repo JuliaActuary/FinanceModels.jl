@@ -160,18 +160,23 @@ module Bond
     __coerce_periodic(y::T) where {T <: Int} = Periodic(y)
 
     """
-    ParYield(yield, maturity; frequency=Periodic(2))
-    ParYield(yield::Vector)
+        ParYield(yield, maturity; frequency=Periodic(2))
+        ParYield(yield::Rate{N,Periodic}, maturity; frequency=Periodic(2))
 
-    Takes bond equivalent FinanceModels, and assumes that instruments <= one year maturity pay no coupons and that the rest pay semi-annual. Alternative, you may pass a `Rate` as the yield and the coupon frequency will be inferred from the `Rate`'s frequency. 
+    Create a `Quote` representing a par bond with the given `yield` and `maturity`. The default coupon `frequency` is semi-annual (`Periodic(2)`). If a `Rate` with `Periodic` compounding is passed, the frequency is inferred from the rate.
 
-    Use broadcasting to create a set of quotes given a collection of FinanceModels and maturities, e.g. `ParYield.(FinanceModels,maturities)`.
+    When `maturity ≤ 1/frequency` (i.e. the bond matures before the first coupon date), a zero-coupon `Quote` is returned with `price = discount(yield, maturity)`. Otherwise, a par coupon bond `Quote` with `price = 1.0` is returned.
+
+    Use broadcasting to create a set of quotes: `ParYield.(yields, maturities)`.
 
     # Examples
 
     ```julia-repl
-    julia> ParYield(0.05,10)
+    julia> ParYield(0.05, 10)
     Quote{Float64, FinanceModels.Bond.Fixed{Periodic, Float64, Int64}}(1.0, FinanceModels.Bond.Fixed{Periodic, Float64, Int64}(0.05, Periodic(2), 10))
+
+    julia> ParYield(Periodic(0.04, 2), 1//4)  # sub-period maturity → zero-coupon
+    Quote{Float64, Cashflow{Float64, Rational{Int64}}}(0.9901…, Cashflow{Float64, Rational{Int64}}(1.0, 1//4))
     ```
     """
     function ParYield(yield, maturity; frequency = Periodic(2))
