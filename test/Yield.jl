@@ -125,6 +125,11 @@ end
         q_1y = ParYield(Periodic(r, 2), 1)
         @test q_1y.instrument isa FinanceModels.Bond.Fixed
         @test q_1y.price == 1.0
+
+        # Plain number and Rate methods should produce the same quote
+        q_num = ParYield(r, 1 // 4)                # plain Float64, default Periodic(2)
+        q_rate = ParYield(Periodic(r, 2), 1 // 4)  # explicit Rate
+        @test q_num.price ≈ q_rate.price
     end
 
     @testset "simple rate and forward" begin

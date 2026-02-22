@@ -185,7 +185,8 @@ module Bond
         coupon_period = 1 / frequency.frequency
         if maturity ≤ coupon_period
             # No coupon date before maturity → zero-coupon instrument
-            return Quote(discount(yield, maturity), Cashflow(1.0, maturity))
+            # Interpret yield in the context of the specified frequency
+            return Quote(discount(frequency(yield), maturity), Cashflow(1.0, maturity))
         else
             price = 1.0 # by definition for a par bond
             coupon_rate = rate(frequency(yield))
