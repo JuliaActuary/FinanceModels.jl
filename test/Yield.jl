@@ -104,6 +104,29 @@ end
 
     end
 
+    @testset "ParYield sub-period maturity" begin
+        # When maturity ≤ 1/frequency, ParYield should create a zero-coupon quote
+        # (no coupon date occurs before maturity)
+        r = 0.04
+
+        # Semi-annual: maturity ≤ 0.5 should be zero-coupon
+        q_3m = ParYield(Periodic(r, 2), 1 // 4)
+        @test q_3m.instrument isa FinanceCore.Cashflow
+        @test q_3m.price ≈ discount(Periodic(r, 2), 1 // 4)
+
+        q_6m = ParYield(Periodic(r, 2), 1 // 2)
+        @test q_6m.instrument isa FinanceCore.Cashflow
+        @test q_6m.price ≈ discount(Periodic(r, 2), 1 // 2)
+
+        # Discount factors should differ for different maturities
+        @test q_3m.price > q_6m.price
+
+        # Above the coupon period, should still be a par bond
+        q_1y = ParYield(Periodic(r, 2), 1)
+        @test q_1y.instrument isa FinanceModels.Bond.Fixed
+        @test q_1y.price == 1.0
+    end
+
     @testset "simple rate and forward" begin
         # Risk Managment and Financial Institutions, 5th ed. Appendix B
 
