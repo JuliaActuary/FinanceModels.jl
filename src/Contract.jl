@@ -180,33 +180,18 @@ module Bond
     ```
     """
     function ParYield(yield, maturity; frequency = Periodic(2))
-        # assume the frequency is two or infer it from the yield
         frequency = __coerce_periodic(frequency)
-        coupon_period = 1 / frequency.frequency
-        if maturity ≤ coupon_period
-            # Stub period: compound-accrue the coupon, keep price = 1.0
-            stub_coupon = accumulation(frequency(yield), maturity) - 1
-            adjusted_rate = stub_coupon * frequency.frequency
-            return Quote(1.0, Fixed(adjusted_rate, frequency, maturity))
-        else
-            price = 1.0 # by definition for a par bond
-            coupon_rate = rate(frequency(yield))
-            return Quote(price, Fixed(coupon_rate, frequency, maturity))
-        end
+        ParYield(frequency(yield), maturity; frequency)
     end
     function ParYield(yield::Rate{N, T}, maturity; frequency = Periodic(2)) where {T <: Periodic, N}
         frequency = yield.compounding
         coupon_period = 1 / frequency.frequency
-        if maturity ≤ coupon_period
-            # Stub period: compound-accrue the coupon, keep price = 1.0
-            stub_coupon = accumulation(yield, maturity) - 1
-            adjusted_rate = stub_coupon * frequency.frequency
-            return Quote(1.0, Fixed(adjusted_rate, frequency, maturity))
+        coupon_rate = if maturity ≤ coupon_period
+            (accumulation(yield, maturity) - 1) * frequency.frequency
         else
-            price = 1.0 # by definition for a par bond
-            coupon_rate = rate(frequency(yield))
-            return Quote(price, Fixed(coupon_rate, frequency, maturity))
+            rate(yield)
         end
+        return Quote(1.0, Fixed(coupon_rate, frequency, maturity))
     end
 
     """
