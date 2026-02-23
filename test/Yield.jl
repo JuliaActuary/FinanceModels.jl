@@ -104,6 +104,36 @@ end
 
     end
 
+    @testset "ParYield sub-period maturity" begin
+        r = 0.04
+
+        # Semi-annual, 3-month stub: compound-accrued coupon
+        q = ParYield(Periodic(r, 2), 1 // 4)
+        @test q.price == 1.0  # still a par bond
+        @test q.instrument isa FinanceModels.Bond.Fixed
+        expected_coupon = accumulation(Periodic(r, 2), 1 // 4) - 1
+        @test only(collect(q.instrument)).amount ≈ 1.0 + expected_coupon
+
+        # PV at par yield should be exactly 1.0
+        @test pv(Yield.Constant(Periodic(r, 2)), q.instrument) ≈ 1.0
+
+        # Plain number and Rate methods should agree
+        q_num = ParYield(r, 1 // 4)
+        q_rate = ParYield(Periodic(r, 2), 1 // 4)
+        @test q_num.price == q_rate.price
+        @test pv(Yield.Constant(Periodic(r, 2)), q_num.instrument) ≈ 1.0
+
+        # 3m and 6m discount factors should differ when fitting
+        qs = ParYield.(Periodic(r, 2), [1 // 4, 1 // 2, 1, 2])
+        m = fit(Spline.Linear(), qs, Fit.Bootstrap())
+        @test discount(m, 0.25) > discount(m, 0.5)
+
+        # Above the coupon period: unchanged behavior
+        q_1y = ParYield(Periodic(r, 2), 1)
+        @test q_1y.price == 1.0
+        @test rate(q_1y.instrument.frequency(q_1y.instrument.coupon_rate)) ≈ r
+    end
+
     @testset "simple rate and forward" begin
         # Risk Managment and Financial Institutions, 5th ed. Appendix B
 

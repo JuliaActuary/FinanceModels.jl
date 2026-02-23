@@ -160,32 +160,53 @@ module Bond
     __coerce_periodic(y::T) where {T <: Int} = Periodic(y)
 
     """
-    ParYield(yield, maturity; frequency=Periodic(2))
-    ParYield(yield::Vector)
+        ParYield(yield, maturity; frequency=Periodic(2))
+        ParYield(yield::Rate{N,Periodic}, maturity; frequency=Periodic(2))
 
-    Takes bond equivalent FinanceModels, and assumes that instruments <= one year maturity pay no coupons and that the rest pay semi-annual. Alternative, you may pass a `Rate` as the yield and the coupon frequency will be inferred from the `Rate`'s frequency. 
+    Create a `Quote` representing a par bond with the given `yield` and `maturity`. The default coupon `frequency` is semi-annual (`Periodic(2)`). If a `Rate` with `Periodic` compounding is passed, the frequency is inferred from the rate.
 
-    Use broadcasting to create a set of quotes given a collection of FinanceModels and maturities, e.g. `ParYield.(FinanceModels,maturities)`.
+    When `maturity ≤ 1/frequency` (i.e. the bond matures before the first regular coupon date), a stub-period par bond is created. The coupon is compound-accrued so that `(1 + stub_coupon) * discount(yield, maturity) = 1.0`, preserving par pricing. Otherwise, a standard par coupon bond `Quote` with `price = 1.0` is returned.
+
+    Use broadcasting to create a set of quotes: `ParYield.(yields, maturities)`.
 
     # Examples
 
     ```julia-repl
-    julia> ParYield(0.05,10)
+    julia> ParYield(0.05, 10)
     Quote{Float64, FinanceModels.Bond.Fixed{Periodic, Float64, Int64}}(1.0, FinanceModels.Bond.Fixed{Periodic, Float64, Int64}(0.05, Periodic(2), 10))
+
+    julia> ParYield(Periodic(0.04, 2), 1//4)  # sub-period maturity → stub-period par bond
+    Quote{Float64, FinanceModels.Bond.Fixed{…}}(1.0, FinanceModels.Bond.Fixed{…}(…, Periodic(2), 1//4))
     ```
     """
     function ParYield(yield, maturity; frequency = Periodic(2))
         # assume the frequency is two or infer it from the yield
         frequency = __coerce_periodic(frequency)
-        price = 1.0 # by definition for a par bond
-        coupon_rate = rate(frequency(yield))
-        return Quote(price, Fixed(coupon_rate, frequency, maturity))
+        coupon_period = 1 / frequency.frequency
+        if maturity ≤ coupon_period
+            # Stub period: compound-accrue the coupon, keep price = 1.0
+            stub_coupon = accumulation(frequency(yield), maturity) - 1
+            adjusted_rate = stub_coupon * frequency.frequency
+            return Quote(1.0, Fixed(adjusted_rate, frequency, maturity))
+        else
+            price = 1.0 # by definition for a par bond
+            coupon_rate = rate(frequency(yield))
+            return Quote(price, Fixed(coupon_rate, frequency, maturity))
+        end
     end
     function ParYield(yield::Rate{N, T}, maturity; frequency = Periodic(2)) where {T <: Periodic, N}
         frequency = yield.compounding
-        price = 1.0 # by definition for a par bond
-        coupon_rate = rate(frequency(yield))
-        return Quote(price, Fixed(coupon_rate, frequency, maturity))
+        coupon_period = 1 / frequency.frequency
+        if maturity ≤ coupon_period
+            # Stub period: compound-accrue the coupon, keep price = 1.0
+            stub_coupon = accumulation(yield, maturity) - 1
+            adjusted_rate = stub_coupon * frequency.frequency
+            return Quote(1.0, Fixed(adjusted_rate, frequency, maturity))
+        else
+            price = 1.0 # by definition for a par bond
+            coupon_rate = rate(frequency(yield))
+            return Quote(price, Fixed(coupon_rate, frequency, maturity))
+        end
     end
 
     """
