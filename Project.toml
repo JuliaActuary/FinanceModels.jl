@@ -1,6 +1,6 @@
 name = "FinanceModels"
 uuid = "77f2ae65-bdde-421f-ae9d-22f1af19dd76"
-version = "4.18.0"
+version = "4.18.1"
 authors = ["Alec Loudenback <alecloudenback@gmail.com> and contributors"]
 
 [deps]
