@@ -30,13 +30,13 @@ model_rate = fit(Spline.Linear(),q_rate,Fit.Bootstrap());⠀
 model_spread = fit(Spline.Linear(),q_spread,Fit.Bootstrap());
 
 # the zero rate is the combination of the two underlying rates
-zero(m_spread + m_rate,1) # 0.02 annual effective rate 
+zero(model_spread + model_rate,1) # 0.02 annual effective rate
 
-# the discount is the same as if we added the underlying zero rates
-discount(m_spread + m_rate,0,3) ≈ discount(0.01 + 0.03,3)   # true
+# the discount is the product of the individual discount factors
+discount(model_spread + model_rate,0,3) ≈ discount(model_spread,0,3) * discount(model_rate,0,3)   # true
 
 # compute the present value of a contract (a cashflow of 10 at time 3)
-present_value(m_rate,Cashflow(10,3)) # 9.15...
+present_value(model_rate,Cashflow(10,3)) # 9.15...
 ```
 
 ## Overview of FinanceModels
@@ -182,9 +182,6 @@ julia> fit(Spline.PolynomialSpline(3), q_rate, Fit.Bootstrap()) # after importin
 
 ```
 
-> [!NOTE]
-> This was built-in prior to v4.9 of FinanceModels. It has been split out to materially speed up `using FinanceModels`.
-
 ### Projections
 
 Most basically, we can project a contract into a series of `Cashflow`s:
@@ -231,8 +228,6 @@ stem(proj)
 Will produce:
 
 ![A stem plot of bond cashflows](https://github.com/JuliaActuary/ActuaryUtilities.jl/assets/711879/29480ce2-9691-4eb5-b656-a05394f7a2c2)
-
-### Fitting Models
 
 ### Fitting Models
 
@@ -305,25 +300,17 @@ convert(FinanceModels.Continuous(),r)          # convert monthly rate to continu
 
 #### Arithmetic
 
-Adding, substracting, multiplying, dividing, and comparing rates is supported.
+Adding, subtracting, multiplying, dividing, and comparing rates is supported.
 
 ## Guide and Documentation
 
-A guide which explains more about the components of the package and from-scratch examples of extending the package is available in the [documenation](https://docs.juliaactuary.org/FinanceModels/dev/)
+A guide which explains more about the components of the package and from-scratch examples of extending the package is available in the [documentation](https://docs.juliaactuary.org/FinanceModels/dev/)
 
 ## Exported vs Un-exported Functions
 
 Generally, CamelCase methods which construct a datatype are exported as they are unlikely to conflict with other parts of code that may be written. For example, `rate` is un-exported (it must be called with `FinanceModels.rate(...)`) because `rate` is likely a very commonly defined variable within actuarial and financial contexts and there is a high risk of conflicting with defined variables.
 
 Consider using `import FinanceModels` which would require qualifying all methods, but alleviates any namespace conflicts and has the benefit of being explicit about the calls (internally we prefer this in the package design to keep dependencies and their usage clear).
-
-## Internals
-
-For time-variant FinanceModels (ie yield *curves*), the inputs are converted to spot rates and interpolated using quadratic B-splines by default (see documentation for alternatives, such as linear interpolations).
-
-### Combination Implementation
-
-[Combinations](#combinations) track two different curve objects and are not combined into a single underlying data structure. This means that you may achieve better performance if you combine the rates before constructing a `FinanceModels` representation. The exception to this is `Constant` curves, which *do* get combined into a single structure that is as performant as pre-combined rate structure.
 
 ## Related Packages
 
