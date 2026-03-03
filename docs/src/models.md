@@ -19,8 +19,8 @@ Rates are types that wrap scalar values to provide information about how to dete
 
 There are two `Frequency` types:
 
-- `Yields.Periodic(m)` for rates that compound `m` times per period (e.g. `m` times per year if working with annual rates).
-- `Yields.Continuous()` for continuously compounding rates.
+- `Periodic(m)` for rates that compound `m` times per period (e.g. `m` times per year if working with annual rates).
+- `Continuous()` for continuously compounding rates.
 
 #### Examples
 
@@ -57,8 +57,8 @@ Convert rates between different types with `convert`. E.g.:
 ```julia
 r = Rate(0.01,Periodic(12))             # rate that compounds 12 times per rate period (ie monthly)
 
-convert(Yields.Periodic(1),r)                  # convert monthly rate to annual effective
-convert(Yields.Continuous(),r)          # convert monthly rate to continuous
+convert(Periodic(1),r)                  # convert monthly rate to annual effective
+convert(Continuous(),r)          # convert monthly rate to continuous
 ```
 
 To get the scalar value out of the `Rate`, use `FinanceModels.rate(r)`:
@@ -97,17 +97,17 @@ julia> q_rate = ZCBYield([0.01,0.02,0.03]);
 
 julia> q_spread = ZCBYield([0.01,0.01,0.01]);
 
-julia> m_rate = fit(Spline.Linear(),q_rate,Fit.Bootstrap());⠀           
+julia> model_rate = fit(Spline.Linear(),q_rate,Fit.Bootstrap());⠀
 
-julia> m_spread = fit(Spline.Linear(),q_spread,Fit.Bootstrap());
+julia> model_spread = fit(Spline.Linear(),q_spread,Fit.Bootstrap());
 
-julia> forward(m_spread + m_rate,0,1)
+julia> forward(model_spread + model_rate,0,1)
 Rate{Float64, Continuous}(0.01980262729617973, Continuous())
 
-julia> forward(m_spread + m_rate,0,1) |> Periodic(1)
+julia> forward(model_spread + model_rate,0,1) |> Periodic(1)
 Rate{Float64, Periodic}(0.020000000000000018, Periodic(1))
 
-julia> discount(m_spread + m_rate,0,3)
+julia> discount(model_spread + model_rate,0,3)
 0.8889963586709149
 
 julia> discount(0.04,3)
@@ -125,15 +125,15 @@ julia> discount(0.04,3)
     q_spread = ParYield([0.01,0.01,0.01]);
     q_yield = ParYield([0.02,0.03,0.04]);
 
-    m_rate = fit(Spline.Linear(),q_rate,Fit.Bootstrap());         
-    m_spread = fit(Spline.Linear(),q_spread,Fit.Bootstrap());
-    m_yield = fit(Spline.Linear(),q_yield,Fit.Bootstrap());
+    model_rate = fit(Spline.Linear(),q_rate,Fit.Bootstrap());
+    model_spread = fit(Spline.Linear(),q_spread,Fit.Bootstrap());
+    model_yield = fit(Spline.Linear(),q_yield,Fit.Bootstrap());
 
     # The curves are different!
-    discount(m_spread + m_rate,3)
+    discount(model_spread + model_rate,3)
     # 0.8889963586709149
 
-    discount(m_yield,3)
+    discount(model_yield,3)
     # 0.8864366955434709
     ```
 

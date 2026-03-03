@@ -5,8 +5,6 @@
 [![Build Status](https://github.com/JuliaActuary/FinanceModels.jl/workflows/CI/badge.svg)](https://github.com/JuliaActuary/FinanceModels.jl/actions)
 [![Coverage](https://codecov.io/gh/JuliaActuary/FinanceModels.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/JuliaActuary/FinanceModels.jl)
 
-> **NOTE**: Yields.jl has been re-written to FinanceModels.jl, but existing Yields.jl should be easy to update. See the docs for a [migration guide](https://docs.juliaactuary.org/FinanceModels/stable/migration/) for guidance on updating from the prior version. Existing, pinned/compat code should not be affected as JuliaActuary follows Semantic Versioning for its releases.
-
 **FinanceModels.jl** provides a set of composable contracts, models, and functions that allow for modeling of both simple and complex financial instruments. The resulting models, such as discount rates or term structures, can then be used across the JuliaActuary ecosystem to perform actuarial and financial analysis.
 
 Additionally, the models can be used to project contracts through time: most basically as a series of cashflows but more complex output can be defined for contracts.
@@ -28,13 +26,13 @@ model_rate = fit(Spline.Linear(),q_rate);⠀
 model_spread = fit(Spline.Linear(),q_spread);
 
 # the zero rate is the combination of the two underlying rates
-zero(m_spread + m_rate,1) # 0.02 annual effective rate 
+zero(model_spread + model_rate,1) # 0.02 annual effective rate
 
-# the discount is the same as if we added the underlying zero rates
-discount(m_spread + m_rate,0,3) ≈ discount(0.01 + 0.03,3)   # true
+# the discount is the product of the individual discount factors
+discount(model_spread + model_rate,0,3) ≈ discount(model_spread,0,3) * discount(model_rate,0,3)   # true
 
 # compute the present value of a contract (a cashflow of 10 at time 3)
-present_value(m_rate,Cashflow(10,3)) # 9.15...
+present_value(model_rate,Cashflow(10,3)) # 9.15...
 ```
 
 ## Overview of FinanceModels
@@ -308,11 +306,11 @@ convert(FinanceModels.Continuous(),r)          # convert monthly rate to continu
 
 #### Arithmetic
 
-Adding, substracting, multiplying, dividing, and comparing rates is supported.
+Adding, subtracting, multiplying, dividing, and comparing rates is supported.
 
 ## Guide and Documentation
 
-A guide which explains more about the components of the package and from-scratch examples of extending the package is available in the [documenation](https://docs.juliaactuary.org/FinanceModels/dev/)
+A guide which explains more about the components of the package and from-scratch examples of extending the package is available in the [documentation](https://docs.juliaactuary.org/FinanceModels/dev/)
 
 ## Exported vs Un-exported Functions
 
