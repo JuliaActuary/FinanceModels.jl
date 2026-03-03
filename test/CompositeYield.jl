@@ -13,22 +13,20 @@
 
         yield = rf_curve + spread_curve
 
-        @test isapprox(zero(yield, 0.5), Periodic(first(riskfree) + first(spread), 1); atol=1e-6)
-
-        @test discount(yield, 1.0) ≈ 1 / (1 + riskfree[2] + spread[2])^1
-        @test discount(yield, 1.5) ≈ 1 / (1 + riskfree[3] + spread[3])^1.5
+        # + operates on continuous zero rates, equivalent to multiplicative discount factors
+        @test discount(yield, 0.5) ≈ discount(rf_curve, 0.5) * discount(spread_curve, 0.5)
+        @test discount(yield, 1.0) ≈ discount(rf_curve, 1.0) * discount(spread_curve, 1.0)
+        @test discount(yield, 1.5) ≈ discount(rf_curve, 1.5) * discount(spread_curve, 1.5)
 
         rates = ZCBYield([0.01, 0.02, 0.03])
         spreads = ZCBYield([0.02, 0.03, 0.04])
-        yields = ZCBYield([0.03, 0.05, 0.07])
 
         r = fit(Spline.Linear(), rates, Fit.Bootstrap())
         s = fit(Spline.Linear(), spreads, Fit.Bootstrap())
-        y = fit(Spline.Linear(), yields, Fit.Bootstrap())
 
-        @test discount(r + s, 1) ≈ discount(y, 1)
-        @test discount(r + s, 2) ≈ discount(y, 2)
-        @test discount(r + s, 3) ≈ discount(y, 3)
+        @test discount(r + s, 1) ≈ discount(r, 1) * discount(s, 1)
+        @test discount(r + s, 2) ≈ discount(r, 2) * discount(s, 2)
+        @test discount(r + s, 3) ≈ discount(r, 3) * discount(s, 3)
 
         rates = [0.01, 0.01, 0.03, 0.05, 0.07, 0.16, 0.35, 0.92, 1.4, 1.74, 2.31, 2.41] ./ 100
         spreads = [0.01, 0.01, 0.03, 0.05, 0.07, 0.16, 0.35, 0.92, 1.4, 1.74, 2.31, 2.41] ./ 100
@@ -39,18 +37,15 @@
 
         q_rf_z = ZCBYield.(rates, mats)
         q_s_z = ZCBYield.(spreads, mats)
-        q_y_z = ZCBYield.(rates + spreads, mats)
 
         c_rf_z = fit(Spline.Linear(), q_rf_z, Fit.Bootstrap())
         c_s_z = fit(Spline.Linear(), q_s_z, Fit.Bootstrap())
-        c_y_z = fit(Spline.Linear(), q_y_z, Fit.Bootstrap())
 
-        # adding curves when the spreads were zero spreads works
-        @test discount(c_rf_z + c_s_z, 20) ≈ discount(c_y_z, 20)
+        # adding curves produces multiplicative discount factors
+        @test discount(c_rf_z + c_s_z, 20) ≈ discount(c_rf_z, 20) * discount(c_s_z, 20)
 
 
         ### Par coupon rates/spreads
-
 
         q_rf = CMTYield.(rates, mats)
         q_s = CMTYield.(spreads, mats)
@@ -66,36 +61,48 @@
 
     end
 
-    @testset "multiplicaiton and division" begin
+    @testset "multiplication and division" begin
         @testset "multiplication" begin
             factor = 0.79
             c = rf_curve * factor
-            target_curve = fit(Spline.Linear(), ZCBYield.(riskfree .* factor, riskfree_maturities), Fit.Bootstrap())
-            @test discount(c, 2) ≈ discount(target_curve, 2)
-            @test accumulation(c, 2) ≈ accumulation(target_curve, 2)
-            @test forward(c, 1, 2) ≈ forward(target_curve, 1, 2)
-            @test par(c, 2) ≈ par(target_curve, 2)
+            # ScaledYield scales continuous zero rates by the scalar directly
+            for t in riskfree_maturities
+                z_rf = -log(discount(rf_curve, t)) / t
+                @test discount(c, t) ≈ exp(-(z_rf * factor) * t)
+            end
+            @test accumulation(c, 2) ≈ 1 / discount(c, 2)
 
             c = factor * rf_curve
-            @test discount(c, 2) ≈ discount(target_curve, 2)
-            @test accumulation(c, 2) ≈ accumulation(target_curve, 2)
-            @test forward(c, 1, 2) ≈ forward(target_curve, 1, 2)
-            @test par(c, 2) ≈ par(target_curve, 2)
+            for t in riskfree_maturities
+                z_rf = -log(discount(rf_curve, t)) / t
+                @test discount(c, t) ≈ exp(-(z_rf * factor) * t)
+            end
 
-            @test discount(Yield.Constant(0.1) * Yield.Constant(0.1), 10) ≈ discount(Yield.Constant(0.01), 10)
+            # Constant * scalar
+            @test discount(Yield.Constant(Continuous(0.05)) * 0.5, 10) ≈ exp(-0.05 * 0.5 * 10)
         end
 
         @testset "division" begin
             factor = 0.79
             c = rf_curve / factor
-            target_curve = fit(Spline.Linear(), ZCBYield.(riskfree ./ factor, riskfree_maturities), Fit.Bootstrap())
-            @test discount(c, 2) ≈ discount(target_curve, 2)
-            @test accumulation(c, 2) ≈ accumulation(target_curve, 2)
-            @test forward(c, 1, 2) ≈ forward(target_curve, 1, 2)
-            @test par(c, 2) ≈ par(target_curve, 2)
+            for t in riskfree_maturities
+                z_rf = -log(discount(rf_curve, t)) / t
+                @test discount(c, t) ≈ exp(-(z_rf / factor) * t)
+            end
 
-            @test discount(Yield.Constant(0.1) / Yield.Constant(0.5), 10) ≈ discount(Yield.Constant(0.2), 10)
-            @test discount(0.1 / Yield.Constant(0.5), 10) ≈ discount(Yield.Constant(0.2), 10)
+            # Constant / scalar
+            @test discount(Yield.Constant(Continuous(0.05)) / 2.0, 10) ≈ exp(-0.05 / 2.0 * 10)
+        end
+
+        @testset "time zero" begin
+            @test discount(rf_curve + rf_curve, 0.0) == 1.0
+            @test discount(rf_curve * 0.79, 0.0) == 1.0
+        end
+
+        @testset "removed operations are errors" begin
+            @test_throws MethodError rf_curve * rf_curve
+            @test_throws MethodError rf_curve / rf_curve
+            @test_throws MethodError 0.5 / rf_curve
         end
     end
 end

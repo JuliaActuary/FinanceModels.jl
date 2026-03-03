@@ -33,18 +33,22 @@
     yield_add = yield + 0.05
     add_yield = 0.05 + yield
     @testset "constant discount added" for time in [0, 0.5, 1, 10]
-        @test discount(yield_2x, time) ≈ 1 / (1.1)^time
-        @test discount(yield_add, time) ≈ 1 / (1.1)^time
-        @test discount(add_yield, time) ≈ 1 / (1.1)^time
+        # + operates in continuous zero-rate space: z_total = z_a + z_b
+        # equivalent to multiplicative discount factors
+        @test discount(yield_2x, time) ≈ discount(yield, time)^2
+        @test discount(yield_add, time) ≈ discount(yield, time) * discount(Yield.Constant(0.05), time)
+        @test discount(add_yield, time) ≈ discount(Yield.Constant(0.05), time) * discount(yield, time)
     end
 
     yield_1bps = yield - Yield.Constant(0.04)
     yield_minus = yield - 0.01
     minus_yield = 0.05 - Yield.Constant(0.01)
     @testset "constant discount subtraction" for time in [0, 0.5, 1, 10]
-        @test discount(yield_1bps, time) ≈ 1 / (1.01)^time
-        @test discount(yield_minus, time) ≈ 1 / (1.04)^time
-        @test discount(minus_yield, time) ≈ 1 / (1.04)^time
+        # - operates in continuous zero-rate space: z_total = z_a - z_b
+        # equivalent to dividing discount factors
+        @test discount(yield_1bps, time) ≈ discount(yield, time) / discount(Yield.Constant(0.04), time)
+        @test discount(yield_minus, time) ≈ discount(yield, time) / discount(Yield.Constant(0.01), time)
+        @test discount(minus_yield, time) ≈ discount(Yield.Constant(0.05), time) / discount(Yield.Constant(0.01), time)
     end
 end
 
@@ -226,9 +230,9 @@ end
         @test discount(curve, 1) > discount(curve_c, 1)
 
 
-        # addition / subtraction
-        @test discount(curve + 0.1, 1) ≈ 1 / 1.15
-        @test discount(curve - 0.03, 1) ≈ 1 / 1.02
+        # addition / subtraction (continuous zero-rate space → multiplicative DFs)
+        @test discount(curve + 0.1, 1) ≈ discount(curve, 1) * discount(Yield.Constant(0.1), 1)
+        @test discount(curve - 0.03, 1) ≈ discount(curve, 1) / discount(Yield.Constant(0.03), 1)
 
 
         @testset "with specified non integer timepoints" begin
@@ -515,9 +519,9 @@ end
         @test discount(curve, 1) > discount(curve_c, 1)
 
 
-        # addition / subtraction
-        @test discount(curve + 0.1, 1) ≈ 1 / 1.15
-        @test discount(curve - 0.03, 1) ≈ 1 / 1.02
+        # addition / subtraction (continuous zero-rate space → multiplicative DFs)
+        @test discount(curve + 0.1, 1) ≈ discount(curve, 1) * discount(Yield.Constant(0.1), 1)
+        @test discount(curve - 0.03, 1) ≈ discount(curve, 1) / discount(Yield.Constant(0.03), 1)
 
 
         @testset "with specified non integer timepoints" begin
