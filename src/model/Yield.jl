@@ -209,13 +209,27 @@ end
 """
     CompositeYield(curve1,curve2,operation)
 
-Creates a datastructure that will perform the given `operation` after independently calculating the effects of the two curves. 
-Can only be created via the public API by using the `+`, `-`, `*`, and `/` operatations on `AbstractYield` objects.
+Combines two yield curves by applying `operation` to their continuous zero rates.
 
-As this is double the normal operations when performing calculations, if you are using the curve in performance critical locations, you should consider transforming the inputs and 
+Given discount factors `DF₁(t)` and `DF₂(t)`, the continuous zero rates are
+`z₁ = -log(DF₁)/t` and `z₂ = -log(DF₂)/t`, and the composite discount factor is
+`exp(-op(z₁, z₂) * t)`.
+
+For addition (`+`), this gives `DF(t) = DF₁(t) × DF₂(t)` (the no-arbitrage spread relationship).
+For subtraction (`-`), this gives `DF(t) = DF₁(t) / DF₂(t)`.
+
+Created via `+` and `-` on `AbstractYieldModel` objects. For scalar multiplication/division,
+see [`ScaledYield`](@ref).
+
+As this is double the normal operations when performing calculations, if you are using the
+curve in performance critical locations, you should consider transforming the inputs and
 constructing a single curve object ahead of time.
 
-Curves can be added or subtracted together, but note that this is not always the same thing as adding or subtracting spreads with rates. If spreads and base rates are expressed as zero rates, then the curve addition/subtraction has the same effect as re-fitting the yield model with the rate+spread inputs added together first. Non-zero rates (e.g. par rates) do not have this same property. Zero-coupon rates have a direct, linear relationship with the underlying discount factors. Par-coupon rates have a complex, non-linear relationship with the underlying discount factors and so the curve addition/subtraction does not work the same way.
+Curves can be added or subtracted together, but note that this is not always the same thing
+as adding or subtracting spreads with rates. If spreads and base rates are expressed as zero
+rates, then the curve addition/subtraction has the same effect as re-fitting the yield model
+with the rate+spread inputs added together first. Non-zero rates (e.g. par rates) do not have
+this same property.
 
 ## Examples
 
@@ -261,6 +275,7 @@ end
 
 
 function FinanceCore.discount(rc::CompositeYield, time)
+    iszero(time) && return one(time)
     d1 = discount(rc.r1, time)
     d2 = discount(rc.r2, time)
     z1 = -log(d1) / time
@@ -268,6 +283,24 @@ function FinanceCore.discount(rc::CompositeYield, time)
     return exp(-rc.op(z1, z2) * time)
 end
 
+"""
+    ScaledYield(curve, factor)
+
+A yield model that scales the continuous zero rates of `curve` by a `Real` scalar `factor`.
+
+Created via `curve * scalar` or `curve / scalar`. For example, `curve * 0.79` scales
+all continuous zero rates by 0.79, which is useful for after-tax yield calculations.
+"""
+struct ScaledYield{T<:AbstractYieldModel, S<:Real} <: AbstractYieldModel
+    curve::T
+    factor::S
+end
+
+function FinanceCore.discount(sy::ScaledYield, time)
+    iszero(time) && return one(sy.factor)
+    z = -log(discount(sy.curve, time)) / time
+    return exp(-z * sy.factor * time)
+end
 
 """
     ForwardStarting(curve,forwardstart)
@@ -328,38 +361,29 @@ function Base.:+(a::Union{Real,Rate}, b::T) where {T <: AbstractYieldModel}
 end
 
 """
-    Yields.AbstractYieldModel * Yields.AbstractYieldModel
+    curve * scalar
+    scalar * curve
 
-The multiplication of two yields will create a `CompositeYield`. For `rate`, `discount`, and `accumulation` purposes the spot rates of the two curves will be added together. This can be useful, for example, if you wanted to after-tax a yield.
+Scale the continuous zero rates of `curve` by a `Real` scalar. Returns a [`ScaledYield`](@ref).
+
+This is useful for after-tax yield calculations. For example, `curve * 0.79` produces a
+curve whose continuous zero rate at every point is 79% of the original.
 
 # Examples
 
 ```julia-repl
-julia> m = Yields.Constant(0.01) * 0.79;
+julia> m = Yield.Constant(Continuous(0.05)) * 0.79;
 
-julia> accumulation(m,1)
-1.0079
-
-julia> accumulation(.01*.79,1)
-1.0079
+julia> discount(m, 1) ≈ exp(-0.05 * 0.79)
+true
 ```
 """
-function Base.:*(a::AbstractYieldModel, b::AbstractYieldModel)
-    return CompositeYield(a, b, *)
+function Base.:*(a::AbstractYieldModel, b::Real)
+    return ScaledYield(a, b)
 end
 
-function Base.:*(a::Constant, b::Constant)
-    z_a = FinanceCore.rate(convert(Continuous(), a.rate))
-    z_b = FinanceCore.rate(convert(Continuous(), b.rate))
-    return Constant(Continuous(z_a * z_b))
-end
-
-function Base.:*(a::T, b) where {T <: AbstractYieldModel}
-    return a * Constant(b)
-end
-
-function Base.:*(a::Union{Real,Rate}, b::T) where {T <: AbstractYieldModel}
-    return Constant(a) * b
+function Base.:*(a::Real, b::AbstractYieldModel)
+    return ScaledYield(b, a)
 end
 
 """
@@ -386,38 +410,23 @@ function Base.:-(a::Union{Real,Rate}, b::T) where {T <: AbstractYieldModel}
 end
 
 """
-    Yields.AbstractYieldModel / Yields.AbstractYieldModel
+    curve / scalar
 
-The division of two yields will create a `CompositeYield`. For `rate`, `discount`, and `accumulation` purposes the spot rates of the two curves will have the first divided by the second. This can be useful, for example, if you wanted to gross-up a yield to be pre-tax.
+Scale the continuous zero rates of `curve` by `1/scalar`. Returns a [`ScaledYield`](@ref).
+
+This is useful for grossing-up a yield to a pre-tax equivalent.
 
 # Examples
 
 ```julia-repl
-julia> m = Yields.Constant(0.01) / 0.79;
+julia> m = Yield.Constant(Continuous(0.05)) / 0.79;
 
-julia> accumulation(d,1)
-1.0126582278481013
-
-julia> accumulation(.01/.79,1)
-1.0126582278481013
+julia> discount(m, 1) ≈ exp(-0.05 / 0.79)
+true
 ```
 """
-function Base.:/(a::AbstractYieldModel, b::AbstractYieldModel)
-    return CompositeYield(a, b, /)
-end
-
-function Base.:/(a::Constant, b::Constant)
-    z_a = FinanceCore.rate(convert(Continuous(), a.rate))
-    z_b = FinanceCore.rate(convert(Continuous(), b.rate))
-    return Constant(Continuous(z_a / z_b))
-end
-
-function Base.:/(a::T, b) where {T <: AbstractYieldModel}
-    return a / Constant(b)
-end
-
-function Base.:/(a::Union{Real,Rate}, b::T) where {T <: AbstractYieldModel}
-    return Constant(a) / b
+function Base.:/(a::AbstractYieldModel, b::Real)
+    return ScaledYield(a, inv(b))
 end
 
 

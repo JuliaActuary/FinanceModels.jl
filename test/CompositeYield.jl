@@ -61,44 +61,48 @@
 
     end
 
-    @testset "multiplicaiton and division" begin
+    @testset "multiplication and division" begin
         @testset "multiplication" begin
             factor = 0.79
             c = rf_curve * factor
-            # In continuous zero-rate space: z_total(t) = z_rf(t) * z_factor
-            # where z_factor = log(1 + factor) for Periodic(1) factor
-            z_factor = log(1 + factor)
+            # ScaledYield scales continuous zero rates by the scalar directly
             for t in riskfree_maturities
                 z_rf = -log(discount(rf_curve, t)) / t
-                @test discount(c, t) ≈ exp(-(z_rf * z_factor) * t)
+                @test discount(c, t) ≈ exp(-(z_rf * factor) * t)
             end
             @test accumulation(c, 2) ≈ 1 / discount(c, 2)
 
             c = factor * rf_curve
             for t in riskfree_maturities
                 z_rf = -log(discount(rf_curve, t)) / t
-                @test discount(c, t) ≈ exp(-(z_rf * z_factor) * t)
+                @test discount(c, t) ≈ exp(-(z_rf * factor) * t)
             end
 
-            # Constant * Constant also operates in continuous zero-rate space
-            z1 = log(1.1)  # continuous zero rate of Constant(0.1)
-            @test discount(Yield.Constant(0.1) * Yield.Constant(0.1), 10) ≈ exp(-(z1 * z1) * 10)
+            # Constant * scalar
+            @test discount(Yield.Constant(Continuous(0.05)) * 0.5, 10) ≈ exp(-0.05 * 0.5 * 10)
         end
 
         @testset "division" begin
             factor = 0.79
             c = rf_curve / factor
-            z_factor = log(1 + factor)
             for t in riskfree_maturities
                 z_rf = -log(discount(rf_curve, t)) / t
-                @test discount(c, t) ≈ exp(-(z_rf / z_factor) * t)
+                @test discount(c, t) ≈ exp(-(z_rf / factor) * t)
             end
 
-            # Constant / Constant also operates in continuous zero-rate space
-            z_a = log(1.1)  # continuous zero rate of Constant(0.1)
-            z_b = log(1.5)  # continuous zero rate of Constant(0.5)
-            @test discount(Yield.Constant(0.1) / Yield.Constant(0.5), 10) ≈ exp(-(z_a / z_b) * 10)
-            @test discount(0.1 / Yield.Constant(0.5), 10) ≈ exp(-(z_a / z_b) * 10)
+            # Constant / scalar
+            @test discount(Yield.Constant(Continuous(0.05)) / 2.0, 10) ≈ exp(-0.05 / 2.0 * 10)
+        end
+
+        @testset "time zero" begin
+            @test discount(rf_curve + rf_curve, 0.0) == 1.0
+            @test discount(rf_curve * 0.79, 0.0) == 1.0
+        end
+
+        @testset "removed operations are errors" begin
+            @test_throws MethodError rf_curve * rf_curve
+            @test_throws MethodError rf_curve / rf_curve
+            @test_throws MethodError 0.5 / rf_curve
         end
     end
 end
