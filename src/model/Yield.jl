@@ -261,9 +261,11 @@ end
 
 
 function FinanceCore.discount(rc::CompositeYield, time)
-    a1 = discount(rc.r1, time)^(-1 / time) - 1
-    a2 = discount(rc.r2, time)^(-1 / time) - 1
-    return 1 / (1 + rc.op(a1, a2))^time
+    d1 = discount(rc.r1, time)
+    d2 = discount(rc.r2, time)
+    z1 = -log(d1) / time
+    z2 = -log(d2) / time
+    return exp(-rc.op(z1, z2) * time)
 end
 
 
@@ -312,7 +314,9 @@ function Base.:+(a::AbstractYieldModel, b::AbstractYieldModel)
 end
 
 function Base.:+(a::Constant, b::Constant)
-    return Constant(a.rate + b.rate)
+    z_a = FinanceCore.rate(convert(Continuous(), a.rate))
+    z_b = FinanceCore.rate(convert(Continuous(), b.rate))
+    return Constant(Continuous(z_a + z_b))
 end
 
 function Base.:+(a::T, b) where {T <: AbstractYieldModel}
@@ -345,14 +349,9 @@ function Base.:*(a::AbstractYieldModel, b::AbstractYieldModel)
 end
 
 function Base.:*(a::Constant, b::Constant)
-    a_kind = a.rate.compounding
-    rate_new_basis = FinanceCore.rate(convert(a_kind, b.rate))
-    return Constant(
-        FinanceCore.Rate(
-            FinanceCore.rate(a.rate) * rate_new_basis,
-            a_kind
-        )
-    )
+    z_a = FinanceCore.rate(convert(Continuous(), a.rate))
+    z_b = FinanceCore.rate(convert(Continuous(), b.rate))
+    return Constant(Continuous(z_a * z_b))
 end
 
 function Base.:*(a::T, b) where {T <: AbstractYieldModel}
@@ -373,7 +372,9 @@ function Base.:-(a::AbstractYieldModel, b::AbstractYieldModel)
 end
 
 function Base.:-(a::Constant, b::Constant)
-    return Constant(a.rate - b.rate)
+    z_a = FinanceCore.rate(convert(Continuous(), a.rate))
+    z_b = FinanceCore.rate(convert(Continuous(), b.rate))
+    return Constant(Continuous(z_a - z_b))
 end
 
 function Base.:-(a::T, b) where {T <: AbstractYieldModel}
@@ -406,14 +407,9 @@ function Base.:/(a::AbstractYieldModel, b::AbstractYieldModel)
 end
 
 function Base.:/(a::Constant, b::Constant)
-    a_kind = a.rate.compounding
-    rate_new_basis = FinanceCore.rate(convert(a_kind, b.rate))
-    return Constant(
-        FinanceCore.Rate(
-            FinanceCore.rate(a.rate) / rate_new_basis,
-            a_kind
-        )
-    )
+    z_a = FinanceCore.rate(convert(Continuous(), a.rate))
+    z_b = FinanceCore.rate(convert(Continuous(), b.rate))
+    return Constant(Continuous(z_a / z_b))
 end
 
 function Base.:/(a::T, b) where {T <: AbstractYieldModel}
