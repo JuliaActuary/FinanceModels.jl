@@ -114,7 +114,7 @@ A number of convenience functions are included to construct a `Quote`:
 - `ParYield`
 - `CMTYield`
 - `OISYield`
-- `ForwardYields`
+- `ForwardYield`
 
 ## 4. **Models** - Not just yield curves anymore
 

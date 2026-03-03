@@ -179,7 +179,7 @@ end
     @testset "Forward Rates" begin
         # Risk Managment and Financial Institutions, 5th ed. Appendix B
         forwards = [0.05, 0.04, 0.03, 0.08]
-        qs = ForwardYields(forwards, [1, 2, 3, 4])
+        qs = ForwardYield(forwards, [1, 2, 3, 4])
         curve = fit(Spline.Cubic(), qs, Fit.Bootstrap())
 
 
@@ -191,8 +191,8 @@ end
 
         @testset "pv with vector discount rates" begin
             cf = [100, 100]
-            f(rates) = fit(Spline.Linear(), ForwardYields(rates), Fit.Bootstrap())
-            f(rates, times) = fit(Spline.Linear(), ForwardYields(rates, times), Fit.Bootstrap())
+            f(rates) = fit(Spline.Linear(), ForwardYield(rates), Fit.Bootstrap())
+            f(rates, times) = fit(Spline.Linear(), ForwardYield(rates, times), Fit.Bootstrap())
             @test pv(f([0.0, 0.05]), cf) ≈ 100 / 1.0 + 100 / 1.05
             @test pv(f([0.0, 0.05]), cf) ≈ 100 / 1.0 + 100 / 1.05
             @test pv(f([0.05, 0.0]), cf) ≈ 100 / 1.05 + 100 / 1.05
@@ -207,7 +207,7 @@ end
 
 
         # test constructor without times
-        qs = ForwardYields(forwards)
+        qs = ForwardYield(forwards)
 
         @testset "discounts: $t" for (t, r) in enumerate(forwards)
             @test discount(curve, t) ≈ reduce((v, r) -> v / (1 + r), forwards[1:t]; init = 1.0)
@@ -224,7 +224,7 @@ end
 
         # test construction using vector of reals and of Rates
         curve_c = let
-            qs = ForwardYields(Continuous.(forwards), [1, 2, 3, 4])
+            qs = ForwardYield(Continuous.(forwards), [1, 2, 3, 4])
             fit(Spline.Cubic(), qs, Fit.Bootstrap())
         end
         @test discount(curve, 1) > discount(curve_c, 1)
@@ -238,7 +238,7 @@ end
         @testset "with specified non integer timepoints" begin
             i = [0.0, 0.05]
             times = [0.5, 1.5]
-            qs = ForwardYields(i, times)
+            qs = ForwardYield(i, times)
             m = fit(Spline.Linear(), qs, Fit.Bootstrap())
             @test discount(m, 0.5) ≈ 1 / 1.0^0.5
             @test discount(m, 1.5) ≈ 1 / 1.0^0.5 / 1.05^1
@@ -468,7 +468,7 @@ end
     @testset "Forward Rates" begin
         # Risk Managment and Financial Institutions, 5th ed. Appendix B
         forwards = [0.05, 0.04, 0.03, 0.08]
-        qs = ForwardYields(forwards, [1, 2, 3, 4])
+        qs = ForwardYield(forwards, [1, 2, 3, 4])
         curve = fit(Spline.Cubic(), qs)
 
 
@@ -480,8 +480,8 @@ end
 
         @testset "pv with vector discount rates" begin
             cf = [100, 100]
-            f(rates) = fit(Spline.Linear(), ForwardYields(rates))
-            f(rates, times) = fit(Spline.Linear(), ForwardYields(rates, times))
+            f(rates) = fit(Spline.Linear(), ForwardYield(rates))
+            f(rates, times) = fit(Spline.Linear(), ForwardYield(rates, times))
             @test pv(f([0.0, 0.05]), cf) ≈ 100 / 1.0 + 100 / 1.05
             @test pv(f([0.0, 0.05]), cf) ≈ 100 / 1.0 + 100 / 1.05
             @test pv(f([0.05, 0.0]), cf) ≈ 100 / 1.05 + 100 / 1.05
@@ -496,7 +496,7 @@ end
 
 
         # test constructor without times
-        qs = ForwardYields(forwards)
+        qs = ForwardYield(forwards)
 
         @testset "discounts: $t" for (t, r) in enumerate(forwards)
             @test discount(curve, t) ≈ reduce((v, r) -> v / (1 + r), forwards[1:t]; init = 1.0)
@@ -513,7 +513,7 @@ end
 
         # test construction using vector of reals and of Rates
         curve_c = let
-            qs = ForwardYields(Continuous.(forwards), [1, 2, 3, 4])
+            qs = ForwardYield(Continuous.(forwards), [1, 2, 3, 4])
             fit(Spline.Cubic(), qs)
         end
         @test discount(curve, 1) > discount(curve_c, 1)
@@ -527,7 +527,7 @@ end
         @testset "with specified non integer timepoints" begin
             i = [0.0, 0.05]
             times = [0.5, 1.5]
-            qs = ForwardYields(i, times)
+            qs = ForwardYield(i, times)
             m = fit(Spline.Linear(), qs)
             @test discount(m, 0.5) ≈ 1 / 1.0^0.5
             @test discount(m, 1.5) ≈ 1 / 1.0^0.5 / 1.05^1
