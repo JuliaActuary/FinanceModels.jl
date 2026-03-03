@@ -352,7 +352,7 @@ function Base.:+(a::Constant, b::Constant)
     return Constant(Continuous(z_a + z_b))
 end
 
-function Base.:+(a::T, b) where {T <: AbstractYieldModel}
+function Base.:+(a::T, b::Union{Real,Rate}) where {T <: AbstractYieldModel}
     return a + Constant(b)
 end
 
@@ -401,7 +401,7 @@ function Base.:-(a::Constant, b::Constant)
     return Constant(Continuous(z_a - z_b))
 end
 
-function Base.:-(a::T, b) where {T <: AbstractYieldModel}
+function Base.:-(a::T, b::Union{Real,Rate}) where {T <: AbstractYieldModel}
     return a - Constant(b)
 end
 
