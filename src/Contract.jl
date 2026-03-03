@@ -263,19 +263,19 @@ module Bond
     end
 
     """
-        ForwardYields(yields,times) 
+        ForwardYield(yields,times)
 
-    Returns a vector of `Quote` corresponding to the yield at the given forward times. 
-        
+    Returns a vector of `Quote` corresponding to the yield at the given forward times.
+
     # Examples
     ```julia-repl
-    julia> FinanceModels.Bond.ForwardYields([0.01,0.02],[1.,3.])
+    julia> FinanceModels.Bond.ForwardYield([0.01,0.02],[1.,3.])
     2-element Vector{Quote{Float64, Cashflow{Float64, Float64}}}:
      Quote{Float64, Cashflow{Float64, Float64}}(0.9900990099009901, Cashflow{Float64, Float64}(1.0, 1.0))
      Quote{Float64, Cashflow{Float64, Float64}}(0.9423223345470445, Cashflow{Float64, Float64}(1.0, 3.0))
     ```
     """
-    function ForwardYields(yields, times = eachindex(yields))
+    function ForwardYield(yields, times = eachindex(yields))
         df = 1.0
         t_prior = 0.0
         return map(zip(yields, times)) do (y, t)
@@ -287,7 +287,6 @@ module Bond
             )
         end
     end
-
 
     # Bond utility funcs
 
@@ -323,7 +322,7 @@ module Bond
     coupon_times(b::AbstractBond) = coupon_times(b.maturity, b.frequency.frequency)
 
 
-    for op in (:ZCBPrice, :ZCBYield, :ParYield, :ParSwapYield, :CMTYield, :ForwardYield)
+    for op in (:ZCBPrice, :ZCBYield, :ParYield, :ParSwapYield, :CMTYield)
         eval(
             quote
                 $op(x::Vector; kwargs...) = $op.(x, float.(eachindex(x)); kwargs...)
