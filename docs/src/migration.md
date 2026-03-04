@@ -1,5 +1,25 @@
 # Migration Guide
 
+## v4 to v5
+
+### Yield curve `+` and `-` now operate in continuous zero-rate space
+
+In v4, `curve_a + curve_b` added rates in whatever compounding convention the curves happened to use. In v5, `+` and `-` always work in **continuous zero-rate (CZR) space**, which is equivalent to multiplying/dividing discount factors:
+
+```julia
+# v5 behavior:
+combined = curve_a + curve_b
+discount(combined, t) == discount(curve_a, t) * discount(curve_b, t)
+```
+
+This is the economically correct way to combine deflators — see [Yield Curve Arithmetic](@ref) for a full explanation.
+
+**What to check when upgrading:** If your v4 code added curves whose rates were expressed in `Periodic` conventions, the combined discount factors will now differ by the cross-term. For small rates and short horizons the difference is minor, but it compounds over long projections (e.g. 10 bps/year for a 5% base + 2% spread).
+
+### `ForwardYields` renamed to `ForwardYield`
+
+The plural `ForwardYields` has been renamed to `ForwardYield` for consistency with other singular type names (`Yield.Constant`, `ZCBYield`, etc.).
+
 ## v3 to v4
 
 ### Yields.jl is now FinanceModels.jl

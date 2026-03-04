@@ -20,6 +20,7 @@ makedocs(;
             "Interpolation Methods" => "interpolation.md",
             "Contracts" => "contracts.md",
             "Rates" => "Rates.md",
+            "Yield Curve Arithmetic" => "yield_arithmetic.md",
             "Migration Guide" => "migration.md",
         ],
         "Modules" => [
