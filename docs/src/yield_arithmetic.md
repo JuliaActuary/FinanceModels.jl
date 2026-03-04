@@ -12,6 +12,9 @@ Multiplying discount factors is equivalent to adding rates in **continuous (log)
 
 ## Demonstration
 
+!!! note
+    `Yield.Constant` is a subtype of `AbstractYieldCurve`, which represents a discount curve associated with a constant force of interest through time.
+
 ```julia
 using FinanceModels, FinanceCore
 
@@ -57,17 +60,13 @@ Subtraction works analogously — `curve_a - curve_b` divides discount factors, 
 
 Use curve subtraction to find the spread between two curves:
 
-!!! note
-    `Yield.Constant` is a subtype of `AbstractYieldCurve`, which represents a discount curve associated with a constant force of interest through time.
-
 ```julia
-
 base   = Yield.Constant(0.05)
 target = Yield.Constant(0.07)
 
 # The spread that, when added to base, reproduces target's discount factors:
 spread = target - base
-spread.rate  # Continuous(0.01887...) — not exactly 2% in nominal terms
+zero(spread,1)  # Continuous(0.01887...) — not exactly 2% in nominal terms
 
 # Verify round-trip:
 discount(base + spread, 10.0) ≈ discount(target, 10.0)  # true
@@ -86,9 +85,12 @@ The key is that combining `Rate`s is not the same thing as combining curves (`Ab
 a = Yield.Constant(Periodic(0.05,1) + Periodic(0.02,1))
 b = Yield.Constant(Periodic(0.05,1)) + Yield.Constant(Periodic(0.02,1))
 a != b # true
+
+discount(a, 10)  # 0.50835 — rate addition (drops cross-term)
+discount(b, 10)  # 0.50362 — deflator compounding (correct)
 ```
 
-This is the point made above - combining discount curves results in a different discount path than a curve of combined rates.
+This is the point made above - combining discount curves results in a different discount path than a curve of combined rates. See the [Migration Guide](@ref) for details on how this changed in v5.
 
 ## Scaling curves: `*` and `/`
 
