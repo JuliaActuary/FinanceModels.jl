@@ -77,6 +77,8 @@ julia> rate(r)
 - [`FinanceModels.Yield.SmithWilson`](@ref)
 - [`FinanceModels.Yield.NelsonSiegel`](@ref)
 - [`FinanceModels.Yield.NelsonSiegelSvensson`](@ref)
+- [`FinanceModels.Yield.CairnsPritchard`](@ref)
+- [`FinanceModels.Yield.CairnsPritchardExtended`](@ref)
 
 ### Available Models - Stochastic Short Rates
 

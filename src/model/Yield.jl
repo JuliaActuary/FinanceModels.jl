@@ -91,6 +91,7 @@ end
 
 include("Yield/SmithWilson.jl")
 include("Yield/NelsonSiegelSvensson.jl")
+include("Yield/CairnsPritchard.jl")
 include("Yield/MonotoneConvex.jl")
 
 # callable interface for MonotoneConvex (matches Spline and ZeroRateCurve)

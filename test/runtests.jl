@@ -20,6 +20,7 @@ include("SmithWilson.jl")
 # include("ActuaryUtilities.jl")
 include("misc.jl")
 include("NelsonSiegelSvensson.jl")
+include("CairnsPritchard.jl")
 include("MonotoneConvex.jl")
 include("ZeroRateCurve.jl")
 
