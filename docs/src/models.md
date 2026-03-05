@@ -78,6 +78,13 @@ julia> rate(r)
 - [`FinanceModels.Yield.NelsonSiegel`](@ref)
 - [`FinanceModels.Yield.NelsonSiegelSvensson`](@ref)
 
+#### Curve Transformations
+
+- `curve + curve` — additive composition of zero rates ([`FinanceModels.Yield.CompositeYield`](@ref))
+- `curve * scalar` / `curve / scalar` — scale zero rates ([`FinanceModels.Yield.ScaledYield`](@ref))
+- [`FinanceModels.Yield.ShiftedCurve`](@ref) — lazy additive shift by an arbitrary function of tenor
+- [`FinanceModels.Yield.ForwardStarting`](@ref) — rebase a curve to a new time-zero
+
 ### Available Models - Stochastic Short Rates
 
 Stochastic short-rate models with closed-form zero-coupon bond prices. These are full yield models that also support Monte Carlo simulation. See the [Stochastic Models](@ref) guide for details and examples.
@@ -136,6 +143,31 @@ julia> discount(0.04,3)
     discount(model_yield,3)
     # 0.8864366955434709
     ```
+
+#### `ShiftedCurve` – Lazy Additive Shifts
+
+[`Yield.ShiftedCurve`](@ref FinanceModels.Yield.ShiftedCurve) applies an additive zero-rate shift without discretizing or refitting the base curve. The shift can be a constant or any function of tenor:
+
+```julia-repl
+julia> base = Yield.Constant(0.05);
+
+julia> # Parallel shift (+100 bp)
+       shifted = Yield.ShiftedCurve(base, 0.01);
+
+julia> zero(shifted, 10)
+Rate{Float64, Continuous}(0.06, Continuous())
+
+julia> # Tenor-dependent twist (steepener that fades at 30y)
+       twist = Yield.ShiftedCurve(base, t -> 0.02 * max(0.0, 1.0 - t/30.0));
+
+julia> zero(twist, 1)   # ≈ 5% + 1.93%
+Rate{Float64, Continuous}(0.06933333333333334, Continuous())
+
+julia> zero(twist, 30)  # shift is zero at 30y
+Rate{Float64, Continuous}(0.05, Continuous())
+```
+
+Because the shift function is evaluated lazily, the base curve's analytic structure is fully preserved — no grid is introduced. This makes `ShiftedCurve` suitable for parallel bumps, key-rate bumps, twist scenarios, and spread overlays.
 
 ### Creating New Yield Models
 

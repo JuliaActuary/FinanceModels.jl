@@ -283,6 +283,49 @@ function FinanceCore.discount(rc::CompositeYield, time)
     return exp(-rc.op(z1, z2) * time)
 end
 
+# ─── ShiftedCurve ────────────────────────────────────────────────────────
+
+"""
+    ShiftedCurve{C, F} <: AbstractYieldModel
+
+Lazy additive zero-rate shift: `z_shifted(t) = z_base(t) + shift_fn(t)`.
+
+The shift function is evaluated on demand at whatever tenor is requested —
+no discretization or refitting. The base curve's analytic structure is preserved.
+
+# Examples
+
+```julia
+base = Yield.Constant(0.05)
+
+# Parallel shift (+100bp)
+ShiftedCurve(base, t -> 0.01)
+
+# Tenor-dependent twist
+ShiftedCurve(base, t -> 0.02 * max(0.0, 1.0 - t/30.0))
+
+# Scalar constant shift (convenience)
+ShiftedCurve(base, 0.005)
+```
+"""
+struct ShiftedCurve{C<:AbstractYieldModel,F} <: AbstractYieldModel
+    base::C
+    shift_fn::F
+end
+
+ShiftedCurve(base::AbstractYieldModel, shift::Real) = ShiftedCurve(base, Returns(shift))
+
+function Base.zero(sc::ShiftedCurve, t)
+    z = Base.zero(sc.base, t)
+    return Continuous(z.continuous_value + sc.shift_fn(t))
+end
+
+function FinanceCore.discount(sc::ShiftedCurve, t)
+    iszero(t) && return one(t)
+    z = Base.zero(sc, t)
+    return exp(-z.continuous_value * t)
+end
+
 """
     ScaledYield(curve, factor)
 
