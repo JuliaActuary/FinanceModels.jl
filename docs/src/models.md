@@ -82,7 +82,7 @@ julia> rate(r)
 
 - `curve + curve` — additive composition of zero rates ([`FinanceModels.Yield.CompositeYield`](@ref))
 - `curve * scalar` / `curve / scalar` — scale zero rates ([`FinanceModels.Yield.ScaledYield`](@ref))
-- [`FinanceModels.Yield.ShiftedCurve`](@ref) — lazy additive shift by an arbitrary function of tenor
+- [`FinanceModels.Yield.TransformedYield`](@ref) — lazy zero-rate transformation by a function of `(rate, tenor)`
 - [`FinanceModels.Yield.ForwardStarting`](@ref) — rebase a curve to a new time-zero
 
 ### Available Models - Stochastic Short Rates
@@ -144,21 +144,27 @@ julia> discount(0.04,3)
     # 0.8864366955434709
     ```
 
-#### `ShiftedCurve` – Lazy Additive Shifts
+#### `TransformedYield` – Lazy Zero-Rate Transformations
 
-[`Yield.ShiftedCurve`](@ref FinanceModels.Yield.ShiftedCurve) applies an additive zero-rate shift without discretizing or refitting the base curve. The shift can be a constant or any function of tenor:
+[`Yield.TransformedYield`](@ref FinanceModels.Yield.TransformedYield) applies an arbitrary transformation to a curve's zero rates without discretizing or refitting. The transform function receives the base curve's `Continuous` zero rate and the tenor, and returns a new rate:
 
 ```julia-repl
 julia> base = Yield.Constant(0.05);
 
-julia> # Parallel shift (+100 bp)
-       shifted = Yield.ShiftedCurve(base, 0.01);
+julia> # Parallel shift (+100 bp) using Rate arithmetic
+       shifted = base + (z, t) -> z + Periodic(0.01, 1);
 
-julia> zero(shifted, 10)
+julia> zero(shifted, 10)  # correctly converts Periodic → Continuous
+Rate{Float64, Continuous}(0.05995033085316808, Continuous())
+
+julia> # Continuous shift (simpler when convention is known)
+       shifted2 = base + (z, t) -> z + Continuous(0.01);
+
+julia> zero(shifted2, 10)
 Rate{Float64, Continuous}(0.06, Continuous())
 
 julia> # Tenor-dependent twist (steepener that fades at 30y)
-       twist = Yield.ShiftedCurve(base, t -> 0.02 * max(0.0, 1.0 - t/30.0));
+       twist = base + (z, t) -> z + Continuous(0.02 * max(0.0, 1.0 - t/30.0));
 
 julia> zero(twist, 1)   # ≈ 5% + 1.93%
 Rate{Float64, Continuous}(0.06933333333333334, Continuous())
@@ -167,7 +173,9 @@ julia> zero(twist, 30)  # shift is zero at 30y
 Rate{Float64, Continuous}(0.05, Continuous())
 ```
 
-Because the shift function is evaluated lazily, the base curve's analytic structure is fully preserved — no grid is introduced. This makes `ShiftedCurve` suitable for parallel bumps, key-rate bumps, twist scenarios, and spread overlays.
+The transform function has the signature `(z::Rate, t) -> Rate` (or `-> Real`, interpreted as continuous). Because the transform receives the zero rate itself, Rate arithmetic like `z + Periodic(0.01, 1)` handles compounding conversion correctly — no manual convention juggling needed.
+
+The `+` operator provides ergonomic construction: `curve + f` or `f + curve` both create a `TransformedYield`. This is distinct from `curve + scalar` (which creates a `CompositeYield`).
 
 ### Creating New Yield Models
 
