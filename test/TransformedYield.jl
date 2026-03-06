@@ -87,11 +87,22 @@
         end
     end
 
+    @testset "negative base rate" begin
+        neg = Yield.Constant(Continuous(-0.01))
+        shifted = neg + (z, t) -> z + Continuous(0.02)
+        @test zero(shifted, 5.0) ≈ Continuous(0.01)
+        @test discount(shifted, 5.0) ≈ exp(-0.01 * 5.0)
+    end
+
     @testset "edge cases" begin
         shifted = base + (z, t) -> z + Continuous(0.01)
 
         # t = 0 should give discount factor of 1
         @test discount(shifted, 0.0) == 1.0
+
+        # zero(curve, 0.0) is NaN for most base curves (generic fallback: -log(1)/0 = 0/0)
+        # This is pre-existing behavior, not specific to TransformedYield
+        @test isnan(FinanceCore.rate(zero(shifted, 0.0)))
 
         # very small tenor
         @test isfinite(discount(shifted, 1e-10))

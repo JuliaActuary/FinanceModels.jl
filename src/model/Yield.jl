@@ -319,6 +319,14 @@ You can also construct directly:
 TransformedYield(base, (z, t) -> z + Continuous(0.01))
 ```
 
+Note: The `+` operator dispatches on `Function`. For callable objects that are
+not `Function` subtypes (e.g. custom structs with call syntax), use the direct
+constructor: `TransformedYield(base, my_callable)`.
+
+`TransformedYield` is a post-processing wrapper — it is not a fitting target.
+ForwardDiff propagates correctly through the transform for sensitivity analysis,
+but the transform function itself should be differentiable if used in an AD context.
+
 See also: [`CompositeYield`](@ref), [`ScaledYield`](@ref).
 """
 struct TransformedYield{C<:AbstractYieldModel,F} <: AbstractYieldModel

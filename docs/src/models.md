@@ -154,7 +154,7 @@ julia> base = Yield.Constant(0.05);
 julia> # Parallel shift (+100 bp) using Rate arithmetic
        shifted = base + (z, t) -> z + Periodic(0.01, 1);
 
-julia> zero(shifted, 10)  # correctly converts Periodic → Continuous
+julia> zero(shifted, 10)  # ≈ 0.05 + log(1.01), not 0.06 — Rate arithmetic converts Periodic → Continuous
 Rate{Float64, Continuous}(0.05995033085316808, Continuous())
 
 julia> # Continuous shift (simpler when convention is known)
