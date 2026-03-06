@@ -18,21 +18,27 @@ using FinanceModels
 
 # a set of market-observed prices we wish to calibrate the model to
 # annual effective unless otherwise specified
-q_rate = ZCBYield([0.01,0.02,0.03]);
-q_spread = ZCBYield([0.01,0.01,0.01]);
+q_rate = ZCBYield([0.01, 0.02, 0.03]);
+q_spread = ZCBYield([0.01, 0.01, 0.01]);
 
 # fit a linear spline yield model
-model_rate = fit(Spline.Linear(),q_rate);⠀           
-model_spread = fit(Spline.Linear(),q_spread);
+model_rate = fit(Spline.Linear(), q_rate, Fit.Bootstrap());
+model_spread = fit(Spline.Linear(), q_spread, Fit.Bootstrap());
 
-# the zero rate is the combination of the two underlying rates
-zero(model_spread + model_rate,1) # 0.02 annual effective rate
+# curve addition operates in continuous zero-rate space:
+# discount(a + b, t) == discount(a, t) * discount(b, t)
+discount(model_spread + model_rate, 0, 3) ≈ discount(model_spread, 0, 3) * discount(model_rate, 0, 3) # true
 
-# the discount is the product of the individual discount factors
-discount(model_spread + model_rate,0,3) ≈ discount(model_spread,0,3) * discount(model_rate,0,3)   # true
+# to add non-continuous rates, combine them before constructing the curve:
+r_base = Periodic(0.01, 1)
+r_spread = Periodic(0.01, 1)
+m = Yield.Constant(r_base + r_spread) # Periodic(0.02, 1)
+
+# or convert to Continuous rates first, where addition is exact:
+m = Yield.Constant(Continuous(r_base) + Continuous(r_spread))
 
 # compute the present value of a contract (a cashflow of 10 at time 3)
-present_value(model_rate,Cashflow(10,3)) # 9.15...
+present_value(model_rate, Cashflow(10, 3)) # ≈ 9.15
 ```
 
 ## Overview of FinanceModels
