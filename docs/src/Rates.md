@@ -6,8 +6,8 @@ Rates are types that wrap scalar values to provide information about how to dete
 
 There are two `Frequency` types:
 
-- `Yields.Periodic(m)` for rates that compound `m` times per period (e.g. `m` times per year if working with annual rates).
-- `Yields.Continuous()` for continuously compounding rates.
+- `Periodic(m)` for rates that compound `m` times per period (e.g. `m` times per year if working with annual rates).
+- `Continuous()` for continuously compounding rates.
 
 #### Examples
 
@@ -44,8 +44,8 @@ Convert rates between different types with `convert`. E.g.:
 ```julia
 r = Rate(0.01,Periodic(12))             # rate that compounds 12 times per rate period (ie monthly)
 
-convert(Yields.Periodic(1),r)                  # convert monthly rate to annual effective
-convert(Yields.Continuous(),r)          # convert monthly rate to continuous
+convert(Periodic(1),r)                  # convert monthly rate to annual effective
+convert(Continuous(),r)          # convert monthly rate to continuous
 ```
 
 To get the scalar value out of the `Rate`, use `FinanceModels.rate(r)`:
