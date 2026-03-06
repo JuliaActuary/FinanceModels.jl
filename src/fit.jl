@@ -147,6 +147,22 @@ __default_optic(m::Yield.NelsonSiegelSvensson) = (
         @optic(_.β₂) => -10.0 .. 10.0,
         @optic(_.β₃) => -10.0 .. 10.0,
     )
+__default_optic(m::Yield.CairnsPritchard) = (
+        @optic(_.c₁) => 0.001 .. 10.0,
+        @optic(_.c₂) => 0.001 .. 10.0,
+        @optic(_.b₀) => -1.0 .. 1.0,
+        @optic(_.b₁) => -10.0 .. 10.0,
+        @optic(_.b₂) => -10.0 .. 10.0,
+    )
+__default_optic(m::Yield.CairnsPritchardExtended) = (
+        @optic(_.c₁) => 0.001 .. 10.0,
+        @optic(_.c₂) => 0.001 .. 10.0,
+        @optic(_.c₃) => 0.001 .. 10.0,
+        @optic(_.b₀) => -1.0 .. 1.0,
+        @optic(_.b₁) => -10.0 .. 10.0,
+        @optic(_.b₂) => -10.0 .. 10.0,
+        @optic(_.b₃) => -10.0 .. 10.0,
+    )
 __default_optic(m::Equity.BlackScholesMerton{T,U,V}) where {T,U,V<:Volatility.Constant} = ((@optic(_.σ.σ) => 0.0 .. 10.0),)
 __default_optic(m::Volatility.Constant) = ((@optic(_.σ) => 0.0 .. 10.0),)
 __default_optic(m::ShortRate.Vasicek) = (
