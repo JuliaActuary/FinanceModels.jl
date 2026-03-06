@@ -284,6 +284,68 @@ function FinanceCore.discount(rc::CompositeYield, time)
     return exp(-rc.op(z1, z2) * time)
 end
 
+# ─── TransformedYield ─────────────────────────────────────────────────────
+
+"""
+    TransformedYield{C, F} <: AbstractYieldModel
+
+Lazy zero-rate transformation: `z_new(t) = transform(z_base(t), t)`.
+
+The `transform` function receives the base curve's `Continuous` zero rate and
+the tenor, and returns a new rate. It is evaluated on demand — no discretization
+or refitting. The base curve's analytic structure is fully preserved.
+
+The transform function should have the signature `(z::Rate, t) -> Rate` or
+`(z::Rate, t) -> Real`. If a `Real` is returned, it is interpreted as a
+continuous rate.
+
+# Constructing
+
+The most ergonomic way to create a `TransformedYield` is via the `+` operator
+with an `AbstractYieldModel` and a two-argument function:
+
+```julia
+base = Yield.Constant(0.05)
+
+# Parallel shift (+100 bp)
+base + (z, t) -> z + Periodic(0.01, 1)
+
+# Tenor-dependent twist (steepener that fades at 30y)
+base + (z, t) -> z + Continuous(0.02 * max(0.0, 1.0 - t/30.0))
+```
+
+You can also construct directly:
+
+```julia
+TransformedYield(base, (z, t) -> z + Continuous(0.01))
+```
+
+Note: The `+` operator dispatches on `Function`. For callable objects that are
+not `Function` subtypes (e.g. custom structs with call syntax), use the direct
+constructor: `TransformedYield(base, my_callable)`.
+
+`TransformedYield` is a post-processing wrapper — it is not a fitting target.
+ForwardDiff propagates correctly through the transform for sensitivity analysis,
+but the transform function itself should be differentiable if used in an AD context.
+
+See also: [`CompositeYield`](@ref), [`ScaledYield`](@ref).
+"""
+struct TransformedYield{C<:AbstractYieldModel,F} <: AbstractYieldModel
+    base::C
+    transform::F
+end
+
+function Base.zero(ty::TransformedYield, t)
+    z = Base.zero(ty.base, t)
+    return Continuous(ty.transform(z, t))
+end
+
+function FinanceCore.discount(ty::TransformedYield, t)
+    iszero(t) && return one(t)
+    z = Base.zero(ty, t)
+    return exp(-z.continuous_value * t)
+end
+
 """
     ScaledYield(curve, factor)
 
@@ -359,6 +421,14 @@ end
 
 function Base.:+(a::Union{Real,Rate}, b::T) where {T <: AbstractYieldModel}
     return Constant(a) + b
+end
+
+function Base.:+(a::AbstractYieldModel, f::Function)
+    return TransformedYield(a, f)
+end
+
+function Base.:+(f::Function, a::AbstractYieldModel)
+    return TransformedYield(a, f)
 end
 
 """
