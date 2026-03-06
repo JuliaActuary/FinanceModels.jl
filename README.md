@@ -298,10 +298,10 @@ Continuous()(0.05)
 Convert rates between different types with `convert`. E.g.:
 
 ```julia-repl
-r = Rate(FinanceModels.Periodic(12),0.01)             # rate that compounds 12 times per rate period (ie monthly)
+r = Rate(Periodic(12),0.01)             # rate that compounds 12 times per rate period (ie monthly)
 
-convert(FinanceModels.Periodic(1),r)                  # convert monthly rate to annual effective
-convert(FinanceModels.Continuous(),r)          # convert monthly rate to continuous
+convert(Periodic(1),r)                  # convert monthly rate to annual effective
+convert(Continuous(),r)          # convert monthly rate to continuous
 ```
 
 #### Arithmetic

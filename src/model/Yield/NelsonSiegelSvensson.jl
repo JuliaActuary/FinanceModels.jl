@@ -18,7 +18,7 @@ Parameters of Nelson and Siegel (1987) parametric model, along with default para
 
 ```julia-repl
 julia> β₀, β₁, β₂, τ₁ = 0.6, -1.2, -1.9, 3.0
-julia> nsm = Yields.NelsonSiegel.(β₀, β₁, β₂, τ₁)
+julia> nsm = Yield.NelsonSiegel(β₀, β₁, β₂, τ₁)
 
 # Extended Help
 

@@ -136,22 +136,22 @@ Calculate the par yield for maturity `time` for the given `curve` and `frequency
 # Examples
 
 ```julia-repl
-julia> c = Yields.Constant(0.04);
+julia> c = Yield.Constant(0.04);
 
-julia> Yields.par(c,4)
-Yields.Rate{Float64, Yields.Periodic}(0.03960780543711406, Yields.Periodic(2))
+julia> par(c,4)
+Rate{Float64, Periodic}(0.03960780543711406, Periodic(2))
 
-julia> Yields.par(c,4;frequency=1)
-Yields.Rate{Float64, Yields.Periodic}(0.040000000000000036, Yields.Periodic(1))
+julia> par(c,4;frequency=1)
+Rate{Float64, Periodic}(0.040000000000000036, Periodic(1))
 
-julia> Yields.par(c,0.6;frequency=4)
-Yields.Rate{Float64, Yields.Periodic}(0.039413626195875295, Yields.Periodic(4))
+julia> par(c,0.6;frequency=4)
+Rate{Float64, Periodic}(0.039413626195875295, Periodic(4))
 
-julia> Yields.par(c,0.2;frequency=4)
-Yields.Rate{Float64, Yields.Periodic}(0.039374942589460726, Yields.Periodic(5))
+julia> par(c,0.2;frequency=4)
+Rate{Float64, Periodic}(0.039374942589460726, Periodic(5))
 
-julia> Yields.par(c,2.5)
-Yields.Rate{Float64, Yields.Periodic}(0.03960780543711406, Yields.Periodic(2))
+julia> par(c,2.5)
+Rate{Float64, Periodic}(0.03960780543711406, Periodic(2))
 ```
 """
 function par(curve, time; frequency = 2)
@@ -312,13 +312,13 @@ Rebase a `curve` so that `discount`/`accumulation`/etc. are re-based so that tim
 ```julia-repl
 julia> zero = [5.0, 5.8, 6.4, 6.8] ./ 100
 julia> maturity = [0.5, 1.0, 1.5, 2.0]
-julia> curve = Yields.Zero(zero, maturity)
-julia> fwd = Yields.ForwardStarting(curve, 1.0)
+julia> curve = ZeroRateCurve(zero, maturity)
+julia> fwd = Yield.ForwardStarting(curve, 1.0)
 
-julia> FinanceCore.discount(curve,1,2)
+julia> discount(curve,1,2)
 0.9275624570410582
 
-julia> FinanceCore.discount(fwd,1) # `curve` has effectively been reindexed to `1.0`
+julia> discount(fwd,1) # `curve` has effectively been reindexed to `1.0`
 0.9275624570410582
 ```
 
@@ -338,7 +338,7 @@ function FinanceCore.discount(c::ForwardStarting, to)
 end
 
 """
-    Yields.AbstractYieldModel + Yields.AbstractYieldModel
+    Yield.AbstractYieldModel + Yield.AbstractYieldModel
 
 The addition of two yields will create a `CompositeYield`. For `rate`, `discount`, and `accumulation` purposes the spot rates of the two curves will be added together.
 """
@@ -387,7 +387,7 @@ function Base.:*(a::Real, b::AbstractYieldModel)
 end
 
 """
-    Yields.AbstractYieldModel - Yields.AbstractYieldModel
+    Yield.AbstractYieldModel - Yield.AbstractYieldModel
 
 The subtraction of two yields will create a `CompositeYield`. For `rate`, `discount`, and `accumulation` purposes the spot rates of the second curves will be subtracted from the first.
 """
