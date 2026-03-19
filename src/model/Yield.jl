@@ -49,7 +49,6 @@ struct Spline{U} <: AbstractYieldModel
 end
 
 function (c::Spline)(time)
-    c.fn(time)
     return exp(-c.fn(time) * time)
 end
 
