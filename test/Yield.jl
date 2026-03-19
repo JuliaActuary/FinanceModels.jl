@@ -368,6 +368,23 @@ end
 
     end
 
+    @testset "negative rate bootstrapping" begin
+        # EUR/CHF/JPY-style negative rates: discount factors > 1
+        neg_rates = [-0.005, -0.003, -0.001, 0.002, 0.005]
+        mats = [1.0, 2.0, 3.0, 5.0, 10.0]
+        qs = ZCBYield.(neg_rates, mats)
+
+        curve = fit(Spline.Linear(), qs, Fit.Bootstrap())
+
+        @testset "negative rate round-trip at t=$m" for (r, m) in zip(neg_rates, mats)
+            @test zero(curve, m) ≈ Periodic(r, 1) atol = 0.0001
+        end
+
+        # discount factors should be > 1 for negative rates
+        @test discount(curve, 1.0) > 1.0
+        @test discount(curve, 2.0) > 1.0
+    end
+
 end
 
 

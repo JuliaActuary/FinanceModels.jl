@@ -39,7 +39,7 @@ struct IntermediateYieldCurve{T <: Sp.SplineCurve, U, V} <: AbstractYieldModel
 end
 
 function FinanceCore.discount(ic::IntermediateYieldCurve, time)
-    zs = zero_vec = -log.(clamp.(ic.ys, 0.00001, 1)) ./ ic.xs
+    zs = -log.(clamp.(ic.ys, eps(), Inf)) ./ ic.xs
     c = Yield.Spline(ic.b, ic.xs, zs)
     return exp(-c.fn(time) * time)
 end
