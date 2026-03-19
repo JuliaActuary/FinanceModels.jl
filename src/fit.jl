@@ -132,7 +132,7 @@ __default_optic(m::MyModel) = (
 __default_optic(m::Yield.Constant) = ((@optic(_.rate.continuous_value) => -1.0 .. 1.0),)
 __default_optic(m::Yield.MonotoneConvexUnInit) = Tuple(@optic(_.rates) .=> -1.0 .. 1.0)
 __default_optic(m::Yield.MonotoneConvex) = Tuple(@optic(_.rates) .=> -1.0 .. 1.0)
-__default_optic(m::Yield.IntermediateYieldCurve{T}) where {T <: Spline.SplineCurve} = ((@optic(_.ys[end]) => 0.0 .. 1.0),)
+__default_optic(m::Yield.IntermediateYieldCurve{T}) where {T <: Spline.SplineCurve} = ((@optic(_.ys[end]) => 0.0 .. 2.0),)
 __default_optic(m::Yield.NelsonSiegel) = (
         @optic(_.τ₁) => 0.0 .. 100.0,
         @optic(_.β₀) => -10.0 .. 10.0,
@@ -406,7 +406,7 @@ function fit(mod0::T, quotes, method::Fit.Bootstrap) where {T <: Spline.SplineCu
         end
 
     end
-    zero_vec = -log.(clamp.(discount_vector, 0.00001, 1)) ./ times
+    zero_vec = -log.(clamp.(discount_vector, eps(), Inf)) ./ times
     return Yield.Spline(mod0, [zero(eltype(times)); times], [first(zero_vec); zero_vec])
     # return Yield.Spline(mod0, times, zero_vec)
 
