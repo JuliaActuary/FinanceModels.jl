@@ -576,9 +576,10 @@ end
 function _bisect(f, lo, hi; tol = 1e-12, maxiter = 200)
     flo, fhi = f(lo), f(hi)
     if sign(flo) == sign(fhi)
-        # Try widening the bounds
+        # Try widening the bounds symmetrically
         for _ in 1:5
-            lo, hi = 2lo, 2hi
+            span = max(hi - lo, 0.1)
+            lo, hi = lo - span, hi + span
             flo, fhi = f(lo), f(hi)
             sign(flo) != sign(fhi) && break
         end
