@@ -391,13 +391,18 @@ While `ForwardStarting` could be nested so that, e.g. the third period's curve i
 
 `ForwardStarting` is not used to construct a curve based on forward rates. 
 """
-struct ForwardStarting{T, U} <: AbstractYieldModel
+struct ForwardStarting{T, U, V} <: AbstractYieldModel
     curve::U
     forwardstart::T
+    discount_to_forwardstart::V
+    function ForwardStarting(curve::U, forwardstart::T) where {T, U}
+        df = FinanceCore.discount(curve, forwardstart)
+        new{T, U, typeof(df)}(curve, forwardstart, df)
+    end
 end
 
 function FinanceCore.discount(c::ForwardStarting, to)
-    return FinanceCore.discount(c.curve, c.forwardstart, to + c.forwardstart)
+    return FinanceCore.discount(c.curve, to + c.forwardstart) / c.discount_to_forwardstart
 end
 
 """
