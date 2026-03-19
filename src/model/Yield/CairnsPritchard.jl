@@ -46,10 +46,8 @@ end
 CairnsPritchard(c₁=0.5, c₂=3.0) = CairnsPritchard(c₁, c₂, 0.05, -0.01, -0.01)
 
 function Base.zero(cp::CairnsPritchard, t)
-    if iszero(t)
-        t += eps()
-    end
-    return Continuous.(cp.b₀ .+ cp.b₁ .* exp.(-cp.c₁ .* t) .+ cp.b₂ .* exp.(-cp.c₂ .* t))
+    # At t=0 the formula is already well-defined: exp(0) = 1, so z(0) = b₀ + b₁ + b₂
+    return Continuous(cp.b₀ + cp.b₁ * exp(-cp.c₁ * t) + cp.b₂ * exp(-cp.c₂ * t))
 end
 
 FinanceCore.discount(cp::CairnsPritchard, t) = discount.(zero.(cp, t), t)
@@ -105,10 +103,8 @@ end
 CairnsPritchardExtended(c₁=0.5, c₂=2.0, c₃=5.0) = CairnsPritchardExtended(c₁, c₂, c₃, 0.05, -0.01, -0.01, -0.01)
 
 function Base.zero(cp::CairnsPritchardExtended, t)
-    if iszero(t)
-        t += eps()
-    end
-    return Continuous.(cp.b₀ .+ cp.b₁ .* exp.(-cp.c₁ .* t) .+ cp.b₂ .* exp.(-cp.c₂ .* t) .+ cp.b₃ .* exp.(-cp.c₃ .* t))
+    # At t=0 the formula is already well-defined: exp(0) = 1, so z(0) = b₀ + b₁ + b₂ + b₃
+    return Continuous(cp.b₀ + cp.b₁ * exp(-cp.c₁ * t) + cp.b₂ * exp(-cp.c₂ * t) + cp.b₃ * exp(-cp.c₃ * t))
 end
 
 FinanceCore.discount(cp::CairnsPritchardExtended, t) = discount.(zero.(cp, t), t)
