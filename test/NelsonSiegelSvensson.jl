@@ -76,4 +76,18 @@
         end
     end
 
+    @testset "zero(model, 0) analytical limits" begin
+        ns = Yield.NelsonSiegel(3.0, 0.04, -0.02, 0.01)
+        @test FinanceModels.zero(ns, 0.0) == Continuous(ns.β₀ + ns.β₁)
+        @test !isnan(FinanceCore.rate(FinanceModels.zero(ns, 0.0)))
+
+        nss = Yield.NelsonSiegelSvensson(2.5, 3.0, 0.04, -0.02, 0.01, -0.005)
+        @test FinanceModels.zero(nss, 0.0) == Continuous(nss.β₀ + nss.β₁)
+        @test !isnan(FinanceCore.rate(FinanceModels.zero(nss, 0.0)))
+
+        # continuity: zero(model, ε) ≈ zero(model, 0) for small ε
+        @test FinanceCore.rate(FinanceModels.zero(ns, 1e-10)) ≈ FinanceCore.rate(FinanceModels.zero(ns, 0.0)) atol = 1e-6
+        @test FinanceCore.rate(FinanceModels.zero(nss, 1e-10)) ≈ FinanceCore.rate(FinanceModels.zero(nss, 0.0)) atol = 1e-6
+    end
+
 end

@@ -108,4 +108,18 @@
         @test FinanceModels.rate(FinanceModels.zero(cp, 1000.0)) ≈ 0.04 atol = 1e-10
     end
 
+    @testset "zero(model, 0) analytical limits" begin
+        cp = Yield.CairnsPritchard(0.5, 1.5, 0.04, -0.02, -0.01)
+        @test FinanceModels.zero(cp, 0.0) == Continuous(cp.b₀ + cp.b₁ + cp.b₂)
+        @test !isnan(FinanceCore.rate(FinanceModels.zero(cp, 0.0)))
+
+        cpe = Yield.CairnsPritchardExtended(0.5, 2.0, 5.0, 0.04, -0.02, -0.01, 0.005)
+        @test FinanceModels.zero(cpe, 0.0) == Continuous(cpe.b₀ + cpe.b₁ + cpe.b₂ + cpe.b₃)
+        @test !isnan(FinanceCore.rate(FinanceModels.zero(cpe, 0.0)))
+
+        # continuity: zero(model, ε) ≈ zero(model, 0) for small ε
+        @test FinanceCore.rate(FinanceModels.zero(cp, 1e-10)) ≈ FinanceCore.rate(FinanceModels.zero(cp, 0.0)) atol = 1e-6
+        @test FinanceCore.rate(FinanceModels.zero(cpe, 1e-10)) ≈ FinanceCore.rate(FinanceModels.zero(cpe, 0.0)) atol = 1e-6
+    end
+
 end
