@@ -12,7 +12,7 @@ Examples:
 - `Option`s:
 - `Option.EuroCall` and `Option.EuroPut`
 - Compositional contracts:
-  - `Forward`to represent an instrument that is relative to a forward point in time.
+  - `Forward` to represent an instrument that is relative to a forward point in time.
   - `Composite` to represent the combination of two other instruments.  
 
 In the future, this notion may be extended to liabilities (e.g. insurance policies in LifeContingencies.jl)
@@ -43,7 +43,7 @@ using Transducers: __foldl__, @next, complete
 """
 A bond which pays down its par (one unit) in equal payments. 
 """
-struct PrincipleOnlyBond{F<:FinanceCore.Frequency} <: FinanceModels.Bond.AbstractBond
+struct PrincipalOnlyBond{F<:FinanceCore.Frequency} <: FinanceModels.Bond.AbstractBond
     frequency::F
     maturity::Float64
 end
@@ -52,7 +52,7 @@ end
 # There's two parts to customize:
 # 1. any initialization or state to keep track of
 # 2. The loop where we decide what gets returned at each timestep
-function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:PrincipleOnlyBond,M,K}
+function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:PrincipalOnlyBond,M,K}
     # initialization stuff
     b = p.contract # the contract within a projection
     ts = Bond.coupon_times(b) # works since it's a FinanceModels.Bond.AbstractBond with a frequency and maturity
@@ -70,7 +70,7 @@ end
 That's it! then we can use this fitting models, projections, quotes, etc. Here we simply collect the bond into an array of cashflows:
 
 ```julia-repl
-julia> PrincipleOnlyBond(Periodic(2),5.) |> collect
+julia> PrincipalOnlyBond(Periodic(2),5.) |> collect
 10-element Vector{Cashflow{Float64, Float64}}:
  Cashflow{Float64, Float64}(0.1, 0.5)
  Cashflow{Float64, Float64}(0.1, 1.0)

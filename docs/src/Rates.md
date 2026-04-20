@@ -50,7 +50,7 @@ convert(Continuous(),r)          # convert monthly rate to continuous
 
 To get the scalar value out of the `Rate`, use `FinanceModels.rate(r)`:
 
-```julia-rel
+```julia-repl
 julia> r = Rate(0.01,Periodic(12));   
 julia> rate(r)
 0.01
