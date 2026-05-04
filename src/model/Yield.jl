@@ -5,11 +5,15 @@ import ..Spline as Sp
 import ..DataInterpolations
 import ..Bond: coupon_times
 
-using ..FinanceCore: Continuous, Periodic, discount, accumulation, AbstractContract
+using ..FinanceCore: Continuous, Periodic, discount, accumulation, AbstractContract,
+    AbstractDeflator, factor, intensity
 
 export discount, zero, forward, par, pv
 
-abstract type AbstractYieldModel <: AbstractModel end
+# Yield curves are deflators: `factor(yc, from, to)` is the discount factor.
+# Subtyping `AbstractDeflator` makes every yield curve compose with mortality,
+# lapse, default, and other decrement processes via `compose(...)`.
+abstract type AbstractYieldModel <: AbstractDeflator end
 
 """
     Constant(rate)
@@ -118,6 +122,12 @@ include("Yield/ZeroRateCurve.jl")
 The discount factor for the yield curve `yc` for times `from` through `to`.
 """
 FinanceCore.discount(yc::T, from, to) where {T <: AbstractYieldModel} = discount(yc, to) / discount(yc, from)
+
+# AbstractDeflator interface: `factor` is the discount factor for yield curves.
+# Each concrete yield model already defines `discount(yc, t)`; the two-argument
+# form derives via the existing `discount(yc, from, to)` method above.
+FinanceCore.factor(yc::T, t)        where {T <: AbstractYieldModel} = discount(yc, t)
+FinanceCore.factor(yc::T, from, to) where {T <: AbstractYieldModel} = discount(yc, from, to)
 
 """
     forward(yc, from, to)˚
