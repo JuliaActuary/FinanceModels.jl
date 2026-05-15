@@ -62,6 +62,27 @@ end
     @test all(collect(p) .≈ [Cashflow(0.07, 1.0), Cashflow(0.07, 2.0), Cashflow(1.07, 3.0)])
 end
 
+@testset "Floating Bond: fix-in-advance" begin
+    # A non-flat curve discriminates the two possible conventions:
+    #   in-advance: coupon paid at t uses forward(t - Δ, t)
+    #   in-arrears: coupon paid at t uses forward(t, t + Δ)
+    base = FinanceModels.ZeroRateCurve(
+        [0.02, 0.03, 0.04, 0.05],
+        [1.0,  2.0,  3.0,  4.0],
+        FinanceModels.Spline.Linear(),
+    )
+    floater = Bond.Floating(0.0, Periodic(1), 3.0, "BASE")
+    p   = Projection(floater, Dict("BASE" => base), CashflowProjection())
+    cfs = collect(p)
+
+    fwd01 = rate(Periodic(1)(forward(base, 0.0, 1.0)))
+    fwd12 = rate(Periodic(1)(forward(base, 1.0, 2.0)))
+    fwd23 = rate(Periodic(1)(forward(base, 2.0, 3.0)))
+    @test cfs[1].amount ≈ fwd01
+    @test cfs[2].amount ≈ fwd12
+    @test cfs[3].amount ≈ fwd23 + 1.0
+end
+
 @testset "Composite Contracts" begin
     a = Bond.Fixed(0.05, Periodic(1), 3.0)
     b = Bond.Fixed(0.1, Periodic(4), 3.0)

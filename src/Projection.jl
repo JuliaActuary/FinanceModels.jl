@@ -136,10 +136,12 @@ end
         freq = b.frequency # e.g. `Periodic(2)`
         freq_scalar = freq.frequency  # the 2 from `Periodic(2)`
 
-        # get the rate from the current time to next payment
-        # out of the model and convert it to the contract's periodicity
+        # Fix-in-advance: the coupon paid at t reflects the forward rate
+        # observed at the START of the accrual period [t - 1/freq, t].
+        # This matches the standard market convention for FRNs and Ibor coupons,
+        # and avoids referencing a rate beyond the bond's maturity for the final coupon.
         model = p.model[b.key]
-        reference_rate = rate(freq(forward(model, t, t + 1 / freq_scalar)))
+        reference_rate = rate(freq(forward(model, t - 1 / freq_scalar, t)))
         coup = (reference_rate + b.coupon_rate) / freq_scalar
         amt = if t == last(ts)
             1.0 + coup
