@@ -27,4 +27,5 @@ include("ZeroRateCurve.jl")
 
 include("extensions.jl")
 include("Stochastic.jl")
+include("AbstractDeflator.jl")
 #TODO EconomicScenarioGenerators.jl integration tests

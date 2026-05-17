@@ -7,8 +7,13 @@ A singleton type representing a placeholder model for when you don't really need
 """
 struct NullModel <: AbstractModel end
 
-# useful for round-tripping or iterating on quotes?
+# useful for round-tripping or iterating on quotes
+# Accepts both `AbstractModel` (Equity, Volatility, NullModel) and
+# `AbstractDeflator` (yield curves — no longer a subtype of AbstractModel).
 function FinanceCore.Quote(m::M, c::C) where {M <: AbstractModel, C <: FinanceCore.AbstractContract}
+    return FinanceCore.Quote(pv(m, c), c)
+end
+function FinanceCore.Quote(m::M, c::C) where {M <: FinanceCore.AbstractDeflator, C <: FinanceCore.AbstractContract}
     return FinanceCore.Quote(pv(m, c), c)
 end
 
