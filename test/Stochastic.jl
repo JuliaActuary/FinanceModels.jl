@@ -1096,4 +1096,48 @@ using Random
             @test isfinite(r)
         end
     end
+
+    @testset "AD through simulate (parameter sensitivities)" begin
+        # ForwardDiff.derivative w.r.t. scalar model parameters (σ, mean reversion,
+        # initial rate) must propagate through `simulate`. Before the path-eltype
+        # promote_type fix this crashed at `setindex!` whenever the parameter
+        # being differentiated wasn't already the type of the initial rate
+        # (notably σ on Hull-White, where r0 comes from the curve as Float64).
+        using ForwardDiff
+        cfs = [Cashflow(2.0, Float64(t)) for t in 1:5]
+        push!(cfs, Cashflow(100.0, 5.0))
+        flat = Yield.Constant(Continuous(0.04))
+
+        function pv_hw_sigma(σ)
+            rng = Random.MersenneTwister(7)
+            hw = ShortRate.HullWhite(0.05, σ, flat)
+            ps = simulate(hw; n_scenarios = 500, timestep = 1/12, horizon = 5.0, rng)
+            return sum(present_value(p, cfs) for p in ps) / 500
+        end
+        @test isfinite(ForwardDiff.derivative(pv_hw_sigma, 0.012))
+
+        function pv_vas_sigma(σ)
+            rng = Random.MersenneTwister(7)
+            v = ShortRate.Vasicek(0.10, 0.04, σ, Continuous(0.04))
+            ps = simulate(v; n_scenarios = 500, timestep = 1/12, horizon = 5.0, rng)
+            return sum(present_value(p, cfs) for p in ps) / 500
+        end
+        @test isfinite(ForwardDiff.derivative(pv_vas_sigma, 0.012))
+
+        function pv_vas_a(a)
+            rng = Random.MersenneTwister(7)
+            v = ShortRate.Vasicek(a, 0.04, 0.012, Continuous(0.04))
+            ps = simulate(v; n_scenarios = 500, timestep = 1/12, horizon = 5.0, rng)
+            return sum(present_value(p, cfs) for p in ps) / 500
+        end
+        @test isfinite(ForwardDiff.derivative(pv_vas_a, 0.10))
+
+        function pv_cir_sigma(σ)
+            rng = Random.MersenneTwister(7)
+            c = ShortRate.CoxIngersollRoss(0.3, 0.05, σ, Continuous(0.03))
+            ps = simulate(c; n_scenarios = 500, timestep = 1/12, horizon = 5.0, rng)
+            return sum(present_value(p, cfs) for p in ps) / 500
+        end
+        @test isfinite(ForwardDiff.derivative(pv_cir_sigma, 0.05))
+    end
 end
