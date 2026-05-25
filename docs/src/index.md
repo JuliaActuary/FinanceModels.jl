@@ -113,7 +113,7 @@ The models can be used to compute various rates of interest:
 
 #### `ZeroRateCurve` — direct construction
 
-Construct a zero-rate curve directly from rates and tenors, without fitting:
+Construct a yield curve directly from zero rates and tenors, without fitting:
 
 ```julia
 rates = [0.02, 0.025, 0.03, 0.035, 0.04]
@@ -122,7 +122,7 @@ zrc = ZeroRateCurve(rates, tenors)                          # default: MonotoneC
 zrc = ZeroRateCurve(rates, tenors, Spline.Linear())          # or Linear, PCHIP, Cubic, Akima
 ```
 
-`ZeroRateCurve` is compatible with ForwardDiff dual numbers, making it the primary interface for automatic differentiation-based sensitivities in [ActuaryUtilities.jl](https://github.com/JuliaActuary/ActuaryUtilities.jl).
+`ZeroRateCurve` is a factory function — it returns the appropriate underlying curve type (`Yield.MonotoneConvex` or `Yield.Spline`) supporting the full `AbstractYieldModel` interface (`discount`, `zero`, `forward`, callable `(t)` syntax). The returned curve composes with ForwardDiff dual numbers for automatic differentiation use cases in [ActuaryUtilities.jl](https://github.com/JuliaActuary/ActuaryUtilities.jl).
 
 #### Stochastic short-rate models
 
