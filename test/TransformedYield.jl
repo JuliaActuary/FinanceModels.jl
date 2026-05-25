@@ -301,4 +301,29 @@ end
         @test (@inferred discount(ps, 5.0)) isa Float64
         @test (@inferred Yield.ProjectedShift(base, phase_in, 3.0)) isa Yield.ProjectedShift
     end
+
+    @testset "ForwardDiff propagation through ProjectedShift" begin
+        # AD must propagate through (a) the rule's parameters and (b) the .time
+        # field itself. The latter is the novel capability this type enables:
+        # projection-time Greeks of a stress.
+        using ForwardDiff
+        h = 1e-6  # central-difference step for cross-check
+
+        # (a) ∂(discount)/∂(rule parameter): scenario-parameter sensitivity.
+        f_slope(slope) = let rule = (τ, z, _) -> z + Continuous(slope * min(τ, 10) / 10)
+            discount(Yield.ProjectedShift(base, rule, 5.0), 10.0)
+        end
+        ad_slope = ForwardDiff.derivative(f_slope, -0.015)
+        fd_slope = (f_slope(-0.015 + h) - f_slope(-0.015 - h)) / (2h)
+        @test isfinite(ad_slope)
+        @test ad_slope ≈ fd_slope rtol = 1e-5
+
+        # (b) ∂(discount)/∂τ: projection-time sensitivity — the new axis.
+        # Differentiate at τ=5.0 (well inside the phase-in region; min is smooth here).
+        f_tau(τ) = discount(Yield.ProjectedShift(base, phase_in, τ), 10.0)
+        ad_tau = ForwardDiff.derivative(f_tau, 5.0)
+        fd_tau = (f_tau(5.0 + h) - f_tau(5.0 - h)) / (2h)
+        @test isfinite(ad_tau)
+        @test ad_tau ≈ fd_tau rtol = 1e-5
+    end
 end
