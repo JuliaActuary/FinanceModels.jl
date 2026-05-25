@@ -52,12 +52,11 @@
         @test zero(twist, 50.0) ≈ Continuous(0.05)
     end
 
-    @testset "Real return treated as continuous" begin
+    @testset "Real return raises TypeError (strict Rate contract)" begin
+        # Rules must return a Rate; a plain Real triggers TypeError at call time.
         shifted = base + (z, t) -> z.continuous_value + 0.01
-        for t in [1.0, 5.0, 10.0]
-            @test zero(shifted, t) ≈ Continuous(0.06)
-            @test discount(shifted, t) ≈ exp(-0.06 * t)
-        end
+        @test_throws TypeError zero(shifted, 5.0)
+        @test_throws TypeError discount(shifted, 5.0)
     end
 
     @testset "composition with CompositeYield" begin
@@ -188,11 +187,24 @@ end
         @test zero(c10, 1.0) ≈ Continuous(0.05 + 0.02 * (1.0 - 1.0/30.0) * exp(-1.0))
     end
 
-    @testset "Real return treated as continuous" begin
-        rule = (τ, z, _) -> z.continuous_value + 0.01 * τ
-        c = Yield.ProjectedShift(base, rule, 2.0)
-        @test zero(c, 5.0) ≈ Continuous(0.05 + 0.02)
-        @test discount(c, 5.0) ≈ exp(-0.07 * 5.0)
+    @testset "Real return raises TypeError (strict Rate contract)" begin
+        # Rules must return a Rate; a plain Real triggers TypeError at call time.
+        rule_real = (τ, z, _) -> z.continuous_value + 0.01 * τ
+        c = Yield.ProjectedShift(base, rule_real, 2.0)
+        @test_throws TypeError zero(c, 5.0)
+        @test_throws TypeError discount(c, 5.0)
+    end
+
+    @testset "Periodic-shaped Rate return is properly converted (no silent miscoercion)" begin
+        # A rule returning a Rate in Periodic convention must be converted to
+        # continuous, not silently misinterpreted (the footgun the strict
+        # contract prevents).
+        rule_periodic = (τ, z, _) -> z + Periodic(0.01 * τ, 1)  # +1% × τ in annual-effective
+        c = Yield.ProjectedShift(base, rule_periodic, 2.0)
+        # Expected: base 5% continuous, plus Periodic(0.02, 1) converted = log(1.02)
+        expected = Continuous(0.05 + log(1.02))
+        @test zero(c, 5.0) ≈ expected
+        @test discount(c, 5.0) ≈ exp(-expected.continuous_value * 5.0)
     end
 
     @testset "edge cases" begin

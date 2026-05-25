@@ -315,12 +315,11 @@ The `rule` function receives the base curve's `Continuous` zero rate and
 the tenor, and returns a new rate. It is evaluated on demand — no discretization
 or refitting. The base curve's analytic structure is fully preserved.
 
-The rule function should have the signature `(z::Rate, t) -> Rate`. Rules that
-return a plain `Real` are silently wrapped in `Continuous(...)` — no convention
-check is performed, so a value computed in annual-effective space will be
-misinterpreted as a continuous rate. Prefer returning a `Rate` explicitly
-(`z + Continuous(0.01)`, `Periodic(0.04, 2)`, etc.) so that compounding
-conversion is handled by `Rate` arithmetic rather than convention by assumption.
+The rule function must have the signature `(z::Rate, t) -> Rate`. The return
+value is type-asserted as `Rate` so that compounding convention is always
+carried explicitly; rules returning a plain `Real` will raise a `TypeError`
+at call time. Use `z + Continuous(0.01)`, `Periodic(0.04, 2)`, etc., and let
+`Rate` arithmetic handle conversion to the curve's continuous representation.
 
 Use this for static shifts — parallel bumps, twists, butterflies — that don't
 depend on where you are in projection time. For shifts whose shape evolves
@@ -367,7 +366,7 @@ end
 
 function Base.zero(s::TenorShift, t)
     z = Base.zero(s.base, t)
-    return Continuous(s.rule(z, t))
+    return convert(Continuous(), s.rule(z, t)::FinanceCore.Rate)
 end
 
 """
@@ -382,12 +381,10 @@ time axis `τ`:
 valuation-date offset at which this curve is being evaluated. It is distinct
 from the tenor `t`, which is time-to-maturity from `τ`.
 
-The rule function should have the signature `(τ, z::Rate, t) -> Rate`. Rules
-that return a plain `Real` are silently wrapped in `Continuous(...)` — no
-convention check is performed, so a value computed in annual-effective space
-will be misinterpreted as a continuous rate. Prefer returning a `Rate`
-explicitly so that compounding conversion is handled by `Rate` arithmetic
-rather than convention by assumption.
+The rule function must have the signature `(τ, z::Rate, t) -> Rate`. The
+return value is type-asserted as `Rate` so that compounding convention is
+always carried explicitly; rules returning a plain `Real` will raise a
+`TypeError` at call time.
 
 Use this for shifts whose shape evolves across a projection horizon — phase-in
 profiles (BMA SBA, IFRS17 macro scenarios), runoff schedules, calendar-rolling
@@ -425,7 +422,7 @@ end
 
 function Base.zero(s::ProjectedShift, t)
     z = Base.zero(s.base, t)
-    return Continuous(s.rule(s.time, z, t))
+    return convert(Continuous(), s.rule(s.time, z, t)::FinanceCore.Rate)
 end
 
 function FinanceCore.discount(s::AbstractYieldShift, t)

@@ -180,7 +180,7 @@ julia> zero(twist, 30)  # shift is zero at 30y
 Rate{Float64, Continuous}(0.05, Continuous())
 ```
 
-The rule function has the signature `(z::Rate, t) -> Rate` (or `-> Real`, interpreted as continuous). Because the rule receives the zero rate itself, Rate arithmetic like `z + Periodic(0.01, 1)` handles compounding conversion correctly — no manual convention juggling needed.
+The rule function has the signature `(z::Rate, t) -> Rate`. The return value is type-asserted as `Rate`, so rules must carry compounding convention explicitly — returning a plain `Real` raises a `TypeError`. Because the rule receives the zero rate itself, `Rate` arithmetic like `z + Periodic(0.01, 1)` handles compounding conversion correctly — no manual convention juggling needed.
 
 The `+` operator provides ergonomic construction: `curve + f` or `f + curve` both create a `TenorShift`. This is distinct from `curve + scalar` (which creates a `CompositeYield`).
 
