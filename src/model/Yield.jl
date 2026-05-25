@@ -431,6 +431,8 @@ function FinanceCore.discount(s::AbstractYieldShift, t)
     return exp(-z.continuous_value * t)
 end
 
+(s::AbstractYieldShift)(t) = FinanceCore.discount(s, t)
+
 # Deprecated alias for the previous name. Slated for removal one minor release after introduction.
 const TransformedYield = TenorShift
 

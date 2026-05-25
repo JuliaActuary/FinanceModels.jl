@@ -117,6 +117,16 @@
         @test fwd ≈ Continuous(0.06)
     end
 
+    @testset "callable interface" begin
+        # TenorShift must support `c(t)` like other AbstractYieldModel subtypes
+        # so it composes transparently with valuation functions written against
+        # the callable convention.
+        shifted = base + (z, t) -> z + Continuous(0.01)
+        for t in [0.5, 1.0, 5.0, 10.0, 30.0]
+            @test shifted(t) == discount(shifted, t)
+        end
+    end
+
     @testset "no dispatch conflict" begin
         # base + scalar → not TransformedYield (CompositeYield or Constant)
         @test !((base + 0.01) isa Yield.TransformedYield)
@@ -193,6 +203,13 @@ end
         c = Yield.ProjectedShift(base, rule_real, 2.0)
         @test_throws TypeError zero(c, 5.0)
         @test_throws TypeError discount(c, 5.0)
+    end
+
+    @testset "callable interface" begin
+        c = Yield.ProjectedShift(base, phase_in, 5.0)
+        for t in [0.5, 1.0, 5.0, 10.0, 30.0]
+            @test c(t) == discount(c, t)
+        end
     end
 
     @testset "Periodic-shaped Rate return is properly converted (no silent miscoercion)" begin
