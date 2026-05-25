@@ -84,7 +84,8 @@ julia> rate(r)
 
 - `curve + curve` — additive composition of zero rates ([`FinanceModels.Yield.CompositeYield`](@ref))
 - `curve * scalar` / `curve / scalar` — scale zero rates ([`FinanceModels.Yield.ScaledYield`](@ref))
-- [`FinanceModels.Yield.TransformedYield`](@ref) — lazy zero-rate transformation by a function of `(rate, tenor)`
+- [`FinanceModels.Yield.TenorShift`](@ref) — lazy zero-rate shift depending on tenor: `(rate, tenor) -> Rate` (formerly `TransformedYield`, retained as alias)
+- [`FinanceModels.Yield.ProjectedShift`](@ref) — lazy zero-rate shift depending on tenor *and* a projection time `τ`: `(τ, rate, tenor) -> Rate`
 - [`FinanceModels.Yield.ForwardStarting`](@ref) — rebase a curve to a new time-zero
 
 ### Available Models - Stochastic Short Rates
@@ -146,9 +147,13 @@ julia> discount(0.04,3)
     # 0.8864366955434709
     ```
 
-#### `TransformedYield` – Lazy Zero-Rate Transformations
+#### Yield Shifts: `TenorShift` and `ProjectedShift`
 
-[`Yield.TransformedYield`](@ref FinanceModels.Yield.TransformedYield) applies an arbitrary transformation to a curve's zero rates without discretizing or refitting. The transform function receives the base curve's `Continuous` zero rate and the tenor, and returns a new rate:
+Two concrete subtypes of [`Yield.AbstractYieldShift`](@ref FinanceModels.Yield.AbstractYieldShift) apply lazy transformations to a base curve's zero rates without discretizing or refitting. They differ in whether the shift depends on one or two time axes.
+
+##### `TenorShift` — shift depends on tenor only
+
+[`Yield.TenorShift`](@ref FinanceModels.Yield.TenorShift) (formerly `TransformedYield`, retained as a deprecated alias) applies a shift that may vary with the tenor `t`. The rule function receives the base curve's `Continuous` zero rate and the tenor, and returns a new rate:
 
 ```julia-repl
 julia> base = Yield.Constant(0.05);
@@ -175,9 +180,38 @@ julia> zero(twist, 30)  # shift is zero at 30y
 Rate{Float64, Continuous}(0.05, Continuous())
 ```
 
-The transform function has the signature `(z::Rate, t) -> Rate` (or `-> Real`, interpreted as continuous). Because the transform receives the zero rate itself, Rate arithmetic like `z + Periodic(0.01, 1)` handles compounding conversion correctly — no manual convention juggling needed.
+The rule function has the signature `(z::Rate, t) -> Rate` (or `-> Real`, interpreted as continuous). Because the rule receives the zero rate itself, Rate arithmetic like `z + Periodic(0.01, 1)` handles compounding conversion correctly — no manual convention juggling needed.
 
-The `+` operator provides ergonomic construction: `curve + f` or `f + curve` both create a `TransformedYield`. This is distinct from `curve + scalar` (which creates a `CompositeYield`).
+The `+` operator provides ergonomic construction: `curve + f` or `f + curve` both create a `TenorShift`. This is distinct from `curve + scalar` (which creates a `CompositeYield`).
+
+##### `ProjectedShift` — shift depends on tenor *and* a projection time
+
+[`Yield.ProjectedShift`](@ref FinanceModels.Yield.ProjectedShift) extends `TenorShift` with a second time axis `τ`: the **projection time** (as-of / valuation-date offset) at which the curve is being evaluated. The rule signature is `(τ, z::Rate, t) -> Rate`, separating the projection time from the tenor.
+
+This is the natural shape for scenario frameworks where a shift's magnitude evolves across a multi-year horizon — BMA SBA phase-ins, IFRS17 macroeconomic scenarios, embedded-value runoffs:
+
+```julia-repl
+julia> base = Yield.Constant(0.05);
+
+julia> # -150 bp parallel shift, phased in linearly over 10 projection years.
+       phase_in = (τ, z, _) -> z + Continuous(-0.015 * min(τ, 10) / 10);
+
+julia> # Curve as seen at projection year 3 (30% phased in → -45 bp).
+       c3 = Yield.ProjectedShift(base, phase_in, 3.0);
+
+julia> zero(c3, 5)
+Rate{Float64, Continuous}(0.04550000000000001, Continuous())
+
+julia> # Curve as seen at projection year 10 (fully phased in → -150 bp).
+       c10 = Yield.ProjectedShift(base, phase_in, 10.0);
+
+julia> zero(c10, 5)
+Rate{Float64, Continuous}(0.035, Continuous())
+```
+
+The intended pattern: store `phase_in` once as a first-class, year-independent value, then call `ProjectedShift(base, phase_in, τ)` at each projection time `τ` in a projection loop.
+
+There is no `+` operator sugar for `ProjectedShift` — fixing `τ` at composition time defeats the purpose of storing the rule as a year-independent value. Always use the explicit constructor.
 
 ### Creating New Yield Models
 

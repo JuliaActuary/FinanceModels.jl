@@ -1,5 +1,15 @@
 # Migration Guide
 
+## Within v5
+
+### `TransformedYield` renamed to `TenorShift`; new `ProjectedShift`
+
+`Yield.TransformedYield` has been renamed to [`Yield.TenorShift`](@ref FinanceModels.Yield.TenorShift) to sit alongside the new [`Yield.ProjectedShift`](@ref FinanceModels.Yield.ProjectedShift), which adds a second time axis (projection / as-of time) to the shift rule. Both are concrete subtypes of the new [`Yield.AbstractYieldShift`](@ref FinanceModels.Yield.AbstractYieldShift).
+
+`Yield.TransformedYield` is retained as a deprecation alias (`const TransformedYield = TenorShift`) and will be removed one minor release after introduction. The field name `transform` has been renamed to `rule`; if downstream code accesses `.transform` directly it must switch to `.rule`. The `+` operator semantics (`curve + (z, t) -> ...`) are unchanged — only the returned struct's name changes.
+
+Use [`ProjectedShift`](@ref FinanceModels.Yield.ProjectedShift) for shifts whose shape evolves across a projection horizon (BMA SBA phase-ins, IFRS17 macro scenarios, EV runoffs). See the Yield Shifts section in [Available Models - Yields](@ref) for usage.
+
 ## v4 to v5
 
 ### Yield curve `+` and `-` now operate in continuous zero-rate space
