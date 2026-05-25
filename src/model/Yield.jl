@@ -11,6 +11,13 @@ export discount, zero, forward, par, pv
 
 abstract type AbstractYieldModel <: AbstractModel end
 
+# Generic callable fallback: `curve(t) ≡ discount(curve, t)`. Covers every
+# AbstractYieldModel subtype (Constant, CompositeYield, ScaledYield,
+# TenorShift, ProjectedShift, NelsonSiegel, etc.) that does not define its
+# own callable. More-specific callables (ZeroRateCurve, Spline,
+# MonotoneConvex) take precedence by ordinary multiple dispatch.
+(yc::AbstractYieldModel)(t) = FinanceCore.discount(yc, t)
+
 """
     Constant(rate)
 
