@@ -260,9 +260,12 @@ function simulate(model::AbstractStochasticModel;
 
     drift_cache = _precompute_drift(model, dt, n_steps)
 
-    # Determine element type from initial rate (may be a ForwardDiff.Dual)
+    # Path eltype must promote across the initial rate AND the scalar model
+    # parameters so ForwardDiff.Dual partials threaded through any of them
+    # propagate into the path array without tripping setindex! on a
+    # too-narrow eltype.
     r0 = _sim_initial_rate(model)
-    T = typeof(r0)
+    T = _sim_path_eltype(model)
 
     times = Vector{Float64}(undef, n_steps + 1)
     times[1] = 0.0
@@ -297,6 +300,13 @@ _sim_initial_rate(m::ShortRate.CoxIngersollRoss) = _initial_rate(m)
 function _sim_initial_rate(m::ShortRate.HullWhite)
     return _hw_forward_rate(m.curve, 0.0)
 end
+
+# Path eltype per model — promote across the initial rate and the scalar
+# parameters so ForwardDiff.Dual partials on any of them flow through the
+# simulated path array.
+_sim_path_eltype(m::ShortRate.Vasicek)          = Base.promote_typeof(_sim_initial_rate(m), m.a, m.b, m.σ)
+_sim_path_eltype(m::ShortRate.CoxIngersollRoss) = Base.promote_typeof(_sim_initial_rate(m), m.a, m.b, m.σ)
+_sim_path_eltype(m::ShortRate.HullWhite)        = Base.promote_typeof(_sim_initial_rate(m), m.a, m.σ)
 
 # Euler-Maruyama step for each model
 function _step(m::ShortRate.Vasicek, r, dt, sqrt_dt, Z, t, ::Nothing, j)
