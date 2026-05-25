@@ -1,14 +1,34 @@
 # Migration Guide
 
-## Within v5
+## v5.4 to v5.5
 
 ### `TransformedYield` renamed to `TenorShift`; new `ProjectedShift`
 
 `Yield.TransformedYield` has been renamed to [`Yield.TenorShift`](@ref FinanceModels.Yield.TenorShift) to sit alongside the new [`Yield.ProjectedShift`](@ref FinanceModels.Yield.ProjectedShift), which adds a second time axis (projection / as-of time) to the shift rule. Both are concrete subtypes of the new [`Yield.AbstractYieldShift`](@ref FinanceModels.Yield.AbstractYieldShift).
 
-`Yield.TransformedYield` is retained as a deprecation alias (`const TransformedYield = TenorShift`) and will be removed one minor release after introduction. The field name `transform` has been renamed to `rule`; if downstream code accesses `.transform` directly it must switch to `.rule`. The `+` operator semantics (`curve + (z, t) -> ...`) are unchanged — only the returned struct's name changes.
-
 Use [`ProjectedShift`](@ref FinanceModels.Yield.ProjectedShift) for shifts whose shape evolves across a projection horizon (BMA SBA phase-ins, IFRS17 macro scenarios, EV runoffs). See the Yield Shifts section in [Available Models - Yields](@ref) for usage.
+
+!!! warning "Breaking changes shipped under a minor bump"
+    This release is tagged minor (5.4 → 5.5) but contains two breaking behavior changes
+    that downstream code may need to react to:
+
+    1. **Field rename: `.transform` → `.rule`.** Direct field access on
+       `TransformedYield` instances (e.g., `ty.transform`) will fail. The
+       `TransformedYield` type name itself is preserved via
+       `const TransformedYield = TenorShift`, so constructor and `+`-operator
+       call sites continue to work unchanged.
+    2. **Strict `Rate` return contract.** `Base.zero` on `TenorShift` /
+       `ProjectedShift` now type-asserts the rule's return value as
+       `FinanceCore.Rate`. Rules that previously returned a plain `Real`
+       (silently coerced to `Continuous`) will now raise a `TypeError` at
+       call time. Replace `(z, t) -> z.continuous_value + 0.01` with
+       `(z, t) -> Continuous(z.continuous_value + 0.01)`, or more
+       idiomatically `(z, t) -> z + Continuous(0.01)` and let `Rate`
+       arithmetic carry compounding convention.
+
+    The `TransformedYield` alias is slated for removal one minor release after
+    introduction. The `+` operator semantics (`curve + (z, t) -> Rate`) are
+    unchanged — only the returned struct's name changes.
 
 ## v4 to v5
 
