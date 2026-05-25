@@ -315,9 +315,12 @@ The `rule` function receives the base curve's `Continuous` zero rate and
 the tenor, and returns a new rate. It is evaluated on demand — no discretization
 or refitting. The base curve's analytic structure is fully preserved.
 
-The rule function should have the signature `(z::Rate, t) -> Rate` or
-`(z::Rate, t) -> Real`. If a `Real` is returned, it is interpreted as a
-continuous rate.
+The rule function should have the signature `(z::Rate, t) -> Rate`. Rules that
+return a plain `Real` are silently wrapped in `Continuous(...)` — no convention
+check is performed, so a value computed in annual-effective space will be
+misinterpreted as a continuous rate. Prefer returning a `Rate` explicitly
+(`z + Continuous(0.01)`, `Periodic(0.04, 2)`, etc.) so that compounding
+conversion is handled by `Rate` arithmetic rather than convention by assumption.
 
 Use this for static shifts — parallel bumps, twists, butterflies — that don't
 depend on where you are in projection time. For shifts whose shape evolves
@@ -379,9 +382,12 @@ time axis `τ`:
 valuation-date offset at which this curve is being evaluated. It is distinct
 from the tenor `t`, which is time-to-maturity from `τ`.
 
-The rule function should have the signature `(τ, z::Rate, t) -> Rate` or
-`(τ, z::Rate, t) -> Real`. If a `Real` is returned, it is interpreted as a
-continuous rate.
+The rule function should have the signature `(τ, z::Rate, t) -> Rate`. Rules
+that return a plain `Real` are silently wrapped in `Continuous(...)` — no
+convention check is performed, so a value computed in annual-effective space
+will be misinterpreted as a continuous rate. Prefer returning a `Rate`
+explicitly so that compounding conversion is handled by `Rate` arithmetic
+rather than convention by assumption.
 
 Use this for shifts whose shape evolves across a projection horizon — phase-in
 profiles (BMA SBA, IFRS17 macro scenarios), runoff schedules, calendar-rolling

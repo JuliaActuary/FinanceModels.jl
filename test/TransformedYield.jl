@@ -241,6 +241,34 @@ end
         @test zero(outer, 5.0) ≈ Continuous(0.05 - 0.0075 + 0.003)
     end
 
+    @testset "ProjectedShift composes onto ProjectedShift" begin
+        # Two stackable rules: a τ-only phase-in and a τ-and-tenor twist.
+        rule1 = (τ, z, _) -> z + Continuous(-0.015 * min(τ, 10) / 10)
+        rule2 = (τ, z, t) -> z + Continuous(0.002 * t * τ / 10)
+
+        @testset "same τ on both layers" begin
+            τ = 5.0
+            inner = Yield.ProjectedShift(base, rule1, τ)
+            outer = Yield.ProjectedShift(inner, rule2, τ)
+            @test outer isa Yield.ProjectedShift
+            for t in [1.0, 5.0, 10.0]
+                z_base = zero(base, t).continuous_value
+                expected = z_base + (-0.015 * 5/10) + (0.002 * t * 5/10)
+                @test zero(outer, t) ≈ Continuous(expected)
+            end
+        end
+
+        @testset "different τ on each layer (each shift uses its own time field)" begin
+            inner = Yield.ProjectedShift(base, rule1, 3.0)    # inner sees τ=3
+            outer = Yield.ProjectedShift(inner, rule2, 10.0)  # outer sees τ=10
+            for t in [1.0, 5.0, 10.0]
+                z_base = zero(base, t).continuous_value
+                expected = z_base + (-0.015 * 3/10) + (0.002 * t * 10/10)
+                @test zero(outer, t) ≈ Continuous(expected)
+            end
+        end
+    end
+
     @testset "forward rates" begin
         # For a flat base + flat-at-τ shift, forward rate should equal shifted zero rate.
         ps = Yield.ProjectedShift(base, phase_in, 10.0)  # -150 bp, fully phased
