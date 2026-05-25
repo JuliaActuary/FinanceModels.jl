@@ -16,6 +16,7 @@ include("Equity.jl")
 include("Yield.jl")
 include("CompositeYield.jl")
 include("TransformedYield.jl")
+include("YieldShiftInvariants.jl")
 include("SmithWilson.jl")
 
 # include("ActuaryUtilities.jl")
