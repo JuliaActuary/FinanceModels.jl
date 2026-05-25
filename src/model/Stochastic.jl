@@ -260,12 +260,12 @@ function simulate(model::AbstractStochasticModel;
 
     drift_cache = _precompute_drift(model, dt, n_steps)
 
-    # Determine path element type. Must promote across the initial rate AND
-    # the scalar model parameters so that AD partials propagate through
-    # ForwardDiff.derivative(σ -> simulate(Model(..., σ, ...)), σ₀) without
-    # tripping setindex! into a too-narrow array.
+    # Path eltype must promote across the initial rate AND the scalar model
+    # parameters so ForwardDiff.Dual partials threaded through any of them
+    # propagate into the path array without tripping setindex! on a
+    # too-narrow eltype.
     r0 = _sim_initial_rate(model)
-    T = promote_type(typeof(r0), _sim_param_eltype(model))
+    T = _sim_path_eltype(model)
 
     times = Vector{Float64}(undef, n_steps + 1)
     times[1] = 0.0
@@ -301,15 +301,12 @@ function _sim_initial_rate(m::ShortRate.HullWhite)
     return _hw_forward_rate(m.curve, 0.0)
 end
 
-# Scalar parameter element types — promoted with the initial rate to type the
-# simulated path array. Lets ForwardDiff.Dual partials on any of these flow
-# through `simulate` cleanly.
-_sim_param_eltype(m::ShortRate.Vasicek) =
-    promote_type(typeof(m.a), typeof(m.b), typeof(m.σ))
-_sim_param_eltype(m::ShortRate.CoxIngersollRoss) =
-    promote_type(typeof(m.a), typeof(m.b), typeof(m.σ))
-_sim_param_eltype(m::ShortRate.HullWhite) =
-    promote_type(typeof(m.a), typeof(m.σ))
+# Path eltype per model — promote across the initial rate and the scalar
+# parameters so ForwardDiff.Dual partials on any of them flow through the
+# simulated path array.
+_sim_path_eltype(m::ShortRate.Vasicek)          = Base.promote_typeof(_sim_initial_rate(m), m.a, m.b, m.σ)
+_sim_path_eltype(m::ShortRate.CoxIngersollRoss) = Base.promote_typeof(_sim_initial_rate(m), m.a, m.b, m.σ)
+_sim_path_eltype(m::ShortRate.HullWhite)        = Base.promote_typeof(_sim_initial_rate(m), m.a, m.σ)
 
 # Euler-Maruyama step for each model
 function _step(m::ShortRate.Vasicek, r, dt, sqrt_dt, Z, t, ::Nothing, j)
