@@ -1,6 +1,6 @@
 # Interpolation Methods for `ZeroRateCurve`
 
-`ZeroRateCurve` accepts an optional third argument specifying the interpolation method. The choice of interpolation affects **forward curve smoothness**, **key rate duration locality**, and **performance** when used with automatic differentiation (e.g. via `sensitivities()` in ActuaryUtilities.jl).
+`ZeroRateCurve` is a factory that accepts an optional third argument specifying the interpolation method, returning an `AbstractYieldModel` (concretely `Yield.MonotoneConvex` for the default spline or `Yield.Spline` for the others). The choice of interpolation affects **forward curve smoothness**, **key rate duration locality**, and **performance** when used with automatic differentiation (e.g. via `sensitivities()` in ActuaryUtilities.jl).
 
 ## Available Methods
 
