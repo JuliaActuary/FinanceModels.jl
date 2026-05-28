@@ -19,6 +19,8 @@
     comp_sub = spl - splc
     scaled = spl * 0.79
     shifted = spl + ((z, t) -> z + Continuous(0.01))
+    fs_spl = Yield.ForwardStarting(spl, 5.0)                     # ForwardStarting over a curved (Spline) inner
+    fs_cc = Yield.ForwardStarting(cc, 2.0)                       # ForwardStarting over a flat (Constant) inner
 
     curves = [
         ("Spline(linear)", spl), ("Spline(cubic)", splc), ("MonotoneConvex", mc),
@@ -26,6 +28,7 @@
         ("NelsonSiegel", ns), ("NSS", nss), ("CairnsPritchard", cpr),
         ("Composite(+)", comp_add), ("Composite(-)", comp_sub),
         ("Scaled", scaled), ("TenorShift", shifted),
+        ("ForwardStarting(Spline)", fs_spl), ("ForwardStarting(Constant)", fs_cc),
     ]
 
     @testset "discount ≡ exp(-z·t)  ($name)" for (name, c) in curves
@@ -67,6 +70,24 @@
         for (from, to) in ((0.0, 1.0), (1.0, 2.0), (2.0, 5.0), (5.0, 10.0))
             expected = Continuous(log(discount(c, from) / discount(c, to)) / (to - from))
             @test forward(c, from, to) ≈ expected rtol = 1e-9
+        end
+    end
+
+    @testset "ForwardStarting routes through the zero primitive" begin
+        # t = 0 is finite (the generic fallback would be -log(1)/0 = NaN)
+        @test !isnan(FinanceCore.rate(zero(fs_spl, 0.0)))
+        @test !isnan(FinanceCore.rate(zero(fs_cc, 0.0)))
+        # flat inner: zero(fs, 0) is the inner's continuous rate, and the curve is continuous into 0
+        @test FinanceCore.rate(zero(fs_cc, 0.0)) ≈ 0.03
+        @test FinanceCore.rate(zero(fs_cc, 1e-9)) ≈ FinanceCore.rate(zero(fs_cc, 0.0)) atol = 1e-6
+        # for t > 0 the closed form equals the generic -log(discount)/t value (without the round-trip)
+        for t in (0.25, 1.0, 5.0, 20.0)
+            @test FinanceCore.rate(zero(fs_spl, t)) ≈ -log(discount(fs_spl, t)) / t rtol = 1e-12
+        end
+        # the new `zero` slot composes correctly in zero-rate space
+        for t in (0.5, 2.0, 10.0)
+            @test FinanceCore.rate(zero(fs_spl + cc, t)) ≈
+                  FinanceCore.rate(zero(fs_spl, t)) + FinanceCore.rate(zero(cc, t))
         end
     end
 end
