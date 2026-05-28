@@ -99,9 +99,12 @@
         # t = 0 should give discount factor of 1
         @test discount(shifted, 0.0) == 1.0
 
-        # zero(curve, 0.0) is NaN for most base curves (generic fallback: -log(1)/0 = 0/0)
-        # This is pre-existing behavior, not specific to TransformedYield
-        @test isnan(FinanceCore.rate(zero(shifted, 0.0)))
+        # zero(curve, 0.0) returns the (finite) short rate when the base curve defines
+        # `zero` directly (Constant/Spline here) — the shifted flat short rate. This used
+        # to be NaN via the generic `-log(1)/0 = 0/0` fallback; see the zero-rate primitive
+        # refactor in ZeroRatePrimitive.jl.
+        @test !isnan(FinanceCore.rate(zero(shifted, 0.0)))
+        @test zero(shifted, 0.0) ≈ Continuous(0.06)
 
         # very small tenor
         @test isfinite(discount(shifted, 1e-10))
