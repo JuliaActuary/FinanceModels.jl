@@ -38,6 +38,12 @@ Constant() = Constant(0.0)
 
 FinanceCore.discount(c::Constant, t) = FinanceCore.discount(c.rate, t)
 
+# The continuous zero rate of a flat curve is its (continuous) rate at every tenor,
+# including t=0. Defining `zero` directly avoids the generic `-log(discount)/t`
+# round-trip — which is `0/0 → NaN` at t=0 — and lets curves composed from a
+# `Constant` stay in zero-rate space (see `CompositeYield`/`ScaledYield`).
+Base.zero(c::Constant, t) = convert(Continuous(), c.rate)
+
 # used as the object which gets optmized before finally returning a completed spline
 struct IntermediateYieldCurve{T <: Sp.SplineCurve, U, V} <: AbstractYieldModel
     b::T
@@ -63,6 +69,11 @@ function FinanceCore.discount(c::Spline, time)
     z = c.fn(time)
     return exp(-z * time)
 end
+
+# `c.fn(t)` is the continuous zero rate, so `zero` is a direct read of the
+# interpolant. Avoids the generic `-log(discount)/t` round-trip (and its
+# `0/0 → NaN` at t=0), which also makes composites/shifts built on a Spline cheap.
+Base.zero(c::Spline, time) = Continuous(c.fn(time))
 
 function Spline(b::Sp.BSpline, xs, ys)
     order = min(length(xs) - 1, b.order) # in case the length of xs is less than the spline order
@@ -132,7 +143,13 @@ FinanceCore.discount(yc::T, from, to) where {T <: AbstractYieldModel} = discount
 The forward `Rate` implied by the yield curve `yc` between times `from` and `to`.
 """
 function FinanceCore.forward(yc::T, from, to = from + 1) where {T <: AbstractYieldModel}
-    return Continuous(log(discount(yc, from) / discount(yc, to)) / (to - from))
+    # forward = log(DF(from)/DF(to)) / (to-from) = (z(to)·to − z(from)·from)/(to−from).
+    # The `z·t` terms are `−log(DF)`, which is exactly 0 at t=0, so we guard t=0
+    # rather than evaluate a (possibly singular) zero rate there. For zero-native
+    # curves this is transcendental-free; discount-native curves (SmithWilson, the
+    # short-rate models) recover the same value through `zero`'s generic fallback.
+    zt(t) = iszero(t) ? zero(float(t)) : FinanceCore.rate(Base.zero(yc, t)) * t
+    return Continuous((zt(to) - zt(from)) / (to - from))
 end
 
 """
@@ -228,9 +245,11 @@ For subtraction (`-`), this gives `DF(t) = DF₁(t) / DF₂(t)`.
 Created via `+` and `-` on `AbstractYieldModel` objects. For scalar multiplication/division,
 see [`ScaledYield`](@ref).
 
-As this is double the normal operations when performing calculations, if you are using the
-curve in performance critical locations, you should consider transforming the inputs and
-constructing a single curve object ahead of time.
+Composition is performed in continuous-zero-rate space: a `+`/`-` composite reads each
+component's zero rate, combines them, and applies a single `exp` to form the discount
+factor — it no longer pays the `log`/`exp` round-trip that earlier versions did. Composing
+many curves in a hot loop is still marginally slower than pre-fitting a single combined
+curve, but the gap is small.
 
 Curves can be added or subtracted together, but note that this is not always the same thing
 as adding or subtracting spreads with rates. If spreads and base rates are expressed as zero
@@ -281,13 +300,19 @@ struct CompositeYield{T, U, V} <: AbstractYieldModel
 end
 
 
+# Composition happens in continuous-zero-rate space: combine the components' zero
+# rates with `op`, then form the discount factor with a single `exp`. This avoids
+# the previous round-trip (discount → log → recompose → exp), collapsing the common
+# Spline/Constant case from 3 `exp` + 2 `log` to a single `exp`.
+function Base.zero(rc::CompositeYield, time)
+    z1 = FinanceCore.rate(Base.zero(rc.r1, time))
+    z2 = FinanceCore.rate(Base.zero(rc.r2, time))
+    return Continuous(rc.op(z1, z2))
+end
+
 function FinanceCore.discount(rc::CompositeYield, time)
     iszero(time) && return one(time)
-    d1 = discount(rc.r1, time)
-    d2 = discount(rc.r2, time)
-    z1 = -log(d1) / time
-    z2 = -log(d2) / time
-    return exp(-rc.op(z1, z2) * time)
+    return discount(Base.zero(rc, time), time)
 end
 
 # ─── Yield shifts (TenorShift, ProjectedShift) ────────────────────────────
@@ -454,10 +479,16 @@ struct ScaledYield{T<:AbstractYieldModel, S<:Real} <: AbstractYieldModel
     factor::S
 end
 
+# Scaling is a multiply in continuous-zero-rate space, so derive `zero` directly and
+# form the discount factor with a single `exp` (no discount → log round-trip).
+function Base.zero(sy::ScaledYield, time)
+    z = FinanceCore.rate(Base.zero(sy.curve, time))
+    return Continuous(z * sy.factor)
+end
+
 function FinanceCore.discount(sy::ScaledYield, time)
     iszero(time) && return one(sy.factor)
-    z = -log(discount(sy.curve, time)) / time
-    return exp(-z * sy.factor * time)
+    return discount(Base.zero(sy, time), time)
 end
 
 """
