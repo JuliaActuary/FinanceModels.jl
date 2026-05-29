@@ -219,6 +219,8 @@ See the [FinanceModels.jl Guide](@ref) for an example of creating a model from s
 
 - The only method that must be defined to calculate the [`FinanceCore.present_value`](@ref) of something is [`FinanceCore.discount`](@ref). Other methods will be inferred.
 - Other methods that are imputed by default, but can be extended include: [`FinanceCore.accumulation`](@ref), [`FinanceModels.forward`](@ref), [`FinanceModels.par`](@ref), [`FinanceModels.zero`](@ref), and [`FinanceModels.rate`](@ref).
+- The continuous zero rate is the curve primitive: most models define [`FinanceModels.zero`](@ref) directly and derive `discount`/`forward` from it, while discount-native models (e.g. [`Yield.SmithWilson`](@ref FinanceModels.Yield.SmithWilson) and the short-rate models) define `discount` and recover `zero` through the `-log(discount(curve, t)) / t` fallback.
+- `zero(curve, 0)` returns the curve's finite limiting short rate (the analytic `t → 0` zero), **not** `NaN`. `discount(curve, 0) == 1` for every curve and `forward` guards `t = 0` internally, so there is no need to special-case or `isnan`-guard the origin.
 
 ## Equity and Volatility Models
 

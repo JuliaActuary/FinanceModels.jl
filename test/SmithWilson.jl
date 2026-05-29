@@ -96,6 +96,19 @@
         @test !isnan(FinanceCore.rate(zero(fwd, 0.0)))
     end
 
+    @testset "SW forward/zero match log-discount (discount-native via fallback)" begin
+        # SmithWilson defines only `discount`; `zero`/`forward` are imputed from the
+        # `-log(discount)/t` primitive. Guard that the zero-rate `forward` rewrite still
+        # matches the log-discount definition on a discount-native curve.
+        for (from, to) in ((1.0, 3.0), (2.5, 5.6))
+            @test forward(sw_swq, from, to) ≈
+                  Continuous(log(discount(sw_swq, from) / discount(sw_swq, to)) / (to - from)) rtol = 1e-10
+        end
+        for t in (1.0, 2.5, 5.6)
+            @test exp(-FinanceCore.rate(zero(sw_swq, t)) * t) ≈ discount(sw_swq, t) rtol = 1e-12
+        end
+    end
+
     # Round-trip bullet bond quotes (reuse data from swap quotes)
     bbq_prices = [1.3, 0.1, 4.5]
     qs = Quote.(
