@@ -531,6 +531,22 @@ function FinanceCore.discount(c::ForwardStarting, to)
     return FinanceCore.discount(c.curve, to + c.forwardstart) / c.discount_to_forwardstart
 end
 
+# The forward-started zero is the inner curve's FORWARD rate over [fs, fs+t]:
+#   zero(c,t)*t = z(t+fs)*(t+fs) - z(fs)*fs   (the `/DF(fs)` in `discount` becomes a subtraction here),
+# which keeps `exp(-zero(c,t)*t) == discount(c,t)`. `z(fs)*fs` is exactly
+# `-log(discount_to_forwardstart)`, which is already cached, so the inner curve is evaluated only once
+# — transcendental-free for zero-native inner curves, and faster than the generic `-log(discount)/t`
+# fallback (a second inner evaluation would cost more than the `exp`+`log` it removes). At t=0 the
+# ratio is 0/0; return the inner curve's zero at the forward-start point (finite; `discount(c,0)==1`
+# regardless, and `forward` guards t=0 itself, so nothing downstream depends on the exact value).
+function Base.zero(c::ForwardStarting, t)
+    iszero(t) && return Base.zero(c.curve, c.forwardstart)
+    fs = c.forwardstart
+    z_at = FinanceCore.rate(Base.zero(c.curve, t + fs))
+    zfs_fs = -log(c.discount_to_forwardstart)
+    return Continuous((z_at * (t + fs) - zfs_fs) / t)
+end
+
 """
     Yield.AbstractYieldModel + Yield.AbstractYieldModel
 
