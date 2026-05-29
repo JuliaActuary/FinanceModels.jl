@@ -85,6 +85,15 @@
         fwd = Yield.ForwardStarting(sw_swq, fwd_time)
 
         @test discount(fwd, 3.7) ≈ discount(sw_swq, fwd_time, fwd_time + 3.7)
+
+        # zero(::ForwardStarting) over a discount-native (SmithWilson) inner: the inner `zero`
+        # goes through the generic -log(discount)/t fallback, so verify the primitive invariant
+        # (exp(-z·t) == discount) and equality with that fallback hold, and t=0 is finite.
+        for t in (0.5, 3.7, 10.0)
+            @test exp(-FinanceCore.rate(zero(fwd, t)) * t) ≈ discount(fwd, t) rtol = 1e-12
+            @test FinanceCore.rate(zero(fwd, t)) ≈ -log(discount(fwd, t)) / t rtol = 1e-12
+        end
+        @test !isnan(FinanceCore.rate(zero(fwd, 0.0)))
     end
 
     # Round-trip bullet bond quotes (reuse data from swap quotes)
