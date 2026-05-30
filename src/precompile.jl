@@ -23,6 +23,7 @@ using PrecompileTools    # this is a small dependency
         model_rate = fit(Spline.Linear(), q_rate)
         fit(Spline.Quadratic(), q_rate)
         fit(Spline.Cubic(), q_rate)
+        fit(Spline.BSpline(3), q_rate, Fit.Bootstrap())  # keep the (opt-in) global B-spline path precompiled
         fit(Yield.NelsonSiegelSvensson(), q_rate)
 
 

@@ -97,12 +97,17 @@ end
 
 function Spline(b::Sp.PolynomialSpline, xs, ys)
     order = min(length(xs) - 1, b.order) # in case the length of xs is less than the spline order
+    # `cache_parameters = true` precomputes per-segment parameters at construction so that evaluation is
+    # read-only and therefore thread-safe — notably for `QuadraticSpline`, which is B-spline-based and
+    # otherwise overwrites a shared internal coefficient buffer on every call. It also avoids recomputing
+    # parameters on each evaluation. (Curves here are built immutably, so the "do not mutate u/t" caveat
+    # of cached parameters does not apply.)
     if order == 1
-        return Spline(DataInterpolations.LinearInterpolation(ys, xs; extrapolation = DataInterpolations.ExtrapolationType.Extension))
+        return Spline(DataInterpolations.LinearInterpolation(ys, xs; extrapolation = DataInterpolations.ExtrapolationType.Extension, cache_parameters = true))
     elseif order == 2
-        return Spline(DataInterpolations.QuadraticSpline(ys, xs; extrapolation = DataInterpolations.ExtrapolationType.Extension))
+        return Spline(DataInterpolations.QuadraticSpline(ys, xs; extrapolation = DataInterpolations.ExtrapolationType.Extension, cache_parameters = true))
     else
-        return Spline(DataInterpolations.CubicSpline(ys, xs; extrapolation = DataInterpolations.ExtrapolationType.Extension))
+        return Spline(DataInterpolations.CubicSpline(ys, xs; extrapolation = DataInterpolations.ExtrapolationType.Extension, cache_parameters = true))
     end
 end
 
