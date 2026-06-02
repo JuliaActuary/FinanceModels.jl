@@ -109,20 +109,18 @@
         end
     end
 
-    @testset "eager-build: rates flow through (finite-difference cross-check)" begin
-        # Constructing a fresh ZRC with a bumped rate must return a discount
-        # consistent with the bump — guards against any future "cache by hash"
-        # design that might inadvertently memoize across different rate vectors.
-        # (Real AD pass-through is covered transitively by ActuaryUtilities'
-        # KRD tests; we don't add a ForwardDiff dep just to test propagation
-        # here.)
-        tenors_fd = [1.0, 2.0, 5.0, 10.0]
-        rates_fd  = [0.02, 0.03, 0.035, 0.04]
-        h = 1e-6
+    @testset "eager-build: ForwardDiff pass-through" begin
+        # The eager build runs once with the input rate type; for Dual-typed
+        # rates, the model itself becomes Dual-typed and propagates through
+        # discount. At an exact knot t = tenors[k], discount = exp(-rates[k] * t),
+        # so ∂discount/∂rates[k] = -t · discount.
+        using ForwardDiff
+        tenors_ad = [1.0, 2.0, 5.0, 10.0]
+        rates_ad  = [0.02, 0.03, 0.035, 0.04]
         for spl in (Spline.Linear(), Spline.MonotoneConvex())
-            f(r) = discount(ZeroRateCurve([r, rates_fd[2:end]...], tenors_fd, spl), 1.0)
-            fd_deriv = (f(0.02 + h) - f(0.02 - h)) / (2h)
-            @test fd_deriv ≈ -1.0 * exp(-0.02 * 1.0) rtol = 1e-5
+            f(r) = discount(ZeroRateCurve([r, rates_ad[2:end]...], tenors_ad, spl), 1.0)
+            ad = ForwardDiff.derivative(f, 0.02)
+            @test ad ≈ -1.0 * exp(-0.02 * 1.0) atol = 1e-12
         end
     end
 
@@ -134,5 +132,11 @@
         @test hash(ZeroRateCurve(r, t, Spline.Linear())) == hash(ZeroRateCurve(copy(r), copy(t), Spline.Linear()))
         # Different rates must compare unequal
         @test ZeroRateCurve(r, t, Spline.Linear()) != ZeroRateCurve(r .+ 0.01, t, Spline.Linear())
+        # Different splines must compare unequal — relies on Sp.SplineCurve
+        # subtypes implementing equality correctly (singleton splines under
+        # `Sp.Linear()`, `Sp.Cubic()` etc. are `===` to other instances of the
+        # same type).
+        @test ZeroRateCurve(r, t, Spline.Linear()) != ZeroRateCurve(r, t, Spline.Cubic())
+        @test hash(ZeroRateCurve(r, t, Spline.Linear())) != hash(ZeroRateCurve(r, t, Spline.Cubic()))
     end
 end
