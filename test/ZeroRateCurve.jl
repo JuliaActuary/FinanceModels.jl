@@ -108,4 +108,31 @@
             @test discount(zrc_lin, 3.0) ≈ discount(zrc_cub, 3.0) atol = 1e-6
         end
     end
+
+    @testset "eager-build: rates flow through (finite-difference cross-check)" begin
+        # Constructing a fresh ZRC with a bumped rate must return a discount
+        # consistent with the bump — guards against any future "cache by hash"
+        # design that might inadvertently memoize across different rate vectors.
+        # (Real AD pass-through is covered transitively by ActuaryUtilities'
+        # KRD tests; we don't add a ForwardDiff dep just to test propagation
+        # here.)
+        tenors_fd = [1.0, 2.0, 5.0, 10.0]
+        rates_fd  = [0.02, 0.03, 0.035, 0.04]
+        h = 1e-6
+        for spl in (Spline.Linear(), Spline.MonotoneConvex())
+            f(r) = discount(ZeroRateCurve([r, rates_fd[2:end]...], tenors_fd, spl), 1.0)
+            fd_deriv = (f(0.02 + h) - f(0.02 - h)) / (2h)
+            @test fd_deriv ≈ -1.0 * exp(-0.02 * 1.0) rtol = 1e-5
+        end
+    end
+
+    @testset "eager-build: structural equality preserved" begin
+        # Two ZRCs built from `==`-equal inputs must compare `==` despite the
+        # new `_model` field carrying different prebuilt interpolant instances.
+        r = [0.02, 0.03, 0.04]; t = [1.0, 2.0, 5.0]
+        @test ZeroRateCurve(r, t, Spline.Linear()) == ZeroRateCurve(copy(r), copy(t), Spline.Linear())
+        @test hash(ZeroRateCurve(r, t, Spline.Linear())) == hash(ZeroRateCurve(copy(r), copy(t), Spline.Linear()))
+        # Different rates must compare unequal
+        @test ZeroRateCurve(r, t, Spline.Linear()) != ZeroRateCurve(r .+ 0.01, t, Spline.Linear())
+    end
 end

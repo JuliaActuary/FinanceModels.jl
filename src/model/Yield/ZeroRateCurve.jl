@@ -43,11 +43,12 @@ zrc_ns = ZeroRateCurve(ns, [1.0, 2.0, 5.0, 10.0, 20.0])
 
 ## Performance note
 
-`discount` reconstructs the interpolation model on each call for AD compatibility
-(dual numbers must flow through the interpolation). For non-AD usage where `discount`
-is called many times on the same curve, construct `Yield.build_model(zrc.spline,
-zrc.tenors, zrc.rates)` once and use that instead. The AD pathway in ActuaryUtilities
-builds the model once per gradient step, avoiding this per-call overhead.
+The interpolation model is built once at construction (`Yield.build_model(spline,
+tenors, rates)`) and stored on the struct, so `discount` is a direct dispatch to
+the prebuilt model rather than a rebuild per call. AD usage that creates a fresh
+`ZeroRateCurve` per gradient step (the documented pattern) pays the build cost
+once per step — same total cost as before, just front-loaded from `discount`-time
+to construction-time. The `_model` field is internal; do not rely on it.
 
 ## Forward curve smoothness
 
@@ -56,10 +57,19 @@ and produces C1-smooth forward curves ([Hagan & West, 2006](https://doi.org/10.1
 For C2 smoothness, use `Spline.Cubic()`. `Spline.Linear()` produces kinks in the
 forward curve at tenor points.
 """
-struct ZeroRateCurve{R<:AbstractVector, T<:AbstractVector, S<:Sp.SplineCurve} <: AbstractYieldModel
+struct ZeroRateCurve{R<:AbstractVector, T<:AbstractVector, S<:Sp.SplineCurve, M} <: AbstractYieldModel
     rates::R      # continuously-compounded zero rates
     tenors::T     # time points
     spline::S     # e.g., Spline.Linear(), Spline.Cubic()
+    _model::M     # prebuilt interpolation; do not access directly
+end
+
+# Three-arg constructor eagerly builds the interpolation. The 4-arg form
+# (passing a prebuilt `_model`) is internal — used to thread an already-built
+# model through wrapping constructors without rebuilding.
+function ZeroRateCurve(rates, tenors, spline)
+    model = Yield.build_model(spline, tenors, rates)
+    return ZeroRateCurve(rates, tenors, spline, model)
 end
 
 ZeroRateCurve(rates, tenors) = ZeroRateCurve(rates, tenors, Sp.MonotoneConvex())
@@ -77,8 +87,16 @@ function FinanceCore.discount(zrc::ZeroRateCurve, t)
     if t <= zero(t)
         return one(eltype(zrc.rates))
     end
-    curve = Yield.build_model(zrc.spline, zrc.tenors, zrc.rates)
-    return discount(curve, t)
+    return discount(zrc._model, t)
 end
 
 (zrc::ZeroRateCurve)(t) = FinanceCore.discount(zrc, t)
+
+# Structural equality on the value-carrying fields. The `_model` field is a
+# deterministic function of (rates, tenors, spline) and may not implement `==`
+# on its underlying interpolation; ignoring it here keeps `a == b` meaningful
+# whenever two curves are built from equal inputs.
+Base.:(==)(a::ZeroRateCurve, b::ZeroRateCurve) =
+    a.rates == b.rates && a.tenors == b.tenors && a.spline == b.spline
+Base.hash(z::ZeroRateCurve, h::UInt) =
+    hash(z.rates, hash(z.tenors, hash(z.spline, h)))
