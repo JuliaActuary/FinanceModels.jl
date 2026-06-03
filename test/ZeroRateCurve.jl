@@ -1,3 +1,5 @@
+using ForwardDiff
+
 @testset "ZeroRateCurve" begin
     rates = [0.02, 0.03, 0.035, 0.04]
     tenors = [1.0, 2.0, 5.0, 10.0]
@@ -114,7 +116,6 @@
         # rates, the model itself becomes Dual-typed and propagates through
         # discount. At an exact knot t = tenors[k], discount = exp(-rates[k] * t),
         # so ∂discount/∂rates[k] = -t · discount.
-        using ForwardDiff
         tenors_ad = [1.0, 2.0, 5.0, 10.0]
         rates_ad  = [0.02, 0.03, 0.035, 0.04]
         for spl in (Spline.Linear(), Spline.MonotoneConvex())
