@@ -208,7 +208,7 @@ Fit a model to a collection of quotes using a loss function and optimization met
 
 The optimization routine will then attempt to modify parameters of `model` to best fit the quoted prices of the contracts underlying the `quotes` by calling `present_value(model,contract)`. The optimization will minimize the loss function specified within `Fit.Loss(...)`. 
 
-Different types of quotes are appropriate for different kinds of models. For example, if you try to value a set of equtiy `EuroCall`s with a `Yield.Constant`, you will get an error because the `present_value(m<:Yield.Constant,o<:EuroCall)` is not defined.
+Different types of quotes are appropriate for different kinds of models. For example, if you try to value a set of equity `Option.EuroCall`s with a `Yield.Constant`, you will get an error because the `present_value(m<:Yield.Constant,o<:Option.EuroCall)` is not defined.
 
 ## Returns
 - The fitted model.

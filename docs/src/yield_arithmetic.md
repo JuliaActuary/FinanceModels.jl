@@ -13,7 +13,7 @@ Multiplying discount factors is equivalent to adding rates in **continuous (log)
 ## Demonstration
 
 !!! note
-    `Yield.Constant` is a subtype of `AbstractYieldCurve`, which represents a discount curve associated with a constant force of interest through time.
+    `Yield.Constant` is a subtype of `AbstractYieldModel`, which represents a discount curve associated with a constant force of interest through time.
 
 ```julia
 using FinanceModels, FinanceCore
@@ -79,7 +79,7 @@ This pattern — using curve subtraction and adding the result back — ensures 
 
 ## Curves versus rates
 
-The key is that combining `Rate`s is not the same thing as combining curves (`AbstractYieldCurve`s):
+The key is that combining `Rate`s is not the same thing as combining curves (`AbstractYieldModel`s):
 
 ```julia
 a = Yield.Constant(Periodic(0.05,1) + Periodic(0.02,1))

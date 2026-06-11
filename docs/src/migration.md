@@ -1,5 +1,17 @@
 # Migration Guide
 
+## v5.x to v6
+
+- **Continuous zero rates are the curve primitive.** Curve composition and shift arithmetic (`+`, `-`, `*`, `/`, `TenorShift`, `ProjectedShift`) operate in continuous-zero-rate space, which is equivalent to multiplying/dividing/exponentiating discount factors. See [Yield Curve Arithmetic](@ref).
+- **[Breaking] `Spline.Linear()`, `Spline.Quadratic()`, and `Spline.Cubic()` now default to local polynomial interpolants** instead of B-splines. Use `Spline.BSpline(order)` to retain the previous (global) B-spline behavior.
+- **`ZeroRateCurve` eagerly builds its interpolation at construction** rather than on first evaluation.
+- **Bootstrap `fit` (`Fit.Bootstrap()`) is now an exact per-knot root-solve.** Results match the previous optimizer-based bootstrap within the old optimizer's tolerance, but each quote is now repriced exactly.
+- **`TransformedYield` is deprecated — use `Yield.TenorShift`.** The old name remains available as a `Base.@deprecate_binding` alias but will be removed in a future release.
+- **`MonotoneConvex` forward rates are now continuous at and beyond the last knot** (extrapolation is anchored at the boundary instantaneous forward; see `Yield.instantaneous_forward`), and the Hagan-West positivity collar has been corrected (it is now generalized to handle negative discrete forwards).
+- **`par` now throws an informative `ArgumentError`** when the requested maturity implies a stub period that cannot be represented with the given coupon frequency.
+- **The Makie plotting extension now requires Makie ≥ 0.24.**
+- **With FinanceCore v3, `irr` / `internal_rate_of_return` return `Periodic(NaN, 1)` instead of `nothing`** when no root is found. Replace `isnothing(irr(x))` checks with `isnan(rate(irr(x)))`.
+
 ## v5.4 to v5.5
 
 ### `TransformedYield` renamed to `TenorShift`; new `ProjectedShift`
@@ -71,7 +83,7 @@ You should remove `Yields` from your project's dependencies and add `FinanceMode
 Previously, the API pattern was, e.g.:
 
 ```julia
-model = Yields.Par(SmitWilson(...), rates,timepoints)
+model = Yields.Par(SmithWilson(...), rates,timepoints)
 ```
 
 Now, follow the pattern of:
@@ -83,8 +95,10 @@ Example:
 
 ```julia
 quotes = ParYield.(rates,timepoints)
-model = fit(SmithWilson(),quotes)
+model = fit(Yield.SmithWilson(ufr=0.03, α=0.1), quotes)
 ```
+
+Note that `SmithWilson` is not exported at the top level (qualify it as `Yield.SmithWilson`) and that the `ufr` and `α` keyword arguments are required: they are model hyperparameters that are not solved for in the fit.
 
 #### Details of changes
 

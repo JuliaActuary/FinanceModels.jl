@@ -68,7 +68,7 @@ Existing `struct`s:
 - `Bond.Floating`
 - `Forward` (an obligation with a forward start time)
 - `Composite` (combine two other contracts, e.g. into a swap)
-- `EuroCall`
+- `Option.EuroCall` and `Option.EuroPut`
 - `CommonEquity`
 - `Option.Cap`, `Option.Floor`, `Option.Swaption` (interest rate derivatives)
 
@@ -96,10 +96,18 @@ Models are objects that can be fit to observed prices and then subsequently used
 Yield models include:
 
 - `Yield.Constant`
-- Bootstrapped `Spline`s
+- Fitted and bootstrapped `Spline`s
 - `Yield.SmithWilson`
 - `Yield.NelsonSiegel`
 - `Yield.NelsonSiegelSvensson`
+- `Yield.CairnsPritchard` (and `Yield.CairnsPritchardExtended`)
+- `Yield.MonotoneConvex` (Hagan-West)
+- `ZeroRateCurve` (direct construction from zero rates and tenors)
+
+Stochastic models include:
+
+- `ShortRate.Vasicek`, `ShortRate.CoxIngersollRoss`, and `ShortRate.HullWhite` short-rate models
+- `Equity.BlackScholesMerton` for option valuation
 
 #### Yield-related functions
 
@@ -107,7 +115,7 @@ The models can be used to compute various rates of interest:
 
 - `discount(curve,from,to)` or `discount(curve,to)` gives the discount factor
 - `accumulation(curve,from,to)` or `accumulation(curve,to)` gives the accumulation factor
-- `zero(curve,time)` or `zero(curve,time,Frequency)` gives the zero-coupon spot rate for the given time.
+- `zero(curve,time)` gives the zero-coupon spot rate for the given time (returned as a `Continuous` `Rate`).
 - `forward(curve,from,to)` gives the zero rate between the two given times
 - `par(curve,time;frequency=2)` gives the coupon-paying par equivalent rate for the given time.
 
@@ -238,17 +246,17 @@ Will produce:
 ### Fitting Models
 
 ```plaintext
-       Model                                                               Method
-          |                                                                   |
-   |------------|                                                     |---------------|
-fit(Spline.Cubic(), CMTYield.([0.04,0.05,0.055,0.06,0055],[1,2,3,4,5]), Fit.Bootstrap())
+       Model                                                                Method
+          |                                                                    |
+   |------------|                                                      |---------------|
+fit(Spline.Cubic(), CMTYield.([0.04,0.05,0.055,0.06,0.055],[1,2,3,4,5]), Fit.Bootstrap())
                     |-------------------------------------------------|
                                               |
                                               Quotes
 ```
 
 - **Model** could be `Spline.Linear()`, `Yield.NelsonSiegelSvensson()`, `Equity.BlackScholesMerton(...)`, etc.
-- **Quote** could be `CMTYield`s, `ParYield`s, `Option.Eurocall`, etc.
+- **Quote** could be `CMTYield`s, `ParYield`s, `Option.EuroCall`, etc.
 - **Method** could be `Fit.Loss(x->x^2)`, `Fit.Loss(x->abs(x))`, `Fit.Bootstrap()`, etc.
 
 This unified way to fit models offers a much simpler way to extend functionality to new models or contract types.
@@ -298,11 +306,17 @@ Continuous()(0.05)
 Convert rates between different types with `convert`. E.g.:
 
 ```julia-repl
-r = Rate(Periodic(12),0.01)             # rate that compounds 12 times per rate period (ie monthly)
+julia> r = Rate(0.01, Periodic(12))   # rate that compounds 12 times per rate period (ie monthly)
+Periodic(0.009999999999998899, 12)
 
-convert(Periodic(1),r)                  # convert monthly rate to annual effective
-convert(Continuous(),r)          # convert monthly rate to continuous
+julia> convert(Periodic(1), r)        # convert monthly rate to annual effective
+Periodic(0.010045960887181016, 1)
+
+julia> convert(Continuous(), r)       # convert monthly rate to continuous
+Continuous(0.009995835646701251)
 ```
+
+(`Rate`s internally store the equivalent continuously compounded rate, so displayed nominal values may show floating point artifacts of the round-trip conversion, as in the first line above.)
 
 #### Arithmetic
 
@@ -314,7 +328,7 @@ A guide which explains more about the components of the package and from-scratch
 
 ## Exported vs Un-exported Functions
 
-Generally, CamelCase methods which construct a datatype are exported as they are unlikely to conflict with other parts of code that may be written. For example, `rate` is un-exported (it must be called with `FinanceModels.rate(...)`) because `rate` is likely a very commonly defined variable within actuarial and financial contexts and there is a high risk of conflicting with defined variables.
+Generally, CamelCase methods which construct a datatype are exported as they are unlikely to conflict with other parts of code that may be written, but other components must either be qualified by the inner module (e.g. `Bond.Fixed`) or the package module, e.g. `FinanceModels.cashflows_timepoints` to use un-exported names.
 
 Consider using `import FinanceModels` which would require qualifying all methods, but alleviates any namespace conflicts and has the benefit of being explicit about the calls (internally we prefer this in the package design to keep dependencies and their usage clear).
 

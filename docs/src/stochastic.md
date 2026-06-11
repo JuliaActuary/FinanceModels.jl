@@ -6,6 +6,9 @@ FinanceModels.jl includes stochastic short-rate models that are first-class yiel
 
 For stochastic-cashflow analysis (e.g. Monte Carlo valuation), `simulate()` generates scenario yield curves that also plug into the existing `present_value`.
 
+!!! note "Relationship to EconomicScenarioGenerators.jl"
+    Short-rate and equity scenario generators were previously provided by [EconomicScenarioGenerators.jl](https://github.com/JuliaActuary/EconomicScenarioGenerators.jl). The `FinanceModels.ShortRate` models together with `simulate` and `pv_mc` are the maintained successors. EconomicScenarioGenerators.jl remains the place for copula-correlated, multi-model simulation (its `Correlated` generator).
+
 ## Available Models
 
 | Model | Dynamics | Parameters |

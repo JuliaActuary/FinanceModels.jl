@@ -29,7 +29,8 @@ Calculate the Black-Scholes implied option price for a european call, where:
 
 Rates should be input as rates (not percentages), e.g.: `0.05` instead of `5` for a rate of five percent.
 
-!!! Experimental: this function is well-tested, but the derivatives functionality (API) may change in a future version of ActuaryUtilities.
+!!! warning "Experimental"
+    This function is well-tested, but the derivatives functionality (API) may change in a future version of FinanceModels.
 
 # Extended Help
 
@@ -38,8 +39,8 @@ This is the same as the formulation presented in the [dividend extension of the 
 ## Other general comments:
 
 - Swap/OIS curves are generally better sources for `r` than government debt (e.g. US Treasury) due to the collateralized nature of swap instruments.
-- (Implied) volatility is characterized by a curve that is a function of the strike price (among other things), so take care when using 
-- Yields.jl can assist with converting rates to continuously compounded if you need to perform conversions.
+- (Implied) volatility is characterized by a curve that is a function of the strike price (among other things), so take care when using
+- FinanceModels.jl can assist with converting rates to continuously compounded if you need to perform conversions (e.g. `convert(Continuous(), r)`).
 
 """
 function eurocall(; S = 1.0, K = 1.0, τ = 1, r, σ, q = 0.0)
@@ -52,7 +53,7 @@ end
 """
     europut(;S=1.,K=1.,τ=1,r,σ,q=0.)
 
-Calculate the Black-Scholes implied option price for a european call, where:
+Calculate the Black-Scholes implied option price for a european put, where:
 
 - `S` is the current asset price
 - `K` is the strike or exercise price
@@ -64,7 +65,8 @@ Calculate the Black-Scholes implied option price for a european call, where:
 Rates should be input as rates (not percentages), e.g.: `0.05` instead of `5` for a rate of five percent.
 
 
-!!! Experimental: this function is well-tested, but the derivatives functionality (API) may change in a future version of ActuaryUtilities.
+!!! warning "Experimental"
+    This function is well-tested, but the derivatives functionality (API) may change in a future version of FinanceModels.
 
 # Extended Help
 
@@ -73,8 +75,8 @@ This is the same as the formulation presented in the [dividend extension of the 
 ## Other general comments:
 
 - Swap/OIS curves are generally better sources for `r` than government debt (e.g. US Treasury) due to the collateralized nature of swap instruments.
-- (Implied) volatility is characterized by a curve that is a function of the strike price (among other things), so take care when using 
-- Yields.jl can assist with converting rates to continuously compounded if you need to perform conversions.
+- (Implied) volatility is characterized by a curve that is a function of the strike price (among other things), so take care when using
+- FinanceModels.jl can assist with converting rates to continuously compounded if you need to perform conversions (e.g. `convert(Continuous(), r)`).
 
 """
 function europut(; S = 1.0, K = 1.0, τ = 1, r, σ, q = 0.0)
