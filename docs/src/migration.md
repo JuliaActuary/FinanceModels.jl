@@ -26,9 +26,10 @@ Use [`ProjectedShift`](@ref FinanceModels.Yield.ProjectedShift) for shifts whose
 
     1. **Field rename: `.transform` → `.rule`.** Direct field access on
        `TransformedYield` instances (e.g., `ty.transform`) will fail. The
-       `TransformedYield` type name itself is preserved via
+       `TransformedYield` type name itself was preserved in v5.5 via
        `const TransformedYield = TenorShift`, so constructor and `+`-operator
-       call sites continue to work unchanged.
+       call sites continue to work unchanged. (As of v6 the alias emits a
+       deprecation warning — see the v5.x → v6 section above.)
     2. **Strict `Rate` return contract.** `Base.zero` on `TenorShift` /
        `ProjectedShift` now type-asserts the rule's return value as
        `FinanceCore.Rate`. Rules that previously returned a plain `Real`
