@@ -16,7 +16,7 @@ module Fit
 
     julia> quotes = ZCBPrice([0.9, 0.8, 0.7,0.6]);
 
-    julia> fit(mod0,quotes,Fit.Loss(x-x^2))
+    julia> fit(mod0,quotes,Fit.Loss(x->x^2))
 
                   ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀Yield Curve (FinanceModels.Yield.Constant)⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀           
                   ┌────────────────────────────────────────────────────────────┐           
@@ -132,7 +132,6 @@ __default_optic(m::MyModel) = (
 __default_optic(m::Yield.Constant) = ((@optic(_.rate.continuous_value) => -1.0 .. 1.0),)
 __default_optic(m::Yield.MonotoneConvexUnInit) = Tuple(@optic(_.rates) .=> -1.0 .. 1.0)
 __default_optic(m::Yield.MonotoneConvex) = Tuple(@optic(_.rates) .=> -1.0 .. 1.0)
-__default_optic(m::Yield.IntermediateYieldCurve{T}) where {T <: Spline.SplineCurve} = ((@optic(_.ys[end]) => 0.0 .. 2.0),)
 __default_optic(m::Yield.NelsonSiegel) = (
         @optic(_.τ₁) => 0.0 .. 100.0,
         @optic(_.β₀) => -10.0 .. 10.0,
@@ -185,8 +184,6 @@ __default_optic(m::ShortRate.HullWhite) = (
 
 __default_optim(m) = OptimizationOptimJL.LBFGS()
 __default_optim(m::T) where {T <: Spline.SplineCurve} = OptimizationOptimJL.Newton()
-
-__default_utype(m) = SVector
 
 __default_loss(m) = Fit.Loss(x -> x^2)
 
@@ -310,7 +307,6 @@ function fit(
         quotes,
         method::F = __default_loss(mod0);
         variables = __default_optic(mod0),
-        utype = __default_utype(mod0),
         optimizer = __default_optim(mod0)
     ) where
     {F <: Fit.Loss}
@@ -379,7 +375,7 @@ function fit(mod0::T, quotes, method::F) where {T <: Spline.SplineCurve, F <: Fi
     times = sort!(maturity.(quotes))
 
 
-    optf = __spline_loss_function(mod0, times, __default_loss(mod0), quotes)
+    optf = __spline_loss_function(mod0, times, method, quotes)
     prob = Optimization.OptimizationProblem(optf, fill(0.05, length(quotes)))
     sol = Optimization.solve(prob, __default_optim(mod0))
     return Yield.Spline(mod0, times, sol.u)
@@ -387,29 +383,37 @@ function fit(mod0::T, quotes, method::F) where {T <: Spline.SplineCurve, F <: Fi
 end
 
 function fit(mod0::T, quotes, method::Fit.Bootstrap) where {T <: Spline.SplineCurve}
-    discount_vector = [0.0]
-    times = [maturity(quotes[1])]
+    quotes = sort(collect(quotes); by = maturity)
+    n = length(quotes)
+    times = [float(maturity(q)) for q in quotes]
+    zs = zeros(n)
 
-    discount_vector[1] = let
-        m = fit(Yield.Constant(), [quotes[1]], Fit.Loss(x -> x^2))
-        discount(m, times[1])
-    end
-
-    for i in eachindex(quotes)[2:end]
+    for i in eachindex(quotes)
         q = quotes[i]
-        push!(times, maturity(q))
-        push!(discount_vector, 0.0)
-        m = Yield.IntermediateYieldCurve(mod0, times, discount_vector)
-        discount_vector[i] = let
-            m = fit(m, [q], Fit.Loss(x -> x^2))
-            discount(m, times[i])
+        # The i-th continuous zero rate is the only unknown — earlier knots are
+        # already solved — so each step is a scalar root-find (exact repricing)
+        # rather than an optimizer pass that rebuilds the interpolant per
+        # AD-traced evaluation. The candidate curve pins z(0) to the first zero
+        # rate, exactly as the returned curve does, so that (for local
+        # interpolants) the final curve reprices every quote to root precision.
+        f = function (z)
+            zs[i] = z
+            z_at_0 = i == 1 ? z : zs[1]
+            c = Yield.Spline(mod0, [zero(eltype(times)); times[1:i]], [z_at_0; zs[1:i]])
+            return present_value(c, q.instrument) - q.price
         end
-
+        seed = i == 1 ? 0.0 : zs[i - 1] # seed with the previous zero rate
+        zs[i] = try
+            Roots.find_zero(f, seed, Roots.Order1())
+        catch e
+            # only a convergence failure falls back to a bracketed solve over a
+            # generous continuous-zero-rate range; genuine errors raised while
+            # pricing the quote must surface, not be retried
+            e isa Roots.ConvergenceFailed || rethrow()
+            Roots.find_zero(f, (-1.0, 1.0), Roots.A42())
+        end
     end
-    zero_vec = -log.(clamp.(discount_vector, eps(), Inf)) ./ times
-    return Yield.Spline(mod0, [zero(eltype(times)); times], [first(zero_vec); zero_vec])
-    # return Yield.Spline(mod0, times, zero_vec)
-
+    return Yield.Spline(mod0, [zero(eltype(times)); times], [first(zs); zs])
 end
 
 function fit(mod0::Yield.SmithWilson, quotes)
@@ -418,16 +422,6 @@ function fit(mod0::Yield.SmithWilson, quotes)
 
     return Yield.SmithWilson(ts, cm, prices; ufr = mod0.ufr, α = mod0.α)
 
-end
-
-function __loss_single_function(mod0, loss_method, quotes)
-    function loss(m, quotes)
-        return mapreduce(+, quotes) do q
-            p = present_value(m, q.instrument)
-            l = loss_method.fn(p - q.price)
-        end
-    end
-    return Base.Fix2(Optimization.OptimizationFunction(loss), quotes) # a function that takes a model and returns the loss
 end
 
 function __spline_loss_function(mod0::T, times, loss_method, quotes) where {T <: Spline.SplineCurve}
