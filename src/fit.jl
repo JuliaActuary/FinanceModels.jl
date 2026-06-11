@@ -314,9 +314,10 @@ function fit(mod0::Yield.MonotoneConvexUnInit, quotes, method::F=Fit.Loss(x -> x
     loss = __monotone_convex_loss_function(times, method, quotes)
 
     # Initial guess - use a non-uniform guess to avoid NaN in MonotoneConvex
-    # (a flat initial guess causes 0/0 in the g function due to division by zero in sector iv)
+    # (a flat initial guess causes 0/0 in the g function due to division by zero
+    # in sector iv); `range` requires distinct endpoints for length 1
     n = length(times)
-    x0 = collect(range(0.01, 0.05, length=n))
+    x0 = n == 1 ? [0.03] : collect(range(0.01, 0.05, length=n))
 
     prob = Optimization.OptimizationProblem(loss, x0)
     sol = Optimization.solve(prob, optimizer)
@@ -349,6 +350,9 @@ function fit(mod0::T, quotes, method::Fit.Bootstrap) where {T <: Spline.SplineCu
     quotes = sort(collect(quotes); by = maturity)
     n = length(quotes)
     times = [float(maturity(q)) for q in quotes]
+    # duplicate knots make the interpolant degenerate and would otherwise
+    # surface as a cryptic root-bracketing failure deep in the solve
+    allunique(times) || throw(ArgumentError("bootstrap quotes must have distinct maturities; got duplicates among $times"))
     zs = zeros(n)
 
     for i in eachindex(quotes)

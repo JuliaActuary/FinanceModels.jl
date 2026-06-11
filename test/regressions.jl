@@ -82,4 +82,15 @@
             @test discount(sorted, t) ≈ discount(unsorted, t)
         end
     end
+
+    @testset "bootstrap rejects duplicate maturities loudly" begin
+        # previously surfaced as a cryptic root-bracketing failure
+        @test_throws ArgumentError fit(Spline.Linear(), ZCBPrice.([0.9, 0.89, 0.7], [1.0, 1.0, 3.0]), Fit.Bootstrap())
+    end
+
+    @testset "MonotoneConvex fit with a single quote" begin
+        # range(0.01, 0.05, length=1) used to throw before any solving happened
+        c = fit(Yield.MonotoneConvex(), [ZCBPrice(0.95, 2.0)])
+        @test discount(c, 2.0) ≈ 0.95 atol = 1.0e-8
+    end
 end
