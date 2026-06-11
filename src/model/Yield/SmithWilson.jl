@@ -77,7 +77,16 @@ function SmithWilson(times::AbstractVector, cashflows::AbstractMatrix, prices::A
     return SmithWilson(times, Qb; ufr = ufr, α = α)
 end
 
-FinanceCore.discount(sw::SmithWilson, t) = exp(-sw.ufr * t) * (1.0 + H(sw.α, sw.u, t) ⋅ sw.qb)
+# accumulate H(α, uᵢ, t)·qbᵢ in a fused loop — the vector form `H(α, u, t) ⋅ qb`
+# allocated a fresh length(u) array on every discount call
+function FinanceCore.discount(sw::SmithWilson, t)
+    isempty(sw.u) && return exp(-sw.ufr * t)
+    s = H(sw.α, sw.u[1], t) * sw.qb[1]
+    @inbounds for i in 2:length(sw.u)
+        s += H(sw.α, sw.u[i], t) * sw.qb[i]
+    end
+    return exp(-sw.ufr * t) * (1 + s)
+end
 
 
 """
