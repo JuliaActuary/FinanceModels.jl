@@ -45,7 +45,6 @@ using Aqua
 @testset "Aqua.jl" begin
     Aqua.test_all(
         FinanceModels;
-        ambiguities = false,
         # FinanceModels deliberately extends these FinanceCore functions/types for
         # contract valuation and projection (same-org packages); the projection
         # machinery (Transducers) lives here rather than in FinanceCore.
