@@ -43,7 +43,7 @@ Periodic.([0.02,0.03,0.04],2)
 Continuous.([0.02,0.03,0.04]) 
 ```
 
-Rates can also be constructed by specifying the `CompoundingFrequency` and then passing a scalar rate:
+Rates can also be constructed by specifying the `Frequency` and then passing a scalar rate:
 
 ```julia
 Periodic(1)(0.05)
@@ -63,22 +63,26 @@ convert(Continuous(),r)          # convert monthly rate to continuous
 
 To get the scalar value out of the `Rate`, use `FinanceModels.rate(r)`:
 
-```julia-rel
-julia> r = Rate(0.01,Periodic(12));   
-julia> rate(r)
-0.01
+```julia-repl
+julia> r = Rate(0.01,Periodic(12));
 
+julia> rate(r)
+0.009999999999998899
 ```
+
+(`Rate`s internally store the equivalent continuously compounded rate, so the nominal value returned by `rate` may show floating point artifacts of the round-trip conversion.)
 
 ### Available Models - Yields
 
 - [`FinanceModels.Yield.Constant`](@ref)
-- Bootstrapped [`Spline`](@ref FinanceModels.Spline)s
+- Fitted and bootstrapped [`Spline`](@ref FinanceModels.Spline)s
 - [`FinanceModels.Yield.SmithWilson`](@ref)
 - [`FinanceModels.Yield.NelsonSiegel`](@ref)
 - [`FinanceModels.Yield.NelsonSiegelSvensson`](@ref)
 - [`FinanceModels.Yield.CairnsPritchard`](@ref)
 - [`FinanceModels.Yield.CairnsPritchardExtended`](@ref)
+- [`FinanceModels.Yield.MonotoneConvex`](@ref) (Hagan-West)
+- [`FinanceModels.Yield.ZeroRateCurve`](@ref) (direct construction from zero rates and tenors)
 
 #### Curve Transformations
 
@@ -107,22 +111,24 @@ julia> q_rate = ZCBYield([0.01,0.02,0.03]);
 
 julia> q_spread = ZCBYield([0.01,0.01,0.01]);
 
-julia> model_rate = fit(Spline.Linear(),q_rate,Fit.Bootstrap());⠀
+julia> model_rate = fit(Spline.Linear(),q_rate,Fit.Bootstrap());
 
 julia> model_spread = fit(Spline.Linear(),q_spread,Fit.Bootstrap());
 
 julia> forward(model_spread + model_rate,0,1)
-Rate{Float64, Continuous}(0.01980262729617973, Continuous())
+Continuous(0.019900661706336083)
 
 julia> forward(model_spread + model_rate,0,1) |> Periodic(1)
-Rate{Float64, Periodic}(0.020000000000000018, Periodic(1))
+Periodic(0.020100000000000007, 1)
 
 julia> discount(model_spread + model_rate,0,3)
-0.8889963586709149
+0.8882274785263332
 
-julia> discount(0.04,3)
-0.8889963586709148
+julia> discount(model_spread,0,3) * discount(model_rate,0,3)
+0.8882274785263332
 ```
+
+Note that combining two 1% (annual effective) curves gives a first-year rate of 2.01% effective, not 2%: curve addition compounds the two deflators, which retains the cross-term that simple rate addition drops. See [Yield Curve Arithmetic](@ref) for details.
 
 !!! warning "Caution with Spreads"
 
@@ -141,10 +147,10 @@ julia> discount(0.04,3)
 
     # The curves are different!
     discount(model_spread + model_rate,3)
-    # 0.8889963586709149
+    # 0.8864304594826338
 
     discount(model_yield,3)
-    # 0.8864366955434709
+    # 0.8864384275063881
     ```
 
 #### Yield Shifts: `TenorShift` and `ProjectedShift`
@@ -156,28 +162,28 @@ Two concrete subtypes of [`Yield.AbstractYieldShift`](@ref FinanceModels.Yield.A
 [`Yield.TenorShift`](@ref FinanceModels.Yield.TenorShift) (formerly `TransformedYield`, retained as a deprecated alias) applies a shift that may vary with the tenor `t`. The rule function receives the base curve's `Continuous` zero rate and the tenor, and returns a new rate:
 
 ```julia-repl
-julia> base = Yield.Constant(0.05);
+julia> base = Yield.Constant(0.05);  # 5% annual effective: continuous zero = log(1.05) ≈ 0.0488
 
-julia> # Parallel shift (+100 bp) using Rate arithmetic
+julia> # Parallel shift (+100 bp annual effective) using Rate arithmetic
        shifted = base + (z, t) -> z + Periodic(0.01, 1);
 
-julia> zero(shifted, 10)  # ≈ 0.05 + log(1.01), not 0.06 — Rate arithmetic converts Periodic → Continuous
-Rate{Float64, Continuous}(0.05995033085316808, Continuous())
+julia> zero(shifted, 10)  # = log(1.05) + log(1.01) — Rate arithmetic converts Periodic → Continuous
+Continuous(0.05874049502260014)
 
 julia> # Continuous shift (simpler when convention is known)
        shifted2 = base + (z, t) -> z + Continuous(0.01);
 
-julia> zero(shifted2, 10)
-Rate{Float64, Continuous}(0.06, Continuous())
+julia> zero(shifted2, 10)  # = log(1.05) + 0.01
+Continuous(0.05879016416943205)
 
 julia> # Tenor-dependent twist (steepener that fades at 30y)
        twist = base + (z, t) -> z + Continuous(0.02 * max(0.0, 1.0 - t/30.0));
 
-julia> zero(twist, 1)   # ≈ 5% + 1.93%
-Rate{Float64, Continuous}(0.06933333333333334, Continuous())
+julia> zero(twist, 1)   # ≈ 4.88% + 1.93%
+Continuous(0.06812349750276539)
 
 julia> zero(twist, 30)  # shift is zero at 30y
-Rate{Float64, Continuous}(0.05, Continuous())
+Continuous(0.04879016416943205)
 ```
 
 The rule function has the signature `(z::Rate, t) -> Rate`. The return value is type-asserted as `Rate`, so rules must carry compounding convention explicitly — returning a plain `Real` raises a `TypeError`. Because the rule receives the zero rate itself, `Rate` arithmetic like `z + Periodic(0.01, 1)` handles compounding conversion correctly — no manual convention juggling needed.
@@ -191,7 +197,7 @@ The `+` operator provides ergonomic construction: `curve + f` or `f + curve` bot
 This is the natural shape for scenario frameworks where a shift's magnitude evolves across a multi-year horizon — BMA SBA phase-ins, IFRS17 macroeconomic scenarios, embedded-value runoffs:
 
 ```julia-repl
-julia> base = Yield.Constant(0.05);
+julia> base = Yield.Constant(0.05);  # continuous zero = log(1.05) ≈ 0.0488
 
 julia> # -150 bp parallel shift, phased in linearly over 10 projection years.
        phase_in = (τ, z, _) -> z + Continuous(-0.015 * min(τ, 10) / 10);
@@ -200,13 +206,13 @@ julia> # Curve as seen at projection year 3 (30% phased in → -45 bp).
        c3 = Yield.ProjectedShift(base, phase_in, 3.0);
 
 julia> zero(c3, 5)
-Rate{Float64, Continuous}(0.04550000000000001, Continuous())
+Continuous(0.04429016416943205)
 
 julia> # Curve as seen at projection year 10 (fully phased in → -150 bp).
        c10 = Yield.ProjectedShift(base, phase_in, 10.0);
 
 julia> zero(c10, 5)
-Rate{Float64, Continuous}(0.035, Continuous())
+Continuous(0.03379016416943205)
 ```
 
 The intended pattern: store `phase_in` once as a first-class, year-independent value, then call `ProjectedShift(base, phase_in, τ)` at each projection time `τ` in a projection loop.

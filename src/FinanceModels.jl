@@ -1,6 +1,5 @@
 module FinanceModels
 
-import Dates
 using Reexport
 @reexport using FinanceCore
 using FinanceCore: present_value, discount, accumulation
@@ -8,7 +7,6 @@ using DifferentiationInterface: AutoForwardDiff
 import DifferentiationInterface
 import Optimization
 import OptimizationOptimJL
-using StaticArrays
 using IntervalSets
 using AccessibleModels
 using Accessors
@@ -17,6 +15,7 @@ using Transducers
 import DataInterpolations
 using Transducers: @next, complete, __foldl__, asfoldable
 import SpecialFunctions
+import Roots
 using Random
 
 include("utils.jl")

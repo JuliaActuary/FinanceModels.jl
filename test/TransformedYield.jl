@@ -20,7 +20,7 @@
     end
 
     @testset "direct constructor" begin
-        shifted = Yield.TransformedYield(base, (z, t) -> z + Continuous(0.01))
+        shifted = Yield.TenorShift(base, (z, t) -> z + Continuous(0.01))
         @test zero(shifted, 5.0) ≈ Continuous(0.06)
         @test discount(shifted, 10.0) ≈ exp(-0.06 * 10.0)
     end
@@ -131,19 +131,18 @@
     end
 
     @testset "no dispatch conflict" begin
-        # base + scalar → not TransformedYield (CompositeYield or Constant)
-        @test !((base + 0.01) isa Yield.TransformedYield)
-        # base + Rate → not TransformedYield
-        @test !((base + Continuous(0.01)) isa Yield.TransformedYield)
-        # base + Function → TransformedYield
-        @test (base + (z, t) -> z) isa Yield.TransformedYield
+        # base + scalar → not TenorShift (CompositeYield or Constant)
+        @test !((base + 0.01) isa Yield.TenorShift)
+        # base + Rate → not TenorShift
+        @test !((base + Continuous(0.01)) isa Yield.TenorShift)
+        # base + Function → TenorShift
+        @test (base + (z, t) -> z) isa Yield.TenorShift
     end
 
     @testset "TransformedYield alias" begin
-        # TransformedYield is now a deprecation alias for TenorShift.
+        # TransformedYield is a @deprecate_binding alias for TenorShift.
         @test Yield.TransformedYield === Yield.TenorShift
         ts = Yield.TenorShift(base, (z, t) -> z + Continuous(0.01))
-        @test ts isa Yield.TransformedYield
         @test ts isa Yield.AbstractYieldShift
     end
 end

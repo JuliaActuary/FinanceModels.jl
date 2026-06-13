@@ -4,9 +4,15 @@
 A Monotone Convex yield curve model implementing the Hagan-West interpolation method.
 
 This interpolation method guarantees:
-- Continuous forward rates
-- Positive forward rates (when input rates imply positive forwards)
+- Continuous forward rates (including at and beyond the last knot, where the
+  forward is extrapolated flat at the boundary instantaneous forward `f(t_n)`)
+- Positive forward rates (when input rates imply positive discrete forwards)
 - Monotone convex forward curves that match discrete forward rates at knot points
+
+Negative input rates are supported: the Hagan-West positivity collar is applied
+symmetrically (bounding node forwards between 0 and twice the adjacent discrete
+forwards), though the positivity guarantee is only meaningful when the discrete
+forwards themselves are positive.
 
 The implementation follows the Hagan-West method as described in WILMOTT magazine.
 
@@ -164,14 +170,25 @@ function g_rate(x, f⁻, f, fᵈ)
     end
 end
 
-# Forward rate at time t for a MonotoneConvex model
-function forward(mc::MonotoneConvex, t)
+"""
+    instantaneous_forward(mc::MonotoneConvex, t)
+
+The instantaneous (continuously-compounded) forward rate of the Hagan-West
+interpolant at time `t`. Beyond the last knot the forward is extrapolated flat
+at the boundary instantaneous forward `f(t_n)`, so the forward curve is
+continuous everywhere, including at the last knot.
+
+Note this is distinct from `forward(curve, from, to)`, which is the *discrete*
+forward `Rate` between two times and is defined for every yield model.
+"""
+function instantaneous_forward(mc::MonotoneConvex, t)
     f, fᵈ, times = mc.f, mc.fᵈ, mc.times
     lt = last(times)
 
-    # Extrapolation: constant forward beyond last time
+    # Extrapolation: constant forward beyond the last knot, anchored at the
+    # boundary instantaneous forward so the curve stays continuous at t_n
     if t >= lt
-        return fᵈ[end]
+        return f[end]
     end
 
     i_time = __i_time(t, times)
@@ -193,24 +210,38 @@ end
     returns the index associated with the time t, an initial rate vector, and a time vector
 """
 function __i_time(t, times)
-    i_time = findfirst(x -> x > t, times)
-    if isnothing(i_time)
-        i_time = lastindex(times)
-    end
-    return i_time
+    # first interval whose right endpoint is ≥ t, i.e. the index after the last
+    # knot that is ≤ t (times sorted ascending); O(log n) vs the prior findfirst
+    i_time = searchsortedlast(times, t) + 1
+    return min(i_time, lastindex(times))
 end
+
+# Hagan-West positivity collar, generalized for negative discrete forwards:
+# bound the node forward between 0 and twice the adjacent discrete forward(s).
+# For positive forwards this is the paper's clamp(f, 0, 2m); for negative ones
+# the interval flips to [2m, 0] rather than producing an inverted (lo > hi) clamp.
+__collar(f, m) = clamp(f, min(zero(m), 2 * m), max(zero(m), 2 * m))
 
 """
     returns a pair of vectors (f and fᵈ) used in Monotone Convex Yield Curve fitting
 """
 function __monotone_convex_fs(rates, times)
     # step 1
-    fᵈ = deepcopy(rates)
+    fᵈ = copy(rates)
     for i in 2:length(times)
         fᵈ[i] = (times[i] * rates[i] - times[i - 1] * rates[i - 1]) / (times[i] - times[i - 1])
     end
     # step 2
+    # Convention: f[j] is the instantaneous forward at node t_{j-1} (with t_0 = 0),
+    # so f has length n+1, f[1] = f(0) and f[end] = f(t_n).
     f = similar(rates, length(rates) + 1)
+    if length(rates) == 1
+        # single interval: flat forward (the boundary adjustments below would
+        # otherwise read f[2] before it is initialized)
+        f[1] = fᵈ[1]
+        f[2] = fᵈ[1]
+        return f, fᵈ
+    end
     # fill in middle elements first, then do 1st and last
     for i in 1:(length(rates) - 1)
         t_prior = if i == 1
@@ -223,16 +254,17 @@ function __monotone_convex_fs(rates, times)
         weight2 = (times[i + 1] - times[i]) / (times[i + 1] - t_prior)
         f[i + 1] = weight1 * fᵈ[i + 1] + weight2 * fᵈ[i]
     end
-    # step 3
-    # collar(a,b,c) = clamp(b, a, c)
+    # step 3: boundary node forwards, then the positivity collar.
     f[1] = fᵈ[1] - 0.5 * (f[2] - fᵈ[1])
-
     f[end] = fᵈ[end] - 0.5 * (f[end - 1] - fᵈ[end])
-    f[1] = clamp(f[1], 0, 2 * fᵈ[2])
-    f[end] = clamp(f[end], 0, 2 * fᵈ[end])
 
-    for j in 2:(length(times) - 1)
-        f[j] = clamp(f[j], 0, 2 * min(fᵈ[j], fᵈ[j + 1]))
+    # Collar each node against the discrete forwards of its adjacent intervals.
+    # With f[j] = f(t_{j-1}), node t_{j-1} adjoins intervals j-1 and j, so the
+    # interior bound is min(fᵈ[j-1], fᵈ[j]); the endpoints have one neighbor each.
+    f[1] = __collar(f[1], fᵈ[1])
+    f[end] = __collar(f[end], fᵈ[end])
+    for j in 2:length(times)
+        f[j] = __collar(f[j], min(fᵈ[j - 1], fᵈ[j]))
     end
 
     return f, fᵈ
@@ -248,10 +280,11 @@ function Base.zero(mc::MonotoneConvex, t)
         return Continuous(f[1])
     end
 
-    # Extrapolation beyond last time point using constant forward
+    # Extrapolation beyond the last knot: constant forward anchored at the
+    # boundary instantaneous forward f(t_n), consistent with `instantaneous_forward`
     if t > lt
         r_lt = rate(Base.zero(mc, lt))  # extract scalar rate for calculation
-        f_lt = fᵈ[end]  # forward at last point
+        f_lt = f[end]  # instantaneous forward at the last knot
         return Continuous(r_lt * lt / t + f_lt * (1 - lt / t))
     end
 

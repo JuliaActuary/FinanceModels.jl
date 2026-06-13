@@ -2,23 +2,25 @@
 ## Originally developed by leeyuntien <leeyuntien@gmail.com>
 
 """
-    NelsonSiegel(β₀, β₁, β₂, τ₁)
+    NelsonSiegel(τ₁, β₀, β₁, β₂)
     NelsonSiegel(τ₁=1.0) # used in fitting
 
 
-A Nelson-Siegel yield curve model 
+A Nelson-Siegel yield curve model
 Parameters of Nelson and Siegel (1987) parametric model, along with default parameter ranges used in the fitting:
 
+- τ₁ controls the location of the hump: `0.0 .. 100.0`
 - β₀ represents a long-term interest rate: `-10.0 .. 10.0`
 - β₁ represents a time-decay component: `-10.0 .. 10.0`
 - β₂ represents a hump: `-10.0 .. 10.0`
-- τ₁ controls the location of the hump: `0.0 .. 100.0`
 
 # Examples
 
 ```julia-repl
-julia> β₀, β₁, β₂, τ₁ = 0.6, -1.2, -1.9, 3.0
-julia> nsm = Yield.NelsonSiegel(β₀, β₁, β₂, τ₁)
+julia> τ₁, β₀, β₁, β₂ = 3.0, 0.6, -1.2, -1.9;
+
+julia> nsm = Yield.NelsonSiegel(τ₁, β₀, β₁, β₂);
+```
 
 # Extended Help
 
@@ -27,8 +29,6 @@ NelsonSiegel has generally been replaced by NelsonSiegelSvensson, which is a mor
 ## References
 - https://onriskandreturn.com/2019/12/01/nelson-siegel-yield-curve-model/
 - https://www.bis.org/publ/bppdf/bispap25.pdf
-
-```
 """
 struct NelsonSiegel{T} <: AbstractYieldModel
     τ₁::T
@@ -68,12 +68,12 @@ FinanceCore.discount(ns::NelsonSiegel, t) = discount.(zero.(ns, t), t)
     NelsonSiegelSvensson(τ₁, τ₂, β₀, β₁, β₂, β₃)
     NelsonSiegelSvensson(τ₁=1.0, τ₂=1.0)
 
-Return the NelsonSiegelSvensson yield curve. The rates should be continuous zero spot rates. If `rates` are not `Rate`s, then they will be interpreted as `Continuous` `Rate`s.
+Return the NelsonSiegelSvensson yield curve.
 
 Parameters of Svensson (1994) parametric model, along with the default parameter bounds used in the fit routine:
 
 - τ₁ controls the location of the hump: `0.0 .. 100.0`
-- τ₁ controls the location of the second hump: `0.0 .. 100.0`
+- τ₂ controls the location of the second hump: `0.0 .. 100.0`
 - β₀ represents a long-term interest rate: `-10.0 .. 10.0`
 - β₁ represents a time-decay component: `-10.0 .. 10.0`
 - β₂ represents a hump: `-10.0 .. 10.0`
@@ -82,8 +82,10 @@ Parameters of Svensson (1994) parametric model, along with the default parameter
 # Examples
 
 ```julia-repl
-julia> β₀, β₁, β₂, β₃, τ₁, τ₂ = 0.6, -1.2, -2.1, 3.0, 1.5
-julia> nssm = NelsonSiegelSvensson.NelsonSiegelSvensson.(β₀, β₁, β₂, β₃, τ₁, τ₂)
+julia> τ₁, τ₂, β₀, β₁, β₂, β₃ = 1.5, 3.0, 0.6, -1.2, -2.1, 3.0;
+
+julia> nssm = Yield.NelsonSiegelSvensson(τ₁, τ₂, β₀, β₁, β₂, β₃);
+```
 
 # Extended Help
 
@@ -101,8 +103,6 @@ Nelson-Siegel-Svensson Cons:
 ## References
 - https://onriskandreturn.com/2019/12/01/nelson-siegel-yield-curve-model/
 - https://www.bis.org/publ/bppdf/bispap25.pdf
-
-```
 """
 struct NelsonSiegelSvensson{T} <: AbstractYieldModel
     τ₁::T

@@ -1,3 +1,5 @@
+using ForwardDiff
+
 @testset "ZeroRateCurve" begin
     rates = [0.02, 0.03, 0.035, 0.04]
     tenors = [1.0, 2.0, 5.0, 10.0]
@@ -107,5 +109,35 @@
             zrc_cub = ZeroRateCurve(r2, t2, Spline.Cubic())
             @test discount(zrc_lin, 3.0) ≈ discount(zrc_cub, 3.0) atol = 1e-6
         end
+    end
+
+    @testset "eager-build: ForwardDiff pass-through" begin
+        # The eager build runs once with the input rate type; for Dual-typed
+        # rates, the model itself becomes Dual-typed and propagates through
+        # discount. At an exact knot t = tenors[k], discount = exp(-rates[k] * t),
+        # so ∂discount/∂rates[k] = -t · discount.
+        tenors_ad = [1.0, 2.0, 5.0, 10.0]
+        rates_ad  = [0.02, 0.03, 0.035, 0.04]
+        for spl in (Spline.Linear(), Spline.MonotoneConvex())
+            f(r) = discount(ZeroRateCurve([r, rates_ad[2:end]...], tenors_ad, spl), 1.0)
+            ad = ForwardDiff.derivative(f, 0.02)
+            @test ad ≈ -1.0 * exp(-0.02 * 1.0) atol = 1e-12
+        end
+    end
+
+    @testset "eager-build: structural equality preserved" begin
+        # Two ZRCs built from `==`-equal inputs must compare `==` despite the
+        # new `_model` field carrying different prebuilt interpolant instances.
+        r = [0.02, 0.03, 0.04]; t = [1.0, 2.0, 5.0]
+        @test ZeroRateCurve(r, t, Spline.Linear()) == ZeroRateCurve(copy(r), copy(t), Spline.Linear())
+        @test hash(ZeroRateCurve(r, t, Spline.Linear())) == hash(ZeroRateCurve(copy(r), copy(t), Spline.Linear()))
+        # Different rates must compare unequal
+        @test ZeroRateCurve(r, t, Spline.Linear()) != ZeroRateCurve(r .+ 0.01, t, Spline.Linear())
+        # Different splines must compare unequal — relies on Sp.SplineCurve
+        # subtypes implementing equality correctly (singleton splines under
+        # `Sp.Linear()`, `Sp.Cubic()` etc. are `===` to other instances of the
+        # same type).
+        @test ZeroRateCurve(r, t, Spline.Linear()) != ZeroRateCurve(r, t, Spline.Cubic())
+        @test hash(ZeroRateCurve(r, t, Spline.Linear())) != hash(ZeroRateCurve(r, t, Spline.Cubic()))
     end
 end

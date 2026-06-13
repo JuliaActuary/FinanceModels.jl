@@ -1,5 +1,25 @@
 # Migration Guide
 
+## v6.0 to v6.1
+
+!!! warning "Changed numbers and new errors"
+    Several items below change computed values (curve extrapolation, fitted bootstrap curves where the prior optimizer had not fully converged) or convert previously-silent mispricing into loud errors. Review each against your pipelines before upgrading.
+
+- **`MonotoneConvex` (the default `ZeroRateCurve` interpolant) — two value-changing corrections:**
+  - *Forward rates are now continuous at and beyond the last knot*: extrapolation is anchored at the boundary instantaneous forward `f(tₙ)` instead of the last discrete forward (see `Yield.instantaneous_forward`). **Extrapolated zero rates change** — on a typical upward-sloping curve with a 10y last knot, the 20y zero moves on the order of +10bp (about −2% PV for a 20y cashflow). For steeply inverted/humped curves the boundary forward can be collared to 0, giving a 0% forward tail beyond the last knot — extend your knot grid past your longest cashflow if you discount far beyond it.
+  - *The Hagan-West positivity collar was corrected* (it previously clamped the wrong nodes and left one node unclamped, so the guaranteed-positive-forwards property could fail). Fitted/interpolated values change only where a clamp binds (sharply non-monotone forward curves); the collar is also generalized to negative discrete forwards.
+  - The module-local `Yield.forward(mc::MonotoneConvex, t)` (instantaneous forward) was renamed `Yield.instantaneous_forward(mc, t)`. `Yield.forward` now refers to `FinanceCore.forward`, so the *same call* returns the discrete one-period forward as a `Rate` — update qualified callers.
+- **Bootstrap `fit` (`Fit.Bootstrap()`) is now an exact per-knot root-solve** instead of a per-knot optimizer pass. For zero-coupon quotes (any interpolant) and for coupon quotes with *local* interpolants (`Spline.Linear/Quadratic/Cubic`), every quote is repriced to root-finder precision; with *global* interpolants (`Spline.BSpline`) later knots still reshape earlier segments, so earlier coupon quotes reprice approximately (comparable to the previous behavior). Quotes are now sorted by maturity internally; duplicate maturities are an error.
+- **`ZeroRateCurve` eagerly builds its interpolation at construction** rather than on first evaluation, and **`discount(zrc, t)` for `t < 0` now throws a `DomainError`** (it previously returned `1.0` silently — a misprice for anything that actually discounted at negative times). Notably, a `Bond.Floating` whose maturity is not an integer multiple of the coupon period generates a stub first coupon that references `forward(model, t - 1/freq, t)` with a *negative* start time: on a `ZeroRateCurve` this was previously a silent half-sized stub forward and is now a loud error. Align floater maturities/resets to the coupon period.
+- **`par` now throws an informative `ArgumentError`** when the requested maturity implies a stub period that cannot be represented with the given coupon frequency (previously a bare `InexactError`).
+- **`TransformedYield` is deprecated — use `Yield.TenorShift`.** The old name remains available as a `Base.@deprecate_binding` alias but will be removed in a future release.
+- **The Makie plotting extension now targets Makie ≥ 0.24 directly** (the previous MakieCore-based extension stopped loading when Makie 0.24 absorbed MakieCore, so plot recipes had been silently unavailable). Makie < 0.24 is no longer supported. The UnicodePlots extension now renders only for rich (`text/plain` MIME) display; `print`/string interpolation of curves no longer embeds a chart.
+- **With FinanceCore v3, `irr` / `internal_rate_of_return` return `Periodic(NaN, 1)` instead of `nothing`** when no root is found. Replace `isnothing(irr(x))` checks with `isnan(rate(irr(x)))`.
+
+## v5.x to v6
+
+- **Continuous zero rates are the curve primitive.** Curve composition and shift arithmetic (`+`, `-`, `*`, `/`, `TenorShift`, `ProjectedShift`) operate in continuous-zero-rate space, which is equivalent to multiplying/dividing/exponentiating discount factors. See [Yield Curve Arithmetic](@ref).
+
 ## v5.4 to v5.5
 
 ### `TransformedYield` renamed to `TenorShift`; new `ProjectedShift`
@@ -14,9 +34,10 @@ Use [`ProjectedShift`](@ref FinanceModels.Yield.ProjectedShift) for shifts whose
 
     1. **Field rename: `.transform` → `.rule`.** Direct field access on
        `TransformedYield` instances (e.g., `ty.transform`) will fail. The
-       `TransformedYield` type name itself is preserved via
+       `TransformedYield` type name itself was preserved in v5.5 via
        `const TransformedYield = TenorShift`, so constructor and `+`-operator
-       call sites continue to work unchanged.
+       call sites continue to work unchanged. (As of v6 the alias emits a
+       deprecation warning — see the v5.x → v6 section above.)
     2. **Strict `Rate` return contract.** `Base.zero` on `TenorShift` /
        `ProjectedShift` now type-asserts the rule's return value as
        `FinanceCore.Rate`. Rules that previously returned a plain `Real`
@@ -71,7 +92,7 @@ You should remove `Yields` from your project's dependencies and add `FinanceMode
 Previously, the API pattern was, e.g.:
 
 ```julia
-model = Yields.Par(SmitWilson(...), rates,timepoints)
+model = Yields.Par(SmithWilson(...), rates,timepoints)
 ```
 
 Now, follow the pattern of:
@@ -83,8 +104,10 @@ Example:
 
 ```julia
 quotes = ParYield.(rates,timepoints)
-model = fit(SmithWilson(),quotes)
+model = fit(Yield.SmithWilson(ufr=0.03, α=0.1), quotes)
 ```
+
+Note that `SmithWilson` is not exported at the top level (qualify it as `Yield.SmithWilson`) and that the `ufr` and `α` keyword arguments are required: they are model hyperparameters that are not solved for in the fit.
 
 #### Details of changes
 

@@ -42,6 +42,7 @@ A contract is anything that creates a vector of `Cashflow`s when `collect`ed. Fo
 using FinanceModels,FinanceCore
 
 # Transducers is used to provide a more powerful, composable way to construct collections than the basic iteration interface
+import Transducers
 using Transducers: __foldl__, @next, complete
 
 """
@@ -170,17 +171,17 @@ julia> map(q -> pv(m,q.instrument),quotes)
 ## 5. `fit` - The standardized API for all models, quotes, and methods
 
 ```plaintext
-       Model                                                               Method
-          |                                                                   |
-    |------------|                                                     |---------------|
-fit(Spline.Cubic(), CMTYield.([0.04,0.05,0.055,0.06,0055],[1,2,3,4,5]), Fit.Bootstrap())
+       Model                                                                Method
+          |                                                                    |
+    |------------|                                                      |---------------|
+fit(Spline.Cubic(), CMTYield.([0.04,0.05,0.055,0.06,0.055],[1,2,3,4,5]), Fit.Bootstrap())
                     |-------------------------------------------------|
                                               |
                                               Quotes
 ```
 
 - **Model** could be `Spline.Linear()`, `Yield.NelsonSiegelSvensson()`, `Equity.BlackScholesMerton(...)`, etc.
-- **Quote** could be `CMTYield`s, `ParYield`s, `Option.Eurocall`, etc.
+- **Quote** could be `CMTYield`s, `ParYield`s, `Option.EuroCall`, etc.
 - **Method** could be `Fit.Loss(x->x^2)`, `Fit.Loss(x->abs(x))`, `Fit.Bootstrap()`, etc.
 
 The benefit of this versus the old Yields.jl API is:
@@ -194,11 +195,11 @@ The benefit of this versus the old Yields.jl API is:
 Model fitting can be customized:
 
 - The **loss function** (least squares, absolute difference, etc.) via the third argument to `fit`:
-  - e.g.`fit(ABDiscountLine(), quotes, FIt.Loss(x -> abs(x))`
+  - e.g. `fit(ABDiscountLine(), quotes, Fit.Loss(x -> abs(x)))`
   - the default is `Fit.Loss(x->x^2)`
-- the **optimization algorithm** by defining a method `FinanceModels.__default_optim__(m::ABDiscountLine) = OptimizationOptimJL.Newton()`
+- the **optimization algorithm** by defining a method `FinanceModels.__default_optim(m::ABDiscountLine) = OptimizationOptimJL.Newton()`
   - you may need to change the `__default_optic` to be unbounded (simply omit the `=>` and subsequent bounds)
-  - The default is OptimizationMetaheuristics.ECA()
+  - The default is `OptimizationOptimJL.LBFGS()` (spline least-squares fits default to `OptimizationOptimJL.Newton()`)
 - The **general algorithm** can be customized by creating a new method for fit:
 
  ```julia
@@ -207,7 +208,7 @@ function FinanceModels.fit(m::ABDiscountLine, quotes, ...)
 end
 ```
 
-- As an example, the splines (`Spline.Linear()`, `Spline.Cubic()`,...) are defined to use bootstrap by default: `fit(mod0::Spline.BSpline, quotes, method::Fit.Bootstrap)`
+- As an example, the splines (`Spline.Linear()`, `Spline.Cubic()`,...) define a dedicated bootstrapping method which is used when `Fit.Bootstrap()` is passed explicitly: `fit(mod0::Spline.SplineCurve, quotes, method::Fit.Bootstrap)`. Note that the default `fit(spline, quotes)` (no third argument) performs a least-squares fit, not a bootstrap.
 
 ### Using models without fitting
 
@@ -256,20 +257,22 @@ struct Floating{F<:FinanceCore.Frequency,N<:Real,M<:Timepoint,K} <: AbstractBond
 end
 ```
 
-And how we can reference the associated model when projecting that contract. This is very similar to the definition of `__foldl__` for our `PrincipalOnlyBond`, except we are paying a coupon and referencing the scenario rate.
+And how we can reference the associated model when projecting that contract. This is very similar to the definition of `__foldl__` for our `PrincipalOnlyBond`, except we are paying a coupon and referencing the scenario rate. The coupon is fixed in advance (the standard convention for floating rate notes): the coupon paid at time `t` references the forward rate observed at the *start* of the accrual period, i.e. `forward(model, t - 1/freq, t)`.
 
 ```julia
 @inline function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:Bond.Floating,M,K}
     b = p.contract
     ts = Bond.coupon_times(b)
+    freq = b.frequency # e.g. `Periodic(2)`
+    freq_scalar = freq.frequency  # the 2 from `Periodic(2)`
+    model = p.model[b.key]
     for t in ts
-        freq = b.frequency # e.g. `Periodic(2)`
-        freq_scalar = freq.frequency  # the 2 from `Periodic(2)`
-
-        # get the rate from the current time to next payment 
-        # out of the model and convert it to the contract's periodicity
-        model = p.model[b.key]
-        reference_rate = rate(freq(forward(model, t, t + 1 / freq_scalar)))
+        # Fix-in-advance: the coupon paid at t reflects the forward rate
+        # observed at the START of the accrual period [t - 1/freq, t],
+        # converted to the contract's periodicity. This matches the standard
+        # market convention for FRNs and avoids referencing a rate beyond
+        # the bond's maturity for the final coupon.
+        reference_rate = rate(freq(forward(model, t - 1 / freq_scalar, t)))
         coup = (reference_rate + b.coupon_rate) / freq_scalar
         amt = if t == last(ts)
             1.0 + coup

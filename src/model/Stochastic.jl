@@ -270,8 +270,10 @@ function simulate(model::AbstractStochasticModel;
         times[j + 1] = j * dt
     end
 
-    paths = Vector{RatePath}(undef, n_scenarios)
-    for i in 1:n_scenarios
+    # `map` (rather than filling a Vector{RatePath}, a UnionAll eltype) infers the
+    # concrete RatePath{...} element type, so downstream pricing loops dispatch
+    # statically instead of dynamically per path
+    return map(1:n_scenarios) do _
         cumulative = Vector{T}(undef, n_steps + 1)
         cumulative[1] = zero(T)
         r = r0
@@ -286,9 +288,8 @@ function simulate(model::AbstractStochasticModel;
             cumulative, times;
             extrapolation = DataInterpolations.ExtrapolationType.Extension
         )
-        paths[i] = RatePath(interp)
+        RatePath(interp)
     end
-    return paths
 end
 
 # Initial rate extractors for simulation

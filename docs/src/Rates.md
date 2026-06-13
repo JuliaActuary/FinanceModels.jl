@@ -30,7 +30,7 @@ Periodic.([0.02,0.03,0.04],2)
 Continuous.([0.02,0.03,0.04]) 
 ```
 
-Rates can also be constructed by specifying the `CompoundingFrequency` and then passing a scalar rate:
+Rates can also be constructed by specifying the `Frequency` and then passing a scalar rate:
 
 ```julia
 Periodic(1)(0.05)
@@ -50,12 +50,14 @@ convert(Continuous(),r)          # convert monthly rate to continuous
 
 To get the scalar value out of the `Rate`, use `FinanceModels.rate(r)`:
 
-```julia-rel
-julia> r = Rate(0.01,Periodic(12));   
-julia> rate(r)
-0.01
+```julia-repl
+julia> r = Rate(0.01,Periodic(12));
 
+julia> rate(r)
+0.009999999999998899
 ```
+
+(`Rate`s internally store the equivalent continuously compounded rate, so the nominal value returned by `rate` may show floating point artifacts of the round-trip conversion.)
 
 #### Arithmetic
 
