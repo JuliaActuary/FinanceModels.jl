@@ -132,15 +132,14 @@ end
 @inline function Transducers.__foldl__(rf, val, p::Projection{C, M, K}) where {C <: Bond.Floating, M, K}
     b = p.contract
     ts = Bond.coupon_times(b)
+    freq = b.frequency # e.g. `Periodic(2)`
+    freq_scalar = freq.frequency  # the 2 from `Periodic(2)`
+    model = p.model[b.key]
     for t in ts
-        freq = b.frequency # e.g. `Periodic(2)`
-        freq_scalar = freq.frequency  # the 2 from `Periodic(2)`
-
         # Fix-in-advance: the coupon paid at t reflects the forward rate
         # observed at the START of the accrual period [t - 1/freq, t].
         # This matches the standard market convention for FRNs and Ibor coupons,
         # and avoids referencing a rate beyond the bond's maturity for the final coupon.
-        model = p.model[b.key]
         reference_rate = rate(freq(forward(model, t - 1 / freq_scalar, t)))
         coup = (reference_rate + b.coupon_rate) / freq_scalar
         amt = if t == last(ts)
@@ -220,5 +219,6 @@ function FinanceCore.present_value(model, p::FinanceModels.Projection{C, M, K}, 
         C, M, K <: FinanceModels.CashflowProjection,
     }
     xf = p |> Filter(cf -> cf.time >= cur_time) |> Map(cf -> FinanceCore.discount(model, cur_time, cf.time) * cf.amount)
-    return foldxl(+, xf)
+    # init: an empty fold (e.g. valuing past maturity) is worth 0, not an error
+    return foldxl(+, xf; init = 0.0)
 end

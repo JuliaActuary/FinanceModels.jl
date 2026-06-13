@@ -6,7 +6,11 @@ import FinanceCore
 # https://stackoverflow.com/questions/70043313/get-simple-name-of-type-in-julia?noredirect=1#comment123823820_70043313
 name(::Type{T}) where {T} = (isempty(T.parameters) ? T : T.name.wrapper)
 
-function Base.show(io::IO, curve::T) where {T <: FinanceModels.Yield.AbstractYieldModel}
+# 3-arg (MIME) show: rich plot display only where the display system asks for it
+# (REPL results, notebooks). Overriding 2-arg `show` here would make every string
+# interpolation, `print`, or log statement involving any yield model render a
+# 60-character-wide plot.
+function Base.show(io::IO, ::MIME"text/plain", curve::T) where {T <: FinanceModels.Yield.AbstractYieldModel}
     r = zero(curve, 1)
     ylabel = isa(r.compounding, FinanceCore.Continuous) ? "Continuous" : "Periodic($(r.compounding.frequency))"
     kind = name(typeof(curve))

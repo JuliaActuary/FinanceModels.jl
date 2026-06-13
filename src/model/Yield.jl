@@ -5,9 +5,9 @@ import ..Spline as Sp
 import ..DataInterpolations
 import ..Bond: coupon_times
 
-using ..FinanceCore: Continuous, Periodic, discount, accumulation, AbstractContract
+using ..FinanceCore: Continuous, Periodic, discount, accumulation, forward, pv, AbstractContract
 
-export discount, zero, forward, par, pv
+export discount, zero, forward, par, pv, instantaneous_forward
 
 abstract type AbstractYieldModel <: AbstractModel end
 
@@ -43,19 +43,6 @@ FinanceCore.discount(c::Constant, t) = FinanceCore.discount(c.rate, t)
 # round-trip — which is `0/0 → NaN` at t=0 — and lets curves composed from a
 # `Constant` stay in zero-rate space (see `CompositeYield`/`ScaledYield`).
 Base.zero(c::Constant, t) = convert(Continuous(), c.rate)
-
-# used as the object which gets optmized before finally returning a completed spline
-struct IntermediateYieldCurve{T <: Sp.SplineCurve, U, V} <: AbstractYieldModel
-    b::T
-    xs::Vector{U}
-    ys::Vector{V} # here, ys are the discount factors
-end
-
-function FinanceCore.discount(ic::IntermediateYieldCurve, time)
-    zs = -log.(clamp.(ic.ys, eps(), Inf)) ./ ic.xs
-    c = Yield.Spline(ic.b, ic.xs, zs)
-    return exp(-c.fn(time) * time)
-end
 
 struct Spline{U} <: AbstractYieldModel
     fn::U # here, fn is a map from time to instantaneous zero rate
@@ -160,7 +147,9 @@ end
 """
     par(curve,time;frequency=2)
 
-Calculate the par yield for maturity `time` for the given `curve` and `frequency`. Returns a `Rate` object with periodicity corresponding to the `frequency`. The exception to this is if `time` is less than what the payments allowed by frequency (e.g. a time `0.5` but with frequency `1`) will effectively assume frequency equal to 1 over `time`.
+Calculate the par yield for maturity `time` for the given `curve` and `frequency`. Returns a `Rate` object with periodicity corresponding to the `frequency`.
+
+If `time` is shorter than one regular coupon period (e.g. `time=0.5` with `frequency=1`), the single stub payment implies a compounding frequency of `1/time`: the result is quoted as `Periodic(1/time)` when `1/time` is a (near-)integer, and otherwise an `ArgumentError` is thrown because the implied frequency cannot be represented as a `Periodic` rate.
 
 # Examples
 
@@ -168,19 +157,19 @@ Calculate the par yield for maturity `time` for the given `curve` and `frequency
 julia> c = Yield.Constant(0.04);
 
 julia> par(c,4)
-Rate{Float64, Periodic}(0.03960780543711406, Periodic(2))
+Periodic(0.03960780543711406, 2)
 
 julia> par(c,4;frequency=1)
-Rate{Float64, Periodic}(0.040000000000000036, Periodic(1))
+Periodic(0.040000000000000036, 1)
 
 julia> par(c,0.6;frequency=4)
-Rate{Float64, Periodic}(0.039413626195875295, Periodic(4))
+Periodic(0.039413626195875295, 4)
 
 julia> par(c,0.2;frequency=4)
-Rate{Float64, Periodic}(0.039374942589460726, Periodic(5))
+Periodic(0.039374942589460726, 5)
 
 julia> par(c,2.5)
-Rate{Float64, Periodic}(0.03960780543711406, Periodic(2))
+Periodic(0.03960780543711406, 2)
 ```
 """
 function par(curve, time; frequency = 2)
@@ -189,23 +178,30 @@ function par(curve, time; frequency = 2)
     coupon_pv = sum(discount(curve, t) for t in coup_times)
     Δt = step(coup_times)
     r = (1 - mat_disc) / coupon_pv
-    
+
     # Build cash flows: initial outflow of -1, then coupons r, final coupon+principal 1+r
     # Pre-allocate arrays for better performance
     n = length(coup_times)
     cfs = Vector{typeof(r)}(undef, n + 1)
     times = Vector{typeof(Δt)}(undef, n + 1)
-    
+
     cfs[1] = -one(r)
     times[1] = zero(Δt)
-    
+
     @inbounds for i in 1:n
         cfs[i + 1] = i == n ? 1 + r : r
         times[i + 1] = coup_times[i]
     end
-    
+
     r = FinanceCore.internal_rate_of_return(cfs, times)
     frequency_inner = 1 / Δt  # Simplified from min(1 / Δt, max(1 / Δt, frequency))
+    if !isinteger(round(frequency_inner, digits = 8))
+        throw(
+            ArgumentError(
+                "par(curve, $time; frequency=$frequency) implies a coupon period of $Δt and a compounding frequency of 1/Δt = $frequency_inner, which is not an integer and cannot be represented as a `Periodic` rate. Choose a maturity commensurate with the coupon frequency."
+            )
+        )
+    end
     r = convert(Periodic(frequency_inner), r)
     return r
 end
@@ -469,7 +465,7 @@ function FinanceCore.discount(s::AbstractYieldShift, t)
 end
 
 # Deprecated alias for the previous name. Slated for removal one minor release after introduction.
-const TransformedYield = TenorShift
+Base.@deprecate_binding TransformedYield TenorShift
 
 """
     ScaledYield(curve, factor)

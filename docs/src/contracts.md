@@ -37,7 +37,8 @@ A contract is anything that creates a vector of `Cashflow`s when `collect`ed. Fo
 ```julia
 using FinanceModels,FinanceCore
 
-# Transducers is used to provide a more powerful, composible way to construct collections than the basic iteration interface
+# Transducers is used to provide a more powerful, composable way to construct collections than the basic iteration interface
+import Transducers
 using Transducers: __foldl__, @next, complete
 
 """

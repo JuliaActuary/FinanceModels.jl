@@ -84,9 +84,12 @@ function ZeroRateCurve(curve::AbstractYieldModel, tenors; spline=Sp.MonotoneConv
 end
 
 function FinanceCore.discount(zrc::ZeroRateCurve, t)
-    if t <= zero(t)
+    if iszero(t)
         return one(eltype(zrc.rates))
     end
+    # negative times previously returned 1 silently; the curve has no defined
+    # behavior before time zero, so error rather than misprice
+    t < zero(t) && throw(DomainError(t, "ZeroRateCurve discount is only defined for t ≥ 0"))
     return discount(zrc._model, t)
 end
 

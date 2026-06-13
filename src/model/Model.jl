@@ -37,5 +37,6 @@ pv(m, a) # ≈ 0.05410094201902403
 function FinanceCore.present_value(model, c::FinanceCore.AbstractContract, cur_time = 0.0)
     p = Projection(c, model, CashflowProjection())
     xf = p |> Filter(cf -> cf.time >= cur_time) |> Map(cf -> FinanceCore.discount(model, cur_time, cf.time) * cf.amount)
-    return foldxl(+, xf)
+    # init: an empty fold (e.g. valuing past maturity) is worth 0, not an error
+    return foldxl(+, xf; init = 0.0)
 end
