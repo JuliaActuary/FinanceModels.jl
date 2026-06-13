@@ -5,7 +5,6 @@
 !!! warning "Changed numbers and new errors"
     Several items below change computed values (curve extrapolation, fitted bootstrap curves where the prior optimizer had not fully converged) or convert previously-silent mispricing into loud errors. Review each against your pipelines before upgrading.
 
-- **[Breaking] `Spline.Linear()`, `Spline.Quadratic()`, and `Spline.Cubic()` now default to local polynomial interpolants** instead of B-splines. Use `Spline.BSpline(order)` to retain the previous (global) B-spline behavior.
 - **`MonotoneConvex` (the default `ZeroRateCurve` interpolant) — two value-changing corrections:**
   - *Forward rates are now continuous at and beyond the last knot*: extrapolation is anchored at the boundary instantaneous forward `f(tₙ)` instead of the last discrete forward (see `Yield.instantaneous_forward`). **Extrapolated zero rates change** — on a typical upward-sloping curve with a 10y last knot, the 20y zero moves on the order of +10bp (about −2% PV for a 20y cashflow). For steeply inverted/humped curves the boundary forward can be collared to 0, giving a 0% forward tail beyond the last knot — extend your knot grid past your longest cashflow if you discount far beyond it.
   - *The Hagan-West positivity collar was corrected* (it previously clamped the wrong nodes and left one node unclamped, so the guaranteed-positive-forwards property could fail). Fitted/interpolated values change only where a clamp binds (sharply non-monotone forward curves); the collar is also generalized to negative discrete forwards.
