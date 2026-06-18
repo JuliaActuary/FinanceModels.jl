@@ -256,4 +256,93 @@
         @test Yield.instantaneous_forward(c, 0.5) ≈ 0.03
         @test rate(zero(c, 4.0)) ≈ 0.03  # constant-forward extrapolation
     end
+
+    @testset "equal adjacent discrete forwards (g1 == 0 / η == 0)" begin
+        # When two adjacent discrete forwards coincide (any flat-forward segment),
+        # the interpolated node forward equals the discrete forward, so the
+        # sector-(iii) deviation g1 is exactly 0 and η == 0. The zero-rate integral
+        # G is evaluated at x == 0 exactly at each knot; the unguarded 0/0 there
+        # made both the discount factor AND its ForwardDiff gradient NaN — the
+        # latter silently stalled `fit` at its initial guess for every optimizer.
+
+        # a flat zero-rate curve makes every adjacent pair of discrete forwards equal
+        times = [1 / 12, 2 / 12, 3 / 12, 0.5, 1.0, 2.0, 3.0, 5.0]
+        cflat = Yield.MonotoneConvex(fill(0.03, length(times)), times)
+        @test all(isfinite(discount(cflat, t)) for t in range(1.0e-6, last(times); length = 200))
+        for (i, t) in enumerate(times)
+            @test rate(zero(cflat, t)) ≈ 0.03 atol = 1.0e-12
+        end
+
+        # the reported scenario: par quotes including short (≤6m) tenors. Before the
+        # fix `fit` returned a NaN-repricing curve for every optimizer because the
+        # loss gradient was NaN at the (degenerate) fixed ramp seed.
+        tenors = [1 / 12, 2 / 12, 3 / 12, 0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0, 20.0, 30.0]
+        pars = [0.0375, 0.0372, 0.0372, 0.0372, 0.0364, 0.0368,
+            0.0369, 0.0380, 0.0400, 0.0423, 0.0483, 0.0486]
+        qs = sort(CMTYield.(pars, tenors); by = maturity)
+        reprice(c) = maximum(abs, present_value(c, q.instrument) - q.price for q in qs)
+        for opt in (
+                FinanceModels.OptimizationOptimJL.LBFGS(),
+                FinanceModels.OptimizationOptimJL.BFGS(),
+                FinanceModels.OptimizationOptimJL.Newton(),
+            )
+            c = fit(Yield.MonotoneConvex(), qs; optimizer = opt)
+            @test reprice(c) < 1.0e-6   # finite (not NaN) and actually fits
+        end
+
+        # the Spline.MonotoneConvex tag routes to the native curve on every path
+        @test reprice(fit(Spline.MonotoneConvex(), qs)) < 1.0e-6
+        @test reprice(fit(Spline.MonotoneConvex(), qs, Fit.Loss(x -> x^2))) < 1.0e-6
+        @test reprice(fit(Spline.MonotoneConvex(), qs, Fit.Bootstrap())) < 1.0e-6
+    end
+
+    @testset "g0 == 0 (flat-forward segment): continuous zero rates" begin
+        # The mirror of the g1 == 0 case: a flat-forward segment makes the node
+        # forward equal the discrete forward at the segment's right boundary, so
+        # g0 == 0 there. That used to route to sector (iii) with η == 3 > 1, where
+        # ∫₀¹ g ≠ 0, so the interval failed to reprice its right knot — a small
+        # (~1e-3) zero-rate discontinuity (visible approaching the knot from the
+        # left, since the knot itself is repriced via the next interval).
+        rates = [0.02, 0.03, 0.035, 0.035, 0.035, 0.04, 0.05]
+        times = [0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 7.0]
+        c = Yield.MonotoneConvex(rates, times)
+        for (i, t) in enumerate(times)
+            @test rate(zero(c, t)) ≈ rates[i] atol = 1.0e-12          # reprices at the knot
+            # z is continuous, so the left limit must also approach rate[i]; the
+            # sector-(iii) η>1 misroute made this off by ~9e-4 at the g0==0 knot
+            i > 1 && @test rate(zero(c, t - 1.0e-6)) ≈ rates[i] atol = 1.0e-4
+        end
+
+        # g0 == 0 in the LAST interval forces the x == 1 boundary evaluation at the
+        # last knot (i_time is capped at lastindex), exercising the x == 1 guard
+        # that keeps sector (ii)'s η == 1 from dividing by zero.
+        clast = Yield.MonotoneConvex([0.03, 0.035, 0.035], [1.0, 2.0, 3.0])
+        @test isfinite(rate(zero(clast, 3.0)))
+        @test rate(zero(clast, 3.0)) ≈ 0.035 atol = 1.0e-12
+    end
+
+    @testset "Accessors / generic fit compatibility" begin
+        times = [1.0, 2.0, 3.0, 5.0, 7.0]
+        rates = [0.03, 0.032, 0.034, 0.037, 0.039]
+        c = Yield.MonotoneConvex(rates, times)
+
+        # one bounded optic per knot (previously a broadcast over a ClosedInterval
+        # that threw `iterate(::ClosedInterval)` the moment it was evaluated)
+        optic = FinanceModels.__default_optic(c)
+        @test length(optic) == length(rates)
+
+        # reconstructable via Accessors, and the cached f/fᵈ stay consistent with
+        # the updated rates (the struct caches derived fields but had no 4-arg ctor)
+        c2 = Accessors.@set c.rates[2] = 0.05
+        @test c2.rates[2] == 0.05
+        f, fᵈ = Yield.__monotone_convex_fs(c2.rates, c2.times)
+        @test c2.f == f
+        @test c2.fᵈ == fᵈ
+
+        # the generic, variables-driven `fit(model, quotes)` path now runs (it used
+        # the broken optic and the non-reconstructable struct) and reprices
+        qs = CMTYield.(rates, times)
+        fitted = fit(c, qs)
+        @test maximum(abs, present_value(fitted, q.instrument) - q.price for q in qs) < 1.0e-6
+    end
 end
