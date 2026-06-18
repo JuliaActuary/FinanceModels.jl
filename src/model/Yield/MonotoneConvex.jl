@@ -84,6 +84,14 @@ end
 function g(x, f⁻, f, fᵈ)
     g0 = f⁻ - fᵈ
     g1 = f - fᵈ
+    # At x == 0 (hit exactly at every interior knot) the deviation is the left
+    # boundary value g(0) = g0. Returning it directly avoids the 0/0 that sector
+    # (iii) produces when g1 == 0 (⟹ η == 0, so its `/η` is singular). An
+    # `iszero(η)` guard is *not* safe here: under ForwardDiff η carries nonzero
+    # partials despite a zero value, so `iszero(η)` is false and the singular
+    # branch still runs, yielding NaN gradients. `x` is the normalized interval
+    # position — a plain Float at knots, never the AD variable — so this is safe.
+    iszero(x) && return g0
     # Near-flat interval: linear fallback avoids 0/0 and preserves AD partials
     if _mc_negligible(g0, g1, fᵈ)
         return g0 * (1 - x) + g1 * x
@@ -132,6 +140,11 @@ the Hagan-West construction.
 function g_rate(x, f⁻, f, fᵈ)
     g0 = f⁻ - fᵈ
     g1 = f - fᵈ
+    # G(0) = ∫₀⁰ g du = 0 identically (hit exactly at every interior knot).
+    # Returning zero directly avoids the 0/0 that sector (iii) produces when
+    # g1 == 0 (⟹ η == 0, so its `/η²` is singular). See `g` for why guarding on
+    # `iszero(η)` is unsafe under ForwardDiff and `x` is the safe discriminator.
+    iszero(x) && return zero(g0 * x)
     # Near-flat interval: linear integral fallback avoids 0/0 and preserves AD partials
     if _mc_negligible(g0, g1, fᵈ)
         return g0 * x + (g1 - g0) * x^2 / 2  # ∫₀ˣ [g0(1-u) + g1·u] du
