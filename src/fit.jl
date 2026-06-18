@@ -111,8 +111,18 @@ __default_optic(m::MyModel) = (
 
 """
 __default_optic(m::Yield.Constant) = ((@optic(_.rate.continuous_value) => -1.0 .. 1.0),)
-__default_optic(m::Yield.MonotoneConvexUnInit) = Tuple(@optic(_.rates) .=> -1.0 .. 1.0)
-__default_optic(m::Yield.MonotoneConvex) = Tuple(@optic(_.rates) .=> -1.0 .. 1.0)
+# One bounded optic per knot rate. The previous `Tuple(@optic(_.rates) .=> -1 .. 1)`
+# broadcast over a `ClosedInterval` (which is not iterable) and so threw on the
+# first call, breaking the generic `fit(::MonotoneConvex, …)` path entirely.
+__default_optic(m::Yield.MonotoneConvex) = ntuple(i -> (@optic(_.rates[i]) => -1.0 .. 1.0), length(m.rates))
+
+# `MonotoneConvex` caches `f`/`fᵈ` derived from `(rates, times)` and has only a
+# 2-arg constructor, so ConstructionBase's default positional reconstruction
+# (`MonotoneConvex(f, fᵈ, rates, times)`) has no method — breaking `@set`/
+# `setproperties` and hence the Accessors-driven `fit` path. Reconstruct from the
+# stored rates/times, which recomputes the cache and keeps `f`/`fᵈ` consistent.
+Accessors.ConstructionBase.constructorof(::Type{<:Yield.MonotoneConvex}) =
+    (f, fᵈ, rates, times) -> Yield.MonotoneConvex(rates, times)
 __default_optic(m::Yield.NelsonSiegel) = (
         @optic(_.τ₁) => 0.0 .. 100.0,
         @optic(_.β₀) => -10.0 .. 10.0,
@@ -345,6 +355,18 @@ function fit(mod0::T, quotes, method::F) where {T <: Spline.SplineCurve, F <: Fi
     return Yield.Spline(mod0, times, sol.u)
 
 end
+
+# `Spline.MonotoneConvex` is a tag for the native Hagan-West curve, not a
+# DataInterpolations spline: the generic spline paths above build `Yield.Spline`
+# (no MonotoneConvex method) and bootstrap's incremental, t=0-anchored knots do
+# not match Hagan-West's non-local forward construction. Both entry points route
+# to the dedicated `Yield.MonotoneConvex` fit, which reprices the whole quote set
+# at once (matching `Spline.MonotoneConvex`'s documented "dispatches to
+# Yield.MonotoneConvex" behavior).
+function fit(::Spline.MonotoneConvex, quotes, method::Fit.Loss; optimizer = OptimizationOptimJL.LBFGS())
+    return fit(Yield.MonotoneConvex(), quotes, method; optimizer)
+end
+fit(::Spline.MonotoneConvex, quotes, ::Fit.Bootstrap) = fit(Yield.MonotoneConvex(), quotes)
 
 function fit(mod0::T, quotes, method::Fit.Bootstrap) where {T <: Spline.SplineCurve}
     quotes = sort(collect(quotes); by = maturity)
