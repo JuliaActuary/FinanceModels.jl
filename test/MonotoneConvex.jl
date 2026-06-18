@@ -296,6 +296,31 @@
         @test reprice(fit(Spline.MonotoneConvex(), qs, Fit.Bootstrap())) < 1.0e-6
     end
 
+    @testset "g0 == 0 (flat-forward segment): continuous zero rates" begin
+        # The mirror of the g1 == 0 case: a flat-forward segment makes the node
+        # forward equal the discrete forward at the segment's right boundary, so
+        # g0 == 0 there. That used to route to sector (iii) with η == 3 > 1, where
+        # ∫₀¹ g ≠ 0, so the interval failed to reprice its right knot — a small
+        # (~1e-3) zero-rate discontinuity (visible approaching the knot from the
+        # left, since the knot itself is repriced via the next interval).
+        rates = [0.02, 0.03, 0.035, 0.035, 0.035, 0.04, 0.05]
+        times = [0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 7.0]
+        c = Yield.MonotoneConvex(rates, times)
+        for (i, t) in enumerate(times)
+            @test rate(zero(c, t)) ≈ rates[i] atol = 1.0e-12          # reprices at the knot
+            # z is continuous, so the left limit must also approach rate[i]; the
+            # sector-(iii) η>1 misroute made this off by ~9e-4 at the g0==0 knot
+            i > 1 && @test rate(zero(c, t - 1.0e-6)) ≈ rates[i] atol = 1.0e-4
+        end
+
+        # g0 == 0 in the LAST interval forces the x == 1 boundary evaluation at the
+        # last knot (i_time is capped at lastindex), exercising the x == 1 guard
+        # that keeps sector (ii)'s η == 1 from dividing by zero.
+        clast = Yield.MonotoneConvex([0.03, 0.035, 0.035], [1.0, 2.0, 3.0])
+        @test isfinite(rate(zero(clast, 3.0)))
+        @test rate(zero(clast, 3.0)) ≈ 0.035 atol = 1.0e-12
+    end
+
     @testset "Accessors / generic fit compatibility" begin
         times = [1.0, 2.0, 3.0, 5.0, 7.0]
         rates = [0.03, 0.032, 0.034, 0.037, 0.039]

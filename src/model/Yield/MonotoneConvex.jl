@@ -60,9 +60,16 @@ function __issector1(g0, g1)
     return a || b
 end
 
+# `>=`/`<=` (not `>`/`<`) so the boundary g0 == 0 (left node forward equals the
+# discrete forward) is classified here, giving η == 1. Otherwise it falls through
+# to sector (iii) with η == 3g1/(g1-g0) == 3 > 1, where the [0, η] sub-region the
+# formula assumes within [0, 1] does not exist, so ∫₀¹ g ≠ 0 and the interval
+# fails to reprice its right knot (a small zero-rate discontinuity). For g0 != 0
+# the bounds are unchanged. (The η == 1 singularity at x == 1 is handled by the
+# boundary guard in `g`/`g_rate`.)
 function __issector2(g0, g1)
-    a = (g0 > 0) && (g1 < -2 * g0)
-    b = (g0 < 0) && (g1 > -2 * g0)
+    a = (g0 >= 0) && (g1 < -2 * g0)
+    b = (g0 <= 0) && (g1 > -2 * g0)
     return a || b
 end
 
@@ -84,14 +91,16 @@ end
 function g(x, f⁻, f, fᵈ)
     g0 = f⁻ - fᵈ
     g1 = f - fᵈ
-    # At x == 0 (hit exactly at every interior knot) the deviation is the left
-    # boundary value g(0) = g0. Returning it directly avoids the 0/0 that sector
-    # (iii) produces when g1 == 0 (⟹ η == 0, so its `/η` is singular). An
-    # `iszero(η)` guard is *not* safe here: under ForwardDiff η carries nonzero
-    # partials despite a zero value, so `iszero(η)` is false and the singular
-    # branch still runs, yielding NaN gradients. `x` is the normalized interval
-    # position — a plain Float at knots, never the AD variable — so this is safe.
+    # Interval-boundary deviations are exact: g(0) = g0 and g(1) = g1. Returning
+    # them directly avoids the 0/0 the sector formulas produce at a degenerate η:
+    # sector (iii) has `/η` and is singular when g1 == 0 (η == 0, hit at every
+    # interior knot, x == 0); sector (ii) has `/(1-η)` and is singular when g0 == 0
+    # (η == 1, hit at the last knot, x == 1). An `iszero(η)` guard is *not* safe
+    # under ForwardDiff — η carries nonzero partials despite a zero value, so the
+    # singular branch still runs and yields NaN gradients. `x` is the normalized
+    # interval position — a plain Float at the boundaries, never the AD variable.
     iszero(x) && return g0
+    isone(x) && return g1
     # Near-flat interval: linear fallback avoids 0/0 and preserves AD partials
     if _mc_negligible(g0, g1, fᵈ)
         return g0 * (1 - x) + g1 * x
@@ -140,11 +149,13 @@ the Hagan-West construction.
 function g_rate(x, f⁻, f, fᵈ)
     g0 = f⁻ - fᵈ
     g1 = f - fᵈ
-    # G(0) = ∫₀⁰ g du = 0 identically (hit exactly at every interior knot).
-    # Returning zero directly avoids the 0/0 that sector (iii) produces when
-    # g1 == 0 (⟹ η == 0, so its `/η²` is singular). See `g` for why guarding on
-    # `iszero(η)` is unsafe under ForwardDiff and `x` is the safe discriminator.
-    iszero(x) && return zero(g0 * x)
+    # G(0) = ∫₀⁰ g = 0 and G(1) = ∫₀¹ g = 0 are both identities (the interpolated
+    # forward integrates to the discrete forward over each interval). Returning
+    # zero directly avoids the 0/0 the sector formulas produce at a degenerate η:
+    # sector (iii) `/η²` is singular at g1 == 0 (η == 0, interior knots, x == 0),
+    # sector (ii) `/(1-η)²` at g0 == 0 (η == 1, last knot, x == 1). See `g` for why
+    # an `iszero(η)` guard is unsafe under ForwardDiff and `x` is the discriminator.
+    (iszero(x) || isone(x)) && return zero(g0 * x)
     # Near-flat interval: linear integral fallback avoids 0/0 and preserves AD partials
     if _mc_negligible(g0, g1, fᵈ)
         return g0 * x + (g1 - g0) * x^2 / 2  # ∫₀ˣ [g0(1-u) + g1·u] du
