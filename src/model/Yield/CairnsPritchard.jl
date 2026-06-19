@@ -22,7 +22,7 @@ See also [`CairnsPritchardExtended`](@ref) for a 3-component variant.
 # References
 - Cairns, A.J.G. (1998). "Descriptive Bond-Yield and Forward-Rate Models for the British Government Securities Market". British Actuarial Journal, 4(2), 265-321.
 """
-struct CairnsPritchard{T} <: AbstractYieldModel
+struct CairnsPritchard{T} <: AbstractZeroCurve
     c₁::T
     c₂::T
     b₀::T
@@ -49,8 +49,7 @@ function Base.zero(cp::CairnsPritchard, t)
     # At t=0 the formula is already well-defined: exp(0) = 1, so z(0) = b₀ + b₁ + b₂
     return Continuous(cp.b₀ + cp.b₁ * exp(-cp.c₁ * t) + cp.b₂ * exp(-cp.c₂ * t))
 end
-
-FinanceCore.discount(cp::CairnsPritchard, t) = discount.(zero.(cp, t), t)
+# `discount` is inherited from `AbstractZeroCurve` (discount ∘ zero).
 
 """
     CairnsPritchardExtended(c₁, c₂, c₃, b₀, b₁, b₂, b₃)
@@ -77,7 +76,7 @@ See also [`CairnsPritchard`](@ref) for a 2-component variant.
 # References
 - Cairns, A.J.G. (1998). "Descriptive Bond-Yield and Forward-Rate Models for the British Government Securities Market". British Actuarial Journal, 4(2), 265-321.
 """
-struct CairnsPritchardExtended{T} <: AbstractYieldModel
+struct CairnsPritchardExtended{T} <: AbstractZeroCurve
     c₁::T
     c₂::T
     c₃::T
@@ -106,5 +105,4 @@ function Base.zero(cp::CairnsPritchardExtended, t)
     # At t=0 the formula is already well-defined: exp(0) = 1, so z(0) = b₀ + b₁ + b₂ + b₃
     return Continuous(cp.b₀ + cp.b₁ * exp(-cp.c₁ * t) + cp.b₂ * exp(-cp.c₂ * t) + cp.b₃ * exp(-cp.c₃ * t))
 end
-
-FinanceCore.discount(cp::CairnsPritchardExtended, t) = discount.(zero.(cp, t), t)
+# `discount` is inherited from `AbstractZeroCurve` (discount ∘ zero).

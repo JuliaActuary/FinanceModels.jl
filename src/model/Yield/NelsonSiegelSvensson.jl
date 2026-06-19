@@ -30,7 +30,7 @@ NelsonSiegel has generally been replaced by NelsonSiegelSvensson, which is a mor
 - https://onriskandreturn.com/2019/12/01/nelson-siegel-yield-curve-model/
 - https://www.bis.org/publ/bppdf/bispap25.pdf
 """
-struct NelsonSiegel{T} <: AbstractYieldModel
+struct NelsonSiegel{T} <: AbstractZeroCurve
     τ₁::T
     β₀::T
     β₁::T
@@ -56,13 +56,14 @@ function NelsonSiegel(τ₁ = 1.0)
 end
 
 function Base.zero(ns::NelsonSiegel, t)
-    if iszero(t)
-        # lim_{t→0} z(t) = β₀ + β₁ (the (1-e^(-x))/x terms → 1, hump term vanishes)
-        return Continuous(ns.β₀ + ns.β₁)
-    end
-    return Continuous.(ns.β₀ .+ ns.β₁ .* (1.0 .- exp.(-t ./ ns.τ₁)) ./ (t ./ ns.τ₁) .+ ns.β₂ .* ((1.0 .- exp.(-t ./ ns.τ₁)) ./ (t ./ ns.τ₁) .- exp.(-t ./ ns.τ₁)))
+    iszero(t) && return Continuous(ns.β₀ + ns.β₁)  # lim_{t→0}: decay → 1, hump → 0
+    # Written inline (no factored `decay = (1-e)/x` intermediate) on purpose: the NSS
+    # fit is highly sensitive, and reassociating `(β·(1-e))/x` into `β·((1-e)/x)` shifts
+    # ForwardDiff gradients enough to tip the degenerate calibration into NaN. Keep this
+    # expression bit-for-bit as is.
+    return Continuous(ns.β₀ + ns.β₁ * (1.0 - exp(-t / ns.τ₁)) / (t / ns.τ₁) + ns.β₂ * ((1.0 - exp(-t / ns.τ₁)) / (t / ns.τ₁) - exp(-t / ns.τ₁)))
 end
-FinanceCore.discount(ns::NelsonSiegel, t) = discount.(zero.(ns, t), t)
+# `discount` is inherited from `AbstractZeroCurve` (discount ∘ zero).
 
 """
     NelsonSiegelSvensson(τ₁, τ₂, β₀, β₁, β₂, β₃)
@@ -104,7 +105,7 @@ Nelson-Siegel-Svensson Cons:
 - https://onriskandreturn.com/2019/12/01/nelson-siegel-yield-curve-model/
 - https://www.bis.org/publ/bppdf/bispap25.pdf
 """
-struct NelsonSiegelSvensson{T} <: AbstractYieldModel
+struct NelsonSiegelSvensson{T} <: AbstractZeroCurve
     τ₁::T
     τ₂::T
     β₀::T
@@ -127,10 +128,10 @@ end
 NelsonSiegelSvensson(τ₁ = 1.0, τ₂ = 1.0) = NelsonSiegelSvensson(τ₁, τ₂, 0.0, 0.0, 0.0, 0.0)
 
 function Base.zero(nss::NelsonSiegelSvensson, t)
-    if iszero(t)
-        # lim_{t→0} z(t) = β₀ + β₁ (same limit as NelsonSiegel; β₂, β₃ hump terms vanish)
-        return Continuous(nss.β₀ + nss.β₁)
-    end
-    return Continuous.(nss.β₀ .+ nss.β₁ .* (1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .+ nss.β₂ .* ((1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .- exp.(-t ./ nss.τ₁)) .+ nss.β₃ .* ((1.0 .- exp.(-t ./ nss.τ₂)) ./ (t ./ nss.τ₂) .- exp.(-t ./ nss.τ₂)))
+    iszero(t) && return Continuous(nss.β₀ + nss.β₁)  # lim_{t→0}: same as NelsonSiegel; β₂, β₃ vanish
+    # Inline (not factored) on purpose — see the NelsonSiegel `zero` above: reassociating
+    # into shared `decay` intermediates perturbs ForwardDiff gradients enough to tip the
+    # sensitive NSS calibration into NaN. Keep this expression bit-for-bit as is.
+    return Continuous(nss.β₀ + nss.β₁ * (1.0 - exp(-t / nss.τ₁)) / (t / nss.τ₁) + nss.β₂ * ((1.0 - exp(-t / nss.τ₁)) / (t / nss.τ₁) - exp(-t / nss.τ₁)) + nss.β₃ * ((1.0 - exp(-t / nss.τ₂)) / (t / nss.τ₂) - exp(-t / nss.τ₂)))
 end
-FinanceCore.discount(nss::NelsonSiegelSvensson, t) = discount.(zero.(nss, t), t)
+# `discount` is inherited from `AbstractZeroCurve` (discount ∘ zero).

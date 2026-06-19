@@ -31,7 +31,7 @@ discount(c, 2.5)  # Get the discount factor at t=2.5
 - Hagan & West, "Interpolation Methods for Curve Construction", WILMOTT magazine
 - Dehlbom, "Interpolation of the yield curve" (http://uu.diva-portal.org/smash/get/diva2:1477828/FULLTEXT01.pdf)
 """
-struct MonotoneConvex{T, U} <: AbstractYieldModel
+struct MonotoneConvex{T, U} <: AbstractZeroCurve
     f::Vector{T}
     fᵈ::Vector{T}
     rates::Vector{T}
@@ -331,8 +331,4 @@ function Base.zero(mc::MonotoneConvex, t)
         return Continuous((t_prev * rates[i_time - 1] + (t - t_prev) * fᵈ[i_time] + (t_curr - t_prev) * G) / t)
     end
 end
-
-function FinanceCore.discount(mc::MonotoneConvex, t)
-    r = zero(mc, t)
-    return discount(r, t)
-end
+# `discount` is inherited from `AbstractZeroCurve` (discount ∘ zero).
