@@ -178,6 +178,26 @@ __default_optim(m::T) where {T <: Spline.SplineCurve} = OptimizationOptimJL.Newt
 
 __default_loss(m) = Fit.Loss(x -> x^2)
 
+# One AD backend for every `fit` loss function. `SecondOrder` serves both first-order
+# optimizers (LBFGS/Fminbox use the gradient, via the inner backend) and second-order
+# ones (Newton/IPNewton use the Hessian), so OptimizationBase never auto-promotes a
+# first-order declaration and warns. First-order paths never instantiate the Hessian,
+# so declaring it costs them nothing.
+const __FIT_ADTYPE = DifferentiationInterface.SecondOrder(AutoForwardDiff(), AutoForwardDiff())
+
+# Build an `OptimizationFunction` whose loss reprices `quotes` under the model returned
+# by `build(u)` (parameters → model), summing `loss_method.fn` over the price residuals.
+# `build(u)` runs once per loss evaluation, then the model is reused across quotes.
+function __reprice_loss(build, loss_method, quotes)
+    function loss(u, _p)
+        m = build(u)
+        return mapreduce(+, quotes) do q
+            loss_method.fn(present_value(m, q.instrument) - q.price)
+        end
+    end
+    return Optimization.OptimizationFunction(loss, __FIT_ADTYPE)
+end
+
 """
     fit(
         model, 
@@ -294,7 +314,10 @@ function fit(
     end
     amodel = AccessibleModel(Base.Fix2(neg_loss_fn, quotes), mod0, variables)
     tf = AccessibleModels.transformed_func(amodel)
-    optf = Optimization.OptimizationFunction((x, p) -> convert(eltype(x), -tf(x, p)), AutoForwardDiff())
+    # `__FIT_ADTYPE` is SecondOrder so a bounds-compatible second-order optimizer
+    # (e.g. `IPNewton()`) finds a Hessian; the default `Fminbox(LBFGS())` uses only the
+    # gradient (via the inner `AutoForwardDiff`) and is unaffected.
+    optf = Optimization.OptimizationFunction((x, p) -> convert(eltype(x), -tf(x, p)), __FIT_ADTYPE)
     x0 = collect(AccessibleModels.transformed_vec(amodel))
     bounds = AccessibleModels.transformed_bounds(amodel)
     lb = haskey(bounds, :lb) ? collect(bounds.lb) : nothing
@@ -334,16 +357,8 @@ function fit(mod0::Yield.MonotoneConvexUnInit, quotes, method::F=Fit.Loss(x -> x
     return Yield.MonotoneConvex(sol.u, times)
 end
 
-function __monotone_convex_loss_function(times, loss_method, quotes)
-    function loss(u, p)
-        m = Yield.MonotoneConvex(u, times)
-        return mapreduce(+, quotes) do q
-            pv = present_value(m, q.instrument)
-            loss_method.fn(pv - q.price)
-        end
-    end
-    return Optimization.OptimizationFunction(loss, AutoForwardDiff())
-end
+__monotone_convex_loss_function(times, loss_method, quotes) =
+    __reprice_loss(u -> Yield.MonotoneConvex(u, times), loss_method, quotes)
 
 function fit(mod0::T, quotes, method::F) where {T <: Spline.SplineCurve, F <: Fit.Loss}
     times = sort!(maturity.(quotes))
@@ -413,16 +428,5 @@ function fit(mod0::Yield.SmithWilson, quotes)
 
 end
 
-function __spline_loss_function(mod0::T, times, loss_method, quotes) where {T <: Spline.SplineCurve}
-    function loss(u, p)
-        m = Yield.Spline(mod0, times, u)
-        return mapreduce(+, quotes) do q
-            p = present_value(m, q.instrument)
-            loss_method.fn(p - q.price)
-        end
-    end
-    return Optimization.OptimizationFunction(
-        loss,
-        DifferentiationInterface.SecondOrder(AutoForwardDiff(), AutoForwardDiff())
-    )
-end
+__spline_loss_function(mod0::T, times, loss_method, quotes) where {T <: Spline.SplineCurve} =
+    __reprice_loss(u -> Yield.Spline(mod0, times, u), loss_method, quotes)

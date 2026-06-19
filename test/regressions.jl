@@ -93,4 +93,25 @@
         c = fit(Yield.MonotoneConvex(), [ZCBPrice(0.95, 2.0)])
         @test discount(c, 2.0) ≈ 0.95 atol = 1.0e-8
     end
+
+    @testset "second-order optimizer fit does not warn about ADtype" begin
+        # The generic and MonotoneConvex loss functions declared first-order
+        # `AutoForwardDiff`, so a second-order optimizer made OptimizationBase warn and
+        # auto-promote to `SecondOrder` once per fit. They now declare `SecondOrder` AD.
+        # The bare `@test_logs` (default `min_level = Warn`) asserts no warnings; the
+        # default `LBFGS` path only requests gradients, so it is unaffected.
+        qs = ZCBPrice.([0.97, 0.93, 0.88, 0.80], [1.0, 2.0, 3.0, 5.0])
+        reprice(c) = maximum(abs, present_value(c, q.instrument) - q.price for q in qs)
+
+        # generic (bounded) path: IPNewton is the bounds-compatible second-order method
+        # (plain Newton is rejected by Optim's Fminbox for box-constrained problems).
+        ipn = FinanceModels.OptimizationOptimJL.IPNewton()
+        cp = @test_logs fit(Yield.CairnsPritchard(), qs; optimizer = ipn)
+        @test reprice(cp) < 1.0e-8
+        @test_logs fit(Yield.NelsonSiegel(), qs; optimizer = ipn)  # smooth 4-param fit: assert only quiet
+
+        # MonotoneConvex (unbounded) path: Newton is the canonical second-order method.
+        mc = @test_logs fit(Yield.MonotoneConvex(), qs; optimizer = FinanceModels.OptimizationOptimJL.Newton())
+        @test reprice(mc) < 1.0e-10
+    end
 end

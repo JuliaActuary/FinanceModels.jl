@@ -345,4 +345,23 @@
         fitted = fit(c, qs)
         @test maximum(abs, present_value(fitted, q.instrument) - q.price for q in qs) < 1.0e-6
     end
+
+    @testset "second-order optimizer fit is quiet and accurate" begin
+        # A second-order optimizer (e.g. `Newton`) needs a Hessian. The loss function
+        # declares `SecondOrder` AD so OptimizationBase finds it directly instead of
+        # warning and auto-promoting `AutoForwardDiff` → `SecondOrder(...)` once per
+        # fit. The bare `@test_logs` (no patterns, default `min_level = Warn`) asserts
+        # the fit emits no warnings. The default `LBFGS` path is unaffected: it only
+        # requests gradients, still computed via the inner `AutoForwardDiff`.
+        qs = CMTYield.([0.04, 0.045, 0.05, 0.052], [1.0, 5.0, 10.0, 30.0])
+        reprice(c) = maximum(abs, present_value(c, q.instrument) - q.price for q in qs)
+        N = FinanceModels.OptimizationOptimJL.Newton()
+
+        c = @test_logs fit(Yield.MonotoneConvex(), qs; optimizer = N)
+        @test reprice(c) < 1.0e-10
+
+        # the `Spline.MonotoneConvex` tag routes through the same loss function
+        cs = @test_logs fit(Spline.MonotoneConvex(), qs, Fit.Loss(x -> x^2); optimizer = N)
+        @test reprice(cs) < 1.0e-10
+    end
 end
