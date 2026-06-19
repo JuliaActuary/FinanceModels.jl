@@ -11,38 +11,13 @@ export discount, zero, forward, par, pv, instantaneous_forward
 
 abstract type AbstractYieldModel <: AbstractModel end
 
-"""
-    AbstractZeroCurve <: AbstractYieldModel
-
-Supertype for *zero-rate-native* yield curves — models whose primitive is the
-continuous zero rate `zero(curve, t)`. The discount factor is derived from it once,
-here:
-
-    discount(curve, t) = discount(zero(curve, t), t)     # with discount(curve, 0) = 1
-
-so a concrete subtype need only define [`Base.zero`](@ref); it inherits `discount`
-(and through it `forward`, `accumulation`, and the callable `curve(t)`). This is the
-curve-side counterpart of the discount-native models (`SmithWilson`, the short-rate
-models, …) which instead define `discount` and inherit the generic
-`zero(curve, t) = -log(discount)/t`.
-
-A subtype may still provide its own `discount` as a fast path (e.g. [`Constant`](@ref),
-`Yield.Spline`); the more specific method wins by ordinary dispatch.
-
-!!! warning
-    Every subtype MUST define `Base.zero`. Otherwise this method and the generic
-    `zero`-from-`discount` fallback call each other and recurse.
-"""
-abstract type AbstractZeroCurve <: AbstractYieldModel end
-
-# The single home for "discount factor derived from the zero rate", shared by every
-# zero-native curve (CompositeYield, ScaledYield, the yield shifts, NelsonSiegel(Svensson),
-# CairnsPritchard, MonotoneConvex, …). `one(float(t))` keeps the t=0 result type-stable
-# across Int, Float, and ForwardDiff.Dual time arguments alike.
-function FinanceCore.discount(c::AbstractZeroCurve, t)
-    iszero(t) && return one(float(t))
-    return discount(Base.zero(c, t), t)
-end
+# Discount factor derived from the continuous zero rate — the single home for this logic,
+# shared by every zero-native curve through the one-line `discount` stubs at each curve
+# definition (CompositeYield, ScaledYield, the yield shifts, NelsonSiegel(Svensson),
+# CairnsPritchard, MonotoneConvex). Curves with a cheaper direct formula (Constant,
+# Yield.Spline) define their own `discount` instead. `one(float(t))` keeps the t=0 result
+# type-stable across Int, Float, and ForwardDiff.Dual time arguments alike.
+_discount_from_zero(c, t) = iszero(t) ? one(float(t)) : discount(Base.zero(c, t), t)
 
 # Generic callable fallback: `curve(t) ≡ discount(curve, t)`. Covers every
 # AbstractYieldModel subtype (Constant, Spline, CompositeYield, ScaledYield,
@@ -58,7 +33,7 @@ A yield curve representing a flat term structure. `rate` can be a [`Rate`](@ref)
 
 If [`fit`](@ref FinanceModels.fit-Union{Tuple{F}, Tuple{Any, Any}, Tuple{Any, Any, F}} where F<:FinanceModels.Fit.Loss)ing with the default FinanceModels.jl settings, the solver will attempt to fit a discount rate with the range of: `-1.0 .. 1.0`
 """
-struct Constant{R} <: AbstractZeroCurve
+struct Constant{R} <: AbstractYieldModel
     rate::R
 end
 
@@ -76,7 +51,7 @@ FinanceCore.discount(c::Constant, t) = FinanceCore.discount(c.rate, t)
 # `Constant` stay in zero-rate space (see `CompositeYield`/`ScaledYield`).
 Base.zero(c::Constant, t) = convert(Continuous(), c.rate)
 
-struct Spline{U} <: AbstractZeroCurve
+struct Spline{U} <: AbstractYieldModel
     fn::U # here, fn is a map from time to instantaneous zero rate
 end
 
@@ -321,7 +296,7 @@ c_y = fit(Spline.Linear(),q_y,Fit.Bootstrap())
 @test !(discount(c_rf+c_s,20) ≈ discount(c_y,20))
 ```
 """
-struct CompositeYield{T, U, V} <: AbstractZeroCurve
+struct CompositeYield{T, U, V} <: AbstractYieldModel
     r1::T
     r2::U
     op::V
@@ -337,7 +312,7 @@ function Base.zero(rc::CompositeYield, time)
     z2 = FinanceCore.rate(Base.zero(rc.r2, time))
     return Continuous(rc.op(z1, z2))
 end
-# `discount` is inherited from `AbstractZeroCurve` (discount ∘ zero).
+FinanceCore.discount(rc::CompositeYield, time) = _discount_from_zero(rc, time)
 
 # ─── Yield shifts (TenorShift, ProjectedShift) ────────────────────────────
 
@@ -359,7 +334,7 @@ Two concrete subtypes:
 Both subtypes implement the standard `AbstractYieldModel` interface (`zero`,
 `discount`, `forward`, `pv`).
 """
-abstract type AbstractYieldShift <: AbstractZeroCurve end
+abstract type AbstractYieldShift <: AbstractYieldModel end
 
 """
     TenorShift(base, rule)
@@ -480,7 +455,7 @@ function Base.zero(s::ProjectedShift, t)
     z = Base.zero(s.base, t)
     return convert(Continuous(), s.rule(s.time, z, t)::FinanceCore.Rate)
 end
-# `discount` is inherited from `AbstractZeroCurve` (discount ∘ zero).
+FinanceCore.discount(s::AbstractYieldShift, t) = _discount_from_zero(s, t)
 
 # Deprecated alias for the previous name. Slated for removal one minor release after introduction.
 Base.@deprecate_binding TransformedYield TenorShift
@@ -493,18 +468,18 @@ A yield model that scales the continuous zero rates of `curve` by a `Real` scala
 Created via `curve * scalar` or `curve / scalar`. For example, `curve * 0.79` scales
 all continuous zero rates by 0.79, which is useful for after-tax yield calculations.
 """
-struct ScaledYield{T<:AbstractYieldModel, S<:Real} <: AbstractZeroCurve
+struct ScaledYield{T<:AbstractYieldModel, S<:Real} <: AbstractYieldModel
     curve::T
     factor::S
 end
 
 # Scaling is a multiply in continuous-zero-rate space, so derive `zero` directly; the
-# discount factor (a single `exp`, no discount → log round-trip) is inherited from
-# `AbstractZeroCurve`.
+# discount factor (a single `exp`, no discount → log round-trip) follows from it.
 function Base.zero(sy::ScaledYield, time)
     z = FinanceCore.rate(Base.zero(sy.curve, time))
     return Continuous(z * sy.factor)
 end
+FinanceCore.discount(sy::ScaledYield, time) = _discount_from_zero(sy, time)
 
 """
     ForwardStarting(curve,forwardstart)
