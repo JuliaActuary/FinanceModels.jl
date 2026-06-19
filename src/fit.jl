@@ -294,7 +294,14 @@ function fit(
     end
     amodel = AccessibleModel(Base.Fix2(neg_loss_fn, quotes), mod0, variables)
     tf = AccessibleModels.transformed_func(amodel)
-    optf = Optimization.OptimizationFunction((x, p) -> convert(eltype(x), -tf(x, p)), AutoForwardDiff())
+    # Declare second-order AD so a bounds-compatible second-order optimizer (e.g.
+    # `IPNewton()`) finds the Hessian it needs instead of triggering OptimizationBase's
+    # auto-promotion warning. The default `LBFGS()` only requests gradients (via the
+    # inner `AutoForwardDiff`), so the Hessian capability is unused — no change for it.
+    optf = Optimization.OptimizationFunction(
+        (x, p) -> convert(eltype(x), -tf(x, p)),
+        DifferentiationInterface.SecondOrder(AutoForwardDiff(), AutoForwardDiff())
+    )
     x0 = collect(AccessibleModels.transformed_vec(amodel))
     bounds = AccessibleModels.transformed_bounds(amodel)
     lb = haskey(bounds, :lb) ? collect(bounds.lb) : nothing
@@ -342,7 +349,15 @@ function __monotone_convex_loss_function(times, loss_method, quotes)
             loss_method.fn(pv - q.price)
         end
     end
-    return Optimization.OptimizationFunction(loss, AutoForwardDiff())
+    # Declare second-order AD so a second-order optimizer (e.g. `Newton()`) finds
+    # the Hessian it needs instead of triggering OptimizationBase's auto-promotion
+    # warning. The default `LBFGS()` only requests gradients (computed via the inner
+    # `AutoForwardDiff`), so the Hessian capability is unused — no change for it.
+    # Mirrors `__spline_loss_function`, whose default optimizer is `Newton()`.
+    return Optimization.OptimizationFunction(
+        loss,
+        DifferentiationInterface.SecondOrder(AutoForwardDiff(), AutoForwardDiff())
+    )
 end
 
 function fit(mod0::T, quotes, method::F) where {T <: Spline.SplineCurve, F <: Fit.Loss}
