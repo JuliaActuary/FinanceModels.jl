@@ -11,11 +11,18 @@ export discount, zero, forward, par, pv, instantaneous_forward
 
 abstract type AbstractYieldModel <: AbstractModel end
 
+# Discount factor derived from the continuous zero rate — the single home for this logic,
+# shared by every zero-native curve through the one-line `discount` stubs at each curve
+# definition (CompositeYield, ScaledYield, the yield shifts, NelsonSiegel(Svensson),
+# CairnsPritchard, MonotoneConvex). Curves with a cheaper direct formula (Constant,
+# Yield.Spline) define their own `discount` instead. `one(float(t))` keeps the t=0 result
+# type-stable across Int, Float, and ForwardDiff.Dual time arguments alike.
+_discount_from_zero(c, t) = iszero(t) ? one(float(t)) : discount(Base.zero(c, t), t)
+
 # Generic callable fallback: `curve(t) ≡ discount(curve, t)`. Covers every
-# AbstractYieldModel subtype (Constant, CompositeYield, ScaledYield,
-# TenorShift, ProjectedShift, NelsonSiegel, etc.) that does not define its
-# own callable. More-specific callables (ZeroRateCurve, Spline,
-# MonotoneConvex) take precedence by ordinary multiple dispatch.
+# AbstractYieldModel subtype (Constant, Spline, CompositeYield, ScaledYield,
+# TenorShift, ProjectedShift, NelsonSiegel, MonotoneConvex, ZeroRateCurve, …);
+# each one routes through its own `discount`, so no per-type callable is needed.
 (yc::AbstractYieldModel)(t) = FinanceCore.discount(yc, t)
 
 """
@@ -48,10 +55,8 @@ struct Spline{U} <: AbstractYieldModel
     fn::U # here, fn is a map from time to instantaneous zero rate
 end
 
-function (c::Spline)(time)
-    return exp(-c.fn(time) * time)
-end
-
+# `discount`/`zero` below are the interface; the callable `(c::Spline)(t)` comes from
+# the generic `AbstractYieldModel` fallback, which routes to this same `discount`.
 function FinanceCore.discount(c::Spline, time)
     z = c.fn(time)
     return exp(-z * time)
@@ -102,9 +107,6 @@ include("Yield/SmithWilson.jl")
 include("Yield/NelsonSiegelSvensson.jl")
 include("Yield/CairnsPritchard.jl")
 include("Yield/MonotoneConvex.jl")
-
-# callable interface for MonotoneConvex (matches Spline and ZeroRateCurve)
-(mc::MonotoneConvex)(t) = FinanceCore.discount(mc, t)
 
 """
     build_model(spline, tenors, rates)
@@ -310,11 +312,7 @@ function Base.zero(rc::CompositeYield, time)
     z2 = FinanceCore.rate(Base.zero(rc.r2, time))
     return Continuous(rc.op(z1, z2))
 end
-
-function FinanceCore.discount(rc::CompositeYield, time)
-    iszero(time) && return one(time)
-    return discount(Base.zero(rc, time), time)
-end
+FinanceCore.discount(rc::CompositeYield, time) = _discount_from_zero(rc, time)
 
 # ─── Yield shifts (TenorShift, ProjectedShift) ────────────────────────────
 
@@ -457,12 +455,7 @@ function Base.zero(s::ProjectedShift, t)
     z = Base.zero(s.base, t)
     return convert(Continuous(), s.rule(s.time, z, t)::FinanceCore.Rate)
 end
-
-function FinanceCore.discount(s::AbstractYieldShift, t)
-    iszero(t) && return one(t)
-    z = Base.zero(s, t)
-    return exp(-z.continuous_value * t)
-end
+FinanceCore.discount(s::AbstractYieldShift, t) = _discount_from_zero(s, t)
 
 # Deprecated alias for the previous name. Slated for removal one minor release after introduction.
 Base.@deprecate_binding TransformedYield TenorShift
@@ -480,17 +473,13 @@ struct ScaledYield{T<:AbstractYieldModel, S<:Real} <: AbstractYieldModel
     factor::S
 end
 
-# Scaling is a multiply in continuous-zero-rate space, so derive `zero` directly and
-# form the discount factor with a single `exp` (no discount → log round-trip).
+# Scaling is a multiply in continuous-zero-rate space, so derive `zero` directly; the
+# discount factor (a single `exp`, no discount → log round-trip) follows from it.
 function Base.zero(sy::ScaledYield, time)
     z = FinanceCore.rate(Base.zero(sy.curve, time))
     return Continuous(z * sy.factor)
 end
-
-function FinanceCore.discount(sy::ScaledYield, time)
-    iszero(time) && return one(sy.factor)
-    return discount(Base.zero(sy, time), time)
-end
+FinanceCore.discount(sy::ScaledYield, time) = _discount_from_zero(sy, time)
 
 """
     ForwardStarting(curve,forwardstart)

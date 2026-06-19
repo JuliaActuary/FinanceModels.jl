@@ -42,7 +42,8 @@
 
     @testset "zero(c, 0) is finite (regression: was 0/0 → NaN)" begin
         for (name, c) in (("Spline", spl), ("Constant(cont)", cc),
-            ("Constant(per)", cper), ("Composite(+)", comp_add), ("Scaled", scaled))
+            ("Constant(per)", cper), ("Composite(+)", comp_add), ("Scaled", scaled),
+            ("MonotoneConvex", mc), ("NelsonSiegel", ns), ("NSS", nss), ("CairnsPritchard", cpr))
             @test !isnan(FinanceCore.rate(zero(c, 0.0)))
         end
         # flat curve: zero(·, 0) is its own continuous rate

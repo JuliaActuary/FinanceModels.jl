@@ -92,8 +92,7 @@ function FinanceCore.discount(zrc::ZeroRateCurve, t)
     t < zero(t) && throw(DomainError(t, "ZeroRateCurve discount is only defined for t ≥ 0"))
     return discount(zrc._model, t)
 end
-
-(zrc::ZeroRateCurve)(t) = FinanceCore.discount(zrc, t)
+# The callable `zrc(t) ≡ discount(zrc, t)` comes from the generic `AbstractYieldModel` fallback.
 
 # Structural equality on the value-carrying fields. The `_model` field is a
 # deterministic function of (rates, tenors, spline) and may not implement `==`
