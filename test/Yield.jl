@@ -675,3 +675,23 @@ end
     end
 
 end
+
+@testset "zero(model, 0) errors loudly instead of returning NaN" begin
+    # models with an analytic t → 0 limit keep their own methods
+    @test FinanceCore.rate(zero(Yield.Constant(0.03), 0)) ≈ log(1.03)
+    ns = Yield.NelsonSiegel(3.0, 0.04, -0.02, 0.03)
+    @test FinanceCore.rate(zero(ns, 0.0)) ≈ 0.04 - 0.02
+
+    # models served by the generic -log(discount)/t fallback returned
+    # Continuous(NaN) at t = 0; that NaN silently poisoned downstream math.
+    sw = Yield.SmithWilson([1.0, 2.0], [0.1, 0.2]; ufr = 0.03, α = 0.1)
+    zrc = ZeroRateCurve([0.02, 0.03], [1.0, 5.0])
+    fs = Yield.ForwardStarting(Yield.Constant(0.03), 1.0)
+    for m in (sw, zrc, fs)
+        @test_throws DomainError zero(m, 0)
+        @test_throws DomainError zero(m, 0.0)
+        # nonzero times are unaffected
+        @test FinanceCore.rate(zero(m, 1.0)) isa Real
+        @test !isnan(FinanceCore.rate(zero(m, 1.0)))
+    end
+end

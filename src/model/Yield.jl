@@ -210,8 +210,24 @@ end
     zero(curve,time)
 
 Return the zero rate for the curve at the given time.
+
+At `time == 0` the generic definition `-log(discount(curve, t)) / t` is `0/0`; models
+whose zero rate has an analytic `t → 0` limit (e.g. `Constant`, `Spline`,
+`NelsonSiegel(-Svensson)`, `MonotoneConvex`) define their own method for it, and models
+without one throw a `DomainError` rather than returning `Continuous(NaN)`.
 """
 function Base.zero(c::YC, time) where {YC <: AbstractYieldModel}
+    # -log(df)/t is 0/0 at t = 0. Returning the NaN would silently poison anything
+    # computed from it downstream, so error loudly instead. The t → 0 limit is the
+    # instantaneous forward at 0; models with an analytic limit define their own method.
+    iszero(time) && throw(
+        DomainError(
+            time,
+            "The zero rate of a $(nameof(YC)) is not defined at t = 0 by the generic " *
+                "-log(discount(curve, t)) / t (which is 0/0 there). Evaluate at a small t > 0, " *
+                "or use a model type that defines the analytic t → 0 limit."
+        )
+    )
     df = discount(c, time)
     r = -log(df) / time
     return Continuous(r)
