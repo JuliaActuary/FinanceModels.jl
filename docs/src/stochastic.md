@@ -159,7 +159,7 @@ Custom bounds can be passed via the `variables` keyword argument to `fit`.
 
 ### Generating Scenarios with `simulate`
 
-`simulate` uses Euler-Maruyama discretisation to generate interest-rate paths. Each path is returned as a [`RatePath`](@ref FinanceModels.RatePath), which is itself an `AbstractYieldModel` -- so `discount`, `zero`, `forward`, `par`, and `present_value` all work on individual scenarios.
+`simulate` generates interest-rate paths using the exact Gaussian transition density for Vasicek and Hull-White (no discretisation bias in the short rate at any timestep) and the full truncation scheme (Lord, Koekkoek & Van Dijk, 2010) for Cox-Ingersoll-Ross. Each path is returned as a [`RatePath`](@ref FinanceModels.RatePath), which is itself an `AbstractYieldModel` -- so `discount`, `zero`, `forward`, `par`, and `present_value` all work on individual scenarios.
 
 ```julia
 using Random
@@ -365,7 +365,7 @@ hw_fit = fit(hw0, quotes)
 
 ### Model Behaviour
 
-- **CIR Feller condition:** The CIR model requires `2ab > σ²` for the short rate to stay strictly positive. When this condition is violated, the rate can reach zero. The simulation uses the full truncation scheme (absorption at zero) in that case.
+- **CIR Feller condition:** The CIR model requires `2ab > σ²` for the short rate to stay strictly positive. When this condition is violated, the rate can reach zero. The simulation uses the full truncation scheme: an auxiliary process may go negative while the observed rate is floored at zero. Discretisation bias grows with `σ²/(2ab)`, so use a finer `timestep` (e.g. weekly instead of monthly) when the Feller condition is strongly violated.
 - **Vasicek negative rates:** The Vasicek model allows negative rates by design. For very negative rates or long horizons, discount factors may exceed 1 (equivalently, zero rates are negative). This is consistent with observed negative-rate environments.
 
 ### Performance Guidance

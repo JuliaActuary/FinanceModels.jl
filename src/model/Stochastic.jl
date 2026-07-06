@@ -65,8 +65,11 @@ Cox-Ingersoll-Ross (1985) mean-reverting short-rate model:
 
 !!! note "Feller condition"
     The condition `2ab > σ²` is required for the variance process to stay strictly
-    positive. When violated, the short rate can reach zero; simulation uses absorption
-    at zero (full truncation scheme) in that case.
+    positive. When violated, the short rate can reach zero; simulation uses the
+    full truncation scheme (Lord, Koekkoek & Van Dijk, 2010), which lets an
+    auxiliary process go negative while the observed rate is floored at zero.
+    Discretisation bias grows with `σ²/(2ab)` — use a finer `timestep` when the
+    Feller condition is strongly violated.
 """
 struct CoxIngersollRoss{A,B,S,T} <: AbstractStochasticModel
     a::A
@@ -237,16 +240,27 @@ function FinanceCore.discount(p::RatePath, t)
     return exp(-p.interp(t))
 end
 
-# ─── simulate: Euler-Maruyama path generation ────────────────────────────────
+# ─── simulate: path generation ───────────────────────────────────────────────
 
 """
     simulate(model::AbstractStochasticModel;
              n_scenarios=1000, timestep=1/12, horizon=30.0,
              rng=Random.default_rng())
 
-Generate `n_scenarios` interest-rate paths via Euler-Maruyama discretisation.
+Generate `n_scenarios` interest-rate paths.
 Each path is returned as a `RatePath` (an `AbstractYieldModel`) so it plugs
 directly into `present_value`, `discount`, etc.
+
+Discretisation schemes:
+- **Vasicek / Hull-White**: the exact Gaussian transition density, so the
+  simulated short rate has no discretisation bias at any `timestep`.
+- **Cox-Ingersoll-Ross**: full truncation (Lord, Koekkoek & Van Dijk, 2010) —
+  an auxiliary process may go negative while the observed rate is `max(x, 0)`.
+  Weak bias vanishes as `timestep → 0`, but is material for coarse steps when
+  the Feller condition is strongly violated.
+
+In all cases the cumulative discount integral ``∫₀ᵗ r(s)\\,ds`` is accumulated
+with the trapezoidal rule between grid points.
 """
 function simulate(model::AbstractStochasticModel;
                   n_scenarios::Int = 1000,
@@ -258,7 +272,7 @@ function simulate(model::AbstractStochasticModel;
     n_steps = ceil(Int, horizon / dt)
     sqrt_dt = sqrt(dt)
 
-    drift_cache = _precompute_drift(model, dt, n_steps)
+    cache = _sim_cache(model, dt, n_steps)
 
     # Determine element type from initial rate (may be a ForwardDiff.Dual)
     r0 = _sim_initial_rate(model)
@@ -280,8 +294,9 @@ function simulate(model::AbstractStochasticModel;
         for j in 1:n_steps
             Z = randn(rng)
             t = (j - 1) * dt
-            r_new = _step(model, r, dt, sqrt_dt, Z, t, drift_cache, j)
-            cumulative[j + 1] = cumulative[j] + 0.5 * (r + r_new) * dt
+            r_new = _step(model, r, dt, sqrt_dt, Z, t, cache, j)
+            cumulative[j + 1] = cumulative[j] +
+                0.5 * (_observed_rate(model, r) + _observed_rate(model, r_new)) * dt
             r = r_new
         end
         interp = DataInterpolations.LinearInterpolation(
@@ -299,41 +314,62 @@ function _sim_initial_rate(m::ShortRate.HullWhite)
     return _hw_forward_rate(m.curve, 0.0)
 end
 
-# Euler-Maruyama step for each model
-function _step(m::ShortRate.Vasicek, r, dt, sqrt_dt, Z, t, ::Nothing, j)
-    return r + m.a * (m.b - r) * dt + m.σ * sqrt_dt * Z
+# Exact Ornstein-Uhlenbeck transition parameters over one step of length dt:
+#   x_{t+dt} | x_t ~ Normal(x_t·ϕ, sd²),  ϕ = exp(-a·dt),  sd² = σ²(1-ϕ²)/(2a)
+function _ou_step_params(a, σ, dt)
+    ϕ = exp(-a * dt)
+    var = abs(a) < 1e-12 ? σ^2 * dt : σ^2 * (-expm1(-2a * dt)) / (2a)
+    return (ϕ = ϕ, sd = sqrt(var))
 end
 
-function _step(m::ShortRate.CoxIngersollRoss, r, dt, sqrt_dt, Z, t, ::Nothing, j)
-    # Full truncation scheme (Lord, Koekkoek & Van Dijk, 2010)
-    r_pos = max(r, 0.0)
-    return max(r_pos + m.a * (m.b - r_pos) * dt + m.σ * sqrt(r_pos) * sqrt_dt * Z, 0.0)
+# The rate that enters the discount integral: identity except for CIR, where
+# the state is the full-truncation auxiliary process and the rate is its
+# positive part.
+_observed_rate(::AbstractStochasticModel, r) = r
+_observed_rate(::ShortRate.CoxIngersollRoss, x) = max(x, zero(x))
+
+# Vasicek: exact transition r' = b + (r-b)ϕ + sd·Z (no discretisation bias)
+function _step(m::ShortRate.Vasicek, r, dt, sqrt_dt, Z, t, ou, j)
+    return m.b + (r - m.b) * ou.ϕ + ou.sd * Z
 end
 
-function _step(m::ShortRate.HullWhite, r, dt, sqrt_dt, Z, t, θ_cache, j)
-    return r + (θ_cache[j] - m.a * r) * dt + m.σ * sqrt_dt * Z
+# CIR: full truncation scheme (Lord, Koekkoek & Van Dijk, 2010).
+# The state is an auxiliary process x that may go negative; drift and
+# diffusion use x⁺ and the observed rate is x⁺ (see `_observed_rate`).
+# Flooring x itself at zero (absorption) would bias E[exp(-∫r)] down
+# materially when the Feller condition is violated.
+function _step(m::ShortRate.CoxIngersollRoss, x, dt, sqrt_dt, Z, t, ::Nothing, j)
+    xp = max(x, zero(x))
+    return x + m.a * (m.b - xp) * dt + m.σ * sqrt(xp) * sqrt_dt * Z
 end
 
-# Compute θ(t) = f_t(0,t) + a·f(0,t) + (σ²/2a)·(1 - exp(-2at))
-# where f(0,t) is the instantaneous forward rate from the initial curve
-function _hw_theta(m::ShortRate.HullWhite, t)
+# Hull-White: exact transition via the decomposition r(t) = x(t) + α(t)
+# where dx = -a·x dt + σ dW (OU with zero mean, simulated exactly) and
+# α(t) = f(0,t) + σ²/(2a²)(1 - exp(-at))² (Brigo & Mercurio 2006, Eq. 3.36).
+# This avoids differentiating the forward curve (θ(t) needs f_t(0,t)) and has
+# no discretisation bias in r.
+function _step(m::ShortRate.HullWhite, r, dt, sqrt_dt, Z, t, cache, j)
+    x = r - cache.α[j]  # cache.α[j] = α(t_{j-1})
+    return x * cache.ou.ϕ + cache.ou.sd * Z + cache.α[j + 1]
+end
+
+function _hw_alpha(m::ShortRate.HullWhite, t)
     a, σ = m.a, m.σ
     f0t = _hw_forward_rate(m.curve, t)
-    df_dt = DifferentiationInterface.derivative(
-        s -> _hw_forward_rate(m.curve, s),
-        AutoForwardDiff(), max(t, 1e-10)
-    )
     if abs(a) < 1e-12
-        return df_dt + σ^2 * t
+        return f0t + σ^2 * t^2 / 2
     else
-        return df_dt + a * f0t + σ^2 / (2a) * (1 - exp(-2a * t))
+        return f0t + σ^2 / (2a^2) * (1 - exp(-a * t))^2
     end
 end
 
-# Pre-compute drift values: nothing for Vasicek/CIR, Vector{Float64} for HW
-_precompute_drift(::AbstractStochasticModel, dt, n_steps) = nothing
-function _precompute_drift(m::ShortRate.HullWhite, dt, n_steps)
-    return [_hw_theta(m, (j - 1) * dt) for j in 1:n_steps]
+# Per-simulation cache: OU transition parameters for the Gaussian models
+# (plus the α(t) grid for Hull-White); nothing for CIR.
+_sim_cache(::AbstractStochasticModel, dt, n_steps) = nothing
+_sim_cache(m::ShortRate.Vasicek, dt, n_steps) = _ou_step_params(m.a, m.σ, dt)
+function _sim_cache(m::ShortRate.HullWhite, dt, n_steps)
+    return (ou = _ou_step_params(m.a, m.σ, dt),
+            α = [_hw_alpha(m, j * dt) for j in 0:n_steps])
 end
 
 # ─── pv_mc: Monte Carlo expected present value ───────────────────────────────
@@ -617,7 +653,7 @@ The instantaneous short rate `r(t)` for a simulated scenario.
 `RatePath` stores the cumulative integral `∫₀ᵗ r(s) ds` as a `LinearInterpolation`.
 The short rate is the derivative of this cumulative integral.
 
-Because the cumulative integral is built from Euler-Maruyama trapezoidal steps, the
+Because the cumulative integral is built from trapezoidal steps, the
 returned rate is piecewise-constant within each timestep — an approximation to the
 continuous short-rate process, not the exact value.
 """

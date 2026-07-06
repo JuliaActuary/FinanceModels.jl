@@ -448,7 +448,7 @@ using Random
         for T in [1.0, 5.0, 10.0]
             expected_disc = sum(discount(sc, T) for sc in scenarios) / 5000
             curve_disc = discount(curve, T)
-            @test expected_disc ≈ curve_disc rtol = 0.02
+            @test expected_disc ≈ curve_disc rtol = 0.01
         end
     end
 
@@ -657,25 +657,30 @@ using Random
     # ──────────────────────────────────────────────────────────────────────────
 
     @testset "Analytical moment matching" begin
-        @testset "Vasicek r(T) moments" begin
+        @testset "Vasicek r(T) moments (exact transition, coarse steps)" begin
             # Vasicek r(T)|r(0) ~ Normal(E[r(T)], Var[r(T)])
             # E[r(T)] = b + (r₀−b)exp(−aT)
             # Var[r(T)] = σ²(1−exp(−2aT))/(2a)
             a, b, σ, r0 = 0.3, 0.10, 0.03, 0.03
+            v = ShortRate.Vasicek(a, b, σ, Continuous(r0))
             T = 5.0
             E_rT = b + (r0 - b) * exp(-a * T)
             V_rT = σ^2 * (1 - exp(-2a * T)) / (2a)
 
             N = 10_000
-            dt = 1 / 52  # weekly steps to reduce EM bias
-            n_steps = ceil(Int, T / dt)
+            # Quarter-year steps: the transition is sampled from the exact
+            # Gaussian density, so coarse steps introduce NO bias — only
+            # sampling error remains.
+            dt = 0.25
+            n_steps = round(Int, T / dt)
             sqrt_dt = sqrt(dt)
+            cache = FinanceModels._sim_cache(v, dt, n_steps)
             rng = Random.MersenneTwister(42)
             rates = Vector{Float64}(undef, N)
             for i in 1:N
                 r = Float64(r0)
-                for _ in 1:n_steps
-                    r = r + a * (b - r) * dt + σ * sqrt_dt * randn(rng)
+                for j in 1:n_steps
+                    r = FinanceModels._step(v, r, dt, sqrt_dt, randn(rng), (j - 1) * dt, cache, j)
                 end
                 rates[i] = r
             end
@@ -693,6 +698,7 @@ using Random
             # E[r(T)] = b + (r₀−b)exp(−aT)
             # Var[r(T)] = r₀σ²exp(−aT)(1−exp(−aT))/a + bσ²(1−exp(−aT))²/(2a)
             a, b, σ, r0 = 0.3, 0.08, 0.15, 0.05
+            cir = ShortRate.CoxIngersollRoss(a, b, σ, Continuous(r0))
             T = 5.0
             E_rT = b + (r0 - b) * exp(-a * T)
             V_rT = r0 * σ^2 * exp(-a * T) * (1 - exp(-a * T)) / a +
@@ -705,12 +711,13 @@ using Random
             rng = Random.MersenneTwister(42)
             rates = Vector{Float64}(undef, N)
             for i in 1:N
-                r = Float64(r0)
-                for _ in 1:n_steps
-                    r_pos = max(r, 0.0)
-                    r = max(r_pos + a * (b - r_pos) * dt + σ * sqrt(r_pos) * sqrt_dt * randn(rng), 0.0)
+                # x is the full-truncation auxiliary state (may go negative);
+                # the observed short rate is x⁺
+                x = Float64(r0)
+                for j in 1:n_steps
+                    x = FinanceModels._step(cir, x, dt, sqrt_dt, randn(rng), (j - 1) * dt, nothing, j)
                 end
-                rates[i] = r
+                rates[i] = FinanceModels._observed_rate(cir, x)
             end
             sample_mean = sum(rates) / N
             sample_var = sum((r - sample_mean)^2 for r in rates) / (N - 1)
@@ -728,13 +735,15 @@ using Random
     @testset "Martingale test E[D(T)] = P(0,T)" begin
         @testset "Vasicek" begin
             # Under risk-neutral measure, mean simulated discount factor
-            # must equal the analytical ZCB price
+            # must equal the analytical ZCB price. The exact Gaussian
+            # transition leaves only trapezoidal-integration and sampling
+            # error, so the tolerance can be tight.
             v = ShortRate.Vasicek(0.3, 0.10, 0.03, Continuous(0.03))
             rng = Random.MersenneTwister(42)
             scenarios = simulate(v; n_scenarios = 10_000, timestep = 1 / 12, horizon = 11.0, rng)
             for T in [1.0, 5.0, 10.0]
                 mc_disc = sum(discount(sc, T) for sc in scenarios) / 10_000
-                @test mc_disc ≈ discount(v, T) rtol = 0.015
+                @test mc_disc ≈ discount(v, T) rtol = 0.01
             end
         end
 
@@ -744,7 +753,22 @@ using Random
             scenarios = simulate(cir; n_scenarios = 10_000, timestep = 1 / 12, horizon = 11.0, rng)
             for T in [1.0, 5.0, 10.0]
                 mc_disc = sum(discount(sc, T) for sc in scenarios) / 10_000
-                @test mc_disc ≈ discount(cir, T) rtol = 0.02
+                @test mc_disc ≈ discount(cir, T) rtol = 0.01
+            end
+        end
+
+        @testset "CIR with Feller violation" begin
+            # 2ab = 0.02 < σ² = 0.25. The absorption scheme this replaced
+            # (flooring the state at zero each step) was biased by −6% to
+            # −17% here and would fail this tolerance by an order of
+            # magnitude; full truncation keeps the bias within tens of bp
+            # at weekly steps.
+            cir_fv = ShortRate.CoxIngersollRoss(0.1, 0.10, 0.50, Continuous(0.05))
+            rng = Random.MersenneTwister(42)
+            scenarios = simulate(cir_fv; n_scenarios = 20_000, timestep = 1 / 52, horizon = 11.0, rng)
+            for T in [5.0, 10.0]
+                mc_disc = sum(discount(sc, T) for sc in scenarios) / 20_000
+                @test mc_disc ≈ discount(cir_fv, T) rtol = 0.02
             end
         end
     end
@@ -925,7 +949,7 @@ using Random
             scenarios = simulate(hw; n_scenarios = 5000, timestep = 1 / 12, horizon = 11.0, rng)
             for T in [1.0, 5.0, 10.0]
                 mc_disc = sum(discount(sc, T) for sc in scenarios) / 5000
-                @test mc_disc ≈ discount(curve, T) rtol = 0.02
+                @test mc_disc ≈ discount(curve, T) rtol = 0.01
             end
         end
     end
@@ -979,6 +1003,12 @@ using Random
         for sc in scenarios
             @test discount(sc, 3.0) > 0
             @test isfinite(discount(sc, 3.0))
+            # Only the truncated (non-negative) rate may enter the discount
+            # integral, so pathwise discounts are non-increasing in T even
+            # when the auxiliary state goes negative
+            @test discount(sc, 4.0) <= discount(sc, 3.0)
+            # short_rate reports the observed (truncated) rate
+            @test short_rate(sc, 2.5) >= 0
         end
     end
 
