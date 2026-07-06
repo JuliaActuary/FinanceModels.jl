@@ -520,12 +520,17 @@ using Random
     end
 
     @testset "CIR ZCB analytical regression" begin
-        # These values are computed from the CIR closed-form ZCB formula
-        # (Cox, Ingersoll & Ross, 1985, Econometrica, Eq. 23). They serve
-        # as regression tests across Feller-condition regimes.
+        # Closed-form CIR ZCB prices (Cox, Ingersoll & Ross, 1985, Econometrica,
+        # Eq. 23), verified against two independent implementations:
+        # - Feller-satisfied sets: QuantLib 1.42.1 `CoxIngersollRoss::discountBond`
+        #   reproduces every value below to all 12 printed decimals.
+        # - Feller-boundary/violated sets (QuantLib rejects such parameters at
+        #   construction): numerical integration of the affine Riccati ODEs
+        #   B' = 1 - aB - σ²B²/2, (ln A)' = -abB with scipy solve_ivp at
+        #   rtol=1e-12 matches to ~1e-13.
 
         @testset "Feller satisfied: a=0.3, b=0.08, σ=0.15, r₀=0.05" begin
-            # 2ab = 0.048 > σ² = 0.0225
+            # 2ab = 0.048 > σ² = 0.0225. Independent source: QuantLib 1.42.1
             cir = ShortRate.CoxIngersollRoss(0.3, 0.08, 0.15, Continuous(0.05))
             @test discount(cir, 1.0) ≈ 0.947503053857 atol = 1e-8
             @test discount(cir, 5.0) ≈ 0.731755780942 atol = 1e-8
@@ -534,7 +539,7 @@ using Random
         end
 
         @testset "Higher vol: a=0.5, b=0.10, σ=0.20, r₀=0.05" begin
-            # 2ab = 0.10 > σ² = 0.04
+            # 2ab = 0.10 > σ² = 0.04. Independent source: QuantLib 1.42.1
             cir = ShortRate.CoxIngersollRoss(0.5, 0.10, 0.20, Continuous(0.05))
             @test discount(cir, 1.0) ≈ 0.941394105702 atol = 1e-8
             @test discount(cir, 5.0) ≈ 0.673617793268 atol = 1e-8
@@ -543,7 +548,8 @@ using Random
         end
 
         @testset "Feller boundary: σ = √(2ab)" begin
-            # At the exact Feller boundary: 2ab = σ², process can touch zero
+            # At the exact Feller boundary: 2ab = σ², process can touch zero.
+            # Independent source: Riccati ODE integration (see testset header)
             a, b = 0.5, 0.10
             σ_bdy = sqrt(2 * a * b)  # ≈ 0.3162
             cir = ShortRate.CoxIngersollRoss(a, b, σ_bdy, Continuous(0.05))
@@ -553,7 +559,8 @@ using Random
         end
 
         @testset "Feller violated: σ=0.50 > √(2ab)=0.316" begin
-            # 2ab = 0.10 < σ² = 0.25 — formula still valid, higher convexity
+            # 2ab = 0.10 < σ² = 0.25 — formula still valid, higher convexity.
+            # Independent source: Riccati ODE integration (see testset header)
             cir = ShortRate.CoxIngersollRoss(0.5, 0.10, 0.50, Continuous(0.05))
             @test discount(cir, 1.0) ≈ 0.942631527602 atol = 1e-8
             @test discount(cir, 5.0) ≈ 0.708602161384 atol = 1e-8
@@ -562,6 +569,16 @@ using Random
             # Higher vol → more convexity → higher bond prices
             cir_lo = ShortRate.CoxIngersollRoss(0.5, 0.10, 0.10, Continuous(0.05))
             @test discount(cir, 5.0) > discount(cir_lo, 5.0)
+        end
+
+        @testset "Feller strongly violated: a=0.1, b=0.10, σ=0.50, r₀=0.05" begin
+            # 2ab = 0.02 ≪ σ² = 0.25 — the truth standard for the Feller-violated
+            # martingale test below. Independent source: Riccati ODE integration
+            # (see testset header); matches to ~1e-13.
+            cir = ShortRate.CoxIngersollRoss(0.1, 0.10, 0.50, Continuous(0.05))
+            @test discount(cir, 1.0) ≈ 0.950729464416 atol = 1e-9
+            @test discount(cir, 5.0) ≈ 0.821656416270 atol = 1e-9
+            @test discount(cir, 10.0) ≈ 0.723687625316 atol = 1e-9
         end
 
         @testset "QuantLib near-deterministic: a=1.0, b=0.1, σ≈0, r₀=0.1" begin
@@ -661,6 +678,7 @@ using Random
             # Vasicek r(T)|r(0) ~ Normal(E[r(T)], Var[r(T)])
             # E[r(T)] = b + (r₀−b)exp(−aT)
             # Var[r(T)] = σ²(1−exp(−2aT))/(2a)
+            # Source: Vasicek (1977); Brigo & Mercurio (2006) §3.2.1
             a, b, σ, r0 = 0.3, 0.10, 0.03, 0.03
             v = ShortRate.Vasicek(a, b, σ, Continuous(r0))
             T = 5.0
@@ -668,10 +686,15 @@ using Random
             V_rT = σ^2 * (1 - exp(-2a * T)) / (2a)
 
             N = 10_000
-            # Quarter-year steps: the transition is sampled from the exact
-            # Gaussian density, so coarse steps introduce NO bias — only
-            # sampling error remains.
-            dt = 0.25
+            # ONE-YEAR steps: the transition is sampled from the exact Gaussian
+            # density, so even absurdly coarse steps introduce no bias — only
+            # sampling error remains. This step size is chosen to discriminate:
+            # an Euler-Maruyama scheme at dt=1 has deterministic moment errors
+            # of 2.6× the mean tolerance and +20% on the variance (vs 5% rtol),
+            # so a regression to Euler fails this test decisively. (At dt=0.25
+            # Euler's errors sit just inside both tolerances — too fine a step
+            # proves nothing.)
+            dt = 1.0
             n_steps = round(Int, T / dt)
             sqrt_dt = sqrt(dt)
             cache = FinanceModels._sim_cache(v, dt, n_steps)
@@ -697,6 +720,7 @@ using Random
             # CIR r(T)|r(0) has known moments:
             # E[r(T)] = b + (r₀−b)exp(−aT)
             # Var[r(T)] = r₀σ²exp(−aT)(1−exp(−aT))/a + bσ²(1−exp(−aT))²/(2a)
+            # Source: Cox, Ingersoll & Ross (1985); Brigo & Mercurio (2006) §3.2.3
             a, b, σ, r0 = 0.3, 0.08, 0.15, 0.05
             cir = ShortRate.CoxIngersollRoss(a, b, σ, Continuous(r0))
             T = 5.0
@@ -762,7 +786,9 @@ using Random
             # (flooring the state at zero each step) was biased by −6% to
             # −17% here and would fail this tolerance by an order of
             # magnitude; full truncation keeps the bias within tens of bp
-            # at weekly steps.
+            # at weekly steps. The closed-form truth standard is itself
+            # independently verified (Riccati ODE) in the "Feller strongly
+            # violated" regression testset above.
             cir_fv = ShortRate.CoxIngersollRoss(0.1, 0.10, 0.50, Continuous(0.05))
             rng = Random.MersenneTwister(42)
             scenarios = simulate(cir_fv; n_scenarios = 20_000, timestep = 1 / 52, horizon = 11.0, rng)

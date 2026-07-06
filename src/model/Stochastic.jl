@@ -82,7 +82,7 @@ function CoxIngersollRoss(a::Real, b::Real, σ::Real, initial::Real)
     σ >= 0 || throw(ArgumentError("volatility σ must be non-negative, got $σ"))
     initial >= 0 || throw(ArgumentError("initial rate must be non-negative for CIR, got $initial"))
     if 2 * a * b <= σ^2
-        @warn "Feller condition 2ab > σ² violated (2·$(a)·$(b) = $(2*a*b) ≤ σ² = $(σ^2)). Short rate may reach zero."
+        @warn "Feller condition 2ab > σ² violated (2·$(a)·$(b) = $(2*a*b) ≤ σ² = $(σ^2)). Short rate may reach zero, and `simulate`'s discretisation bias grows with σ²/(2ab) — prefer a finer `timestep`."
     end
     return CoxIngersollRoss(Float64(a), Float64(b), Float64(σ), Continuous(initial))
 end
@@ -260,7 +260,9 @@ Discretisation schemes:
   the Feller condition is strongly violated.
 
 In all cases the cumulative discount integral ``∫₀ᵗ r(s)\\,ds`` is accumulated
-with the trapezoidal rule between grid points.
+with the trapezoidal rule between grid points, so pathwise discount factors
+(and hence `pv_mc`) retain an integration error that grows with `timestep`
+even when the short-rate transition itself is exact.
 """
 function simulate(model::AbstractStochasticModel;
                   n_scenarios::Int = 1000,
@@ -324,13 +326,15 @@ end
 
 # The rate that enters the discount integral: identity except for CIR, where
 # the state is the full-truncation auxiliary process and the rate is its
-# positive part.
-_observed_rate(::AbstractStochasticModel, r) = r
+# positive part. Defined per concrete model (no abstract fallback) so that a
+# new model type fails loudly instead of silently integrating its raw state.
+_observed_rate(::ShortRate.Vasicek, r) = r
+_observed_rate(::ShortRate.HullWhite, r) = r
 _observed_rate(::ShortRate.CoxIngersollRoss, x) = max(x, zero(x))
 
 # Vasicek: exact transition r' = b + (r-b)ϕ + sd·Z (no discretisation bias)
-function _step(m::ShortRate.Vasicek, r, dt, sqrt_dt, Z, t, ou, j)
-    return m.b + (r - m.b) * ou.ϕ + ou.sd * Z
+function _step(m::ShortRate.Vasicek, r, dt, sqrt_dt, Z, t, cache, j)
+    return m.b + (r - m.b) * cache.ϕ + cache.sd * Z
 end
 
 # CIR: full truncation scheme (Lord, Koekkoek & Van Dijk, 2010).
@@ -364,8 +368,9 @@ function _hw_alpha(m::ShortRate.HullWhite, t)
 end
 
 # Per-simulation cache: OU transition parameters for the Gaussian models
-# (plus the α(t) grid for Hull-White); nothing for CIR.
-_sim_cache(::AbstractStochasticModel, dt, n_steps) = nothing
+# (plus the α(t) grid for Hull-White); nothing for CIR. Defined per concrete
+# model (no abstract fallback) so that a new model type fails loudly.
+_sim_cache(::ShortRate.CoxIngersollRoss, dt, n_steps) = nothing
 _sim_cache(m::ShortRate.Vasicek, dt, n_steps) = _ou_step_params(m.a, m.σ, dt)
 function _sim_cache(m::ShortRate.HullWhite, dt, n_steps)
     return (ou = _ou_step_params(m.a, m.σ, dt),
