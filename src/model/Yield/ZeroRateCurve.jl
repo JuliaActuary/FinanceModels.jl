@@ -95,6 +95,13 @@ end
 
 (zrc::ZeroRateCurve)(t) = FinanceCore.discount(zrc, t)
 
+# The prebuilt interpolation model (Spline or MonotoneConvex) carries the analytic
+# instantaneous forward; the curve just delegates. Same t ≥ 0 domain as `discount`.
+function instantaneous_forward(zrc::ZeroRateCurve, t)
+    t < zero(t) && throw(DomainError(t, "ZeroRateCurve instantaneous_forward is only defined for t ≥ 0"))
+    return instantaneous_forward(zrc._model, t)
+end
+
 # Structural equality on the value-carrying fields. The `_model` field is a
 # deterministic function of (rates, tenors, spline) and may not implement `==`
 # on its underlying interpolation; ignoring it here keeps `a == b` meaningful

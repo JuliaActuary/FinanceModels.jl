@@ -35,6 +35,7 @@ include("NelsonSiegelSvensson.jl")
 include("CairnsPritchard.jl")
 include("MonotoneConvex.jl")
 include("ZeroRateCurve.jl")
+include("instantaneous_forward.jl")
 include("regressions.jl")
 
 include("extensions.jl")
