@@ -637,12 +637,17 @@ end
 """
     instantaneous_forward(model, t)
 
-The instantaneous (continuously compounded) forward rate of the curve at time `t`,
+The instantaneous forward rate of the curve at time `t`,
 
     f(t) = ∂/∂t (−log P(t)) = z(t) + t·z′(t),
 
-returned as a `Real` (matching the convention of the `MonotoneConvex` method that
-predates the generic definitions).
+returned as a `Continuous` `Rate` — the instantaneous forward is by definition
+continuously compounded, and returning a `Rate` keeps it consistent with `zero`,
+`forward`, and `par`, and composable with `discount`/`accumulation`. Use
+`rate(instantaneous_forward(m, t))` for the scalar value.
+
+(In v6.1–v6.2, the only method — `MonotoneConvex` — returned a bare `Real`; that
+inconsistency with the rest of the API is treated as a fix here.)
 
 This is distinct from [`forward`](@ref)`(curve, from, to)`, which is the *discrete*
 forward `Rate` between two times and is defined for every yield model.
@@ -660,14 +665,19 @@ Models without a defined method (e.g. discount-native models such as `SmithWilso
 or the short-rate models) throw a `MethodError` rather than silently approximating;
 use finite differences of `-log(discount(m, t))` or AD explicitly if needed.
 """
-function instantaneous_forward end
+instantaneous_forward(m, t) = Continuous(_instantaneous_forward(m, t))
+
+# Per-model raw-scalar kernels; the single public method above wraps the result in
+# `Continuous`. Keeping the kernels in plain floats lets the wrapper methods below
+# compose forwards with ordinary arithmetic.
+function _instantaneous_forward end
 
 # A flat curve's instantaneous forward is its continuous rate at every tenor.
-instantaneous_forward(c::Constant, t) = FinanceCore.rate(convert(Continuous(), c.rate))
+_instantaneous_forward(c::Constant, t) = FinanceCore.rate(convert(Continuous(), c.rate))
 
 # `c.fn` maps time to the continuous zero rate, so f(t) = z(t) + t·z′(t) with the
 # interpolant's analytic derivative.
-function instantaneous_forward(c::Spline, t)
+function _instantaneous_forward(c::Spline, t)
     z = c.fn(t)
     z′ = DataInterpolations.derivative(c.fn, t)
     return z + t * z′
@@ -677,13 +687,13 @@ end
 # the public `+`/`-` constructors create) the forward composes the same way:
 # f = d/dt[t·op(z₁, z₂)] = op(f₁, f₂). Nonlinear ops have no such identity, so no
 # generic CompositeYield method is defined.
-instantaneous_forward(rc::CompositeYield{T, U, typeof(+)}, t) where {T, U} = instantaneous_forward(rc.r1, t) + instantaneous_forward(rc.r2, t)
-instantaneous_forward(rc::CompositeYield{T, U, typeof(-)}, t) where {T, U} = instantaneous_forward(rc.r1, t) - instantaneous_forward(rc.r2, t)
+_instantaneous_forward(rc::CompositeYield{T, U, typeof(+)}, t) where {T, U} = _instantaneous_forward(rc.r1, t) + _instantaneous_forward(rc.r2, t)
+_instantaneous_forward(rc::CompositeYield{T, U, typeof(-)}, t) where {T, U} = _instantaneous_forward(rc.r1, t) - _instantaneous_forward(rc.r2, t)
 
 # Scaling z(t) by a constant scales t·z(t), and hence its derivative, by the same factor.
-instantaneous_forward(sy::ScaledYield, t) = sy.factor * instantaneous_forward(sy.curve, t)
+_instantaneous_forward(sy::ScaledYield, t) = sy.factor * _instantaneous_forward(sy.curve, t)
 
 # −log P_fwd(t) = −log P(t + s) + log P(s); differentiating in t rebases the forward.
-instantaneous_forward(c::ForwardStarting, t) = instantaneous_forward(c.curve, t + c.forwardstart)
+_instantaneous_forward(c::ForwardStarting, t) = _instantaneous_forward(c.curve, t + c.forwardstart)
 
 end

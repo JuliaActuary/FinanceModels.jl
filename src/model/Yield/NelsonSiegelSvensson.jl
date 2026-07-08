@@ -67,7 +67,7 @@ FinanceCore.discount(ns::NelsonSiegel, t) = discount.(zero.(ns, t), t)
 # The NS zero rate is the running average of the closed-form instantaneous forward
 # f(t) = β₀ + β₁·e^(−t/τ₁) + β₂·(t/τ₁)·e^(−t/τ₁); z(t) = (1/t)∫₀ᵗ f(s)ds recovers
 # the `zero` expression above. f(0) = β₀ + β₁, matching `zero`'s t=0 limit.
-function instantaneous_forward(ns::NelsonSiegel, t)
+function _instantaneous_forward(ns::NelsonSiegel, t)
     x = t / ns.τ₁
     e = exp(-x)
     return ns.β₀ + ns.β₁ * e + ns.β₂ * x * e
@@ -146,7 +146,7 @@ FinanceCore.discount(nss::NelsonSiegelSvensson, t) = discount.(zero.(nss, t), t)
 
 # Svensson adds a second hump term to the NS closed-form forward:
 # f(t) = β₀ + β₁·e^(−t/τ₁) + β₂·(t/τ₁)·e^(−t/τ₁) + β₃·(t/τ₂)·e^(−t/τ₂)
-function instantaneous_forward(nss::NelsonSiegelSvensson, t)
+function _instantaneous_forward(nss::NelsonSiegelSvensson, t)
     x₁ = t / nss.τ₁
     x₂ = t / nss.τ₂
     e₁ = exp(-x₁)

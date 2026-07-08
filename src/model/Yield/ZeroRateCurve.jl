@@ -97,9 +97,9 @@ end
 
 # The prebuilt interpolation model (Spline or MonotoneConvex) carries the analytic
 # instantaneous forward; the curve just delegates. Same t ≥ 0 domain as `discount`.
-function instantaneous_forward(zrc::ZeroRateCurve, t)
+function _instantaneous_forward(zrc::ZeroRateCurve, t)
     t < zero(t) && throw(DomainError(t, "ZeroRateCurve instantaneous_forward is only defined for t ≥ 0"))
-    return instantaneous_forward(zrc._model, t)
+    return _instantaneous_forward(zrc._model, t)
 end
 
 # Structural equality on the value-carrying fields. The `_model` field is a

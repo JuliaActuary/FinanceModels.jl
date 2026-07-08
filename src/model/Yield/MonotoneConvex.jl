@@ -194,18 +194,12 @@ function g_rate(x, f⁻, f, fᵈ)
     end
 end
 
-"""
-    instantaneous_forward(mc::MonotoneConvex, t)
-
-The instantaneous (continuously-compounded) forward rate of the Hagan-West
-interpolant at time `t`. Beyond the last knot the forward is extrapolated flat
-at the boundary instantaneous forward `f(t_n)`, so the forward curve is
-continuous everywhere, including at the last knot.
-
-Note this is distinct from `forward(curve, from, to)`, which is the *discrete*
-forward `Rate` between two times and is defined for every yield model.
-"""
-function instantaneous_forward(mc::MonotoneConvex, t)
+# Raw-scalar kernel for the Hagan-West instantaneous forward; the public
+# `instantaneous_forward` (see Yield.jl) wraps the result in `Continuous`.
+# Beyond the last knot the forward is extrapolated flat at the boundary
+# instantaneous forward `f(t_n)`, so the forward curve is continuous everywhere,
+# including at the last knot.
+function _instantaneous_forward(mc::MonotoneConvex, t)
     f, fᵈ, times = mc.f, mc.fᵈ, mc.times
     lt = last(times)
 
