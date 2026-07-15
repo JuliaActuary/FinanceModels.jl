@@ -171,6 +171,13 @@ __default_optic(m::ShortRate.HullWhite) = (
     @optic(_.a) => 0.0 .. 5.0,
     @optic(_.σ) => 0.0 .. 1.0,
 )
+# FX.Forwards: the free variables live on the base-currency (`foreign`) curve — spot and
+# the domestic curve are calibration inputs — so compose the foreign curve's own optics
+# through the `foreign` field.
+__default_optic(m::FX.Forwards) = map(o -> __fx_foreign_optic(o), __default_optic(m.foreign))
+__fx_foreign_optic(o::Base.Pair) = Accessors.opcompose(@optic(_.foreign), o.first) => o.second
+__fx_foreign_optic(o::Tuple) = (Accessors.opcompose(@optic(_.foreign), only(o)),)
+__fx_foreign_optic(o) = Accessors.opcompose(@optic(_.foreign), o)
 
 
 __default_optim(m) = OptimizationOptimJL.LBFGS()
@@ -382,6 +389,22 @@ function fit(::Spline.MonotoneConvex, quotes, method::Fit.Loss; optimizer = Opti
     return fit(Yield.MonotoneConvex(), quotes, method; optimizer)
 end
 fit(::Spline.MonotoneConvex, quotes, ::Fit.Bootstrap) = fit(Yield.MonotoneConvex(), quotes)
+
+# FX.Forwards with a spline placeholder as the foreign curve: given spot, the domestic
+# curve, and forward quotes, the implied base-currency discount factors are closed-form
+# (DF_f(t) = (K·DF_d(t) + price)/spot — see `FX.implied_zcb_quotes`), so curve
+# construction reduces to fitting the spline through the implied zero-coupon quotes; no
+# optimizer runs over the FX model itself. The two methods are deliberately separate
+# (not a `Union`) so neither is ambiguous against the generic optic-based
+# `fit(mod0, quotes, ::Fit.Loss)`.
+function fit(mod0::FX.Forwards{P, S, D, F}, quotes, method::Fit.Bootstrap) where {P, S, D, F <: Spline.SplineCurve}
+    implied = FX.implied_zcb_quotes(mod0, quotes)
+    return @set mod0.foreign = fit(mod0.foreign, implied, method)
+end
+function fit(mod0::FX.Forwards{P, S, D, F}, quotes, method::Fit.Loss) where {P, S, D, F <: Spline.SplineCurve}
+    implied = FX.implied_zcb_quotes(mod0, quotes)
+    return @set mod0.foreign = fit(mod0.foreign, implied, method)
+end
 
 function fit(mod0::T, quotes, method::Fit.Bootstrap) where {T <: Spline.SplineCurve}
     quotes = sort(collect(quotes); by = maturity)

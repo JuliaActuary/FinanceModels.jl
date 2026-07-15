@@ -239,3 +239,9 @@ See the [FinanceModels.jl Guide](@ref) for an example of creating a model from s
 #### Creating new Volatility Models
 
 A volatility model must extend `volatility(vol::Volatility.MyNewModel, strike_ratio, time_to_maturity)`.
+
+## Foreign Exchange Models
+
+- [`FinanceModels.FX.Forwards`](@ref) — covered-interest-parity outright forward rates from a spot rate and a discount curve per currency; fit to [`FX.Outright`](@ref FinanceModels.FX.Outright) / [`FX.ForwardPoints`](@ref FinanceModels.FX.ForwardPoints) quotes.
+
+See the [Foreign Exchange](@ref) guide page for pair conventions, curve construction, and cross-currency basis handling.

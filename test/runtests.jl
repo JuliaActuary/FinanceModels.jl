@@ -13,6 +13,7 @@ include("generic.jl")
 include("sp.jl")
 
 include("Equity.jl")
+include("FX.jl")
 include("Yield.jl")
 include("CompositeYield.jl")
 include("ZeroRatePrimitive.jl")

@@ -67,6 +67,7 @@ Existing `struct`s:
 - `Option.EuroCall` and `Option.EuroPut`
 - `CommonEquity`
 - `Option.Cap`, `Option.Floor`, `Option.Swaption` (interest rate derivatives)
+- `FX.Forward` (an outright foreign-exchange forward)
 
 Commonly, we deal with conventions that imply a contract and an observed price. For example, we may talk about a treasury yield of `0.03`. This is a description that implies a `Quote`ed price for an underling fixed bond. In FinanceModels, we could use `CMTYield(rate,tenor)` which would create a `Quote(price,Bond.Fixed(...))`. In this way, we can conveniently create a number of `Quote`s which can be used to fit models. Such convenience methods include:
 
@@ -76,6 +77,7 @@ Commonly, we deal with conventions that imply a contract and an observed price. 
 - `ParYield`
 - `ParSwapYield`
 - `ForwardYield`
+- `FX.Outright` and `FX.ForwardPoints` (foreign-exchange forwards)
 
 FinanceModels offers a way to define new contracts as well.
 
@@ -104,6 +106,10 @@ Stochastic models include:
 
 - `ShortRate.Vasicek`, `ShortRate.CoxIngersollRoss`, and `ShortRate.HullWhite` short-rate models
 - `Equity.BlackScholesMerton` for option valuation
+
+Foreign exchange models include:
+
+- `FX.Forwards` — covered-interest-parity forward exchange rates from a spot rate and a discount curve per currency, fit to forward/points quotes (see the Foreign Exchange docs page)
 
 #### Yield-related functions
 
