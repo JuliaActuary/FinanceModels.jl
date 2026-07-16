@@ -57,10 +57,10 @@ the *same* pair.
 
 ```julia-repl
 julia> FX.Pair(:EUR, :USD)
-FinanceModels.FX.Pair{:EUR, :USD}()
+FX.Pair(:EUR, :USD)
 
 julia> inv(FX.Pair(:EUR, :USD))
-FinanceModels.FX.Pair{:USD, :EUR}()
+FX.Pair(:USD, :EUR)
 ```
 """
 struct Pair{B, Q} end
@@ -69,6 +69,7 @@ Pair(base::Symbol, quote_currency::Symbol) = Pair{base, quote_currency}()
 
 Base.inv(::Pair{B, Q}) where {B, Q} = Pair{Q, B}()
 Base.Broadcast.broadcastable(p::Pair) = Ref(p)
+Base.show(io::IO, ::Pair{B, Q}) where {B, Q} = print(io, "FX.Pair(:", B, ", :", Q, ")")
 
 """
     FX.Forwards(pair, spot, domestic, foreign)
@@ -146,10 +147,12 @@ currency.
 
 Under an [`FX.Forwards`](@ref) model `m` for the same pair:
 
-    present_value(m, c) = (forward(m, c.time) - c.strike) * discount(m.domestic, c.time)
+    present_value(m, c, cur_time = 0.0) = (forward(m, c.time) - c.strike) * discount(m.domestic, cur_time, c.time)
 
 A forward struck at the market outright has zero present value, which is how market
-quotes are represented — see [`FX.Outright`](@ref).
+quotes are represented — see [`FX.Outright`](@ref). A forward that settled before
+`cur_time` is worth zero, consistent with how cashflows before `cur_time` are treated
+everywhere else in the package.
 
 Pricing a contract whose pair differs from the model's pair throws an `ArgumentError`
 naming both pairs, rather than producing a silently inverted or crossed price.
@@ -175,15 +178,18 @@ end
 
 FinanceCore.maturity(c::Forward) = c.time
 
-function FinanceCore.present_value(m::Forwards{P}, c::Forward{P}) where {P <: Pair}
-    return (FinanceCore.forward(m, c.time) - c.strike) * discount(m.domestic, c.time)
+function FinanceCore.present_value(m::Forwards{P}, c::Forward{P}, cur_time = 0.0) where {P <: Pair}
+    v = (FinanceCore.forward(m, c.time) - c.strike) * discount(m.domestic, cur_time, c.time)
+    # a forward settled before the valuation time contributes nothing, matching the
+    # projection-path convention (`Filter(cf -> cf.time >= cur_time)` in Projection.jl)
+    return c.time < cur_time ? zero(v) : v
 end
 
 # a mismatched pair would otherwise fall through to the generic projection-based
 # `present_value` and fail with an unrelated-looking iteration error; name the actual
 # problem instead. The diagonal `{P,P}` method above is more specific, so matched pairs
 # never reach this.
-function FinanceCore.present_value(m::Forwards, c::Forward)
+function FinanceCore.present_value(m::Forwards, c::Forward, cur_time = 0.0)
     throw(ArgumentError("cannot price an FX.Forward on $(c.pair) with an FX.Forwards model for $(m.pair)"))
 end
 
@@ -203,7 +209,7 @@ See also [`FX.ForwardPoints`](@ref) for the points-over-spot convention.
 
 ```julia-repl
 julia> FX.Outright(FX.Pair(:EUR, :USD), 1.1225, 1.0)
-Quote{Float64, FinanceModels.FX.Forward{FinanceModels.FX.Pair{:EUR, :USD}, Float64, Float64}}(0.0, FinanceModels.FX.Forward{FinanceModels.FX.Pair{:EUR, :USD}, Float64, Float64}(FinanceModels.FX.Pair{:EUR, :USD}(), 1.1225, 1.0))
+Quote{Float64, FinanceModels.FX.Forward{FinanceModels.FX.Pair{:EUR, :USD}, Float64, Float64}}(0.0, FinanceModels.FX.Forward{FinanceModels.FX.Pair{:EUR, :USD}, Float64, Float64}(FX.Pair(:EUR, :USD), 1.1225, 1.0))
 ```
 """
 Outright(pair::Pair, forward_rate, time) = Quote(zero(forward_rate), Forward(pair, forward_rate, time))
@@ -307,6 +313,10 @@ ones and [`Bond.Floating`](@ref FinanceModels.Bond.Floating), whose reference mo
 resolved from the same store), cross-currency swaps are ordinary [`Composite`](@ref
 FinanceCore.Composite)s — see the "Foreign Exchange" documentation page for a worked
 fixed-for-fixed and floating-floating example.
+
+`maturity(::Converted)` delegates to the wrapped contract, so it is undefined
+(`MethodError`) when the wrapped contract is a transducer-modified `Eduction`: a
+transducer may alter cashflow times, so no general delegation through it is sound.
 
 # Examples
 

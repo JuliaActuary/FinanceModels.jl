@@ -5,6 +5,7 @@
         @test eurusd === FX.Pair(:EUR, :USD)
         @test inv(eurusd) === FX.Pair(:USD, :EUR)
         @test inv(inv(eurusd)) === eurusd
+        @test repr(eurusd) == "FX.Pair(:EUR, :USD)"
     end
 
     usd = Yield.Constant(Continuous(0.05))
@@ -30,10 +31,20 @@
         @test maturity(atm) == 1.0
         @test pv(m, atm) ≈ 0.0 atol = 1e-14
         # struck below the forward: worth the discounted difference in quote currency
-        @test pv(m, FX.Forward(eurusd, F1 - 0.01, 1.0)) ≈ 0.01 * exp(-0.05)
+        off = FX.Forward(eurusd, F1 - 0.01, 1.0)
+        @test pv(m, off) ≈ 0.01 * exp(-0.05)
+        # valuation at cur_time > 0: same payoff, discounted over the remaining period
+        @test pv(m, off, 0.5) ≈ 0.01 * exp(-0.05 * 0.5)
+        # inclusive at cur_time == settlement: the undiscounted payoff (matches the
+        # `cf.time >= cur_time` projection filter convention)
+        @test pv(m, off, 1.0) ≈ 0.01
+        # a forward that settled before the valuation time is worth zero
+        @test pv(m, off, 2.0) == 0.0
         # pair mismatch errors loudly instead of pricing a crossed/inverted rate
         @test_throws ArgumentError pv(m, FX.Forward(FX.Pair(:GBP, :USD), 1.0, 1.0))
         @test_throws ArgumentError pv(m, FX.Forward(inv(eurusd), 1.0, 1.0))
+        # ...including through the valuation-time form
+        @test_throws ArgumentError pv(m, FX.Forward(FX.Pair(:GBP, :USD), 1.0, 1.0), 0.5)
     end
 
     @testset "quote conventions" begin
@@ -63,6 +74,9 @@
         m_true = FX.Forwards(eurusd, S, usd_boot, eur)
         ts = [0.5, 1.0, 2.0, 5.0, 10.0]
         quotes = [FX.Outright(eurusd, forward(m_true, t), t) for t in ts]
+
+        # inv under non-flat curves: the role swap plus spot inversion is exact
+        @test forward(inv(m_true), 2.0) ≈ 1 / forward(m_true, 2.0)
 
         implied = FX.implied_zcb_quotes(quotes, S, usd_boot)
         @test all(implied[i].price ≈ discount(eur, ts[i]) for i in eachindex(ts))

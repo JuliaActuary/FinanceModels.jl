@@ -394,17 +394,15 @@ fit(::Spline.MonotoneConvex, quotes, ::Fit.Bootstrap) = fit(Yield.MonotoneConvex
 # curve, and forward quotes, the implied base-currency discount factors are closed-form
 # (DF_f(t) = (K·DF_d(t) + price)/spot — see `FX.implied_zcb_quotes`), so curve
 # construction reduces to fitting the spline through the implied zero-coupon quotes; no
-# optimizer runs over the FX model itself. The two methods are deliberately separate
-# (not a `Union`) so neither is ambiguous against the generic optic-based
+# optimizer runs over the FX model itself. The two dispatch methods are deliberately
+# separate (not a `Union`) so neither is ambiguous against the generic optic-based
 # `fit(mod0, quotes, ::Fit.Loss)`.
-function fit(mod0::FX.Forwards{P, S, D, F}, quotes, method::Fit.Bootstrap) where {P, S, D, F <: Spline.SplineCurve}
+function __fit_fx_via_implied(mod0, quotes, method)
     implied = FX.implied_zcb_quotes(mod0, quotes)
     return @set mod0.foreign = fit(mod0.foreign, implied, method)
 end
-function fit(mod0::FX.Forwards{P, S, D, F}, quotes, method::Fit.Loss) where {P, S, D, F <: Spline.SplineCurve}
-    implied = FX.implied_zcb_quotes(mod0, quotes)
-    return @set mod0.foreign = fit(mod0.foreign, implied, method)
-end
+fit(mod0::FX.Forwards{P, S, D, F}, quotes, method::Fit.Bootstrap) where {P, S, D, F <: Spline.SplineCurve} = __fit_fx_via_implied(mod0, quotes, method)
+fit(mod0::FX.Forwards{P, S, D, F}, quotes, method::Fit.Loss) where {P, S, D, F <: Spline.SplineCurve} = __fit_fx_via_implied(mod0, quotes, method)
 
 function fit(mod0::T, quotes, method::Fit.Bootstrap) where {T <: Spline.SplineCurve}
     quotes = sort(collect(quotes); by = maturity)
