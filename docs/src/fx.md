@@ -1,90 +1,134 @@
 # Foreign Exchange
 
-The [`FX`](@ref FinanceModels.FX) module extends the contracts/models/`fit` architecture to
-currencies. The design observation is that under covered interest parity (CIP), an FX
-forward curve is a *ratio of discount factors* scaled by spot:
+The [`FX`](@ref FinanceModels.FX) module extends the contracts/models/`fit` architecture
+to currencies. It rests on one observation: under covered interest parity (CIP), an FX
+forward curve is a *ratio of discount factors* scaled by spot,
 
 ```math
 F(t) = S_0 \cdot \frac{DF_{\text{foreign}}(t)}{DF_{\text{domestic}}(t)}
 ```
 
-so FX needs no new curve mathematics — every spline, parametric model, bootstrap, and
+so FX requires no new curve mathematics — every spline, parametric model, bootstrap, and
 piece of curve arithmetic in FinanceModels applies to FX curve construction unchanged.
 What the module adds is the *semantic* layer where FX errors actually happen: explicit
-pair direction, explicit points scale, and loud failures on mismatched currencies.
+pair direction, explicit points scale, explicit currency of every cashflow, and loud
+failures on mismatches.
 
-## Currency pairs
+## Conventions: pairs, direction, and points
 
-A currency pair is a type-level object. `FX.Pair(:EUR, :USD)` is the market's "EURUSD":
-the price of one unit of the *base* currency (EUR) in units of the *quote* (domestic)
-currency (USD). `inv` flips the direction:
+A currency pair is a type-level object created with [`FX.Pair`](@ref). The first symbol
+is the **base** currency (the thing being priced — one unit of it), the second is the
+**quote** (also called *domestic*, *terms*, or *counter*) currency (the units the price
+is expressed in). This matches the market's concatenated naming:
 
-```julia
-eurusd = FX.Pair(:EUR, :USD)
-inv(eurusd) # FX.Pair(:USD, :EUR)
-```
+| Pair                  | Market name | A rate of | means                |
+|:----------------------|:------------|:----------|:---------------------|
+| `FX.Pair(:EUR, :USD)` | EURUSD      | `1.10`    | \$1.10 per €1        |
+| `FX.Pair(:USD, :JPY)` | USDJPY      | `150.0`   | ¥150 per \$1         |
 
-Because the pair travels in the type, pricing a contract against a model quoted in a
-different pair (including the inverted one) is an immediate `ArgumentError` naming both
-pairs — not a silently crossed rate.
+`inv` flips the direction — `inv(FX.Pair(:EUR, :USD)) == FX.Pair(:USD, :EUR)` — and
+correspondingly inverts the rate.
 
-## The forward curve model
+Direction confusion is the classic FX bug: an inverted rate is not obviously wrong on
+sight (`0.91` and `1.10` are both plausible EUR/USD numbers), and a crossed pair can pass
+through an entire calculation silently. Because the pair travels in the *type*, pricing a
+contract against a model quoted in a different pair — including the inverted one — throws
+an immediate `ArgumentError` naming both pairs rather than returning a wrong number.
 
-[`FX.Forwards`](@ref) holds the spot rate and the two discount curves. Any yield model
-works for either curve:
+Forward *points* are the second convention trap. The interbank market quotes forwards as
+pips over spot, and the pip size differs by pair: `0.0001` for most pairs but `0.01` for
+JPY-quoted pairs. [`FX.ForwardPoints`](@ref) therefore takes the scale explicitly rather
+than guessing (see below).
+
+## Covered interest parity
+
+Why must the forward rate equal ``S_0 \cdot DF_f(t)/DF_d(t)``? Compare two ways of
+arranging to hold one unit of the base currency at time ``t``:
+
+1. **Buy now and deposit**: buy ``DF_f(t)`` units of base currency today (cost
+   ``S_0 \cdot DF_f(t)`` in quote currency) and invest them at the base-currency rate;
+   they accumulate to exactly 1 unit at ``t``.
+2. **Deposit and buy forward**: invest ``F(t) \cdot DF_d(t)`` of quote currency at the
+   quote-currency rate (worth ``F(t)`` at ``t``) and contract today, at zero cost, to
+   exchange it for 1 base unit at the forward rate ``F(t)``.
+
+Both strategies deliver the same thing, so they must cost the same today:
+``S_0 \, DF_f(t) = F(t) \, DF_d(t)``, which rearranges to the CIP formula. If the traded
+forward deviates, the difference is a riskless profit ("covered interest arbitrage").
+
+[`FX.Forwards`](@ref) is this equation as a model — a pair, a spot rate, and one discount
+curve per currency, where each curve can be *any* yield model (constant, spline,
+Nelson–Siegel, a `CompositeYield` sum, …):
 
 ```julia
 using FinanceModels
 
+eurusd = FX.Pair(:EUR, :USD)
 usd = Yield.Constant(Continuous(0.05))
 eur = Yield.Constant(Continuous(0.03))
 
 m = FX.Forwards(eurusd, 1.10, usd, eur)
 
-forward(m, 0.0) # 1.10 — the spot
-forward(m, 1.0) # 1.10 * exp(0.05 - 0.03) ≈ 1.1222 — CIP forward
+forward(m, 0.0) # 1.10 — the spot rate
+forward(m, 1.0) # 1.10 * exp(0.05 - 0.03) ≈ 1.1222
 m(1.0)          # callable shorthand for forward(m, 1.0)
 
 mi = inv(m)     # the USDEUR model: forward(mi, t) == 1 / forward(m, t)
 ```
 
-An outright forward contract and its valuation (in the quote currency):
+Note the direction of the effect: the *higher*-rate currency's forwards depreciate — here
+USD rates exceed EUR rates, so EURUSD forwards sit *above* spot (EUR at a forward
+premium). This is exactly Hull's introductory example (*Options, Futures, and Other
+Derivatives*, §5.10): AUD/USD spot 0.6200 with 5% AUD and 7% USD rates gives a 2-year
+forward of ``0.62\,e^{(0.07-0.05)\cdot 2} = 0.6453``, which is reproduced in this
+package's test suite.
+
+## Contracts and quotes
+
+[`FX.Forward`](@ref) is the outright forward contract: at `time`, receive one unit of
+base currency and pay `strike` units of quote currency. Its value, in quote currency, is
+the discounted difference between the model forward and the strike:
 
 ```julia
-c = FX.Forward(eurusd, 1.1222, 1.0)  # receive 1 EUR, pay 1.1222 USD, at t = 1
+c = FX.Forward(eurusd, 1.1222, 1.0)  # receive €1, pay $1.1222, at t = 1
 present_value(m, c)                  # (forward(m, 1) - 1.1222) * discount(usd, 1)
 ```
 
-## Building a curve from market quotes
-
-FX forwards are quoted either as outrights or as points over spot. Both return zero-price
-`Quote`s (entering a forward at the market rate costs nothing, just as a par bond quotes
-at 1.0):
+A forward struck *at* the market rate costs nothing to enter. That is precisely how the
+market quotes forwards, so FX quotes are zero-price `Quote`s — the FX analog of a par
+bond quoting at 1.0:
 
 ```julia
 quotes = FX.Outright.(eurusd, [1.1055, 1.1113, 1.1225, 1.1459], [0.25, 0.5, 1.0, 2.0])
 
-# or, from points (note the explicit pip scale — 10_000 for most pairs, 100 for JPY quotes):
+# equivalently, from points over spot (pips; scale=10_000 default, 100 for JPY quotes):
 quotes = FX.ForwardPoints.(eurusd, [55.0, 113.0, 225.0, 459.0], [0.25, 0.5, 1.0, 2.0]; spot = 1.10)
 ```
 
-Given spot and the domestic curve, each forward quote pins the implied foreign discount
-factor *in closed form*: ``DF_f(t) = F(t) \cdot DF_d(t) / S_0``. Curve construction is
-therefore just a quote transformation followed by the ordinary fitting machinery, and the
-one-step `fit` methods do exactly that:
+## Constructing a curve from market quotes
+
+Set the pricing equation of a quoted forward to its (zero) price and solve: with
+``p = (F(t) - K)\,DF_d(t)`` and ``F(t) = S_0\,DF_f(t)/DF_d(t)``,
+
+```math
+DF_f(t) = \frac{K \cdot DF_d(t) + p}{S_0}
+```
+
+Given spot and the domestic curve, *each forward quote pins the implied foreign discount
+factor in closed form* — no optimizer, no iteration. Curve construction therefore reduces
+to a quote transformation followed by the ordinary fitting machinery, which is what the
+one-step `fit` methods do:
 
 ```julia
 m = fit(FX.Forwards(eurusd, 1.10, usd, Spline.Cubic()), quotes, Fit.Bootstrap())
 
-forward(m, 1.0)                       # ≈ 1.1225: every quote reprices exactly
+forward(m, 1.0)                        # ≈ 1.1225: every quote reprices exactly
 present_value(m, quotes[3].instrument) # ≈ 0.0
 ```
 
-The intermediate transform is also available directly via
-[`FX.implied_zcb_quotes`](@ref), which returns zero-coupon `Quote`s you can feed to any
-model — a parametric curve, a different spline, `Fit.Loss` least squares, etc.
-
-Parametric foreign curves fit through the generic optimizer path (the foreign curve's
+The intermediate transform is available directly as [`FX.implied_zcb_quotes`](@ref),
+returning zero-coupon `Quote`s you can feed to *any* model or fitting method. Parametric
+foreign curves calibrate through the generic optimizer path (the foreign curve's
 parameters are the free variables; spot and the domestic curve are inputs):
 
 ```julia
@@ -93,43 +137,130 @@ m = fit(FX.Forwards(eurusd, 1.10, usd, Yield.Constant()), quotes)
 
 ## Cross-currency basis and hedge pricing
 
-Since 2008, covered interest parity does not hold against "textbook" curves: market
-forwards embed a cross-currency basis. The model handles this structurally, because the
-`foreign` field is *defined by what reprices the FX market*, not as any particular
-reference curve:
+Textbook CIP stopped holding exactly in 2008: regulatory balance-sheet costs and demand
+for dollar funding mean market forwards deviate from the CIP value computed off each
+currency's own OIS curve. The deviation, expressed as a spread on one leg, is the
+**cross-currency basis** (persistently negative vs. USD for EUR and especially JPY in the
+post-crisis era).
+
+The model handles this structurally, because the `foreign` field is *defined by what
+reprices the FX market* rather than as any particular reference curve:
 
 - **Absorbed basis.** When you `fit` an `FX.Forwards` to market forward quotes, the
   fitted `foreign` curve is the basis-adjusted (CSA / collateralized) discount curve —
-  ``DF_f(t) = F_{\text{mkt}}(t) \cdot DF_d(t) / S_0`` by construction. Anything you then
-  price with the model (forwards, hedged cashflow conversion) is basis-consistent
-  automatically: the cost or benefit of the hedge is embedded in the curve.
+  ``DF_f(t) = F_{\text{mkt}}(t) \cdot DF_d(t) / S_0`` by construction. Everything priced
+  with the fitted model — forwards, hedge rolls, converted cashflows — is
+  basis-consistent automatically: the cost or benefit of the currency hedge is embedded
+  in the curve.
 
 - **Explicit basis.** Because curve arithmetic composes in zero-rate space, the basis is
-  a first-class object when you want it to be:
+  a first-class curve when you want to see it:
 
   ```julia
   # from an OIS curve and a fitted basis spread curve:
   m = FX.Forwards(eurusd, 1.10, usd_ois, eur_ois + basis)
 
-  # or extract the basis implied by the market-fit model:
+  # or extract the basis implied by a market-fit model:
   basis = m_fit.foreign - eur_ois
   ```
 
-  A ``-20``bp EUR basis (`basis = Yield.Constant(Continuous(-0.002))`) lowers the
-  effective EUR discounting rate and raises the CIP forwards, exactly as quoted markets
-  do.
+  A ``-20``bp EUR basis (`Yield.Constant(Continuous(-0.002))`) lowers effective EUR
+  discounting and raises the CIP forwards, exactly as quoted markets do.
 
-Long-dated basis calibration from cross-currency *swap* quotes (rather than forward
-points) requires projecting floating legs in two currencies and is planned alongside the
-multi-currency projection wrapper — see the roadmap note below.
+One practical consequence for hedged portfolios: the domestic-equivalent yield curve of a
+fully-hedged foreign asset is `asset_curve - m.foreign + m.domestic` (all zero-rate
+arithmetic) — the asset's spread over the basis-adjusted foreign curve, re-anchored to
+domestic rates. The basis shows up as exactly the hedge drag it is in practice.
+
+## Multi-currency valuation and cross-currency swaps
+
+Valuing a foreign-currency contract in domestic terms is a *projection* concern: project
+the contract's cashflows, convert each into the domestic currency, then discount as
+usual. [`FX.Converted`](@ref) is that conversion as a wrapper contract. It multiplies
+each projected amount by the CIP forward for that cashflow's time, looking the FX model
+up from the projection's model store by key — the same key/value pattern
+[`Bond.Floating`](@ref FinanceModels.Bond.Floating) uses for its reference rate:
+
+```julia
+store = Dict("EURUSD" => m, "ESTR" => eur)
+eur_bond = Bond.Fixed(0.04, Periodic(1), 2.0)  # a EUR-denominated bond
+
+p = Projection(FX.Converted(eur_bond, "EURUSD"), store, CashflowProjection())
+collect(p)  # USD cashflows: each EUR amount × forward(m, t)
+```
+
+Converting at forwards and discounting domestically is *identical* to discounting on the
+(basis-adjusted) foreign curve and converting at spot:
+
+```math
+\sum_t c_t \, F(t) \, DF_d(t) \;=\; S_0 \sum_t c_t \, DF_f(t)
+```
+
+so hedged cross-currency valuation is consistent whichever way it is sliced — this
+identity is asserted directly in the test suite, for fixed and floating legs alike.
+
+### A worked example: Hull's fixed-for-fixed currency swap
+
+The classic currency-swap valuation (Hull, *Options, Futures, and Other Derivatives*,
+§7.9): term structures are flat at 9% in the US and 4% in Japan (continuously
+compounded), spot is ¥110 = \$1, and an institution receives 5% annually on ¥1,200M and
+pays 8% annually on \$10M for three more years, with principals exchanged at maturity.
+A currency swap is just two bonds — one converted:
+
+```julia
+jpyusd = FX.Pair(:JPY, :USD)
+usd9 = Yield.Constant(Continuous(0.09))
+jpy4 = Yield.Constant(Continuous(0.04))
+fx = FX.Forwards(jpyusd, 1 / 110, usd9, jpy4)
+
+swap = Composite(
+    FX.Converted(Bond.Fixed(0.05, Periodic(1), 3) |> Map(cf -> cf * 1200.0), "JPYUSD"), # receive ¥ leg
+    Bond.Fixed(0.08, Periodic(1), 3) |> Map(cf -> cf * -10.0),                          # pay $ leg
+)
+
+p = Projection(swap, Dict("JPYUSD" => fx), CashflowProjection())
+pv(usd9, p) # ≈ 1.5430 ($ millions)
+```
+
+Hull values this swap both as a portfolio of forward contracts (his Table 7.9: forwards
+0.009557, 0.010047, 0.010562 — compare `forward(fx, 1.0)` etc.) and as two bonds
+converted at spot (``1{,}230.55/110 - 9.6439 = 1.543``). The projection above *is* the
+forward-portfolio route; the two-bond route is
+`1200 * pv(jpy4, yen_bond) / 110 - 10 * pv(usd9, usd_bond)`; both give \$1.543M, and the
+test suite asserts they agree to numerical precision.
+
+### Floating legs and basis swaps
+
+Because a converted contract still sees the full model store, a converted
+[`Bond.Floating`](@ref FinanceModels.Bond.Floating) resolves its own reference curve
+while its cashflows are converted — so the market-standard constant-notional
+floating-for-floating cross-currency basis swap is also just a `Composite`:
+
+```julia
+store = Dict("SOFR" => usd_ois, "ESTR" => eur_ois, "EURUSD" => m)
+
+basis_swap = Composite(
+    FX.Converted(Bond.Floating(-0.0020, Periodic(4), 5.0, "ESTR"), "EURUSD"), # receive €STR − 20bp, in USD terms
+    Bond.Floating(0.0, Periodic(4), 5.0, "SOFR") |> Map(-),                   # pay SOFR flat
+)
+```
+
+(The `Bond.Floating` legs are bond-style — they include the final principal — so the
+principal exchange at maturity is represented; a par basis swap's initial exchange nets
+against a unit `Cashflow` at time zero if you need it explicitly.)
+
+Deliberately *not* built yet, pending convention decisions: mark-to-market (resetting-
+notional) basis swaps, and par-basis-swap `Quote` constructors for calibrating the
+long-dated basis directly from swap quotes — forward-points quotes cover the liquid short
+end today. Open an issue if your use case needs these sooner.
 
 ## Relationship to other models
 
-- **FX options**: the Garman–Kohlhagen model is `Equity.BlackScholesMerton(r_domestic,
+- **FX options**: the Garman–Kohlhagen formula is `Equity.BlackScholesMerton(r_domestic,
   r_foreign, σ)` applied to one unit of base currency — the foreign rate plays the role
   of the dividend yield. Direct pricing methods for `FX` types and delta-conventioned
-  volatility quotes are future work.
-- **Multi-currency projection**: a wrapper contract that converts a foreign contract's
-  projected cashflows at CIP forwards (enabling cross-currency swaps and hedged-portfolio
-  valuation through the `Projection` model store) is the planned next step; `FX.Forwards`
-  is the primitive it consumes.
+  volatility quotes (ATM/risk-reversal/butterfly) are future work.
+- **Stochastic FX** (simulated spot paths over correlated short-rate models, for
+  real-world/unhedged projection) would slot into the existing
+  `simulate`/[`RatePath`](@ref FinanceModels.RatePath) machinery and is likewise future
+  work.

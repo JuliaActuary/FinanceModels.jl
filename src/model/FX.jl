@@ -4,6 +4,7 @@ The `FX` module provides foreign exchange models, contracts, and quote conventio
 - [`FX.Pair`](@ref) — a currency pair as a type-level object, e.g. `FX.Pair(:EUR, :USD)`
 - [`FX.Forwards`](@ref) — a covered-interest-parity model of outright FX forward rates, built from a spot rate and two discount curves
 - [`FX.Forward`](@ref) — an outright FX forward contract
+- [`FX.Converted`](@ref) — a wrapper that converts a contract's projected cashflows into the quote currency at CIP forward rates, enabling cross-currency swaps and hedged multi-currency valuation
 - [`FX.Outright`](@ref) and [`FX.ForwardPoints`](@ref) — market quote conventions, returning `Quote`s
 - [`FX.implied_zcb_quotes`](@ref) — transform FX forward quotes into the implied base-currency zero-coupon quotes used for curve construction
 
@@ -280,5 +281,56 @@ function implied_zcb_quotes(m::Forwards, quotes)
     end
     return implied_zcb_quotes(quotes, m.spot, m.domestic)
 end
+
+"""
+    FX.Converted(contract, key)
+
+Wrap a contract whose cashflows are denominated in the *base* (foreign) currency of an
+FX pair, converting each projected cashflow into the *quote* (domestic) currency at the
+arbitrage-free forward exchange rate for that cashflow's time: an amount paid at time
+`t` is multiplied by `forward(fx, t)`, where `fx` is the [`FX.Forwards`](@ref) model
+looked up from the projection's model store under `key` — the same key/value pattern
+used by [`Bond.Floating`](@ref FinanceModels.Bond.Floating) for its reference rate.
+
+Converting at CIP forwards and then discounting on the domestic curve is identical to
+discounting the unconverted cashflows on the FX model's foreign curve and converting the
+result at spot:
+
+    pv(domestic, Converted(c)) == spot * pv(foreign, c)
+
+so collateralized (hedged) cross-currency valuation is consistent whichever way it is
+sliced, and — when the FX model was fit to market forwards — automatically reflects the
+cross-currency basis.
+
+Because the wrapper works on *any* projectable contract (including transducer-modified
+ones and [`Bond.Floating`](@ref FinanceModels.Bond.Floating), whose reference model is
+resolved from the same store), cross-currency swaps are ordinary [`Composite`](@ref
+FinanceCore.Composite)s — see the "Foreign Exchange" documentation page for a worked
+fixed-for-fixed and floating-floating example.
+
+# Examples
+
+```julia
+eurusd = FX.Pair(:EUR, :USD)
+usd = Yield.Constant(Continuous(0.05))
+eur = Yield.Constant(Continuous(0.03))
+fx = FX.Forwards(eurusd, 1.08, usd, eur)
+
+bond = Bond.Fixed(0.04, Periodic(1), 2.0)  # a EUR-denominated bond
+p = Projection(FX.Converted(bond, "EURUSD"), Dict("EURUSD" => fx), CashflowProjection())
+
+collect(p)  # cashflows now in USD: each amount is multiplied by forward(fx, t)
+pv(usd, p)  # == 1.08 * pv(eur, bond)
+```
+"""
+struct Converted{C, K} <: FinanceCore.AbstractContract
+    # `contract` is deliberately unconstrained (like `FinanceCore.Composite`) so that
+    # transducer-wrapped contracts (`Transducers.Eduction`s such as `bond |> Map(-)`)
+    # can be converted too.
+    contract::C
+    key::K
+end
+
+FinanceCore.maturity(c::Converted) = FinanceCore.maturity(c.contract)
 
 end

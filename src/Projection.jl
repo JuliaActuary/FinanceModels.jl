@@ -170,6 +170,18 @@ end
     return p_alt |> Map(cf -> @set cf.time += fwd_start)
 end
 
+# an `FX.Converted` contract's cashflows are denominated in the base (foreign) currency
+# of an FX pair; convert each amount into the quote (domestic) currency at the
+# arbitrage-free forward exchange rate for its payment time. The FX model is looked up
+# from the projection's model store by key, mirroring `Bond.Floating`'s reference-rate
+# lookup, so the wrapped contract still sees the same store (a converted floating leg
+# resolves its own reference curve from it).
+@inline function Transducers.asfoldable(p::Projection{C, M, K}) where {C <: FX.Converted, M, K <: CashflowProjection}
+    fx = p.model[p.contract.key]
+    p_alt = @set p.contract = p.contract.contract
+    return p_alt |> Map(cf -> @set cf.amount *= forward(fx, cf.time))
+end
+
 @inline function Transducers.asfoldable(p::Projection{C, M, K}) where {C <: Cashflow, M, K <: CashflowProjection}
     return Ref(p.contract) |> Map(identity)
 end

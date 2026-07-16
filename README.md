@@ -68,6 +68,7 @@ Existing `struct`s:
 - `CommonEquity`
 - `Option.Cap`, `Option.Floor`, `Option.Swaption` (interest rate derivatives)
 - `FX.Forward` (an outright foreign-exchange forward)
+- `FX.Converted` (a contract's cashflows converted into another currency at forward FX rates, e.g. for cross-currency swaps)
 
 Commonly, we deal with conventions that imply a contract and an observed price. For example, we may talk about a treasury yield of `0.03`. This is a description that implies a `Quote`ed price for an underling fixed bond. In FinanceModels, we could use `CMTYield(rate,tenor)` which would create a `Quote(price,Bond.Fixed(...))`. In this way, we can conveniently create a number of `Quote`s which can be used to fit models. Such convenience methods include:
 
