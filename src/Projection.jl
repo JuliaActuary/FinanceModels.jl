@@ -182,6 +182,17 @@ end
     return p_alt |> Map(cf -> @set cf.amount *= forward(fx, cf.time))
 end
 
+# an `FX.BasisSwapLeg` is a materialized strip of base-currency cashflows; emit them
+# directly (they need no model to resolve). A leaf contract needs `__foldl__`, not
+# `asfoldable`: wrapper rules like `FX.Converted`'s fold their inner projection through
+# an Eduction, which resolves `__foldl__` methods but does not re-apply `asfoldable`.
+@inline function Transducers.__foldl__(rf, val, p::Projection{C, M, K}) where {C <: FX.BasisSwapLeg, M, K}
+    for cf in p.contract.cashflows
+        val = @next(rf, val, cf)
+    end
+    return complete(rf, val)
+end
+
 @inline function Transducers.asfoldable(p::Projection{C, M, K}) where {C <: Cashflow, M, K <: CashflowProjection}
     return Ref(p.contract) |> Map(identity)
 end

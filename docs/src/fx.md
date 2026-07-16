@@ -249,10 +249,60 @@ basis_swap = Composite(
 principal exchange at maturity is represented; a par basis swap's initial exchange nets
 against a unit `Cashflow` at time zero if you need it explicitly.)
 
-Deliberately *not* built yet, pending convention decisions: mark-to-market (resetting-
-notional) basis swaps, and par-basis-swap `Quote` constructors for calibrating the
-long-dated basis directly from swap quotes — forward-points quotes cover the liquid short
-end today. Open an issue if your use case needs these sooner.
+### Calibrating the long-dated basis from par basis-swap quotes
+
+Forward points cover the liquid short end (out to a year or two); beyond that the
+cross-currency basis trades as **par basis-swap spreads** — "5y EUR/USD basis −18bp"
+means the five-year swap of €STR − 18bp against SOFR flat, with notional exchanges,
+prices to par. [`FX.ParBasisSwap`](@ref) turns those quotes into `fit` inputs.
+
+The quoting assumption, standard for collateralized (OIS-discounted) swaps, is that the
+domestic leg pays the forwards of the same curve used for domestic discounting, so it is
+worth par and drops out. What remains is a condition on the foreign side alone:
+
+```math
+\sum_i (f_i + b)\,\delta\,DF_f(t_i) + DF_f(T) = 1
+```
+
+where ``f_i`` are forwards from the foreign *projection* curve (e.g. a fitted €STR
+curve — a known input passed as the `reference` keyword), ``b`` is the quoted spread,
+``\delta`` the accrual fraction, and ``DF_f`` the basis-adjusted discount curve being
+calibrated. Because the coupon amounts are fully determined by the projection curve,
+each quote materializes into a deterministic base-currency cashflow strip
+([`FX.BasisSwapLeg`](@ref)) that must price to par on the curve being fit — and
+deterministic strips flow through the same fitting machinery as the implied zero-coupon
+quotes. One `fit` call takes both quote types:
+
+```julia
+estr = ...   # EUR projection curve, fitted from EUR OIS quotes
+sofr = ...   # USD discount curve
+
+quotes = [
+    # short end: forward points
+    FX.ForwardPoints.(eurusd, [25.0, 55.0, 120.0], [0.25, 0.5, 1.0]; spot = 1.10);
+    # long end: par basis-swap spreads
+    FX.ParBasisSwap.(eurusd, [-0.0012, -0.0015, -0.0018], [2.0, 5.0, 10.0]; reference = estr)
+]
+
+m = fit(FX.Forwards(eurusd, 1.10, sofr, Spline.Linear()), quotes, Fit.Bootstrap())
+```
+
+Every quote — outright or swap — reprices under the fitted model, and the composite
+basis swap from the previous section values to zero against it (the test suite asserts
+both). Two practical notes:
+
+- Prefer *local* interpolation (e.g. `Spline.Linear`) when bootstrapping coupon-bearing
+  quotes: a global spline reshapes earlier segments as later knots are added, drifting
+  already-solved swaps off par.
+- Interbank basis swaps are quoted on the mark-to-market (resetting-notional)
+  structure. Under deterministic curves the constant-notional and MTM par spreads agree
+  to first order, so quoted spreads calibrate the constant-notional representation
+  directly; the difference only becomes material alongside FX–rates correlation, i.e.
+  with a stochastic FX model.
+
+Deliberately *not* built yet: the mark-to-market (resetting-notional) basis-swap
+*contract* itself, pending convention decisions (which leg resets, settlement timing,
+accrual on the adjustment). Open an issue if your use case needs it sooner.
 
 ## Relationship to other models
 

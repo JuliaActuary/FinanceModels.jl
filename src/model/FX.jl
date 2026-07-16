@@ -6,6 +6,7 @@ The `FX` module provides foreign exchange models, contracts, and quote conventio
 - [`FX.Forward`](@ref) — an outright FX forward contract
 - [`FX.Converted`](@ref) — a wrapper that converts a contract's projected cashflows into the quote currency at CIP forward rates, enabling cross-currency swaps and hedged multi-currency valuation
 - [`FX.Outright`](@ref) and [`FX.ForwardPoints`](@ref) — market quote conventions, returning `Quote`s
+- [`FX.ParBasisSwap`](@ref) — par cross-currency basis-swap spread quotes for calibrating the long-dated basis (with [`FX.BasisSwapLeg`](@ref) as the underlying instrument)
 - [`FX.implied_zcb_quotes`](@ref) — transform FX forward quotes into the implied base-currency zero-coupon quotes used for curve construction
 
 The design philosophy mirrors the rest of FinanceModels: market conventions that are a
@@ -34,6 +35,7 @@ forward(m, 1.0)  # ≈ 1.1225, and every quote reprices to zero PV
 module FX
 
 import ..AbstractModel
+import ..Bond
 import ..FinanceCore: Timepoint
 using ..FinanceCore
 
@@ -342,5 +344,118 @@ struct Converted{C, K} <: FinanceCore.AbstractContract
 end
 
 FinanceCore.maturity(c::Converted) = FinanceCore.maturity(c.contract)
+
+"""
+    FX.BasisSwapLeg(pair, cashflows)
+
+The foreign-currency leg of a constant-notional cross-currency basis swap, materialized
+into deterministic cashflows: the periodic coupons — projection-curve forward plus the
+quoted basis spread, times the accrual fraction — and the final unit principal. Amounts
+are denominated in the *base* (foreign) currency of `pair`. Produced by
+[`FX.ParBasisSwap`](@ref); see that docstring for the quoting assumptions.
+
+Because the amounts are fixed once the projection curve is known, the leg is priceable
+by any single discount curve, which is what lets par basis-swap quotes flow through the
+standard curve-fitting machinery. Under an [`FX.Forwards`](@ref) model for the same
+pair, `present_value(m, leg)` is the leg's value **in base-currency units**, priced on
+`m.foreign` (the basis-adjusted/CSA discount curve); a mismatched pair throws an
+`ArgumentError` naming both pairs.
+"""
+struct BasisSwapLeg{P <: Pair, C} <: FinanceCore.AbstractContract
+    pair::P
+    cashflows::C
+end
+
+FinanceCore.maturity(c::BasisSwapLeg) = last(c.cashflows).time
+
+function FinanceCore.present_value(m::Forwards{P}, c::BasisSwapLeg{P}, cur_time = 0.0) where {P <: Pair}
+    return FinanceCore.present_value(m.foreign, c, cur_time)
+end
+
+function FinanceCore.present_value(m::Forwards, c::BasisSwapLeg, cur_time = 0.0)
+    throw(ArgumentError("cannot price an FX.BasisSwapLeg on $(c.pair) with an FX.Forwards model for $(m.pair)"))
+end
+
+"""
+    FX.ParBasisSwap(pair, spread, maturity; reference, frequency=Periodic(4))
+
+A `Quote` for a constant-notional cross-currency basis swap struck at par: receive the
+foreign (base-currency) leg paying `reference`-curve forwards plus the quoted basis
+`spread` (a decimal, e.g. `-0.0015` for −15bp) on a unit foreign notional, pay the
+domestic (quote-currency) leg flat, with notionals exchanged at inception and
+`maturity`.
+
+Quoting assumption (standard for collateralized, OIS-discounted swaps): the domestic
+leg pays the forwards of the *same* curve used for domestic discounting, so it is worth
+par and drops out of the calibration. What remains is the base-currency par condition
+
+    Σᵢ (fᵢ + spread) * δ * DF_f(tᵢ) + DF_f(T) = 1
+
+where `fᵢ` are the (known) `reference` projection forwards, `δ` the accrual fraction,
+and `DF_f` the basis-adjusted (CSA) discount curve being calibrated. The returned quote
+is therefore `Quote(1.0, FX.BasisSwapLeg(pair, cashflows))`: a deterministic
+base-currency cashflow strip that must price to par on the curve being fit. Each coupon
+is fix-in-advance at the `reference` forward over its accrual period, exactly matching
+how [`Bond.Floating`](@ref FinanceModels.Bond.Floating) projects, so the strip equals
+the projected floating leg.
+
+Because the strip is deterministic, these quotes flow through the same `fit` methods as
+[`FX.Outright`](@ref) quotes, and the two can be mixed in a single calibration —
+forward points for the liquid short end, basis swaps for the long end:
+
+```julia
+eurusd = FX.Pair(:EUR, :USD)
+sofr = Yield.Constant(0.05)  # domestic (USD) discount curve
+estr = Yield.Constant(0.03)  # foreign (EUR) *projection* curve, already fitted
+
+quotes = [
+    FX.Outright.(eurusd, [1.1055, 1.1113], [0.25, 0.5]);
+    FX.ParBasisSwap.(eurusd, [-0.0012, -0.0018], [2.0, 5.0]; reference = estr)
+]
+m = fit(FX.Forwards(eurusd, 1.10, sofr, Spline.Cubic()), quotes, Fit.Bootstrap())
+```
+
+This is the constant-notional representation. Interbank basis swaps are quoted on the
+mark-to-market (resetting-notional) structure; under deterministic curves the two par
+spreads agree to first order. The MTM contract itself is deliberately not modeled yet —
+see the "Foreign Exchange" documentation page.
+"""
+function ParBasisSwap(pair::Pair, spread, maturity; reference, frequency = Periodic(4))
+    f = frequency.frequency
+    ts = Bond.coupon_times(maturity, f)
+    cfs = map(ts) do t
+        # fix-in-advance forward + spread, replicating `Bond.Floating`'s projection
+        # (which the FX module cannot call directly: `Projection` loads after it)
+        reference_rate = rate(frequency(forward(reference, t - 1 / f, t)))
+        coup = (reference_rate + spread) / f
+        amt = t == last(ts) ? 1.0 + coup : coup
+        Cashflow(amt, t)
+    end
+    return Quote(1.0, BasisSwapLeg(pair, cfs))
+end
+
+# Reduce one market quote to its equivalent quote on the base-currency discount curve,
+# using the spot and domestic curve carried by the model. This is the per-quote
+# primitive behind the `fit` methods for `FX.Forwards`, and is what lets a single
+# calibration mix instrument types: outright forwards for the short end, par basis
+# swaps for the long end.
+function __implied_foreign_quote(m::Forwards, q::Quote{<:Any, <:Forward})
+    c = q.instrument
+    if c.pair != m.pair
+        throw(ArgumentError("quote is for $(c.pair) but the model prices $(m.pair)"))
+    end
+    # the closed-form implied discount factor — see `implied_zcb_quotes`
+    df = (c.strike * discount(m.domestic, c.time) + q.price) / m.spot
+    return Quote(df, Cashflow(one(df), c.time))
+end
+
+# a par basis-swap leg is already denominated on the base-currency curve; only check
+# that it belongs to the model's pair
+function __implied_foreign_quote(m::Forwards, q::Quote{<:Any, <:BasisSwapLeg})
+    if q.instrument.pair != m.pair
+        throw(ArgumentError("quote is for $(q.instrument.pair) but the model prices $(m.pair)"))
+    end
+    return q
+end
 
 end

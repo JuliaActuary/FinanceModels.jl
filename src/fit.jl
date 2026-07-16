@@ -391,14 +391,16 @@ end
 fit(::Spline.MonotoneConvex, quotes, ::Fit.Bootstrap) = fit(Yield.MonotoneConvex(), quotes)
 
 # FX.Forwards with a spline placeholder as the foreign curve: given spot, the domestic
-# curve, and forward quotes, the implied base-currency discount factors are closed-form
-# (DF_f(t) = (K·DF_d(t) + price)/spot — see `FX.implied_zcb_quotes`), so curve
-# construction reduces to fitting the spline through the implied zero-coupon quotes; no
-# optimizer runs over the FX model itself. The two dispatch methods are deliberately
-# separate (not a `Union`) so neither is ambiguous against the generic optic-based
-# `fit(mod0, quotes, ::Fit.Loss)`.
+# curve, and market quotes, each quote reduces to an equivalent quote on the
+# base-currency discount curve — closed-form implied zero-coupon quotes for outright
+# forwards (DF_f(t) = (K·DF_d(t) + price)/spot, see `FX.implied_zcb_quotes`) and par
+# cashflow strips for basis swaps (see `FX.ParBasisSwap`) — so curve construction
+# reduces to fitting the spline through those quotes; no optimizer runs over the FX
+# model itself, and one quote set may mix both instrument types. The two dispatch
+# methods are deliberately separate (not a `Union`) so neither is ambiguous against the
+# generic optic-based `fit(mod0, quotes, ::Fit.Loss)`.
 function __fit_fx_via_implied(mod0, quotes, method)
-    implied = FX.implied_zcb_quotes(mod0, quotes)
+    implied = map(q -> FX.__implied_foreign_quote(mod0, q), quotes)
     return @set mod0.foreign = fit(mod0.foreign, implied, method)
 end
 fit(mod0::FX.Forwards{P, S, D, F}, quotes, method::Fit.Bootstrap) where {P, S, D, F <: Spline.SplineCurve} = __fit_fx_via_implied(mod0, quotes, method)

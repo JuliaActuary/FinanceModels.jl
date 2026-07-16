@@ -79,6 +79,7 @@ Commonly, we deal with conventions that imply a contract and an observed price. 
 - `ParSwapYield`
 - `ForwardYield`
 - `FX.Outright` and `FX.ForwardPoints` (foreign-exchange forwards)
+- `FX.ParBasisSwap` (par cross-currency basis-swap spreads, for calibrating the long-dated basis)
 
 FinanceModels offers a way to define new contracts as well.
 
@@ -110,7 +111,7 @@ Stochastic models include:
 
 Foreign exchange models include:
 
-- `FX.Forwards` — covered-interest-parity forward exchange rates from a spot rate and a discount curve per currency, fit to forward/points quotes (see the Foreign Exchange docs page)
+- `FX.Forwards` — covered-interest-parity forward exchange rates from a spot rate and a discount curve per currency, fit to forward/points quotes and/or par basis-swap spreads (see the Foreign Exchange docs page)
 
 #### Yield-related functions
 
