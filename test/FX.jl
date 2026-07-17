@@ -2,17 +2,16 @@
     eurusd = FX.Pair(:EUR, :USD)
 
     @testset "Pair" begin
-        @test eurusd === FX.Pair(:EUR, :USD)
-        @test inv(eurusd) === FX.Pair(:USD, :EUR)
-        @test inv(inv(eurusd)) === eurusd
+        @test eurusd == FX.Pair(:EUR, :USD)
+        @test eurusd === FX.Pair(:EUR, :USD) # immutable value: egal too
+        @test inv(eurusd) == FX.Pair(:USD, :EUR)
+        @test inv(inv(eurusd)) == eurusd
         @test repr(eurusd) == "FX.Pair(:EUR, :USD)"
 
-        # currencies are not restricted to Symbols: any isbits value works as a type
-        # parameter (e.g. InlineStrings codes, or ISO 4217 numeric codes as here),
-        # and the whole pipeline dispatches on the parametric pair
+        # currencies are not restricted to Symbols: any values work, e.g. ISO 4217
+        # numeric codes, and the whole pipeline carries them along
         iso = FX.Pair(978, 840) # EUR/USD by ISO numeric code
-        @test iso === FX.Pair{978, 840}()
-        @test inv(iso) === FX.Pair(840, 978)
+        @test inv(iso) == FX.Pair(840, 978)
         @test repr(iso) == "FX.Pair(978, 840)"
         m_iso = FX.Forwards(iso, 1.10, Yield.Constant(Continuous(0.05)), Yield.Constant(Continuous(0.03)))
         @test forward(m_iso, 1.0) ≈ 1.10 * exp(0.02)
@@ -20,6 +19,22 @@
         # a Symbol pair and an integer-code pair are distinct pairs, per the
         # direction-guard design
         @test_throws ArgumentError pv(m_iso, FX.Forward(FX.Pair(:EUR, :USD), 1.0, 1.0))
+
+        # plain strings work too (currencies are values, not type parameters)
+        s = FX.Pair("EUR", "USD")
+        @test inv(s) == FX.Pair("USD", "EUR")
+        @test repr(s) == "FX.Pair(\"EUR\", \"USD\")"
+        # equality and hashing are content-based across string storage types (the
+        # fixed widths CSV readers assign per column, or substrings as here), so
+        # contracts and models match whenever the currencies read the same
+        sub = FX.Pair(SubString("EURO", 1, 3), SubString("USDX", 1, 3))
+        @test sub == s
+        @test hash(sub) == hash(s)
+        m_str = FX.Forwards(s, 1.10, Yield.Constant(Continuous(0.05)), Yield.Constant(Continuous(0.03)))
+        @test pv(m_str, FX.Forward(sub, forward(m_str, 1.0), 1.0)) ≈ 0.0 atol = 1e-14
+        # ...but a Symbol pair and a string pair are distinct conventions
+        @test s != eurusd
+        @test_throws ArgumentError pv(m_str, FX.Forward(eurusd, 1.0, 1.0))
     end
 
     usd = Yield.Constant(Continuous(0.05))
@@ -34,9 +49,13 @@
         @test m(1.0) == forward(m, 1.0)
 
         mi = inv(m)
-        @test mi.pair === FX.Pair(:USD, :EUR)
+        @test mi.pair == FX.Pair(:USD, :EUR)
         @test forward(mi, 0.0) ≈ 1 / S
         @test forward(mi, 3.0) ≈ 1 / forward(m, 3.0)
+        # pricing under the inverted model: the role swap is complete, so an
+        # off-market USDEUR forward discounts on the (now-domestic) EUR curve
+        K = forward(mi, 1.0) - 0.005
+        @test pv(mi, FX.Forward(FX.Pair(:USD, :EUR), K, 1.0)) ≈ 0.005 * exp(-0.03)
     end
 
     @testset "FX.Forward contract" begin
@@ -67,18 +86,22 @@
         @test q.instrument.strike == 1.1225
         @test q.instrument.time == 1.0
 
-        qp = FX.ForwardPoints(eurusd, 25.0, 0.5; spot = 1.10)
+        qp = FX.ForwardPoints(eurusd, 25.0, 0.5; spot = 1.10, scale = 10_000)
         @test qp.instrument.strike ≈ 1.10 + 25 / 10_000
 
         usdjpy = FX.Pair(:USD, :JPY)
         qj = FX.ForwardPoints(usdjpy, -30.0, 1.0; spot = 150.0, scale = 100)
         @test qj.instrument.strike ≈ 149.70
 
+        # scale has no default — a silently assumed pip factor is the classic JPY
+        # off-by-100× footgun
+        @test_throws UndefKeywordError FX.ForwardPoints(eurusd, 25.0, 0.5; spot = 1.10)
+
         # pair broadcasts as a scalar
         qs = FX.Outright.(eurusd, [1.11, 1.12], [1.0, 2.0])
         @test length(qs) == 2
         @test qs[2].instrument.time == 2.0
-        qps = FX.ForwardPoints.(eurusd, [10.0, 20.0], [0.5, 1.0]; spot = 1.10)
+        qps = FX.ForwardPoints.(eurusd, [10.0, 20.0], [0.5, 1.0]; spot = 1.10, scale = 10_000)
         @test qps[1].instrument.strike ≈ 1.101
     end
 
@@ -107,6 +130,12 @@
         gbp_quote = FX.Outright(FX.Pair(:GBP, :USD), 1.25, 1.0)
         @test_throws ArgumentError FX.implied_zcb_quotes([quotes[1], gbp_quote], S, usd_boot)
         @test_throws ArgumentError FX.implied_zcb_quotes(m_true, [gbp_quote])
+
+        # a corrupt quote implying a non-positive discount factor fails at the source
+        # rather than as NaN inside a downstream spline fit
+        bad = Quote(-2.0, FX.Forward(eurusd, forward(m_true, 1.0), 1.0))
+        @test_throws ArgumentError FX.implied_zcb_quotes([bad], S, usd_boot)
+        @test_throws ArgumentError FX.__implied_foreign_quote(m_true, bad)
 
         @testset "bootstrap fit round-trip" begin
             m_fit = fit(FX.Forwards(eurusd, S, usd_boot, Spline.Cubic()), quotes, Fit.Bootstrap())
@@ -211,9 +240,24 @@
         scaled = pv(usd_boot, Projection(FX.Converted(bond |> Map(cf -> cf * 100.0), "EURUSD"), store, CashflowProjection()))
         @test scaled ≈ 100.0 * 1.08 * pv(eur, bond)
 
+        # rolling the valuation date through the projection path: only cashflows at
+        # or after cur_time remain, discounted from cur_time
+        cur = 2.25
+        manual = sum(cf.amount * forward(fx, cf.time) * discount(usd_boot, cur, cf.time) for cf in raw if cf.time >= cur)
+        @test pv(usd_boot, Projection(FX.Converted(bond, "EURUSD"), store, CashflowProjection()), cur) ≈ manual
+
+        # the identity pair converts at forward ≡ 1, letting generic multi-currency
+        # code route domestic contracts through the same machinery
+        idfx = FX.Forwards(FX.Pair(:USD, :USD), 1.0, usd_boot, usd_boot)
+        @test forward(idfx, 2.0) == 1.0
+        @test pv(usd_boot, Projection(FX.Converted(bond, "USDUSD"), Dict("USDUSD" => idfx), CashflowProjection())) ≈ pv(usd_boot, bond)
+
         @test maturity(FX.Converted(bond, "EURUSD")) == 5.0
         # a missing model key errors loudly
         @test_throws KeyError collect(Projection(FX.Converted(bond, "GBPUSD"), store, CashflowProjection()))
+        # ...and so does a mis-keyed store: a yield curve where the FX model belongs
+        # is named at the source instead of failing inside the transducer pipeline
+        @test_throws ArgumentError collect(Projection(FX.Converted(bond, "EURUSD"), Dict("EURUSD" => usd_boot), CashflowProjection()))
     end
 
     @testset "textbook: fixed-for-fixed currency swap (Hull §7.9)" begin

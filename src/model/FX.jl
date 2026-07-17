@@ -1,7 +1,7 @@
 """
 The `FX` module provides foreign exchange models, contracts, and quote conventions:
 
-- [`FX.Pair`](@ref) — a currency pair as a type-level object, e.g. `FX.Pair(:EUR, :USD)`
+- [`FX.Pair`](@ref) — a currency pair, e.g. `FX.Pair(:EUR, :USD)`
 - [`FX.Forwards`](@ref) — a covered-interest-parity model of outright FX forward rates, built from a spot rate and two discount curves
 - [`FX.Forward`](@ref) — an outright FX forward contract
 - [`FX.Converted`](@ref) — a wrapper that converts a contract's projected cashflows into the quote currency at CIP forward rates, enabling cross-currency swaps and hedged multi-currency valuation
@@ -50,25 +50,30 @@ abstract type AbstractFXModel <: AbstractModel end
 """
     FX.Pair(base, quote)
 
-A currency pair as a singleton type. `FX.Pair(:EUR, :USD)` denotes the price of one unit
-of the *base* currency (`:EUR`) expressed in units of the *quote* — also called domestic
-or terms — currency (`:USD`), matching the market's "EURUSD" naming.
+A currency pair. `FX.Pair(:EUR, :USD)` denotes the price of one unit of the *base*
+currency (`:EUR`) expressed in units of the *quote* — also called domestic or terms —
+currency (`:USD`), matching the market's "EURUSD" naming.
 
-Carrying the pair at the type level means that direction errors — the classic FX bug —
-surface as immediate, descriptive errors rather than silently inverted prices: an
-[`FX.Forwards`](@ref) model only prices [`FX.Forward`](@ref) contracts denominated in
-the *same* pair.
+Every FX contract and model carries its pair, so direction errors — the classic FX
+bug — surface as immediate, descriptive `ArgumentError`s rather than silently inverted
+prices: an [`FX.Forwards`](@ref) model only prices contracts denominated in an equal
+pair.
 
 `inv` flips the pair: `inv(FX.Pair(:EUR, :USD)) == FX.Pair(:USD, :EUR)`.
 
-Currencies are usually `Symbol`s, but any value Julia admits as a type parameter works:
-`Symbol`s, types, or `isbits` values — e.g. `InlineStrings` currency codes
-(`FX.Pair(String3("EUR"), String3("USD"))`) or ISO 4217 numeric codes
-(`FX.Pair(978, 840)`). A plain `String` is not `isbits` and cannot be a type parameter;
-use a `Symbol` or an inline string instead. Distinct parameter values are distinct
-pairs: a `Symbol` pair and an inline-string pair of the same letters — or `String3` vs
-`String7` codes — do not match each other, and the usual pair-mismatch `ArgumentError`
-applies. Pick one convention for a given system.
+Currencies are usually `Symbol`s, but any values work — strings (including the
+[InlineStrings](https://github.com/JuliaStrings/InlineStrings.jl) codes CSV readers
+produce) or ISO 4217 numeric codes (`FX.Pair(978, 840)`). Pairs compare by *content*:
+string-typed currencies are equal whenever their characters match, regardless of
+storage type — `FX.Pair(String3("EUR"), String3("USD")) == FX.Pair("EUR", "USD")` —
+because `AbstractString` equality and hashing are content-based. A `Symbol` pair and a
+string pair are *not* equal, however; pick one convention for a given system,
+normalizing at the data boundary (e.g. `Symbol.(codes)`) if sources disagree.
+
+A degenerate pair such as `FX.Pair(:USD, :USD)` is deliberately permitted: with unit
+spot and identical curves it is the *identity* pair (`forward ≡ 1`), which lets generic
+multi-currency code route domestic contracts through the same [`FX.Converted`](@ref)
+machinery as foreign ones.
 
 # Examples
 
@@ -80,17 +85,19 @@ julia> inv(FX.Pair(:EUR, :USD))
 FX.Pair(:USD, :EUR)
 ```
 """
-struct Pair{B, Q} end
+struct Pair{B, Q}
+    base::B
+    quote_currency::Q # `quote` is a reserved word in Julia
+end
 
-# any value Julia admits as a type parameter (Symbols, isbits values, types) works;
-# a plain `String` is not isbits and errors here naturally
-Pair(base, quote_currency) = Pair{base, quote_currency}()
-
-Base.inv(::Pair{B, Q}) where {B, Q} = Pair{Q, B}()
+Base.inv(p::Pair) = Pair(p.quote_currency, p.base)
+# content-based equality with a matching hash: pairs match whenever their currencies
+# compare equal, even across storage types — e.g. `String3("EUR")` vs `String7("EUR")`,
+# which CSV readers legitimately assign to different columns of the same codes
+Base.:(==)(a::Pair, b::Pair) = a.base == b.base && a.quote_currency == b.quote_currency
+Base.hash(p::Pair, h::UInt) = hash(p.quote_currency, hash(p.base, hash(:FXPair, h)))
 Base.Broadcast.broadcastable(p::Pair) = Ref(p)
-# repr keeps Symbol pairs printing as `FX.Pair(:EUR, :USD)` while staying faithful for
-# non-Symbol parameters (e.g. inline strings, integer ISO codes)
-Base.show(io::IO, ::Pair{B, Q}) where {B, Q} = print(io, "FX.Pair(", repr(B), ", ", repr(Q), ")")
+Base.show(io::IO, p::Pair) = print(io, "FX.Pair(", repr(p.base), ", ", repr(p.quote_currency), ")")
 
 """
     FX.Forwards(pair, spot, domestic, foreign)
@@ -112,7 +119,13 @@ also callable: `m(t) == forward(m, t)`.
   cross-currency basis below.
 
 `inv(m)` returns the model for the flipped pair: spot is inverted and the curves swap
-roles, so `forward(inv(m), t) == 1 / forward(m, t)`.
+roles, so `forward(inv(m), t) == 1 / forward(m, t)`. Inverting is calibration-exact —
+a model fit to market quotes reprices the inverted quotes at `1 / F` identically, with
+no refit.
+
+There is deliberately no two-time `forward(m, from, to)` (a `MethodError`): under CIP
+the fair forward for delivery at `to` is `forward(m, to)` no matter when the exchange
+is contracted, so the yield-curve forward-forward form has no FX analog.
 
 # Cross-currency basis
 
@@ -171,9 +184,11 @@ Under an [`FX.Forwards`](@ref) model `m` for the same pair:
     present_value(m, c, cur_time = 0.0) = (forward(m, c.time) - c.strike) * discount(m.domestic, cur_time, c.time)
 
 A forward struck at the market outright has zero present value, which is how market
-quotes are represented — see [`FX.Outright`](@ref). A forward that settled before
-`cur_time` is worth zero, consistent with how cashflows before `cur_time` are treated
-everywhere else in the package.
+quotes are represented — see [`FX.Outright`](@ref). `cur_time` moves only the
+discounting date — the model is *not* rolled: `forward(m, c.time)` is still today's
+forward, the package's usual static-curve valuation convention. A forward that settled
+before `cur_time` is worth zero, consistent with how cashflows before `cur_time` are
+treated everywhere else in the package.
 
 Pricing a contract whose pair differs from the model's pair throws an `ArgumentError`
 naming both pairs, rather than producing a silently inverted or crossed price.
@@ -199,19 +214,16 @@ end
 
 FinanceCore.maturity(c::Forward) = c.time
 
-function FinanceCore.present_value(m::Forwards{P}, c::Forward{P}, cur_time = 0.0) where {P <: Pair}
+function FinanceCore.present_value(m::Forwards, c::Forward, cur_time = 0.0)
+    # a mismatched pair would otherwise price a silently crossed/inverted rate — the
+    # classic FX bug this module exists to prevent
+    if c.pair != m.pair
+        throw(ArgumentError("cannot price an FX.Forward on $(c.pair) with an FX.Forwards model for $(m.pair)"))
+    end
     v = (FinanceCore.forward(m, c.time) - c.strike) * discount(m.domestic, cur_time, c.time)
     # a forward settled before the valuation time contributes nothing, matching the
     # projection-path convention (`Filter(cf -> cf.time >= cur_time)` in Projection.jl)
     return c.time < cur_time ? zero(v) : v
-end
-
-# a mismatched pair would otherwise fall through to the generic projection-based
-# `present_value` and fail with an unrelated-looking iteration error; name the actual
-# problem instead. The diagonal `{P,P}` method above is more specific, so matched pairs
-# never reach this.
-function FinanceCore.present_value(m::Forwards, c::Forward, cur_time = 0.0)
-    throw(ArgumentError("cannot price an FX.Forward on $(c.pair) with an FX.Forwards model for $(m.pair)"))
 end
 
 """
@@ -229,31 +241,47 @@ See also [`FX.ForwardPoints`](@ref) for the points-over-spot convention.
 # Examples
 
 ```julia-repl
-julia> FX.Outright(FX.Pair(:EUR, :USD), 1.1225, 1.0)
-Quote{Float64, FinanceModels.FX.Forward{FinanceModels.FX.Pair{:EUR, :USD}, Float64, Float64}}(0.0, FinanceModels.FX.Forward{FinanceModels.FX.Pair{:EUR, :USD}, Float64, Float64}(FX.Pair(:EUR, :USD), 1.1225, 1.0))
+julia> q = FX.Outright(FX.Pair(:EUR, :USD), 1.1225, 1.0);
+
+julia> q.price, q.instrument.strike, q.instrument.time
+(0.0, 1.1225, 1.0)
 ```
 """
 Outright(pair::Pair, forward_rate, time) = Quote(zero(forward_rate), Forward(pair, forward_rate, time))
 
 """
-    FX.ForwardPoints(pair, points, time; spot, scale=10_000)
+    FX.ForwardPoints(pair, points, time; spot, scale)
 
 A `Quote` for an FX forward quoted as *forward points* over spot, the interbank
 convention: the outright forward rate is `spot + points / scale`.
 
-`scale` is the pip factor and is deliberately explicit: it is `10_000` for most pairs
-(one pip = 0.0001), but `100` for JPY-quoted pairs (one pip = 0.01). Returns the same
-zero-price `Quote` as [`FX.Outright`](@ref).
+`scale` is the pip factor and is required rather than defaulted: it is `10_000` for
+most pairs (one pip = 0.0001) but `100` for JPY-quoted pairs (one pip = 0.01), and a
+silently assumed scale is exactly the off-by-100× points error this module refuses to
+guess about. Returns the same zero-price `Quote` as [`FX.Outright`](@ref).
 
 # Examples
 
 ```julia
 eurusd = FX.Pair(:EUR, :USD)
-FX.ForwardPoints(eurusd, 25.0, 0.5; spot = 1.10)                      # outright 1.1025
+FX.ForwardPoints(eurusd, 25.0, 0.5; spot = 1.10, scale = 10_000)               # outright 1.1025
 FX.ForwardPoints(FX.Pair(:USD, :JPY), -30.0, 1.0; spot = 150.0, scale = 100)  # outright 149.70
 ```
 """
-ForwardPoints(pair::Pair, points, time; spot, scale = 10_000) = Outright(pair, spot + points / scale, time)
+ForwardPoints(pair::Pair, points, time; spot, scale) = Outright(pair, spot + points / scale, time)
+
+# the closed-form implied base-currency discount factor for one forward quote:
+# DF_f(t) = (K·DF_d(t) + price)/spot. Guarded because a corrupt quote (wrong price
+# sign, points scale, or spot) implies df ≤ 0, which would otherwise surface only as
+# NaNs inside a downstream curve fit, far from the offending quote.
+function __implied_zcb_quote(q::Quote{<:Any, <:Forward}, spot, domestic)
+    c = q.instrument
+    df = (c.strike * discount(domestic, c.time) + q.price) / spot
+    if !(df > 0)
+        throw(ArgumentError("the FX forward quote at time $(c.time) implies a non-positive base-currency discount factor ($df); check the quote's price, points scale, and spot"))
+    end
+    return Quote(df, Cashflow(one(df), c.time))
+end
 
 """
     FX.implied_zcb_quotes(quotes, spot, domestic)
@@ -276,7 +304,9 @@ basis-adjusted (CSA) discount curve described in [`FX.Forwards`](@ref).
 
 All quotes must share a single currency pair (and match the model's pair in the second
 form); mixed pairs throw an `ArgumentError`, since they would otherwise blend into a
-meaningless curve.
+meaningless curve. A quote implying a non-positive discount factor (a corrupt price,
+points scale, or spot) also throws an `ArgumentError` naming the offending maturity,
+rather than letting NaNs surface inside a downstream curve fit.
 
 # Examples
 
@@ -292,12 +322,10 @@ eur = fit(Spline.Cubic(), implied, Fit.Bootstrap())  # the implied EUR discount 
 function implied_zcb_quotes(quotes, spot, domestic)
     pair = first(quotes).instrument.pair
     return map(quotes) do q
-        c = q.instrument
-        if c.pair != pair
-            throw(ArgumentError("FX quotes must share a single currency pair; got both $(pair) and $(c.pair)"))
+        if q.instrument.pair != pair
+            throw(ArgumentError("FX quotes must share a single currency pair; got both $(pair) and $(q.instrument.pair)"))
         end
-        df = (c.strike * discount(domestic, c.time) + q.price) / spot
-        Quote(df, Cashflow(one(df), c.time))
+        __implied_zcb_quote(q, spot, domestic)
     end
 end
 
@@ -387,12 +415,11 @@ end
 
 FinanceCore.maturity(c::BasisSwapLeg) = last(c.cashflows).time
 
-function FinanceCore.present_value(m::Forwards{P}, c::BasisSwapLeg{P}, cur_time = 0.0) where {P <: Pair}
-    return FinanceCore.present_value(m.foreign, c, cur_time)
-end
-
 function FinanceCore.present_value(m::Forwards, c::BasisSwapLeg, cur_time = 0.0)
-    throw(ArgumentError("cannot price an FX.BasisSwapLeg on $(c.pair) with an FX.Forwards model for $(m.pair)"))
+    if c.pair != m.pair
+        throw(ArgumentError("cannot price an FX.BasisSwapLeg on $(c.pair) with an FX.Forwards model for $(m.pair)"))
+    end
+    return FinanceCore.present_value(m.foreign, c, cur_time)
 end
 
 """
@@ -416,7 +443,10 @@ is therefore `Quote(1.0, FX.BasisSwapLeg(pair, cashflows))`: a deterministic
 base-currency cashflow strip that must price to par on the curve being fit. Each coupon
 is fix-in-advance at the `reference` forward over its accrual period, exactly matching
 how [`Bond.Floating`](@ref FinanceModels.Bond.Floating) projects, so the strip equals
-the projected floating leg.
+the projected floating leg. A `maturity` that is not a whole number of periods
+produces a front stub which — again exactly like `Bond.Floating` — still accrues
+`1/frequency` and reads its reference forward from `t - 1/frequency`, extrapolating
+the `reference` curve below time zero; prefer whole-period tenors.
 
 Because the strip is deterministic, these quotes flow through the same `fit` methods as
 [`FX.Outright`](@ref) quotes, and the two can be mixed in a single calibration —
@@ -459,13 +489,10 @@ end
 # calibration mix instrument types: outright forwards for the short end, par basis
 # swaps for the long end.
 function __implied_foreign_quote(m::Forwards, q::Quote{<:Any, <:Forward})
-    c = q.instrument
-    if c.pair != m.pair
-        throw(ArgumentError("quote is for $(c.pair) but the model prices $(m.pair)"))
+    if q.instrument.pair != m.pair
+        throw(ArgumentError("quote is for $(q.instrument.pair) but the model prices $(m.pair)"))
     end
-    # the closed-form implied discount factor — see `implied_zcb_quotes`
-    df = (c.strike * discount(m.domestic, c.time) + q.price) / m.spot
-    return Quote(df, Cashflow(one(df), c.time))
+    return __implied_zcb_quote(q, m.spot, m.domestic)
 end
 
 # a par basis-swap leg is already denominated on the base-currency curve; only check

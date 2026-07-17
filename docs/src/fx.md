@@ -16,10 +16,10 @@ failures on mismatches.
 
 ## Conventions: pairs, direction, and points
 
-A currency pair is a type-level object created with [`FX.Pair`](@ref). The first symbol
-is the **base** currency (the thing being priced — one unit of it), the second is the
-**quote** (also called *domestic*, *terms*, or *counter*) currency (the units the price
-is expressed in). This matches the market's concatenated naming:
+A currency pair is created with [`FX.Pair`](@ref). The first currency is the **base**
+(the thing being priced — one unit of it), the second is the **quote** (also called
+*domestic*, *terms*, or *counter*) currency (the units the price is expressed in). This
+matches the market's concatenated naming:
 
 | Pair                  | Market name | A rate of | means                |
 |:----------------------|:------------|:----------|:---------------------|
@@ -29,20 +29,21 @@ is expressed in). This matches the market's concatenated naming:
 `inv` flips the direction — `inv(FX.Pair(:EUR, :USD)) == FX.Pair(:USD, :EUR)` — and
 correspondingly inverts the rate.
 
-Currencies are usually `Symbol`s, but any value Julia admits as a type parameter works —
-any `isbits` value, such as
-[InlineStrings](https://github.com/JuliaStrings/InlineStrings.jl) codes
-(`FX.Pair(String3("EUR"), String3("USD"))`) or ISO 4217 numeric codes
-(`FX.Pair(978, 840)`). A plain `String` cannot be a type parameter. Distinct parameter
-values are distinct pairs (a `Symbol` pair never matches an inline-string pair, and
-`String3("EUR")` never matches `String7("EUR")`), so pick one convention per system —
-or normalize at the data boundary with `Symbol(code)`.
+Currencies are usually `Symbol`s, but any values work — strings (plain or the
+[InlineStrings](https://github.com/JuliaStrings/InlineStrings.jl) codes CSV readers
+produce) or ISO 4217 numeric codes (`FX.Pair(978, 840)`). Pairs compare by *content*:
+string-typed currencies match whenever their characters do, regardless of storage type
+(`FX.Pair(String3("EUR"), String3("USD")) == FX.Pair("EUR", "USD")`, since
+`AbstractString` equality and hashing are content-based). A `Symbol` pair and a string
+pair are *not* equal, however — pick one convention per system, normalizing at the data
+boundary (e.g. `Symbol.(codes)`) if sources disagree.
 
 Direction confusion is the classic FX bug: an inverted rate is not obviously wrong on
 sight (`0.91` and `1.10` are both plausible EUR/USD numbers), and a crossed pair can pass
-through an entire calculation silently. Because the pair travels in the *type*, pricing a
-contract against a model quoted in a different pair — including the inverted one — throws
-an immediate `ArgumentError` naming both pairs rather than returning a wrong number.
+through an entire calculation silently. Because every FX contract and model carries its
+pair, pricing a contract against a model quoted in a different pair — including the
+inverted one — throws an immediate `ArgumentError` naming both pairs rather than
+returning a wrong number.
 
 Forward *points* are the second convention trap. The interbank market quotes forwards as
 pips over spot, and the pip size differs by pair: `0.0001` for most pairs but `0.01` for
@@ -110,8 +111,8 @@ bond quoting at 1.0:
 ```julia
 quotes = FX.Outright.(eurusd, [1.1055, 1.1113, 1.1225, 1.1459], [0.25, 0.5, 1.0, 2.0])
 
-# equivalently, from points over spot (pips; scale=10_000 default, 100 for JPY quotes):
-quotes = FX.ForwardPoints.(eurusd, [55.0, 113.0, 225.0, 459.0], [0.25, 0.5, 1.0, 2.0]; spot = 1.10)
+# equivalently, from points over spot (pips; scale is required: 10_000 here, 100 for JPY quotes):
+quotes = FX.ForwardPoints.(eurusd, [55.0, 113.0, 225.0, 459.0], [0.25, 0.5, 1.0, 2.0]; spot = 1.10, scale = 10_000)
 ```
 
 ## Constructing a curve from market quotes
@@ -288,7 +289,7 @@ sofr = ...   # USD discount curve
 
 quotes = [
     # short end: forward points
-    FX.ForwardPoints.(eurusd, [25.0, 55.0, 120.0], [0.25, 0.5, 1.0]; spot = 1.10);
+    FX.ForwardPoints.(eurusd, [25.0, 55.0, 120.0], [0.25, 0.5, 1.0]; spot = 1.10, scale = 10_000);
     # long end: par basis-swap spreads
     FX.ParBasisSwap.(eurusd, [-0.0012, -0.0015, -0.0018], [2.0, 5.0, 10.0]; reference = estr)
 ]

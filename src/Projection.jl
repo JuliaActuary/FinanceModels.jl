@@ -178,6 +178,13 @@ end
 # resolves its own reference curve from it).
 @inline function Transducers.asfoldable(p::Projection{C, M, K}) where {C <: FX.Converted, M, K <: CashflowProjection}
     fx = p.model[p.contract.key]
+    # a mis-keyed store (e.g. a yield curve where the FX model belongs) would otherwise
+    # fail deep inside the transducer pipeline — `forward(curve, t)` returns a `Rate`,
+    # which `Rate`-scales the amount and only errors at `Cashflow` reconstruction; name
+    # the actual problem at its source instead
+    if !(fx isa FX.AbstractFXModel)
+        throw(ArgumentError("`FX.Converted` expects an FX model (e.g. `FX.Forwards`) under the key $(repr(p.contract.key)), but the projection's model store holds a $(typeof(fx))"))
+    end
     p_alt = @set p.contract = p.contract.contract
     return p_alt |> Map(cf -> @set cf.amount *= forward(fx, cf.time))
 end
