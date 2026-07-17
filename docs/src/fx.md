@@ -313,6 +313,21 @@ Deliberately *not* built yet: the mark-to-market (resetting-notional) basis-swap
 *contract* itself, pending convention decisions (which leg resets, settlement timing,
 accrual on the adjustment). Open an issue if your use case needs it sooner.
 
+Also deliberately deferred: **multi-pair consistency**. Each `FX.Forwards` is a
+self-contained model of one pair, and independently fitted pair models are not forced
+to be mutually consistent — nothing makes a directly fitted EURJPY model agree with the
+EURJPY forwards implied by triangulating EURUSD × USDJPY, and each fit implies its own
+version of any shared currency's discount curve. The scaling design is a per-currency
+(*collateral-consistent*) market object: pick one numéraire/collateral currency, store
+one spot rate and one collateral-consistent discount curve per currency, and *derive*
+every pair's forwards from those. For ``N`` currencies that is ``N`` curves instead of
+up to ``N(N-1)/2`` independent pair models, and triangle consistency holds by
+construction rather than by calibration. The tradeoff is exact repricing: where the
+market quotes a direct cross basis inconsistent with triangulation, such a model
+reprices the cross at its derived arbitrage-consistent forward, not at the screen
+quote. `FX.Forwards` is the two-currency case of that design and would become the
+pairwise view a market object returns, so nothing in the current API forecloses it.
+
 ## Relationship to other models
 
 - **FX options**: the Garman–Kohlhagen formula is `Equity.BlackScholesMerton(r_domestic,

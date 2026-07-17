@@ -15,6 +15,12 @@ are encoded explicitly in types and keyword arguments, and the curves inside an 
 are ordinary yield models, so splines, parametric curves, curve arithmetic
 (e.g. `foreign_ois + basis`), and `fit` all apply unchanged.
 
+Present values follow one rule: `present_value` is denominated in the currency of the
+contract's own cashflows — the *quote* currency for an [`FX.Forward`](@ref) (it settles
+in quote-currency units), the *base* currency for an [`FX.BasisSwapLeg`](@ref) (a strip
+of base-currency cashflows). Convert before combining values across denominations: a
+base-currency present value times spot is the quote-currency present value.
+
 # Example
 
 ```julia
