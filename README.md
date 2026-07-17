@@ -78,7 +78,7 @@ Commonly, we deal with conventions that imply a contract and an observed price. 
 - `ParYield`
 - `ParSwapYield`
 - `ForwardYield`
-- `FX.Outright` and `FX.ForwardPoints` (foreign-exchange forwards)
+- `FX.Outright` (foreign-exchange forwards)
 - `FX.ParBasisSwap` (par cross-currency basis-swap spreads, for calibrating the long-dated basis)
 
 FinanceModels offers a way to define new contracts as well.

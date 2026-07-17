@@ -47,8 +47,11 @@ returning a wrong number.
 
 Forward *points* are the second convention trap. The interbank market quotes forwards as
 pips over spot, and the pip size differs by pair: `0.0001` for most pairs but `0.01` for
-JPY-quoted pairs. [`FX.ForwardPoints`](@ref) therefore takes the scale explicitly rather
-than guessing (see below).
+JPY-quoted pairs. There is deliberately no points constructor: a function that guessed
+the scale would be the classic silent JPY error, and one that required it would only
+rename the arithmetic. Convert points explicitly at the data boundary, where the
+pair-dependent pip factor stays visible at the call site:
+`FX.Outright.(pair, spot .+ points ./ 10_000, times)`.
 
 ## Covered interest parity
 
@@ -111,8 +114,9 @@ bond quoting at 1.0:
 ```julia
 quotes = FX.Outright.(eurusd, [1.1055, 1.1113, 1.1225, 1.1459], [0.25, 0.5, 1.0, 2.0])
 
-# equivalently, from points over spot (pips; scale is required: 10_000 here, 100 for JPY quotes):
-quotes = FX.ForwardPoints.(eurusd, [55.0, 113.0, 225.0, 459.0], [0.25, 0.5, 1.0, 2.0]; spot = 1.10, scale = 10_000)
+# equivalently, from screen points over spot (pips: 1/10_000 here, 1/100 for JPY quotes):
+points = [55.0, 113.0, 225.0, 459.0]
+quotes = FX.Outright.(eurusd, 1.10 .+ points ./ 10_000, [0.25, 0.5, 1.0, 2.0])
 ```
 
 ## Constructing a curve from market quotes
@@ -288,8 +292,8 @@ estr = ...   # EUR projection curve, fitted from EUR OIS quotes
 sofr = ...   # USD discount curve
 
 quotes = [
-    # short end: forward points
-    FX.ForwardPoints.(eurusd, [25.0, 55.0, 120.0], [0.25, 0.5, 1.0]; spot = 1.10, scale = 10_000);
+    # short end: outrights from screen points over spot (pips = 1/10_000)
+    FX.Outright.(eurusd, 1.10 .+ [25.0, 55.0, 120.0] ./ 10_000, [0.25, 0.5, 1.0]);
     # long end: par basis-swap spreads
     FX.ParBasisSwap.(eurusd, [-0.0012, -0.0015, -0.0018], [2.0, 5.0, 10.0]; reference = estr)
 ]

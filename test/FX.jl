@@ -86,22 +86,15 @@
         @test q.instrument.strike == 1.1225
         @test q.instrument.time == 1.0
 
-        qp = FX.ForwardPoints(eurusd, 25.0, 0.5; spot = 1.10, scale = 10_000)
-        @test qp.instrument.strike ≈ 1.10 + 25 / 10_000
-
-        usdjpy = FX.Pair(:USD, :JPY)
-        qj = FX.ForwardPoints(usdjpy, -30.0, 1.0; spot = 150.0, scale = 100)
-        @test qj.instrument.strike ≈ 149.70
-
-        # scale has no default — a silently assumed pip factor is the classic JPY
-        # off-by-100× footgun
-        @test_throws UndefKeywordError FX.ForwardPoints(eurusd, 25.0, 0.5; spot = 1.10)
-
         # pair broadcasts as a scalar
         qs = FX.Outright.(eurusd, [1.11, 1.12], [1.0, 2.0])
         @test length(qs) == 2
         @test qs[2].instrument.time == 2.0
-        qps = FX.ForwardPoints.(eurusd, [10.0, 20.0], [0.5, 1.0]; spot = 1.10, scale = 10_000)
+
+        # points quotes have no constructor (the pair-dependent pip scale must stay
+        # visible at the call site); the documented idiom is explicit arithmetic
+        points = [10.0, 20.0]
+        qps = FX.Outright.(eurusd, 1.10 .+ points ./ 10_000, [0.5, 1.0])
         @test qps[1].instrument.strike ≈ 1.101
     end
 

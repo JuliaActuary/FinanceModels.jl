@@ -242,6 +242,6 @@ A volatility model must extend `volatility(vol::Volatility.MyNewModel, strike_ra
 
 ## Foreign Exchange Models
 
-- [`FinanceModels.FX.Forwards`](@ref) — covered-interest-parity outright forward rates from a spot rate and a discount curve per currency; fit to [`FX.Outright`](@ref FinanceModels.FX.Outright) / [`FX.ForwardPoints`](@ref FinanceModels.FX.ForwardPoints) quotes.
+- [`FinanceModels.FX.Forwards`](@ref) — covered-interest-parity outright forward rates from a spot rate and a discount curve per currency; fit to [`FX.Outright`](@ref FinanceModels.FX.Outright) quotes.
 
 See the [Foreign Exchange](@ref) guide page for pair conventions, curve construction, and cross-currency basis handling.

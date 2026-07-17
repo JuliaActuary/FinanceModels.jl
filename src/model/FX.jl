@@ -5,7 +5,7 @@ The `FX` module provides foreign exchange models, contracts, and quote conventio
 - [`FX.Forwards`](@ref) — a covered-interest-parity model of outright FX forward rates, built from a spot rate and two discount curves
 - [`FX.Forward`](@ref) — an outright FX forward contract
 - [`FX.Converted`](@ref) — a wrapper that converts a contract's projected cashflows into the quote currency at CIP forward rates, enabling cross-currency swaps and hedged multi-currency valuation
-- [`FX.Outright`](@ref) and [`FX.ForwardPoints`](@ref) — market quote conventions, returning `Quote`s
+- [`FX.Outright`](@ref) — market forward quotes as zero-price `Quote`s
 - [`FX.ParBasisSwap`](@ref) — par cross-currency basis-swap spread quotes for calibrating the long-dated basis (with [`FX.BasisSwapLeg`](@ref) as the underlying instrument)
 - [`FX.implied_zcb_quotes`](@ref) — transform FX forward quotes into the implied base-currency zero-coupon quotes used for curve construction
 
@@ -29,7 +29,7 @@ using FinanceModels
 eurusd = FX.Pair(:EUR, :USD)
 usd = Yield.Constant(Continuous(0.05))
 
-# market outright forwards (or use FX.ForwardPoints for points quotes)
+# market outright forwards (for points quotes, convert explicitly: spot .+ points ./ scale)
 quotes = FX.Outright.(eurusd, [1.1055, 1.1113, 1.1225, 1.1459], [0.25, 0.5, 1.0, 2.0])
 
 # closed-form implied EUR discount factors, bootstrapped through a spline
@@ -236,7 +236,12 @@ nothing, so this returns a zero-price `Quote` on an [`FX.Forward`](@ref) struck 
 
 Use broadcasting to create a set of quotes: `FX.Outright.(pair, rates, times)`.
 
-See also [`FX.ForwardPoints`](@ref) for the points-over-spot convention.
+The interbank market often quotes forwards as *points* over spot in pair-specific pip
+units (`1/10_000` for most pairs, `1/100` for JPY-quoted pairs). There is deliberately
+no points constructor — a guessed scale would be the classic silent JPY error, and a
+required one would only rename the arithmetic — so convert explicitly at the data
+boundary, where the pip factor stays visible:
+`FX.Outright.(pair, spot .+ points ./ 10_000, times)`.
 
 # Examples
 
@@ -248,27 +253,6 @@ julia> q.price, q.instrument.strike, q.instrument.time
 ```
 """
 Outright(pair::Pair, forward_rate, time) = Quote(zero(forward_rate), Forward(pair, forward_rate, time))
-
-"""
-    FX.ForwardPoints(pair, points, time; spot, scale)
-
-A `Quote` for an FX forward quoted as *forward points* over spot, the interbank
-convention: the outright forward rate is `spot + points / scale`.
-
-`scale` is the pip factor and is required rather than defaulted: it is `10_000` for
-most pairs (one pip = 0.0001) but `100` for JPY-quoted pairs (one pip = 0.01), and a
-silently assumed scale is exactly the off-by-100× points error this module refuses to
-guess about. Returns the same zero-price `Quote` as [`FX.Outright`](@ref).
-
-# Examples
-
-```julia
-eurusd = FX.Pair(:EUR, :USD)
-FX.ForwardPoints(eurusd, 25.0, 0.5; spot = 1.10, scale = 10_000)               # outright 1.1025
-FX.ForwardPoints(FX.Pair(:USD, :JPY), -30.0, 1.0; spot = 150.0, scale = 100)  # outright 149.70
-```
-"""
-ForwardPoints(pair::Pair, points, time; spot, scale) = Outright(pair, spot + points / scale, time)
 
 # the closed-form implied base-currency discount factor for one forward quote:
 # DF_f(t) = (K·DF_d(t) + price)/spot. Guarded because a corrupt quote (wrong price
@@ -287,10 +271,9 @@ end
     FX.implied_zcb_quotes(quotes, spot, domestic)
     FX.implied_zcb_quotes(m::FX.Forwards, quotes)
 
-Transform FX forward `quotes` (as produced by [`FX.Outright`](@ref) /
-[`FX.ForwardPoints`](@ref)) into zero-coupon-bond `Quote`s for the *implied
-base-currency discount curve*, given the `spot` rate and the `domestic`
-(quote-currency) discount curve.
+Transform FX forward `quotes` (as produced by [`FX.Outright`](@ref)) into
+zero-coupon-bond `Quote`s for the *implied base-currency discount curve*, given the
+`spot` rate and the `domestic` (quote-currency) discount curve.
 
 Because a forward's price is `(F(t) - K) * DF_d(t)`, the implied base-currency discount
 factor at each quote's maturity is closed-form:
