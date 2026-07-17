@@ -6,6 +6,20 @@
         @test inv(eurusd) === FX.Pair(:USD, :EUR)
         @test inv(inv(eurusd)) === eurusd
         @test repr(eurusd) == "FX.Pair(:EUR, :USD)"
+
+        # currencies are not restricted to Symbols: any isbits value works as a type
+        # parameter (e.g. InlineStrings codes, or ISO 4217 numeric codes as here),
+        # and the whole pipeline dispatches on the parametric pair
+        iso = FX.Pair(978, 840) # EUR/USD by ISO numeric code
+        @test iso === FX.Pair{978, 840}()
+        @test inv(iso) === FX.Pair(840, 978)
+        @test repr(iso) == "FX.Pair(978, 840)"
+        m_iso = FX.Forwards(iso, 1.10, Yield.Constant(Continuous(0.05)), Yield.Constant(Continuous(0.03)))
+        @test forward(m_iso, 1.0) ≈ 1.10 * exp(0.02)
+        @test pv(m_iso, FX.Forward(iso, forward(m_iso, 1.0), 1.0)) ≈ 0.0 atol = 1e-14
+        # a Symbol pair and an integer-code pair are distinct pairs, per the
+        # direction-guard design
+        @test_throws ArgumentError pv(m_iso, FX.Forward(FX.Pair(:EUR, :USD), 1.0, 1.0))
     end
 
     usd = Yield.Constant(Continuous(0.05))

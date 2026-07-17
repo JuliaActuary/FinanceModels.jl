@@ -29,6 +29,15 @@ is expressed in). This matches the market's concatenated naming:
 `inv` flips the direction — `inv(FX.Pair(:EUR, :USD)) == FX.Pair(:USD, :EUR)` — and
 correspondingly inverts the rate.
 
+Currencies are usually `Symbol`s, but any value Julia admits as a type parameter works —
+any `isbits` value, such as
+[InlineStrings](https://github.com/JuliaStrings/InlineStrings.jl) codes
+(`FX.Pair(String3("EUR"), String3("USD"))`) or ISO 4217 numeric codes
+(`FX.Pair(978, 840)`). A plain `String` cannot be a type parameter. Distinct parameter
+values are distinct pairs (a `Symbol` pair never matches an inline-string pair, and
+`String3("EUR")` never matches `String7("EUR")`), so pick one convention per system —
+or normalize at the data boundary with `Symbol(code)`.
+
 Direction confusion is the classic FX bug: an inverted rate is not obviously wrong on
 sight (`0.91` and `1.10` are both plausible EUR/USD numbers), and a crossed pair can pass
 through an entire calculation silently. Because the pair travels in the *type*, pricing a

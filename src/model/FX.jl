@@ -42,7 +42,7 @@ using ..FinanceCore
 abstract type AbstractFXModel <: AbstractModel end
 
 """
-    FX.Pair(base::Symbol, quote::Symbol)
+    FX.Pair(base, quote)
 
 A currency pair as a singleton type. `FX.Pair(:EUR, :USD)` denotes the price of one unit
 of the *base* currency (`:EUR`) expressed in units of the *quote* — also called domestic
@@ -54,6 +54,15 @@ surface as immediate, descriptive errors rather than silently inverted prices: a
 the *same* pair.
 
 `inv` flips the pair: `inv(FX.Pair(:EUR, :USD)) == FX.Pair(:USD, :EUR)`.
+
+Currencies are usually `Symbol`s, but any value Julia admits as a type parameter works:
+`Symbol`s, types, or `isbits` values — e.g. `InlineStrings` currency codes
+(`FX.Pair(String3("EUR"), String3("USD"))`) or ISO 4217 numeric codes
+(`FX.Pair(978, 840)`). A plain `String` is not `isbits` and cannot be a type parameter;
+use a `Symbol` or an inline string instead. Distinct parameter values are distinct
+pairs: a `Symbol` pair and an inline-string pair of the same letters — or `String3` vs
+`String7` codes — do not match each other, and the usual pair-mismatch `ArgumentError`
+applies. Pick one convention for a given system.
 
 # Examples
 
@@ -67,11 +76,15 @@ FX.Pair(:USD, :EUR)
 """
 struct Pair{B, Q} end
 
-Pair(base::Symbol, quote_currency::Symbol) = Pair{base, quote_currency}()
+# any value Julia admits as a type parameter (Symbols, isbits values, types) works;
+# a plain `String` is not isbits and errors here naturally
+Pair(base, quote_currency) = Pair{base, quote_currency}()
 
 Base.inv(::Pair{B, Q}) where {B, Q} = Pair{Q, B}()
 Base.Broadcast.broadcastable(p::Pair) = Ref(p)
-Base.show(io::IO, ::Pair{B, Q}) where {B, Q} = print(io, "FX.Pair(:", B, ", :", Q, ")")
+# repr keeps Symbol pairs printing as `FX.Pair(:EUR, :USD)` while staying faithful for
+# non-Symbol parameters (e.g. inline strings, integer ISO codes)
+Base.show(io::IO, ::Pair{B, Q}) where {B, Q} = print(io, "FX.Pair(", repr(B), ", ", repr(Q), ")")
 
 """
     FX.Forwards(pair, spot, domestic, foreign)
