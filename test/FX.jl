@@ -370,6 +370,51 @@
             @test all(legcfs[i].amount ≈ frn[i].amount for i in eachindex(frn))
         end
 
+        @testset "front-stub tenors" begin
+            # a maturity that is not a whole number of periods forms a short first
+            # stub that accrues its actual length at the forward over [0, t₁] —
+            # compound-accrued (ParYield's stub convention), never the fabricated
+            # full-period accrual, never a negative-time lookback. Off flat 3%
+            # Periodic(1) with a −20bp spread, 0.1y quarterly is a single stub:
+            ref = Yield.Constant(Periodic(0.03, 1))
+            q = FX.ParBasisSwap(eurusd, -0.002, 0.1; reference = ref)
+            cf = only(q.instrument.cashflows)
+            @test cf.time == 0.1
+            @test cf.amount ≈ 1.0 + (1.03^0.1 - 1) - 0.002 * 0.1 # ≈ 1.00276, not 1.0069
+
+            # a longer schedule stays anchored at maturity with only the first
+            # period short (the Bond.coupon_times shape); whole periods unchanged
+            q2 = FX.ParBasisSwap(eurusd, -0.002, 2.5; reference = ref, frequency = Periodic(1))
+            cfs = q2.instrument.cashflows
+            @test [c.time for c in cfs] ≈ [0.5, 1.5, 2.5]
+            @test cfs[1].amount ≈ (1.03^0.5 - 1) - 0.002 * 0.5
+            @test cfs[2].amount ≈ 0.03 - 0.002
+
+            # the property the stub convention preserves: a zero-spread leg on its
+            # own reference curve telescopes to exactly par on any stub schedule
+            q0 = FX.ParBasisSwap(eurusd, 0.0, 2.5; reference = ref, frequency = Periodic(1))
+            @test pv(ref, q0.instrument) ≈ 1.0 atol = 1e-14
+
+            # calibration through a stub-tenor quote: the analytic par spread on a
+            # flat truth CSA curve is recovered exactly alongside whole tenors
+            csa = Yield.Constant(Periodic(0.028, 1))
+            ts2 = [0.5, 1.5, 2.5]
+            starts = [0.0, 0.5, 1.5]
+            δs = ts2 .- starts
+            dfs = [discount(csa, t) for t in ts2]
+            fwds = [(1 / discount(ref, s, t) - 1) / d for (s, t, d) in zip(starts, ts2, δs)]
+            b = (1 - dfs[end] - sum(fwds[i] * δs[i] * dfs[i] for i in 1:3)) / sum(δs[i] * dfs[i] for i in 1:3)
+            qs = [
+                FX.ParBasisSwap(eurusd, -0.002, 1.0; reference = ref, frequency = Periodic(1)),
+                FX.ParBasisSwap(eurusd, -0.002, 2.0; reference = ref, frequency = Periodic(1)),
+                FX.ParBasisSwap(eurusd, b, 2.5; reference = ref, frequency = Periodic(1)),
+            ]
+            @test all(pv(csa, q.instrument) ≈ 1.0 for q in qs)
+            m_fit = fit(FX.Forwards(eurusd, S, usd, Spline.Linear()), qs, Fit.Bootstrap())
+            @test all(abs(pv(m_fit, q.instrument) - 1.0) < 1e-9 for q in qs)
+            @test all(isapprox(discount(m_fit.foreign, t), 1.028^-t; atol = 1e-8) for t in [1.0, 2.0, 2.5])
+        end
+
         @testset "mixed short-end forwards + long-end basis swaps" begin
             # truth: the CSA curve is the projection curve plus a flat −18bp basis
             basis = Yield.Constant(Continuous(-0.0018))
@@ -433,10 +478,6 @@
             # bootstrap's distinct-maturities check rather than silently blended
             clash = [FX.Outright(eurusd, 1.12, 2.0), FX.ParBasisSwap(eurusd, -0.001, 2.0; reference = estr)]
             @test_throws ArgumentError fit(m0, clash, Fit.Bootstrap())
-            # non-whole tenors are refused: a front stub would need an accrual
-            # convention the quote constructor deliberately does not guess at
-            @test_throws ArgumentError FX.ParBasisSwap(eurusd, -0.002, 0.1; reference = estr)
-            @test_throws ArgumentError FX.ParBasisSwap(eurusd, -0.002, 2.3; reference = estr)
         end
     end
 end

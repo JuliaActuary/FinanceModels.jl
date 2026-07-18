@@ -436,19 +436,28 @@ Quoting assumption (standard for collateralized, OIS-discounted swaps): the dome
 leg pays the forwards of the *same* curve used for domestic discounting, so it is worth
 par and drops out of the calibration. What remains is the base-currency par condition
 
-    Σᵢ (fᵢ + spread) * δ * DF_f(tᵢ) + DF_f(T) = 1
+    Σᵢ (fᵢ + spread) * δᵢ * DF_f(tᵢ) + DF_f(T) = 1
 
-where `fᵢ` are the (known) `reference` projection forwards, `δ` the accrual fraction,
-and `DF_f` the basis-adjusted (CSA) discount curve being calibrated. The returned quote
-is therefore `Quote(1.0, FX.BasisSwapLeg(pair, cashflows))`: a deterministic
-base-currency cashflow strip that must price to par on the curve being fit. Each coupon
-is fix-in-advance at the `reference` forward over its accrual period, exactly matching
-how [`Bond.Floating`](@ref FinanceModels.Bond.Floating) projects, so the strip equals
-the projected floating leg. `maturity` must be a whole number of coupon periods;
-anything else throws an `ArgumentError`. A front stub would require a stub-accrual
-convention this constructor deliberately refuses to guess at — the naive `1/frequency`
-accrual `Bond.Floating` applies to stubs would silently mis-state the first coupon of
-a market quote.
+where `fᵢ` is the (known) simple annualized `reference` forward over each coupon's
+accrual window, `δᵢ` the window's length (`1/frequency` except for a short first
+stub), and `DF_f` the basis-adjusted (CSA) discount curve being calibrated. The
+returned quote is therefore `Quote(1.0, FX.BasisSwapLeg(pair, cashflows))`: a
+deterministic base-currency cashflow strip that must price to par on the curve being
+fit. Each coupon is fix-in-advance at the `reference` forward over its accrual period,
+exactly matching how [`Bond.Floating`](@ref FinanceModels.Bond.Floating) projects for
+whole-period tenors, so the strip equals the projected floating leg.
+
+A `maturity` that is not a whole number of periods keeps the schedule anchored at
+maturity (regular `1/frequency` periods counted backward — the shape
+`Bond.coupon_times` produces) and makes the *first* period a short stub. The stub
+coupon accrues its actual length at the forward over its true window `[0, t₁]` (never
+a negative time), compound-accrued so that a zero-spread leg on its own curve
+telescopes to exactly par — the same stub convention as
+[`ParYield`](@ref FinanceModels.Bond.ParYield)'s sub-period par bonds. This is deliberately
+more careful than `Bond.Floating`, which applies a full `1/frequency` accrual to stub
+periods, so the strip-equals-projected-leg identity above is exact for whole-period
+tenors only. Schedules irregular anywhere else (long stubs, back stubs, custom rolls)
+are out of scope.
 
 Because the strip is deterministic, these quotes flow through the same `fit` methods as
 [`FX.Outright`](@ref) quotes, and the two can be mixed in a single calibration —
@@ -473,19 +482,19 @@ see the "Foreign Exchange" documentation page.
 """
 function ParBasisSwap(pair::Pair, spread, maturity; reference, frequency = Periodic(4))
     f = frequency.frequency
-    n = maturity * f
-    # a market-quote constructor must not fabricate a stub coupon: the naive 1/f
-    # accrual (Bond.Floating's stub convention) would silently mis-state the first
-    # cashflow, so non-whole tenors are refused rather than guessed at
-    if !isapprox(n, round(n); atol = 1e-8)
-        throw(ArgumentError("maturity $maturity is not a whole number of coupon periods at frequency $f; basis-swap quotes are whole-tenor instruments"))
-    end
     ts = Bond.coupon_times(maturity, f)
-    cfs = map(ts) do t
-        # fix-in-advance forward + spread, replicating `Bond.Floating`'s projection
-        # (which the FX module cannot call directly: `Projection` loads after it)
-        reference_rate = rate(frequency(forward(reference, t - 1 / f, t)))
-        coup = (reference_rate + spread) / f
+    cfs = map(eachindex(ts)) do i
+        t = ts[i]
+        # each coupon fixes in advance over its *actual* accrual window: [0, t₁] for
+        # a short first stub, regular 1/f windows thereafter — never a negative-time
+        # lookback. `fwd` is the simple annualized forward over the window: for whole
+        # periods it equals `Bond.Floating`'s f-periodic forward rate identically,
+        # and for the stub it compound-accrues (`ParYield`'s stub convention), so a
+        # zero-spread leg on its own curve is exactly par under any such schedule
+        start = i == 1 ? zero(t) : ts[i - 1]
+        δ = t - start
+        fwd = (1 / discount(reference, start, t) - 1) / δ
+        coup = (fwd + spread) * δ
         amt = t == last(ts) ? 1.0 + coup : coup
         Cashflow(amt, t)
     end
