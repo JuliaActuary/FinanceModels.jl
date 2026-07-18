@@ -472,13 +472,26 @@ quotes = [
     FX.Outright.(eurusd, [1.1055, 1.1113], [0.25, 0.5]);
     FX.ParBasisSwap.(eurusd, [-0.0012, -0.0018], [2.0, 5.0]; reference = estr)
 ]
-m = fit(FX.Forwards(eurusd, 1.10, sofr, Spline.Cubic()), quotes, Fit.Bootstrap())
+m = fit(FX.Forwards(eurusd, 1.10, sofr, Spline.Linear()), quotes, Fit.Bootstrap())
 ```
 
+Prefer a *local* interpolation (such as `Spline.Linear`, as above) when the quote set
+includes coupon-bearing instruments: their cashflows fall between knots, and a global
+spline reshapes already-solved segments as later knots are added, silently drifting
+solved quotes off par.
+
 This is the constant-notional representation. Interbank basis swaps are quoted on the
-mark-to-market (resetting-notional) structure; under deterministic curves the two par
-spreads agree to first order. The MTM contract itself is deliberately not modeled yet —
-see the "Foreign Exchange" documentation page.
+mark-to-market (resetting-notional) structure, in which the *flat domestic* leg's
+notional resets to spot each period while the spread leg's notional stays constant.
+Under the same quoting assumption as above and deterministic curves, the two par
+spreads are *exactly* equal: valued at CIP forwards, the resetting leg is a telescoping
+strip of one-period loans at its own curve's forwards — each worth par — so it drops
+out period by period just as the constant-notional leg drops out in one step, leaving
+the identical par condition (asserted to machine precision in the test suite). Quoted
+MTM spreads therefore calibrate this representation without approximation. The residual
+real-world difference is the FX–rates convexity of the resetting notional — identically
+zero under deterministic curves — which is one reason the MTM *contract* is deliberately
+not modeled yet; see the "Foreign Exchange" documentation page.
 """
 function ParBasisSwap(pair::Pair, spread, maturity; reference, frequency = Periodic(4))
     f = frequency.frequency

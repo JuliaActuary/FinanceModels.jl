@@ -458,6 +458,67 @@
             @test abs(pv(sofr, p)) < 1e-6
         end
 
+        @testset "MTM (resetting-notional) equivalence" begin
+            # Interbank quotes use the mark-to-market structure: the flat domestic
+            # leg's notional resets to spot each period; the spread (foreign) leg
+            # stays constant. Under deterministic curves the two par spreads
+            # coincide exactly, because the resetting leg valued at CIP forwards is
+            # a telescoping strip of one-period loans, each at the domestic curve's
+            # own forward and therefore each worth par. Non-flat curves throughout
+            # so nothing cancels by accident; whole-period and front-stub schedules.
+            csa_true = estr + Yield.Constant(Continuous(-0.0018))
+            m_true = FX.Forwards(eurusd, S, sofr, csa_true)
+            for T in [5.0, 5.3]
+                ts = Bond.coupon_times(T, 4)
+                n = length(ts)
+                starts = [i == 1 ? 0.0 : ts[i - 1] for i in 1:n]
+                δs = ts .- starts
+                Fs = [forward(m_true, t) for t in ts]
+                notionals = [i == 1 ? S : Fs[i - 1] for i in 1:n] # forward(m, 0) == spot
+                d_fwds = [(1 / discount(sofr, starts[i], ts[i]) - 1) / δs[i] for i in 1:n]
+
+                # each one-period loan of the resetting leg — lend F(tᵢ₋₁) at tᵢ₋₁,
+                # receive it back with interest at the domestic curve's own forward
+                # at tᵢ — is par on its own, regardless of curve shape
+                per_period = [
+                    -notionals[i] * discount(sofr, starts[i]) +
+                        notionals[i] * (1 + d_fwds[i] * δs[i]) * discount(sofr, ts[i])
+                        for i in 1:n
+                ]
+                @test maximum(abs, per_period) < 1e-14
+
+                # ...so the whole resetting leg — interest on the resetting
+                # notional, interior reset exchanges, final notional — nets the
+                # inception exchange exactly: PV equals spot
+                leg = sum(notionals[i] * d_fwds[i] * δs[i] * discount(sofr, ts[i]) for i in 1:n) -
+                    sum((Fs[i] - notionals[i]) * discount(sofr, ts[i]) for i in 1:(n - 1)) +
+                    Fs[n - 1] * discount(sofr, ts[n])
+                @test leg ≈ S atol = 1e-12
+
+                # ...leaving exactly the constant-notional par condition: the full
+                # MTM swap priced at the constant-notional par spread is worth
+                # zero, i.e. quoted MTM spreads calibrate the constant-notional
+                # representation without approximation
+                dfs = [discount(csa_true, t) for t in ts]
+                fwds = [(1 / discount(estr, starts[i], ts[i]) - 1) / δs[i] for i in 1:n]
+                b_cn = (1 - dfs[end] - sum(fwds[i] * δs[i] * dfs[i] for i in 1:n)) /
+                    sum(δs[i] * dfs[i] for i in 1:n)
+                foreign_leg = S * (sum((fwds[i] + b_cn) * δs[i] * dfs[i] for i in 1:n) + dfs[end])
+                @test foreign_leg - leg ≈ 0.0 atol = 1e-12
+            end
+
+            # matched-pair leg pricing at a rolled valuation date delegates to the
+            # foreign curve with the same cur_time
+            q = FX.ParBasisSwap(eurusd, -0.002, 3.0; reference = estr)
+            m_par = FX.Forwards(eurusd, S, sofr, csa_true)
+            cur = 1.5
+            manual = sum(
+                cf.amount * discount(csa_true, cur, cf.time)
+                    for cf in q.instrument.cashflows if cf.time >= cur
+            )
+            @test pv(m_par, q.instrument, cur) ≈ manual
+        end
+
         @testset "parametric foreign curve via generic fit" begin
             ref = Yield.Constant(Periodic(0.03, 1))
             qs = [FX.ParBasisSwap(eurusd, -0.002, T; reference = ref, frequency = Periodic(1)) for T in [1.0, 2.0, 3.0]]

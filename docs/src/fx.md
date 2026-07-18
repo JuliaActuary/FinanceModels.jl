@@ -11,8 +11,8 @@ F(t) = S_0 \cdot \frac{DF_{\text{foreign}}(t)}{DF_{\text{domestic}}(t)}
 so FX requires no new curve mathematics — every spline, parametric model, bootstrap, and
 piece of curve arithmetic in FinanceModels applies to FX curve construction unchanged.
 What the module adds is the *semantic* layer where FX errors actually happen: explicit
-pair direction, explicit points scale, explicit currency of every cashflow, and loud
-failures on mismatches.
+pair direction, explicit points scale, an explicit currency declaration on every
+contract, and loud failures on mismatches.
 
 ## Conventions: pairs, direction, and points
 
@@ -277,13 +277,13 @@ domestic leg pays the forwards of the same curve used for domestic discounting, 
 worth par and drops out. What remains is a condition on the foreign side alone:
 
 ```math
-\sum_i (f_i + b)\,\delta\,DF_f(t_i) + DF_f(T) = 1
+\sum_i (f_i + b)\,\delta_i\,DF_f(t_i) + DF_f(T) = 1
 ```
 
 where ``f_i`` are forwards from the foreign *projection* curve (e.g. a fitted €STR
 curve — a known input passed as the `reference` keyword), ``b`` is the quoted spread,
-``\delta`` the accrual fraction, and ``DF_f`` the basis-adjusted discount curve being
-calibrated. Because the coupon amounts are fully determined by the projection curve,
+``\delta_i`` the accrual fraction (`1/frequency`, except for a short first stub), and
+``DF_f`` the basis-adjusted discount curve being calibrated. Because the coupon amounts are fully determined by the projection curve,
 each quote materializes into a deterministic base-currency cashflow strip
 ([`FX.BasisSwapLeg`](@ref)) that must price to par on the curve being fit — and
 deterministic strips flow through the same fitting machinery as the implied zero-coupon
@@ -310,11 +310,26 @@ both). Two practical notes:
 - Prefer *local* interpolation (e.g. `Spline.Linear`) when bootstrapping coupon-bearing
   quotes: a global spline reshapes earlier segments as later knots are added, drifting
   already-solved swaps off par.
+- A mixed quote set under `Fit.Loss` (rather than `Fit.Bootstrap`) sums residuals of
+  different scales — discount-factor units for implied zero-coupon quotes, par-price
+  units for basis-swap strips — implicitly weighting the two families differently; the
+  bootstrap solves each quote exactly and involves no such weighting.
 - Interbank basis swaps are quoted on the mark-to-market (resetting-notional)
-  structure. Under deterministic curves the constant-notional and MTM par spreads agree
-  to first order, so quoted spreads calibrate the constant-notional representation
-  directly; the difference only becomes material alongside FX–rates correlation, i.e.
-  with a stochastic FX model.
+  structure, in which the flat domestic leg's notional resets to spot each period while
+  the spread leg's stays constant. Under deterministic curves the constant-notional and
+  MTM par spreads are *exactly* equal — valued at CIP forwards, the resetting leg is a
+  telescoping strip of one-period loans at the domestic curve's own forwards, each
+  worth par, so it drops out period by period just as the constant-notional leg drops
+  out in one step (the test suite asserts the equality to machine precision) — and
+  quoted MTM spreads calibrate the constant-notional representation without
+  approximation. What separates the two structures is a convexity term on the resetting
+  leg that requires *both* an index–discount spread on that leg *and* stochastically
+  correlated FX and rates — identically zero here, where curves are deterministic and
+  the flat leg pays its own discounting curve. This is the standard curve-construction
+  treatment: Fujii, Shimada & Takahashi, *A Note on the Construction of Multiple Swap
+  Curves with and without Collateral* (2010), §3.5, value the MtM leg as a portfolio of
+  one-period swaps and show its value is exactly zero when its index is the discounting
+  rate, with the residual otherwise a covariance term.
 - A tenor that is not a whole number of coupon periods forms a *short first stub* (the
   schedule stays anchored at maturity, per `Bond.coupon_times`). The stub coupon
   accrues its actual length at the forward over `[0, t₁]`, compound-accrued so a
