@@ -56,6 +56,13 @@
         # off-market USDEUR forward discounts on the (now-domestic) EUR curve
         K = forward(mi, 1.0) - 0.005
         @test pv(mi, FX.Forward(FX.Pair(:USD, :EUR), K, 1.0)) ≈ 0.005 * exp(-0.03)
+
+        # an exchange rate is a strictly positive price; anything else would corrupt
+        # every downstream forward, pv, and implied discount factor silently
+        @test_throws ArgumentError FX.Forwards(eurusd, 0.0, usd, eur)
+        @test_throws ArgumentError FX.Forwards(eurusd, -1.10, usd, eur)
+        @test_throws ArgumentError FX.Forwards(eurusd, NaN, usd, eur)
+        @test_throws ArgumentError FX.Forwards(eurusd, Inf, usd, eur)
     end
 
     @testset "FX.Forward contract" begin
@@ -213,7 +220,7 @@
         bond = Bond.Fixed(0.04, Periodic(2), 5.0)
 
         # each converted cashflow is the original amount times the CIP forward at its time
-        cfs = collect(Projection(FX.Converted(bond, "EURUSD"), store, CashflowProjection()))
+        cfs = collect(Projection(FX.Converted(bond, eurusd, "EURUSD"), store, CashflowProjection()))
         raw = collect(bond)
         @test length(cfs) == length(raw)
         @test all(cfs[i].time == raw[i].time for i in eachindex(raw))
@@ -221,36 +228,39 @@
 
         # fundamental identity: converting at CIP forwards then discounting on the
         # domestic curve equals discounting on the foreign curve then converting at spot
-        @test pv(usd_boot, Projection(FX.Converted(bond, "EURUSD"), store, CashflowProjection())) ≈ 1.08 * pv(eur, bond)
+        @test pv(usd_boot, Projection(FX.Converted(bond, eurusd, "EURUSD"), store, CashflowProjection())) ≈ 1.08 * pv(eur, bond)
 
         # a converted floating leg resolves its own reference curve from the same store
         frn = Bond.Floating(0.001, Periodic(4), 2.0, "ESTR")
-        lhs = pv(usd_boot, Projection(FX.Converted(frn, "EURUSD"), store, CashflowProjection()))
+        lhs = pv(usd_boot, Projection(FX.Converted(frn, eurusd, "EURUSD"), store, CashflowProjection()))
         rhs = 1.08 * pv(eur, Projection(frn, store, CashflowProjection()))
         @test lhs ≈ rhs
 
         # transducer-modified (Eduction) contracts convert too
-        scaled = pv(usd_boot, Projection(FX.Converted(bond |> Map(cf -> cf * 100.0), "EURUSD"), store, CashflowProjection()))
+        scaled = pv(usd_boot, Projection(FX.Converted(bond |> Map(cf -> cf * 100.0), eurusd, "EURUSD"), store, CashflowProjection()))
         @test scaled ≈ 100.0 * 1.08 * pv(eur, bond)
 
         # rolling the valuation date through the projection path: only cashflows at
         # or after cur_time remain, discounted from cur_time
         cur = 2.25
         manual = sum(cf.amount * forward(fx, cf.time) * discount(usd_boot, cur, cf.time) for cf in raw if cf.time >= cur)
-        @test pv(usd_boot, Projection(FX.Converted(bond, "EURUSD"), store, CashflowProjection()), cur) ≈ manual
+        @test pv(usd_boot, Projection(FX.Converted(bond, eurusd, "EURUSD"), store, CashflowProjection()), cur) ≈ manual
 
         # the identity pair converts at forward ≡ 1, letting generic multi-currency
         # code route domestic contracts through the same machinery
         idfx = FX.Forwards(FX.Pair(:USD, :USD), 1.0, usd_boot, usd_boot)
         @test forward(idfx, 2.0) == 1.0
-        @test pv(usd_boot, Projection(FX.Converted(bond, "USDUSD"), Dict("USDUSD" => idfx), CashflowProjection())) ≈ pv(usd_boot, bond)
+        @test pv(usd_boot, Projection(FX.Converted(bond, FX.Pair(:USD, :USD), "USDUSD"), Dict("USDUSD" => idfx), CashflowProjection())) ≈ pv(usd_boot, bond)
 
-        @test maturity(FX.Converted(bond, "EURUSD")) == 5.0
+        @test maturity(FX.Converted(bond, eurusd, "EURUSD")) == 5.0
         # a missing model key errors loudly
-        @test_throws KeyError collect(Projection(FX.Converted(bond, "GBPUSD"), store, CashflowProjection()))
+        @test_throws KeyError collect(Projection(FX.Converted(bond, FX.Pair(:GBP, :USD), "GBPUSD"), store, CashflowProjection()))
         # ...and so does a mis-keyed store: a yield curve where the FX model belongs
         # is named at the source instead of failing inside the transducer pipeline
-        @test_throws ArgumentError collect(Projection(FX.Converted(bond, "EURUSD"), Dict("EURUSD" => usd_boot), CashflowProjection()))
+        @test_throws ArgumentError collect(Projection(FX.Converted(bond, eurusd, "EURUSD"), Dict("EURUSD" => usd_boot), CashflowProjection()))
+        # the declared pair catches an inverted model under an otherwise-valid key —
+        # the silent reciprocal-rate conversion this wrapper exists to prevent
+        @test_throws ArgumentError collect(Projection(FX.Converted(bond, eurusd, "EURUSD"), Dict("EURUSD" => inv(fx)), CashflowProjection()))
     end
 
     @testset "textbook: fixed-for-fixed currency swap (Hull §7.9)" begin
@@ -270,7 +280,7 @@
         @test forward(fx, 2.0) ≈ 0.010047 atol = 5e-7
         @test forward(fx, 3.0) ≈ 0.010562 atol = 5e-7
 
-        yen_leg = FX.Converted(Bond.Fixed(0.05, Periodic(1), 3) |> Map(cf -> cf * 1200.0), "JPYUSD")
+        yen_leg = FX.Converted(Bond.Fixed(0.05, Periodic(1), 3) |> Map(cf -> cf * 1200.0), jpyusd, "JPYUSD")
         usd_leg = Bond.Fixed(0.08, Periodic(1), 3) |> Map(cf -> cf * -10.0)
         swap = Composite(yen_leg, usd_leg)
         p = Projection(swap, Dict("JPYUSD" => fx), CashflowProjection())
@@ -308,7 +318,7 @@
         # to −0.0677
         @test (36 * forward(fx, 1.0) - 0.4) * discount(usd25, 1.0) ≈ -0.0677 atol = 1e-4
 
-        yen_leg = FX.Converted(Bond.Fixed(0.03, Periodic(1), 3) |> Map(cf -> cf * 1200.0), "JPYUSD")
+        yen_leg = FX.Converted(Bond.Fixed(0.03, Periodic(1), 3) |> Map(cf -> cf * 1200.0), jpyusd, "JPYUSD")
         usd_leg = Bond.Fixed(0.04, Periodic(1), 3) |> Map(cf -> cf * -10.0)
         swap = Composite(yen_leg, usd_leg)
         p = Projection(swap, Dict("JPYUSD" => fx), CashflowProjection())
@@ -347,7 +357,7 @@
             # and the leg composes with FX.Converted: domestic value = spot × foreign value
             leg = qs[2].instrument
             store = Dict("EURUSD" => m_true)
-            @test pv(usd, Projection(FX.Converted(leg, "EURUSD"), store, CashflowProjection())) ≈ S * pv(csa28, leg)
+            @test pv(usd, Projection(FX.Converted(leg, eurusd, "EURUSD"), store, CashflowProjection())) ≈ S * pv(csa28, leg)
         end
 
         @testset "materialization matches Bond.Floating projection" begin
@@ -396,7 +406,7 @@
             # forwards against a spot-scaled floating USD leg — prices to zero
             T5 = tenors[2]
             swap = Composite(
-                FX.Converted(Bond.Floating(spreads[2], freq, T5, "ESTR"), "EURUSD"),
+                FX.Converted(Bond.Floating(spreads[2], freq, T5, "ESTR"), eurusd, "EURUSD"),
                 Bond.Floating(0.0, freq, T5, "SOFR") |> Map(cf -> cf * -S),
             )
             p = Projection(swap, Dict("EURUSD" => m_fit, "ESTR" => estr, "SOFR" => sofr), CashflowProjection())
@@ -423,6 +433,10 @@
             # bootstrap's distinct-maturities check rather than silently blended
             clash = [FX.Outright(eurusd, 1.12, 2.0), FX.ParBasisSwap(eurusd, -0.001, 2.0; reference = estr)]
             @test_throws ArgumentError fit(m0, clash, Fit.Bootstrap())
+            # non-whole tenors are refused: a front stub would need an accrual
+            # convention the quote constructor deliberately does not guess at
+            @test_throws ArgumentError FX.ParBasisSwap(eurusd, -0.002, 0.1; reference = estr)
+            @test_throws ArgumentError FX.ParBasisSwap(eurusd, -0.002, 2.3; reference = estr)
         end
     end
 end

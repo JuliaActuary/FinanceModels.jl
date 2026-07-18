@@ -185,6 +185,11 @@ end
     if !(fx isa FX.AbstractFXModel)
         throw(ArgumentError("`FX.Converted` expects an FX model (e.g. `FX.Forwards`) under the key $(repr(p.contract.key)), but the projection's model store holds a $(typeof(fx))"))
     end
+    # the declared pair guards the conversion's direction: an inverted (or crossed)
+    # model under an otherwise-valid key would silently multiply by the reciprocal rate
+    if fx.pair != p.contract.pair
+        throw(ArgumentError("`FX.Converted` declared $(p.contract.pair) but the model under key $(repr(p.contract.key)) prices $(fx.pair)"))
+    end
     p_alt = @set p.contract = p.contract.contract
     return p_alt |> Map(cf -> @set cf.amount *= forward(fx, cf.time))
 end

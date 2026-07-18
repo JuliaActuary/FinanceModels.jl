@@ -113,7 +113,8 @@ also callable: `m(t) == forward(m, t)`.
 
 # Arguments
 - `pair`: the [`FX.Pair`](@ref) this model prices, e.g. `FX.Pair(:EUR, :USD)`.
-- `spot`: the current exchange rate (quote currency per unit of base currency).
+- `spot`: the current exchange rate (quote currency per unit of base currency); must
+  be strictly positive and finite, or construction throws an `ArgumentError`.
 - `domestic`: the *quote*-currency discount curve (any yield model).
 - `foreign`: the *base*-currency discount curve (any yield model). See the note on
   cross-currency basis below.
@@ -165,6 +166,15 @@ struct Forwards{P <: Pair, S, D, F} <: AbstractFXModel
     spot::S
     domestic::D
     foreign::F
+    function Forwards(pair::P, spot::S, domestic::D, foreign::F) where {P <: Pair, S, D, F}
+        # an exchange rate is a strictly positive price: zero, negative, or non-finite
+        # spot would silently corrupt every downstream forward, pv, inversion, and
+        # implied discount factor rather than erroring anywhere near the cause
+        if !(isfinite(spot) && spot > 0)
+            throw(ArgumentError("spot must be a strictly positive, finite exchange rate; got $spot"))
+        end
+        return new{P, S, D, F}(pair, spot, domestic, foreign)
+    end
 end
 
 FinanceCore.forward(m::Forwards, to) = m.spot * discount(m.foreign, to) / discount(m.domestic, to)
@@ -261,8 +271,8 @@ Outright(pair::Pair, forward_rate, time) = Quote(zero(forward_rate), Forward(pai
 function __implied_zcb_quote(q::Quote{<:Any, <:Forward}, spot, domestic)
     c = q.instrument
     df = (c.strike * discount(domestic, c.time) + q.price) / spot
-    if !(df > 0)
-        throw(ArgumentError("the FX forward quote at time $(c.time) implies a non-positive base-currency discount factor ($df); check the quote's price, points scale, and spot"))
+    if !(isfinite(df) && df > 0)
+        throw(ArgumentError("the FX forward quote at time $(c.time) implies a non-positive or non-finite base-currency discount factor ($df); check the quote's price, points scale, and spot"))
     end
     return Quote(df, Cashflow(one(df), c.time))
 end
@@ -321,14 +331,21 @@ function implied_zcb_quotes(m::Forwards, quotes)
 end
 
 """
-    FX.Converted(contract, key)
+    FX.Converted(contract, pair, key)
 
-Wrap a contract whose cashflows are denominated in the *base* (foreign) currency of an
-FX pair, converting each projected cashflow into the *quote* (domestic) currency at the
+Wrap a contract whose cashflows are denominated in the *base* (foreign) currency of
+`pair`, converting each projected cashflow into the *quote* (domestic) currency at the
 arbitrage-free forward exchange rate for that cashflow's time: an amount paid at time
 `t` is multiplied by `forward(fx, t)`, where `fx` is the [`FX.Forwards`](@ref) model
 looked up from the projection's model store under `key` — the same key/value pattern
 used by [`Bond.Floating`](@ref FinanceModels.Bond.Floating) for its reference rate.
+
+`pair` declares the conversion the wrapper expects: if the model found under `key` is
+for a different pair — including the *inverted* one — projection throws an
+`ArgumentError` naming both pairs, rather than silently converting at a crossed or
+reciprocal rate. What the wrapper *cannot* verify is the wrapped contract's own
+denomination, since bare cashflows carry no currency; `pair` is your declaration that
+its cashflows are base-currency amounts.
 
 Converting at CIP forwards and then discounting on the domestic curve is identical to
 discounting the unconverted cashflows on the FX model's foreign curve and converting the
@@ -359,17 +376,18 @@ eur = Yield.Constant(Continuous(0.03))
 fx = FX.Forwards(eurusd, 1.08, usd, eur)
 
 bond = Bond.Fixed(0.04, Periodic(1), 2.0)  # a EUR-denominated bond
-p = Projection(FX.Converted(bond, "EURUSD"), Dict("EURUSD" => fx), CashflowProjection())
+p = Projection(FX.Converted(bond, eurusd, "EURUSD"), Dict("EURUSD" => fx), CashflowProjection())
 
 collect(p)  # cashflows now in USD: each amount is multiplied by forward(fx, t)
 pv(usd, p)  # == 1.08 * pv(eur, bond)
 ```
 """
-struct Converted{C, K} <: FinanceCore.AbstractContract
+struct Converted{C, P <: Pair, K} <: FinanceCore.AbstractContract
     # `contract` is deliberately unconstrained (like `FinanceCore.Composite`) so that
     # transducer-wrapped contracts (`Transducers.Eduction`s such as `bond |> Map(-)`)
     # can be converted too.
     contract::C
+    pair::P
     key::K
 end
 
@@ -426,10 +444,11 @@ is therefore `Quote(1.0, FX.BasisSwapLeg(pair, cashflows))`: a deterministic
 base-currency cashflow strip that must price to par on the curve being fit. Each coupon
 is fix-in-advance at the `reference` forward over its accrual period, exactly matching
 how [`Bond.Floating`](@ref FinanceModels.Bond.Floating) projects, so the strip equals
-the projected floating leg. A `maturity` that is not a whole number of periods
-produces a front stub which — again exactly like `Bond.Floating` — still accrues
-`1/frequency` and reads its reference forward from `t - 1/frequency`, extrapolating
-the `reference` curve below time zero; prefer whole-period tenors.
+the projected floating leg. `maturity` must be a whole number of coupon periods;
+anything else throws an `ArgumentError`. A front stub would require a stub-accrual
+convention this constructor deliberately refuses to guess at — the naive `1/frequency`
+accrual `Bond.Floating` applies to stubs would silently mis-state the first coupon of
+a market quote.
 
 Because the strip is deterministic, these quotes flow through the same `fit` methods as
 [`FX.Outright`](@ref) quotes, and the two can be mixed in a single calibration —
@@ -454,6 +473,13 @@ see the "Foreign Exchange" documentation page.
 """
 function ParBasisSwap(pair::Pair, spread, maturity; reference, frequency = Periodic(4))
     f = frequency.frequency
+    n = maturity * f
+    # a market-quote constructor must not fabricate a stub coupon: the naive 1/f
+    # accrual (Bond.Floating's stub convention) would silently mis-state the first
+    # cashflow, so non-whole tenors are refused rather than guessed at
+    if !isapprox(n, round(n); atol = 1e-8)
+        throw(ArgumentError("maturity $maturity is not a whole number of coupon periods at frequency $f; basis-swap quotes are whole-tenor instruments"))
+    end
     ts = Bond.coupon_times(maturity, f)
     cfs = map(ts) do t
         # fix-in-advance forward + spread, replicating `Bond.Floating`'s projection

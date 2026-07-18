@@ -193,13 +193,15 @@ the contract's cashflows, convert each into the domestic currency, then discount
 usual. [`FX.Converted`](@ref) is that conversion as a wrapper contract. It multiplies
 each projected amount by the CIP forward for that cashflow's time, looking the FX model
 up from the projection's model store by key — the same key/value pattern
-[`Bond.Floating`](@ref FinanceModels.Bond.Floating) uses for its reference rate:
+[`Bond.Floating`](@ref FinanceModels.Bond.Floating) uses for its reference rate. The
+wrapper also carries the pair it expects, so a wrong-direction model under the key — an
+inverted model would silently multiply by reciprocal rates — errors by name instead:
 
 ```julia
 store = Dict("EURUSD" => m, "ESTR" => eur)
 eur_bond = Bond.Fixed(0.04, Periodic(1), 2.0)  # a EUR-denominated bond
 
-p = Projection(FX.Converted(eur_bond, "EURUSD"), store, CashflowProjection())
+p = Projection(FX.Converted(eur_bond, eurusd, "EURUSD"), store, CashflowProjection())
 collect(p)  # USD cashflows: each EUR amount × forward(m, t)
 ```
 
@@ -228,7 +230,7 @@ jpy4 = Yield.Constant(Continuous(0.04))
 fx = FX.Forwards(jpyusd, 1 / 110, usd9, jpy4)
 
 swap = Composite(
-    FX.Converted(Bond.Fixed(0.05, Periodic(1), 3) |> Map(cf -> cf * 1200.0), "JPYUSD"), # receive ¥ leg
+    FX.Converted(Bond.Fixed(0.05, Periodic(1), 3) |> Map(cf -> cf * 1200.0), jpyusd, "JPYUSD"), # receive ¥ leg
     Bond.Fixed(0.08, Periodic(1), 3) |> Map(cf -> cf * -10.0),                          # pay $ leg
 )
 
@@ -254,7 +256,7 @@ floating-for-floating cross-currency basis swap is also just a `Composite`:
 store = Dict("SOFR" => usd_ois, "ESTR" => eur_ois, "EURUSD" => m)
 
 basis_swap = Composite(
-    FX.Converted(Bond.Floating(-0.0020, Periodic(4), 5.0, "ESTR"), "EURUSD"), # receive €STR − 20bp, in USD terms
+    FX.Converted(Bond.Floating(-0.0020, Periodic(4), 5.0, "ESTR"), eurusd, "EURUSD"), # receive €STR − 20bp, in USD terms
     Bond.Floating(0.0, Periodic(4), 5.0, "SOFR") |> Map(-),                   # pay SOFR flat
 )
 ```
