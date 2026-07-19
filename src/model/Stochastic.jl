@@ -326,10 +326,9 @@ end
 
 # The rate that enters the discount integral: identity except for CIR, where
 # the state is the full-truncation auxiliary process and the rate is its
-# positive part. Defined per concrete model (no abstract fallback) so that a
-# new model type fails loudly instead of silently integrating its raw state.
-_observed_rate(::ShortRate.Vasicek, r) = r
-_observed_rate(::ShortRate.HullWhite, r) = r
+# positive part. The abstract fallback preserves the extension contract for
+# custom stochastic models whose simulated state is their observed rate.
+_observed_rate(::AbstractStochasticModel, r) = r
 _observed_rate(::ShortRate.CoxIngersollRoss, x) = max(x, zero(x))
 
 # Vasicek: exact transition r' = b + (r-b)ϕ + sd·Z (no discretisation bias)
@@ -368,9 +367,9 @@ function _hw_alpha(m::ShortRate.HullWhite, t)
 end
 
 # Per-simulation cache: OU transition parameters for the Gaussian models
-# (plus the α(t) grid for Hull-White); nothing for CIR. Defined per concrete
-# model (no abstract fallback) so that a new model type fails loudly.
-_sim_cache(::ShortRate.CoxIngersollRoss, dt, n_steps) = nothing
+# (plus the α(t) grid for Hull-White). Models that do not need a cache,
+# including CIR and custom AbstractStochasticModel subtypes, receive `nothing`.
+_sim_cache(::AbstractStochasticModel, dt, n_steps) = nothing
 _sim_cache(m::ShortRate.Vasicek, dt, n_steps) = _ou_step_params(m.a, m.σ, dt)
 function _sim_cache(m::ShortRate.HullWhite, dt, n_steps)
     return (ou = _ou_step_params(m.a, m.σ, dt),

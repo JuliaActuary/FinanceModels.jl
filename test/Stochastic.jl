@@ -1,5 +1,12 @@
 using Random
 
+struct TestStochasticModel <: AbstractStochasticModel
+    initial::Float64
+end
+
+FinanceModels._sim_initial_rate(m::TestStochasticModel) = m.initial
+FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) = r
+
 @testset "Stochastic Models" begin
 
     @testset "Vasicek" begin
@@ -716,6 +723,38 @@ using Random
             @test sample_var ≈ V_rT rtol = 0.05
         end
 
+        @testset "Hull-White r(T) moments (exact transition, coarse steps)" begin
+            # Under r(t) = x(t) + α(t), x is a zero-mean OU process, hence
+            # E[r(T)] = α(T) and Var[r(T)] = σ²(1−exp(−2aT))/(2a).
+            # One-year steps make this test reject the former Euler transition
+            # while leaving the exact transition unaffected by the step size.
+            a, σ = 0.1, 0.02
+            hw = ShortRate.HullWhite(a, σ, Yield.Constant(Continuous(0.03)))
+            T = 5.0
+            E_rT = FinanceModels._hw_alpha(hw, T)
+            V_rT = σ^2 * (1 - exp(-2a * T)) / (2a)
+
+            N = 10_000
+            dt = 1.0
+            n_steps = round(Int, T / dt)
+            sqrt_dt = sqrt(dt)
+            cache = FinanceModels._sim_cache(hw, dt, n_steps)
+            rng = Random.MersenneTwister(42)
+            rates = Vector{Float64}(undef, N)
+            for i in 1:N
+                r = FinanceModels._sim_initial_rate(hw)
+                for j in 1:n_steps
+                    r = FinanceModels._step(hw, r, dt, sqrt_dt, randn(rng), (j - 1) * dt, cache, j)
+                end
+                rates[i] = r
+            end
+            sample_mean = sum(rates) / N
+            sample_var = sum((r - sample_mean)^2 for r in rates) / (N - 1)
+
+            @test sample_mean ≈ E_rT atol = 4 * sqrt(V_rT) / sqrt(N)
+            @test sample_var ≈ V_rT rtol = 0.05
+        end
+
         @testset "CIR r(T) moments" begin
             # CIR r(T)|r(0) has known moments:
             # E[r(T)] = b + (r₀−b)exp(−aT)
@@ -866,6 +905,16 @@ using Random
     end
 
     # ──────────────────────────────────────────────────────────────────────────
+    @testset "Custom stochastic model simulation hooks" begin
+        # External AbstractStochasticModel subtypes historically needed only an
+        # initial-state extractor and a step method when no cache was required.
+        model = TestStochasticModel(0.03)
+        scenarios = simulate(model; n_scenarios = 2, timestep = 0.5,
+                             horizon = 1.0, rng = Random.MersenneTwister(42))
+        @test length(scenarios) == 2
+        @test all(discount(path, 1.0) ≈ exp(-0.03) for path in scenarios)
+    end
+
     # AD forward rate correctness
     # ──────────────────────────────────────────────────────────────────────────
 
