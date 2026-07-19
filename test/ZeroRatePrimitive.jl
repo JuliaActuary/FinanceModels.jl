@@ -19,6 +19,15 @@
     comp_sub = spl - splc
     scaled = spl * 0.79
     shifted = spl + ((z, t) -> z + Continuous(0.01))
+    zrc = ZeroRateCurve(zrates, mats, Spline.Linear())
+    sw = Yield.SmithWilson([5.0, 7.0], [2.3, -1.2]; ufr = 0.03, α = 0.1)
+    spread = Yield.Constant(0.01)
+    wrapped_discount_native = [
+        ("ZeroRateCurve + spread", zrc + spread),
+        ("SmithWilson + spread", sw + spread),
+        ("Scaled SmithWilson", sw * 0.79),
+        ("Scaled ForwardStarting", Yield.ForwardStarting(sw, 1.0) * 2.0),
+    ]
 
     curves = [
         ("Spline(linear)", spl), ("Spline(cubic)", splc), ("MonotoneConvex", mc),
@@ -40,9 +49,20 @@
         @test discount(c, 0.0) == 1.0
     end
 
+    @testset "discount(c, 0) == 1 over discount-native wrappers  ($name)" for (name, c) in wrapped_discount_native
+        @test discount(c, 0.0) == 1.0
+        @test isfinite(discount(c, 0.0, 5.0))
+    end
+
+    @testset "present_value through a discount-native wrapper is finite" begin
+        bond = Bond.Fixed(0.05, Periodic(1), 5)
+        @test isfinite(present_value(zrc + spread, bond))
+    end
+
     @testset "zero(c, 0) is finite (regression: was 0/0 → NaN)" begin
         for (name, c) in (("Spline", spl), ("Constant(cont)", cc),
-            ("Constant(per)", cper), ("Composite(+)", comp_add), ("Scaled", scaled))
+            ("Constant(per)", cper), ("Composite(+)", comp_add), ("Scaled", scaled),
+            ("MonotoneConvex", mc), ("NelsonSiegel", ns), ("NSS", nss), ("CairnsPritchard", cpr))
             @test !isnan(FinanceCore.rate(zero(c, 0.0)))
         end
         # flat curve: zero(·, 0) is its own continuous rate
@@ -50,6 +70,21 @@
         # continuity of the zero curve into t = 0
         @test FinanceCore.rate(zero(spl, 1e-9)) ≈ FinanceCore.rate(zero(spl, 0.0)) atol = 1e-6
         @test FinanceCore.rate(zero(comp_add, 1e-9)) ≈ FinanceCore.rate(zero(comp_add, 0.0)) atol = 1e-6
+    end
+
+    @testset "NS/NSS array tenors preserve scalar semantics" begin
+        ts = [0.0, 0.5, 2.0, 10.0]
+        for c in (ns, nss)
+            @test zero(c, ts) == zero.(Ref(c), ts)
+            @test discount(c, ts) == discount.(Ref(c), ts)
+        end
+    end
+
+    @testset "discount(c, 0) preserves curve numeric type" begin
+        ns_big = Yield.NelsonSiegel(big"2.0", big"0.03", big"-0.01", big"0.01")
+        scaled_big = Yield.Constant(big"0.03") * big"0.79"
+        @test discount(ns_big, 0.0) isa BigFloat
+        @test discount(scaled_big, 0.0) isa BigFloat
     end
 
     @testset "composition is additive in zero-rate space" begin

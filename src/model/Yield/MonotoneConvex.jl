@@ -331,8 +331,4 @@ function Base.zero(mc::MonotoneConvex, t)
         return Continuous((t_prev * rates[i_time - 1] + (t - t_prev) * fᵈ[i_time] + (t_curr - t_prev) * G) / t)
     end
 end
-
-function FinanceCore.discount(mc::MonotoneConvex, t)
-    r = zero(mc, t)
-    return discount(r, t)
-end
+FinanceCore.discount(mc::MonotoneConvex, t) = _discount_from_zero(mc, t)

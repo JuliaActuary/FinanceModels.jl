@@ -56,13 +56,17 @@ function NelsonSiegel(τ₁ = 1.0)
 end
 
 function Base.zero(ns::NelsonSiegel, t)
-    if iszero(t)
-        # lim_{t→0} z(t) = β₀ + β₁ (the (1-e^(-x))/x terms → 1, hump term vanishes)
-        return Continuous(ns.β₀ + ns.β₁)
-    end
-    return Continuous.(ns.β₀ .+ ns.β₁ .* (1.0 .- exp.(-t ./ ns.τ₁)) ./ (t ./ ns.τ₁) .+ ns.β₂ .* ((1.0 .- exp.(-t ./ ns.τ₁)) ./ (t ./ ns.τ₁) .- exp.(-t ./ ns.τ₁)))
+    iszero(t) && return Continuous(ns.β₀ + ns.β₁)  # lim_{t→0}: decay → 1, hump → 0
+    # Bind leaf subexpressions (q, e) only — do NOT combine into `decay = (1-e)/q` and
+    # write `β·decay`: that reassociates `(β·(1-e))/q → β·((1-e)/q)`, and the sub-ULP
+    # gradient shift tips the (documented, highly sensitive) NSS calibration into NaN.
+    q = t / ns.τ₁
+    e = exp(-q)
+    return Continuous(ns.β₀ + ns.β₁ * (1.0 - e) / q + ns.β₂ * ((1.0 - e) / q - e))
 end
-FinanceCore.discount(ns::NelsonSiegel, t) = discount.(zero.(ns, t), t)
+FinanceCore.discount(ns::NelsonSiegel, t) = _discount_from_zero(ns, t)
+Base.zero(ns::NelsonSiegel, ts::AbstractArray) = zero.(Ref(ns), ts)
+FinanceCore.discount(ns::NelsonSiegel, ts::AbstractArray) = discount.(Ref(ns), ts)
 
 """
     NelsonSiegelSvensson(τ₁, τ₂, β₀, β₁, β₂, β₃)
@@ -127,10 +131,16 @@ end
 NelsonSiegelSvensson(τ₁ = 1.0, τ₂ = 1.0) = NelsonSiegelSvensson(τ₁, τ₂, 0.0, 0.0, 0.0, 0.0)
 
 function Base.zero(nss::NelsonSiegelSvensson, t)
-    if iszero(t)
-        # lim_{t→0} z(t) = β₀ + β₁ (same limit as NelsonSiegel; β₂, β₃ hump terms vanish)
-        return Continuous(nss.β₀ + nss.β₁)
-    end
-    return Continuous.(nss.β₀ .+ nss.β₁ .* (1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .+ nss.β₂ .* ((1.0 .- exp.(-t ./ nss.τ₁)) ./ (t ./ nss.τ₁) .- exp.(-t ./ nss.τ₁)) .+ nss.β₃ .* ((1.0 .- exp.(-t ./ nss.τ₂)) ./ (t ./ nss.τ₂) .- exp.(-t ./ nss.τ₂)))
+    iszero(t) && return Continuous(nss.β₀ + nss.β₁)  # lim_{t→0}: same as NelsonSiegel; β₂, β₃ vanish
+    # Bind leaf subexpressions (q, e) only — see the NelsonSiegel `zero` above. Do NOT
+    # combine into shared `decay = (1-e)/q` intermediates: reassociating the `β·(1-e)/q`
+    # products shifts ForwardDiff gradients enough to tip the sensitive NSS fit into NaN.
+    q₁ = t / nss.τ₁
+    q₂ = t / nss.τ₂
+    e₁ = exp(-q₁)
+    e₂ = exp(-q₂)
+    return Continuous(nss.β₀ + nss.β₁ * (1.0 - e₁) / q₁ + nss.β₂ * ((1.0 - e₁) / q₁ - e₁) + nss.β₃ * ((1.0 - e₂) / q₂ - e₂))
 end
-FinanceCore.discount(nss::NelsonSiegelSvensson, t) = discount.(zero.(nss, t), t)
+FinanceCore.discount(nss::NelsonSiegelSvensson, t) = _discount_from_zero(nss, t)
+Base.zero(nss::NelsonSiegelSvensson, ts::AbstractArray) = zero.(Ref(nss), ts)
+FinanceCore.discount(nss::NelsonSiegelSvensson, ts::AbstractArray) = discount.(Ref(nss), ts)
