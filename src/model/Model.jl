@@ -16,6 +16,7 @@ include("Spline.jl")
 include("Yield.jl")
 include("Volatility.jl")
 include("Equity.jl")
+include("FX.jl")
 include("Stochastic.jl")
 
 """
