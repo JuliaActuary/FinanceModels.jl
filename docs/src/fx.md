@@ -333,9 +333,9 @@ both). Two practical notes:
 - A tenor that is not a whole number of coupon periods forms a *short first stub* (the
   schedule stays anchored at maturity, per `Bond.coupon_times`). The stub coupon
   accrues its actual length at the forward over `[0, t₁]`, compound-accrued so a
-  zero-spread leg on its own curve stays exactly par — `ParYield`'s stub convention.
-  `Bond.Floating` applies a full-period accrual to stubs, so the
-  strip-equals-projected-leg identity is exact for whole-period tenors.
+  zero-spread leg on its own curve stays exactly par — the same stub convention as
+  `ParYield` and `Bond.Floating`, so the strip-equals-projected-leg identity holds on
+  any front-stub schedule.
 
 Deliberately *not* built yet: the mark-to-market (resetting-notional) basis-swap
 *contract* itself, pending convention decisions (which leg resets, settlement timing,

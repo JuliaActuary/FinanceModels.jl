@@ -3,7 +3,7 @@ import ..AbstractModel
 import ..FinanceCore
 import ..Spline as Sp
 import ..DataInterpolations
-import ..Bond: coupon_times
+import ..Bond: coupon_times, __regular_schedule, __par_coupon
 
 using ..FinanceCore: Continuous, Periodic, discount, accumulation, forward, pv, AbstractContract
 
@@ -151,6 +151,8 @@ Calculate the par yield for maturity `time` for the given `curve` and `frequency
 
 If `time` is shorter than one regular coupon period (e.g. `time=0.5` with `frequency=1`), the single stub payment implies a compounding frequency of `1/time`: the result is quoted as `Periodic(1/time)` when `1/time` is a (near-)integer, and otherwise an `ArgumentError` is thrown because the implied frequency cannot be represented as a `Periodic` rate.
 
+If `time` is longer than one coupon period but not a whole number of periods, the schedule has a short first stub which accrues its actual length (see `Bond.coupon_times`); the result is the internal rate of return of the par-priced true-accrual schedule, quoted as `Periodic(frequency)` — so `par` of a flat curve recovers the curve's rate at any maturity. On such stub schedules this yield quote differs from the annualized par *coupon* `c` solving `c·Σᵢ δᵢ·DF(tᵢ) + DF(T) = 1`, which is what `InterestRateSwap` uses for its fixed leg.
+
 # Examples
 
 ```julia-repl
@@ -179,7 +181,15 @@ function par(curve, time; frequency = 2)
     Δt = step(coup_times)
     r = (1 - mat_disc) / coupon_pv
 
-    # Build cash flows: initial outflow of -1, then coupons r, final coupon+principal 1+r
+    # A maturity that is not a whole number of periods leaves a short first stub
+    # which accrues its actual length: such schedules pay `c·δᵢ` with the
+    # annualized coupon `c` solving the true-accrual par condition, so the IRR
+    # below is that of the correctly-accrued par-priced bond. Whole-period
+    # schedules pay `r` every period (the historical construction, unchanged).
+    stub = length(coup_times) > 1 && !__regular_schedule(time, frequency)
+    c = stub ? __par_coupon(curve, time, frequency) : r
+
+    # Build cash flows: initial outflow of -1, then coupons, final coupon+principal 1+coupon
     # Pre-allocate arrays for better performance
     n = length(coup_times)
     cfs = Vector{typeof(r)}(undef, n + 1)
@@ -189,7 +199,8 @@ function par(curve, time; frequency = 2)
     times[1] = zero(Δt)
 
     @inbounds for i in 1:n
-        cfs[i + 1] = i == n ? 1 + r : r
+        coup = stub ? c * (i == 1 ? first(coup_times) : 1 / frequency) : r
+        cfs[i + 1] = i == n ? 1 + coup : coup
         times[i + 1] = coup_times[i]
     end
 

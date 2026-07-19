@@ -15,7 +15,8 @@ end
 
     @test collect(p) == [Cashflow(0.05, 1.0), Cashflow(0.05, 2.0), Cashflow(1.05, 3.0)]
     @test collect(c) == [Cashflow(0.05, 1.0), Cashflow(0.05, 2.0), Cashflow(1.05, 3.0)]
-    @test collect(Bond.Fixed(0.05, Periodic(1), 2.5)) == [Cashflow(0.05, 0.5), Cashflow(0.05, 1.5), Cashflow(1.05, 2.5)]
+    # non-whole maturity: the short first stub accrues its actual length (0.5y)
+    @test collect(Bond.Fixed(0.05, Periodic(1), 2.5)) == [Cashflow(0.025, 0.5), Cashflow(0.05, 1.5), Cashflow(1.05, 2.5)]
     @test collect(Bond.Fixed(0.05, Periodic(1), 1)) == [Cashflow(1.05, 1.0)]
 
     @test pv(Yield.Constant(0.05), Bond.Fixed(0.05, Periodic(1), 3.0)) ≈ 1.0
