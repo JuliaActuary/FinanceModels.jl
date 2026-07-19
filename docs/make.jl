@@ -21,6 +21,7 @@ makedocs(;
             "Contracts" => "contracts.md",
             "Rates" => "Rates.md",
             "Yield Curve Arithmetic" => "yield_arithmetic.md",
+            "Foreign Exchange" => "fx.md",
             "Migration Guide" => "migration.md",
         ],
         "Modules" => [
@@ -31,6 +32,7 @@ makedocs(;
             "Yield" => "API/Yield.md",
             "Bond" => "API/Bond.md",
             "Equity" => "API/Equity.md",
+            "FX" => "API/FX.md",
             "Option" => "API/Option.md",
             "Volatility" => "API/Volatility.md",
             "ShortRate" => "API/ShortRate.md",

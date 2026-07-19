@@ -40,6 +40,7 @@ using .Yield: par
 export par
 
 export Equity, Volatility
+export FX
 export ShortRate, AbstractStochasticModel, RatePath, simulate, pv_mc, short_rate
 export Projection, CashflowProjection
 export pv
