@@ -19,6 +19,15 @@
     comp_sub = spl - splc
     scaled = spl * 0.79
     shifted = spl + ((z, t) -> z + Continuous(0.01))
+    zrc = ZeroRateCurve(zrates, mats, Spline.Linear())
+    sw = Yield.SmithWilson([5.0, 7.0], [2.3, -1.2]; ufr = 0.03, α = 0.1)
+    spread = Yield.Constant(0.01)
+    wrapped_discount_native = [
+        ("ZeroRateCurve + spread", zrc + spread),
+        ("SmithWilson + spread", sw + spread),
+        ("Scaled SmithWilson", sw * 0.79),
+        ("Scaled ForwardStarting", Yield.ForwardStarting(sw, 1.0) * 2.0),
+    ]
 
     curves = [
         ("Spline(linear)", spl), ("Spline(cubic)", splc), ("MonotoneConvex", mc),
@@ -38,6 +47,16 @@
 
     @testset "discount(c, 0) == 1 exactly  ($name)" for (name, c) in curves
         @test discount(c, 0.0) == 1.0
+    end
+
+    @testset "discount(c, 0) == 1 over discount-native wrappers  ($name)" for (name, c) in wrapped_discount_native
+        @test discount(c, 0.0) == 1.0
+        @test isfinite(discount(c, 0.0, 5.0))
+    end
+
+    @testset "present_value through a discount-native wrapper is finite" begin
+        bond = Bond.Fixed(0.05, Periodic(1), 5)
+        @test isfinite(present_value(zrc + spread, bond))
     end
 
     @testset "zero(c, 0) is finite (regression: was 0/0 → NaN)" begin

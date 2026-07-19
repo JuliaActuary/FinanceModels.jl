@@ -15,10 +15,14 @@ abstract type AbstractYieldModel <: AbstractModel end
 # shared by every zero-native curve through the one-line `discount` stubs at each curve
 # definition (CompositeYield, ScaledYield, the yield shifts, NelsonSiegel(Svensson),
 # CairnsPritchard, MonotoneConvex). Curves with a cheaper direct formula (Constant,
-# Yield.Spline) define their own `discount` instead. The affected curves all define a
-# finite zero rate at t=0, so delegating to the rate-level `discount` also preserves the
-# promoted numeric type carried by the curve parameters.
-_discount_from_zero(c, t) = discount(Base.zero(c, t), t)
+# Yield.Spline) define their own `discount` instead. Leaf curves provide a finite zero
+# rate at t=0, but wrappers may sit over discount-native curves whose generic `zero`
+# has a removable 0/0 singularity there. Forming `one(df)` preserves the promoted
+# curve/time numeric type while enforcing the discount-factor identity DF(0) = 1.
+function _discount_from_zero(c, t)
+    df = discount(Base.zero(c, t), t)
+    return iszero(t) ? one(df) : df
+end
 
 # Generic callable fallback: `curve(t) ≡ discount(curve, t)`. Covers every
 # AbstractYieldModel subtype (Constant, Spline, CompositeYield, ScaledYield,
