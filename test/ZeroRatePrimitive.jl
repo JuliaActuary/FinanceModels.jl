@@ -53,6 +53,21 @@
         @test FinanceCore.rate(zero(comp_add, 1e-9)) ≈ FinanceCore.rate(zero(comp_add, 0.0)) atol = 1e-6
     end
 
+    @testset "NS/NSS array tenors preserve scalar semantics" begin
+        ts = [0.0, 0.5, 2.0, 10.0]
+        for c in (ns, nss)
+            @test zero(c, ts) == zero.(Ref(c), ts)
+            @test discount(c, ts) == discount.(Ref(c), ts)
+        end
+    end
+
+    @testset "discount(c, 0) preserves curve numeric type" begin
+        ns_big = Yield.NelsonSiegel(big"2.0", big"0.03", big"-0.01", big"0.01")
+        scaled_big = Yield.Constant(big"0.03") * big"0.79"
+        @test discount(ns_big, 0.0) isa BigFloat
+        @test discount(scaled_big, 0.0) isa BigFloat
+    end
+
     @testset "composition is additive in zero-rate space" begin
         for t in (0.5, 1.0, 5.0, 20.0)
             z1 = FinanceCore.rate(zero(spl, t))
