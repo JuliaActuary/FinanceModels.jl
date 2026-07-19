@@ -1,5 +1,12 @@
 using Random
 
+struct TestStochasticModel <: AbstractStochasticModel
+    initial::Float64
+end
+
+FinanceModels._sim_initial_rate(m::TestStochasticModel) = m.initial
+FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) = r
+
 @testset "Stochastic Models" begin
 
     @testset "Vasicek" begin
@@ -448,7 +455,7 @@ using Random
         for T in [1.0, 5.0, 10.0]
             expected_disc = sum(discount(sc, T) for sc in scenarios) / 5000
             curve_disc = discount(curve, T)
-            @test expected_disc ≈ curve_disc rtol = 0.02
+            @test expected_disc ≈ curve_disc rtol = 0.01
         end
     end
 
@@ -520,12 +527,17 @@ using Random
     end
 
     @testset "CIR ZCB analytical regression" begin
-        # These values are computed from the CIR closed-form ZCB formula
-        # (Cox, Ingersoll & Ross, 1985, Econometrica, Eq. 23). They serve
-        # as regression tests across Feller-condition regimes.
+        # Closed-form CIR ZCB prices (Cox, Ingersoll & Ross, 1985, Econometrica,
+        # Eq. 23), verified against two independent implementations:
+        # - Feller-satisfied sets: QuantLib 1.42.1 `CoxIngersollRoss::discountBond`
+        #   reproduces every value below to all 12 printed decimals.
+        # - Feller-boundary/violated sets (QuantLib rejects such parameters at
+        #   construction): numerical integration of the affine Riccati ODEs
+        #   B' = 1 - aB - σ²B²/2, (ln A)' = -abB with scipy solve_ivp at
+        #   rtol=1e-12 matches to ~1e-13.
 
         @testset "Feller satisfied: a=0.3, b=0.08, σ=0.15, r₀=0.05" begin
-            # 2ab = 0.048 > σ² = 0.0225
+            # 2ab = 0.048 > σ² = 0.0225. Independent source: QuantLib 1.42.1
             cir = ShortRate.CoxIngersollRoss(0.3, 0.08, 0.15, Continuous(0.05))
             @test discount(cir, 1.0) ≈ 0.947503053857 atol = 1e-8
             @test discount(cir, 5.0) ≈ 0.731755780942 atol = 1e-8
@@ -534,7 +546,7 @@ using Random
         end
 
         @testset "Higher vol: a=0.5, b=0.10, σ=0.20, r₀=0.05" begin
-            # 2ab = 0.10 > σ² = 0.04
+            # 2ab = 0.10 > σ² = 0.04. Independent source: QuantLib 1.42.1
             cir = ShortRate.CoxIngersollRoss(0.5, 0.10, 0.20, Continuous(0.05))
             @test discount(cir, 1.0) ≈ 0.941394105702 atol = 1e-8
             @test discount(cir, 5.0) ≈ 0.673617793268 atol = 1e-8
@@ -543,7 +555,8 @@ using Random
         end
 
         @testset "Feller boundary: σ = √(2ab)" begin
-            # At the exact Feller boundary: 2ab = σ², process can touch zero
+            # At the exact Feller boundary: 2ab = σ², process can touch zero.
+            # Independent source: Riccati ODE integration (see testset header)
             a, b = 0.5, 0.10
             σ_bdy = sqrt(2 * a * b)  # ≈ 0.3162
             cir = ShortRate.CoxIngersollRoss(a, b, σ_bdy, Continuous(0.05))
@@ -553,7 +566,8 @@ using Random
         end
 
         @testset "Feller violated: σ=0.50 > √(2ab)=0.316" begin
-            # 2ab = 0.10 < σ² = 0.25 — formula still valid, higher convexity
+            # 2ab = 0.10 < σ² = 0.25 — formula still valid, higher convexity.
+            # Independent source: Riccati ODE integration (see testset header)
             cir = ShortRate.CoxIngersollRoss(0.5, 0.10, 0.50, Continuous(0.05))
             @test discount(cir, 1.0) ≈ 0.942631527602 atol = 1e-8
             @test discount(cir, 5.0) ≈ 0.708602161384 atol = 1e-8
@@ -562,6 +576,16 @@ using Random
             # Higher vol → more convexity → higher bond prices
             cir_lo = ShortRate.CoxIngersollRoss(0.5, 0.10, 0.10, Continuous(0.05))
             @test discount(cir, 5.0) > discount(cir_lo, 5.0)
+        end
+
+        @testset "Feller strongly violated: a=0.1, b=0.10, σ=0.50, r₀=0.05" begin
+            # 2ab = 0.02 ≪ σ² = 0.25 — the truth standard for the Feller-violated
+            # martingale test below. Independent source: Riccati ODE integration
+            # (see testset header); matches to ~1e-13.
+            cir = ShortRate.CoxIngersollRoss(0.1, 0.10, 0.50, Continuous(0.05))
+            @test discount(cir, 1.0) ≈ 0.950729464416 atol = 1e-9
+            @test discount(cir, 5.0) ≈ 0.821656416270 atol = 1e-9
+            @test discount(cir, 10.0) ≈ 0.723687625316 atol = 1e-9
         end
 
         @testset "QuantLib near-deterministic: a=1.0, b=0.1, σ≈0, r₀=0.1" begin
@@ -657,25 +681,36 @@ using Random
     # ──────────────────────────────────────────────────────────────────────────
 
     @testset "Analytical moment matching" begin
-        @testset "Vasicek r(T) moments" begin
+        @testset "Vasicek r(T) moments (exact transition, coarse steps)" begin
             # Vasicek r(T)|r(0) ~ Normal(E[r(T)], Var[r(T)])
             # E[r(T)] = b + (r₀−b)exp(−aT)
             # Var[r(T)] = σ²(1−exp(−2aT))/(2a)
+            # Source: Vasicek (1977); Brigo & Mercurio (2006) §3.2.1
             a, b, σ, r0 = 0.3, 0.10, 0.03, 0.03
+            v = ShortRate.Vasicek(a, b, σ, Continuous(r0))
             T = 5.0
             E_rT = b + (r0 - b) * exp(-a * T)
             V_rT = σ^2 * (1 - exp(-2a * T)) / (2a)
 
             N = 10_000
-            dt = 1 / 52  # weekly steps to reduce EM bias
-            n_steps = ceil(Int, T / dt)
+            # ONE-YEAR steps: the transition is sampled from the exact Gaussian
+            # density, so even absurdly coarse steps introduce no bias — only
+            # sampling error remains. This step size is chosen to discriminate:
+            # an Euler-Maruyama scheme at dt=1 has deterministic moment errors
+            # of 2.6× the mean tolerance and +20% on the variance (vs 5% rtol),
+            # so a regression to Euler fails this test decisively. (At dt=0.25
+            # Euler's errors sit just inside both tolerances — too fine a step
+            # proves nothing.)
+            dt = 1.0
+            n_steps = round(Int, T / dt)
             sqrt_dt = sqrt(dt)
+            cache = FinanceModels._sim_cache(v, dt, n_steps)
             rng = Random.MersenneTwister(42)
             rates = Vector{Float64}(undef, N)
             for i in 1:N
                 r = Float64(r0)
-                for _ in 1:n_steps
-                    r = r + a * (b - r) * dt + σ * sqrt_dt * randn(rng)
+                for j in 1:n_steps
+                    r = FinanceModels._step(v, r, dt, sqrt_dt, randn(rng), (j - 1) * dt, cache, j)
                 end
                 rates[i] = r
             end
@@ -688,11 +723,45 @@ using Random
             @test sample_var ≈ V_rT rtol = 0.05
         end
 
+        @testset "Hull-White r(T) moments (exact transition, coarse steps)" begin
+            # Under r(t) = x(t) + α(t), x is a zero-mean OU process, hence
+            # E[r(T)] = α(T) and Var[r(T)] = σ²(1−exp(−2aT))/(2a).
+            # One-year steps make this test reject the former Euler transition
+            # while leaving the exact transition unaffected by the step size.
+            a, σ = 0.1, 0.02
+            hw = ShortRate.HullWhite(a, σ, Yield.Constant(Continuous(0.03)))
+            T = 5.0
+            E_rT = FinanceModels._hw_alpha(hw, T)
+            V_rT = σ^2 * (1 - exp(-2a * T)) / (2a)
+
+            N = 10_000
+            dt = 1.0
+            n_steps = round(Int, T / dt)
+            sqrt_dt = sqrt(dt)
+            cache = FinanceModels._sim_cache(hw, dt, n_steps)
+            rng = Random.MersenneTwister(42)
+            rates = Vector{Float64}(undef, N)
+            for i in 1:N
+                r = FinanceModels._sim_initial_rate(hw)
+                for j in 1:n_steps
+                    r = FinanceModels._step(hw, r, dt, sqrt_dt, randn(rng), (j - 1) * dt, cache, j)
+                end
+                rates[i] = r
+            end
+            sample_mean = sum(rates) / N
+            sample_var = sum((r - sample_mean)^2 for r in rates) / (N - 1)
+
+            @test sample_mean ≈ E_rT atol = 4 * sqrt(V_rT) / sqrt(N)
+            @test sample_var ≈ V_rT rtol = 0.05
+        end
+
         @testset "CIR r(T) moments" begin
             # CIR r(T)|r(0) has known moments:
             # E[r(T)] = b + (r₀−b)exp(−aT)
             # Var[r(T)] = r₀σ²exp(−aT)(1−exp(−aT))/a + bσ²(1−exp(−aT))²/(2a)
+            # Source: Cox, Ingersoll & Ross (1985); Brigo & Mercurio (2006) §3.2.3
             a, b, σ, r0 = 0.3, 0.08, 0.15, 0.05
+            cir = ShortRate.CoxIngersollRoss(a, b, σ, Continuous(r0))
             T = 5.0
             E_rT = b + (r0 - b) * exp(-a * T)
             V_rT = r0 * σ^2 * exp(-a * T) * (1 - exp(-a * T)) / a +
@@ -705,12 +774,13 @@ using Random
             rng = Random.MersenneTwister(42)
             rates = Vector{Float64}(undef, N)
             for i in 1:N
-                r = Float64(r0)
-                for _ in 1:n_steps
-                    r_pos = max(r, 0.0)
-                    r = max(r_pos + a * (b - r_pos) * dt + σ * sqrt(r_pos) * sqrt_dt * randn(rng), 0.0)
+                # x is the full-truncation auxiliary state (may go negative);
+                # the observed short rate is x⁺
+                x = Float64(r0)
+                for j in 1:n_steps
+                    x = FinanceModels._step(cir, x, dt, sqrt_dt, randn(rng), (j - 1) * dt, nothing, j)
                 end
-                rates[i] = r
+                rates[i] = FinanceModels._observed_rate(cir, x)
             end
             sample_mean = sum(rates) / N
             sample_var = sum((r - sample_mean)^2 for r in rates) / (N - 1)
@@ -728,13 +798,15 @@ using Random
     @testset "Martingale test E[D(T)] = P(0,T)" begin
         @testset "Vasicek" begin
             # Under risk-neutral measure, mean simulated discount factor
-            # must equal the analytical ZCB price
+            # must equal the analytical ZCB price. The exact Gaussian
+            # transition leaves only trapezoidal-integration and sampling
+            # error, so the tolerance can be tight.
             v = ShortRate.Vasicek(0.3, 0.10, 0.03, Continuous(0.03))
             rng = Random.MersenneTwister(42)
             scenarios = simulate(v; n_scenarios = 10_000, timestep = 1 / 12, horizon = 11.0, rng)
             for T in [1.0, 5.0, 10.0]
                 mc_disc = sum(discount(sc, T) for sc in scenarios) / 10_000
-                @test mc_disc ≈ discount(v, T) rtol = 0.015
+                @test mc_disc ≈ discount(v, T) rtol = 0.01
             end
         end
 
@@ -744,7 +816,24 @@ using Random
             scenarios = simulate(cir; n_scenarios = 10_000, timestep = 1 / 12, horizon = 11.0, rng)
             for T in [1.0, 5.0, 10.0]
                 mc_disc = sum(discount(sc, T) for sc in scenarios) / 10_000
-                @test mc_disc ≈ discount(cir, T) rtol = 0.02
+                @test mc_disc ≈ discount(cir, T) rtol = 0.01
+            end
+        end
+
+        @testset "CIR with Feller violation" begin
+            # 2ab = 0.02 < σ² = 0.25. The absorption scheme this replaced
+            # (flooring the state at zero each step) was biased by −6% to
+            # −17% here and would fail this tolerance by an order of
+            # magnitude; full truncation keeps the bias within tens of bp
+            # at weekly steps. The closed-form truth standard is itself
+            # independently verified (Riccati ODE) in the "Feller strongly
+            # violated" regression testset above.
+            cir_fv = ShortRate.CoxIngersollRoss(0.1, 0.10, 0.50, Continuous(0.05))
+            rng = Random.MersenneTwister(42)
+            scenarios = simulate(cir_fv; n_scenarios = 20_000, timestep = 1 / 52, horizon = 11.0, rng)
+            for T in [5.0, 10.0]
+                mc_disc = sum(discount(sc, T) for sc in scenarios) / 20_000
+                @test mc_disc ≈ discount(cir_fv, T) rtol = 0.02
             end
         end
     end
@@ -816,6 +905,16 @@ using Random
     end
 
     # ──────────────────────────────────────────────────────────────────────────
+    @testset "Custom stochastic model simulation hooks" begin
+        # External AbstractStochasticModel subtypes historically needed only an
+        # initial-state extractor and a step method when no cache was required.
+        model = TestStochasticModel(0.03)
+        scenarios = simulate(model; n_scenarios = 2, timestep = 0.5,
+                             horizon = 1.0, rng = Random.MersenneTwister(42))
+        @test length(scenarios) == 2
+        @test all(discount(path, 1.0) ≈ exp(-0.03) for path in scenarios)
+    end
+
     # AD forward rate correctness
     # ──────────────────────────────────────────────────────────────────────────
 
@@ -925,7 +1024,7 @@ using Random
             scenarios = simulate(hw; n_scenarios = 5000, timestep = 1 / 12, horizon = 11.0, rng)
             for T in [1.0, 5.0, 10.0]
                 mc_disc = sum(discount(sc, T) for sc in scenarios) / 5000
-                @test mc_disc ≈ discount(curve, T) rtol = 0.02
+                @test mc_disc ≈ discount(curve, T) rtol = 0.01
             end
         end
     end
@@ -979,6 +1078,12 @@ using Random
         for sc in scenarios
             @test discount(sc, 3.0) > 0
             @test isfinite(discount(sc, 3.0))
+            # Only the truncated (non-negative) rate may enter the discount
+            # integral, so pathwise discounts are non-increasing in T even
+            # when the auxiliary state goes negative
+            @test discount(sc, 4.0) <= discount(sc, 3.0)
+            # short_rate reports the observed (truncated) rate
+            @test short_rate(sc, 2.5) >= 0
         end
     end
 
