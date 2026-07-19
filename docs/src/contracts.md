@@ -137,8 +137,8 @@ Another example of this is how `InterestRateSwap`[@ref] is implemented. It's sim
 
 ```julia
 function InterestRateSwap(curve, tenor; model_key="OIS")
-    fixed_rate = par(curve, tenor; frequency=4)
-    fixed_leg = Bond.Fixed(rate(fixed_rate), Periodic(4), tenor)
+    fixed_rate = Bond.__par_coupon(curve, tenor, 4) # the schedule's annualized par coupon
+    fixed_leg = Bond.Fixed(fixed_rate, Periodic(4), tenor)
     float_leg = Bond.Floating(0.0, Periodic(4), tenor, model_key) |> Map(-)
     return Composite(fixed_leg, float_leg)
 end

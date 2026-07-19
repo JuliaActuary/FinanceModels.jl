@@ -83,7 +83,7 @@ module Bond
     """
         Bond.Fixed(coupon_rate,frequency<:FinanceCore.Frequency,maturity)
 
-    An object representing a fixed coupon bond. `coupon_rate` / `frequency` is the actual payment amount.
+    An object representing a fixed coupon bond. `coupon_rate` / `frequency` is the actual payment amount for each whole coupon period. A maturity that is not a whole number of periods produces a *short first stub* (the schedule anchors at maturity and counts backward — see `Bond.coupon_times`) which accrues its actual length: the first coupon is `coupon_rate * t₁`.
 
     Note that there are a number of convienience constructors which return a Quote for a `Bond.Fixed`: 
 
@@ -116,7 +116,7 @@ module Bond
 
     """
     struct Fixed{F <: FinanceCore.Frequency, N <: Real, M <: Timepoint} <: AbstractBond
-        coupon_rate::N # coupon_rate / frequency is the actual payment amount
+        coupon_rate::N # annualized; a whole period pays coupon_rate / frequency, a short first stub pays coupon_rate * t₁
         frequency::F
         maturity::M
     end
@@ -128,7 +128,7 @@ module Bond
     """
         Bond.Floating(coupon_rate,frequency<:FinanceCore.Frequency,maturity,model_key)
 
-    An object representing a floating coupon bond. (`coupon_rate` + reference rate) / `frequency` is the actual payment amount, where the reference rate requires a `Projection` with a key/value pair where the key is the `model_key` argument and the value is the model which produces the reference rate.
+    An object representing a floating coupon bond. (`coupon_rate` + reference rate) / `frequency` is the actual payment amount for each whole coupon period, where the reference rate requires a `Projection` with a key/value pair where the key is the `model_key` argument and the value is the model which produces the reference rate. Coupons fix in advance over each accrual window. A maturity that is not a whole number of periods produces a *short first stub* (see `Bond.coupon_times`) which accrues its actual window `[0, t₁]`: the stub coupon is the reference curve's discount-factor ratio over the stub, minus one, plus `coupon_rate * t₁` — it never references a time before issue.
 
 
     See also [`FinanceCore.Quote`](@ref).
@@ -150,7 +150,7 @@ module Bond
     ```
     """
     struct Floating{F <: FinanceCore.Frequency, N <: Real, M <: Timepoint, K} <: AbstractBond
-        coupon_rate::N # coupon_rate / frequency is the actual payment amount
+        coupon_rate::N # annualized spread over the reference rate; accrues like Fixed's coupon_rate
         frequency::F
         maturity::M
         key::K
@@ -165,7 +165,7 @@ module Bond
 
     Create a `Quote` representing a par bond with the given `yield` and `maturity`. The default coupon `frequency` is semi-annual (`Periodic(2)`). If a `Rate` with `Periodic` compounding is passed, the frequency is inferred from the rate.
 
-    When `maturity ≤ 1/frequency` (i.e. the bond matures before the first regular coupon date), a stub-period par bond is created. The coupon is compound-accrued so that `(1 + stub_coupon) * discount(yield, maturity) = 1.0`, preserving par pricing. Otherwise, a standard par coupon bond `Quote` with `price = 1.0` is returned.
+    When `maturity` is not a whole number of coupon periods, the backward-anchored schedule (`Bond.coupon_times`) leaves a *short first stub* which accrues its actual length, and the coupon rate is solved so the bond prices to exactly `1.0` at the quoted yield: `c·Σᵢ δᵢ·DF(tᵢ) + DF(T) = 1`, where `δ₁ = t₁` is the stub length and `δᵢ = 1/frequency` otherwise. The sub-period case (`maturity ≤ 1/frequency`) is the single-coupon instance of this rule: the stub pays `accumulation(yield, maturity) - 1`, so `(1 + stub_coupon·maturity) * discount(yield, maturity) = 1.0`. Otherwise, a standard par coupon bond `Quote` with `price = 1.0` is returned.
 
     Use broadcasting to create a set of quotes: `ParYield.(yields, maturities)`.
 
@@ -185,11 +185,13 @@ module Bond
     end
     function ParYield(yield::Rate{N, T}, maturity; frequency = Periodic(2)) where {T <: Periodic, N}
         frequency = yield.compounding
-        coupon_period = 1 / frequency.frequency
-        coupon_rate = if maturity ≤ coupon_period
-            (accumulation(yield, maturity) - 1) * frequency.frequency
-        else
+        coupon_rate = if __regular_schedule(maturity, frequency.frequency)
             rate(yield)
+        else
+            # non-whole maturity: solve the par condition for the schedule's true
+            # accrual (short first stub, whole periods after), so the quote is
+            # exactly par at its own yield
+            __par_coupon(yield, maturity, frequency.frequency)
         end
         return Quote(1.0, Fixed(coupon_rate, frequency, maturity))
     end
@@ -225,13 +227,12 @@ module Bond
         # Assume maturity < 1 don't pay coupons and are therefore discount bonds
         # Assume maturity > 1 pay coupons and are therefore par bonds
         frequency = Periodic(2)
-        r, v = if maturity ≤ 1
-            Periodic(0.0, 1), discount(yield, maturity)
+        if maturity ≤ 1
+            return Quote(discount(yield, maturity), Fixed(0.0, Periodic(1), maturity))
         else
-            # coupon paying par bond
-            frequency(yield), 1.0
+            # coupon paying par bond; ParYield solves any front-stub schedule to par
+            return ParYield(frequency(yield), maturity)
         end
-        return Quote(v, Fixed(rate(r), r.compounding, maturity))
     end
 
     """
@@ -256,9 +257,8 @@ module Bond
         if maturity <= 1
             return Quote(discount(yield, maturity), Fixed(0.0, Periodic(1), maturity))
         else
-            frequency = Periodic(4)
-            r = frequency(yield)
-            return Quote(1.0, Fixed(rate(r), frequency, maturity))
+            # quarterly-settled par swap; ParYield solves any front-stub schedule to par
+            return ParYield(Periodic(4)(yield), maturity)
         end
     end
 
@@ -320,6 +320,34 @@ module Bond
         end
     end
     coupon_times(b::AbstractBond) = coupon_times(b.maturity, b.frequency.frequency)
+
+    """
+        __regular_schedule(maturity, frequency)
+
+    Whether `maturity` is a whole number of `1/frequency` coupon periods — i.e. the
+    backward-anchored schedule from [`coupon_times`](@ref) starts a full period after
+    issue and has no short first stub. Applies the same range-endpoint test
+    `coupon_times` uses to decide whether to drop the terminal zero, so the two
+    cannot disagree.
+    """
+    __regular_schedule(maturity, frequency) = iszero(last(maturity:(-1 / frequency):0))
+
+    """
+        __par_coupon(curve, maturity, frequency)
+
+    The annualized coupon rate `c` for which a fixed bond on the [`coupon_times`](@ref)
+    schedule — first period accruing its actual length `[0, t₁]`, whole `1/frequency`
+    periods thereafter — prices to par on `curve`: `c·Σᵢ δᵢ·DF(tᵢ) + DF(T) = 1`.
+    `curve` may be a flat `Rate` or any yield model.
+    """
+    function __par_coupon(curve, maturity, frequency)
+        ts = coupon_times(maturity, frequency)
+        annuity = sum(ts) do t
+            δ = t == first(ts) ? t : 1 / frequency
+            δ * discount(curve, t)
+        end
+        return (1 - discount(curve, maturity)) / annuity
+    end
 
 
     for op in (:ZCBPrice, :ZCBYield, :ParYield, :ParSwapYield, :CMTYield)
@@ -552,7 +580,7 @@ end
 
 A convenience method for creating an interest rate swap given a curve and a tenor via a `Composite` contract consisting of receiving a [fixed bond](@ref Bond.Fixed) and paying (i.e. the negative of) a [floating bond](@ref Bond.Floating).
 
-The notional is a unit (1.0) amount and assumed to settle four times per period.
+The notional is a unit (1.0) amount and assumed to settle four times per period. The fixed rate is the annualized par coupon for the tenor's schedule on `curve`, so the swap prices to zero at inception — including non-whole tenors, whose first period is a short stub accruing its actual length.
 
 
 A [`Projection`](@ref), with an indexable `model_key` is still needed to project a swap. See examples below for what this looks like.
@@ -567,18 +595,21 @@ julia> swap = InterestRateSwap(curve,10);
 
 julia> Projection(swap,Dict("OIS" => curve),CashflowProjection()) |> collect
 80-element Vector{Cashflow{Float64, Float64}}:
-Cashflow{Float64, Float64}(0.012272234429039353, 0.25)
-Cashflow{Float64, Float64}(0.012272234429039353, 0.5)
+Cashflow{Float64, Float64}(0.012272234429039283, 0.25)
+Cashflow{Float64, Float64}(0.012272234429039283, 0.5)
 ⋮
 Cashflow{Float64, Float64}(-0.012272234429039353, 9.75)
-Cashflow{Float64, Float64}(-1.0122722344290391, 10.0)
+Cashflow{Float64, Float64}(-1.0122722344290394, 10.0)
 
 ```
 
 """
 function InterestRateSwap(curve, tenor; model_key = "OIS")
-    fixed_rate = par(curve, tenor; frequency = 4)
-    fixed_leg = Bond.Fixed(rate(fixed_rate), Periodic(4), tenor)
+    # the annualized par coupon for the tenor's schedule (true accrual on any
+    # front stub), so the swap prices to zero at inception for any tenor —
+    # `par`'s yield quote is not the coupon on stub schedules
+    fixed_rate = Bond.__par_coupon(curve, tenor, 4)
+    fixed_leg = Bond.Fixed(fixed_rate, Periodic(4), tenor)
     float_leg = Bond.Floating(0.0, Periodic(4), tenor, model_key) |> Map(-)
     return Composite(fixed_leg, float_leg)
 end

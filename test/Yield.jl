@@ -1,3 +1,11 @@
+# a reference model that refuses to be queried before issue — guards the floating
+# stub coupon against regressing to a negative-time lookback (issue #281)
+struct NoLookbackCurve <: FinanceModels.Yield.AbstractYieldModel end
+function FinanceCore.discount(::NoLookbackCurve, t)
+    t < 0 && error("reference curve queried at negative time $t")
+    return exp(-0.03 * t)
+end
+
 @testset "constant curve and rate -> Constant" begin
     yield = Yield.Constant(0.05)
 
@@ -136,6 +144,92 @@ end
         q_1y = ParYield(Periodic(r, 2), 1)
         @test q_1y.price == 1.0
         @test rate(q_1y.instrument.frequency(q_1y.instrument.coupon_rate)) ≈ r
+    end
+
+    @testset "front-stub schedules (true accrual)" begin
+        # a maturity that is not a whole number of periods anchors the schedule at
+        # maturity and leaves a short first stub, which accrues its actual length
+        # (issue #281): coupon_rate * t₁ for fixed coupons, the discount-factor
+        # ratio over [0, t₁] plus spread * t₁ for floating ones
+
+        @testset "Bond.Fixed stub cashflows" begin
+            cfs = Bond.Fixed(0.04, Periodic(4), 2.3) |> collect
+            @test [cf.time for cf in cfs] ≈ [0.05; 0.3:0.25:2.3]
+            @test cfs[1].amount == 0.04 * 0.05      # 0.05y of accrual, not a full quarter
+            @test all(cf.amount == 0.01 for cf in cfs[2:(end - 1)])
+            @test cfs[end].amount == 1.01
+
+            # a sub-period maturity is the single-coupon case of the same rule
+            @test only(collect(Bond.Fixed(0.04, Periodic(4), 0.05))).amount == 1.0 + 0.04 * 0.05
+        end
+
+        @testset "whole-period schedules unchanged" begin
+            cfs = Bond.Fixed(0.05, Periodic(2), 3) |> collect
+            @test all(cf.amount == 0.025 for cf in cfs[1:(end - 1)])
+            @test cfs[end].amount == 1.025
+            # non-representable period length (1/3): still the exact legacy amounts
+            cfs3 = Bond.Fixed(0.06, Periodic(3), 2) |> collect
+            @test all(cf.amount == 0.06 / 3 for cf in cfs3[1:(end - 1)])
+        end
+
+        @testset "Bond.Floating stub accrues [0, t₁], never a negative lookback" begin
+            # NoLookbackCurve (defined above) errors on any negative-time query —
+            # the old convention asked for forward(model, -0.2, 0.05) here
+            p = Projection(Bond.Floating(0.01, Periodic(4), 2.3, "k"), Dict("k" => NoLookbackCurve()), CashflowProjection())
+            cfs = collect(p)
+            @test cfs[1].amount ≈ exp(0.03 * 0.05) - 1 + 0.01 * 0.05
+            @test cfs[2].amount ≈ exp(0.03 * 0.25) - 1 + 0.01 * 0.25
+        end
+
+        @testset "zero-spread floating leg telescopes to par on any schedule" begin
+            m = fit(Spline.Linear(), ZCBYield.([0.03, 0.035, 0.041, 0.045, 0.0475], [0.5, 1.0, 2.0, 5.0, 10.0]), Fit.Bootstrap())
+            for T in [0.05, 0.6, 2.3, 5.0, 5.3]
+                p = Projection(Bond.Floating(0.0, Periodic(4), T, "k"), Dict("k" => m), CashflowProjection())
+                @test pv(m, p) ≈ 1.0 atol = 1e-14
+            end
+        end
+
+        @testset "par quotes are exactly par on stub schedules" begin
+            y = Periodic(0.04, 2)
+            flat = Yield.Constant(y)
+            for T in [1 // 4, 2.3, 5.3]
+                q = ParYield(y, T)
+                @test q.price == 1.0
+                @test pv(flat, q.instrument) ≈ 1.0 atol = 1e-14
+            end
+            # the quoted yield comes back as the bond's internal rate of return
+            @test internal_rate_of_return(ParYield(y, 2.3)) ≈ y atol = 1e-6
+            # CMT and OIS par quotes share the convention
+            @test pv(Yield.Constant(Periodic(0.045, 2)), CMTYield(0.045, 2.3).instrument) ≈ 1.0 atol = 1e-14
+            @test pv(Yield.Constant(Periodic(0.045, 4)), Bond.OISYield(0.045, 2.3).instrument) ≈ 1.0 atol = 1e-14
+
+            # bootstrap through a stub-tenor quote alongside whole tenors
+            qs = ParYield.(y, [1.0, 2.3, 4.0])
+            ms = fit(Spline.Linear(), qs, Fit.Bootstrap())
+            @test all(pv(ms, q.instrument) ≈ q.price for q in qs)
+        end
+
+        @testset "par and InterestRateSwap on stub tenors" begin
+            c = Yield.Constant(0.04)
+            # par is the IRR of the par-priced true-accrual schedule, so a flat
+            # curve's rate is recovered at any maturity, stub or not
+            @test par(c, 0.6; frequency = 4) ≈ Periodic(0.04, 1)
+            @test par(c, 2.3; frequency = 4) ≈ Periodic(0.04, 1)
+            # sub-period and whole-period behavior unchanged
+            @test par(c, 0.2; frequency = 4) ≈ Periodic(0.039374942589460726, 5)
+            @test par(c, 4) ≈ Periodic(0.03960780543711406, 2)
+            # the annualized par *coupon* is a different quantity on a stub
+            # schedule (no single compounding frequency reproduces a mixed-length
+            # schedule); it is what prices the fixed leg to par
+            cpn = FinanceModels.Bond.__par_coupon(c, 0.6, 4)
+            @test pv(c, Bond.Fixed(cpn, Periodic(4), 0.6)) ≈ 1.0 atol = 1e-14
+
+            m = fit(Spline.Linear(), ZCBYield.([0.03, 0.041, 0.045], [0.5, 2.0, 5.0]), Fit.Bootstrap())
+            for T in [0.6, 2.3, 10]
+                swap = InterestRateSwap(m, T)
+                @test abs(pv(m, Projection(swap, Dict("OIS" => m), CashflowProjection()))) < 1e-12
+            end
+        end
     end
 
     @testset "simple rate and forward" begin

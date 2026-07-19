@@ -114,11 +114,20 @@ end
     b = p.contract
     ts = Bond.coupon_times(b)
     coup = b.coupon_rate / b.frequency.frequency
+    # a maturity that is not a whole number of periods leaves a short first stub
+    # (the schedule anchors at maturity and counts backward), which accrues its
+    # actual length [0, t₁] rather than paying a full period's coupon
+    first_coup = if Bond.__regular_schedule(b.maturity, b.frequency.frequency)
+        coup
+    else
+        b.coupon_rate * first(ts)
+    end
     for t in ts
+        c = t == first(ts) ? first_coup : coup
         amt = if t == last(ts)
-            1.0 + coup
+            1.0 + c
         else
-            coup
+            c
         end
         cf = Cashflow(amt, t)
         val = @next(rf, val, cf)
@@ -135,13 +144,22 @@ end
     freq = b.frequency # e.g. `Periodic(2)`
     freq_scalar = freq.frequency  # the 2 from `Periodic(2)`
     model = p.model[b.key]
+    regular = Bond.__regular_schedule(b.maturity, freq_scalar)
     for t in ts
         # Fix-in-advance: the coupon paid at t reflects the forward rate
-        # observed at the START of the accrual period [t - 1/freq, t].
+        # observed at the START of the accrual period — [t - 1/freq, t] for a
+        # whole period, [0, t₁] for the short first stub of a non-whole maturity.
         # This matches the standard market convention for FRNs and Ibor coupons,
         # and avoids referencing a rate beyond the bond's maturity for the final coupon.
-        reference_rate = rate(freq(forward(model, t - 1 / freq_scalar, t)))
-        coup = (reference_rate + b.coupon_rate) / freq_scalar
+        coup = if !regular && t == first(ts)
+            # the stub accrues its actual length: the reference part is the
+            # discount-factor ratio over the true window (never a lookback to
+            # before issue), and the spread accrues simply over the stub
+            (1 / discount(model, zero(t), t) - 1) + b.coupon_rate * t
+        else
+            reference_rate = rate(freq(forward(model, t - 1 / freq_scalar, t)))
+            (reference_rate + b.coupon_rate) / freq_scalar
+        end
         amt = if t == last(ts)
             1.0 + coup
         else

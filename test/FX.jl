@@ -368,6 +368,15 @@
             @test length(legcfs) == length(frn) == 12
             @test all(legcfs[i].time == frn[i].time for i in eachindex(frn))
             @test all(legcfs[i].amount ≈ frn[i].amount for i in eachindex(frn))
+
+            # and on a front-stub schedule — the true-accrual stub convention is
+            # shared with Bond.Floating (issue #281)
+            q_stub = FX.ParBasisSwap(eurusd, b, 2.3; reference = estr)
+            frn_stub = collect(Projection(Bond.Floating(b, Periodic(4), 2.3, "R"), Dict("R" => estr), CashflowProjection()))
+            leg_stub = q_stub.instrument.cashflows
+            @test length(leg_stub) == length(frn_stub) == 10
+            @test all(leg_stub[i].time == frn_stub[i].time for i in eachindex(frn_stub))
+            @test all(leg_stub[i].amount ≈ frn_stub[i].amount for i in eachindex(frn_stub))
         end
 
         @testset "front-stub tenors" begin

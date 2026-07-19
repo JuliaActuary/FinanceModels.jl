@@ -444,8 +444,8 @@ stub), and `DF_f` the basis-adjusted (CSA) discount curve being calibrated. The
 returned quote is therefore `Quote(1.0, FX.BasisSwapLeg(pair, cashflows))`: a
 deterministic base-currency cashflow strip that must price to par on the curve being
 fit. Each coupon is fix-in-advance at the `reference` forward over its accrual period,
-exactly matching how [`Bond.Floating`](@ref FinanceModels.Bond.Floating) projects for
-whole-period tenors, so the strip equals the projected floating leg.
+exactly matching how [`Bond.Floating`](@ref FinanceModels.Bond.Floating) projects, so
+the strip equals the projected floating leg.
 
 A `maturity` that is not a whole number of periods keeps the schedule anchored at
 maturity (regular `1/frequency` periods counted backward — the shape
@@ -453,10 +453,8 @@ maturity (regular `1/frequency` periods counted backward — the shape
 coupon accrues its actual length at the forward over its true window `[0, t₁]` (never
 a negative time), compound-accrued so that a zero-spread leg on its own curve
 telescopes to exactly par — the same stub convention as
-[`ParYield`](@ref FinanceModels.Bond.ParYield)'s sub-period par bonds. This is deliberately
-more careful than `Bond.Floating`, which applies a full `1/frequency` accrual to stub
-periods, so the strip-equals-projected-leg identity above is exact for whole-period
-tenors only. Schedules irregular anywhere else (long stubs, back stubs, custom rolls)
+[`ParYield`](@ref FinanceModels.Bond.ParYield)'s stub par bonds and `Bond.Floating`'s
+stub coupons. Schedules irregular anywhere else (long stubs, back stubs, custom rolls)
 are out of scope.
 
 Because the strip is deterministic, these quotes flow through the same `fit` methods as
