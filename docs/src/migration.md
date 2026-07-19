@@ -1,5 +1,9 @@
 # Migration Guide
 
+## v6.2 to v6.3
+
+- **`Yield.instantaneous_forward` now returns a `Continuous` `Rate` instead of a bare `Real`**, consistent with `zero`, `forward`, and `par`. Use `rate(instantaneous_forward(m, t))` where you consumed the scalar. (The `Real`-returning `MonotoneConvex` method existed only in v6.1–v6.2; this release also adds analytic methods for `Constant`, `Spline`, `NelsonSiegel(-Svensson)`, `ZeroRateCurve`, and the `+`/`-`/scaling/`ForwardStarting` wrappers.)
+
 ## v6.0 to v6.1
 
 !!! warning "Changed numbers and new errors"
