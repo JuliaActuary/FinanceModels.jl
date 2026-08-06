@@ -81,7 +81,7 @@ function Spline(b::Sp.BSpline, xs, ys)
         :Average
     end
 
-    return Spline(DataInterpolations.BSplineInterpolation(ys, xs, order, :Uniform, knot_type; extrapolation = DataInterpolations.ExtrapolationType.Extension))
+    return Spline(DataInterpolations.BSplineInterpolation(ys, xs, order, knot_type; extrapolation = DataInterpolations.ExtrapolationType.Extension))
 end
 
 function Spline(::Sp.PCHIP, xs, ys)
