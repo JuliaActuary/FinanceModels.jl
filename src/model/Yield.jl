@@ -81,7 +81,13 @@ function Spline(b::Sp.BSpline, xs, ys)
         :Average
     end
 
-    return Spline(DataInterpolations.BSplineInterpolation(ys, xs, order, :Uniform, knot_type; extrapolation = DataInterpolations.ExtrapolationType.Extension))
+    interpolation = if pkgversion(DataInterpolations) >= v"9"
+        DataInterpolations.BSplineInterpolation(ys, xs, order, knot_type; extrapolation = DataInterpolations.ExtrapolationType.Extension)
+    else
+        DataInterpolations.BSplineInterpolation(ys, xs, order, :Uniform, knot_type; extrapolation = DataInterpolations.ExtrapolationType.Extension)
+    end
+
+    return Spline(interpolation)
 end
 
 function Spline(::Sp.PCHIP, xs, ys)
