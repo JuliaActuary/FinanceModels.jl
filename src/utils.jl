@@ -85,3 +85,31 @@ function europut(; S = 1.0, K = 1.0, τ = 1, r, σ, q = 0.0)
     d₂ = d2(S, K, τ, r, σ, q)
     return (N(-d₂) * K - N(-d₁) * S * exp(τ * (r - q))) * exp(-r * τ)
 end
+
+"""
+    ReadOnlyVector(v::Vector)
+
+Internal read-only view over an owned `Vector`. Indexed assignment — and therefore `.=`, `fill!`,
+`sort!`, `reverse!`, and writes through `view` — throws an `ArgumentError`; reads behave as a normal
+`AbstractVector` (indexing, iteration, `searchsortedlast`, broadcasting, `==`/`isequal`/`hash`
+identical to the equivalent `Vector`). The backing storage is a hidden field reachable only via
+`getfield(v, :_data)`; `copy`/`collect` return a mutable `Vector`.
+
+Used by models that cache state derived from their vector fields (`ZeroRateCurve`) so the cache
+can never be desynchronised by mutating the public fields. This is read-only public storage, not
+literal immutability.
+"""
+struct ReadOnlyVector{T} <: AbstractVector{T}
+    _data::Vector{T}
+end
+
+Base.size(v::ReadOnlyVector) = size(getfield(v, :_data))
+Base.IndexStyle(::Type{<:ReadOnlyVector}) = IndexLinear()
+Base.@propagate_inbounds Base.getindex(v::ReadOnlyVector, i::Int) = getfield(v, :_data)[i]
+Base.setindex!(::ReadOnlyVector, _, i...) = throw(ArgumentError(
+    "this vector is read-only: it belongs to a model that caches derived state. " *
+    "Use `Accessors.@set model.field[i] = x` (rebuilds the model) or `copy(v)` for a mutable copy."))
+# Hide the backing storage from ordinary property access (both public and "private" listings).
+Base.propertynames(::ReadOnlyVector, ::Bool = false) = ()
+Base.getproperty(::ReadOnlyVector, s::Symbol) = throw(ArgumentError(
+    "ReadOnlyVector exposes no properties (tried `.$s`); use indexing, `copy`, or `collect`."))

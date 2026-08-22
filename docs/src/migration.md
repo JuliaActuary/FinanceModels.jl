@@ -1,5 +1,18 @@
 # Migration Guide
 
+## v6.4 to v6.5
+
+!!! warning "New errors from `ZeroRateCurve` construction"
+    `ZeroRateCurve` now owns its data and validates its inputs. Inputs that previously produced silently wrong curves (`NaN` discount factors from duplicate tenors, misordered knots with `MonotoneConvex`, stale interpolation caches after `@set`) are now loud `ArgumentError`s or cannot happen at all.
+
+- **`ZeroRateCurve` copies `rates`/`tenors` into owned storage** and promotes them to one concrete floating-point type (`Int` tenors become `Float64`; `Float32`+`BigFloat` → `BigFloat`; `Float64`+`ForwardDiff.Dual` → `Dual`; ranges and tuples are accepted). Mutating the vectors you passed in no longer affects the curve.
+- **`zrc.rates` and `zrc.tenors` are read-only.** Indexed assignment (`zrc.rates[1] = …`, `.=`, `sort!`, writes through `view`) throws an `ArgumentError`. Use `copy(zrc.rates)` for a mutable copy, and `Accessors.@set zrc.rates[i] = x` / `@set zrc.tenors = grid` / `@set zrc.spline = …` to derive a modified curve — these now re-validate and **rebuild the interpolation cache** (previously `@set` silently kept the stale interpolant, so two curves could be `==` yet price differently).
+- **The interpolation cache is internal**: `propertynames(zrc)` is `(:rates, :tenors, :spline)`, `zrc._model` throws, and `@set zrc._model = …` throws. The undocumented 4-argument `ZeroRateCurve(rates, tenors, spline, model)` constructor is removed; `ConstructionBase.setproperties`/`constructorof` reconstruct correctly through the 3-argument form.
+- **Validation** — `ArgumentError` when `rates` and `tenors` differ in length or are empty; when any rate or tenor is non-finite (`NaN`, `±Inf`); when any tenor is negative; when tenors are not strictly increasing (unsorted or duplicated); or when there are fewer knots than the interpolant needs — **`Spline.PCHIP()` and `Spline.Akima()` 3; `Spline.Linear()`/`Quadratic()`/`Cubic()`/`BSpline(n)` 2; `Spline.MonotoneConvex()` 1**. `Spline.BSpline(d)`/`Spline.PolynomialSpline(d)` now require `d ≥ 1` at construction. Negative rates and a `t = 0` knot in the direct form remain valid.
+- **The direct form no longer sorts unsorted tenors** (it throws); the `ZeroRateCurve(curve::AbstractYieldModel, tenors)` sampling form still sorts its tenor grid, still requires `t > 0`, and now samples through `zero(curve, t)` instead of `-log(discount(curve, t))/t`, which is numerically stable at very small and very large tenors.
+- `isequal(::ZeroRateCurve, ::ZeroRateCurve)` is now fieldwise (previously it fell back to `==`), so `isequal(a, b)` implies `hash(a) == hash(b)`; `ZeroRateCurve([-0.0], t)` and `ZeroRateCurve([0.0], t)` are `==` but not `isequal`, exactly like the underlying arrays.
+- `fit(zrc::ZeroRateCurve, quotes)` is now supported (one bounded optic per knot rate, as for `Yield.MonotoneConvex`).
+
 ## v6.0 to v6.1
 
 !!! warning "Changed numbers and new errors"

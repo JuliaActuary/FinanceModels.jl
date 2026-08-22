@@ -2,6 +2,7 @@ module Yield
 import ..AbstractModel
 import ..FinanceCore
 import ..Spline as Sp
+import ..ReadOnlyVector
 import ..DataInterpolations
 import ..Bond: coupon_times, __regular_schedule, __par_coupon
 

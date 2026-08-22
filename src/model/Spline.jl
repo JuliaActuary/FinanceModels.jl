@@ -55,6 +55,10 @@ return `PolynomialSpline(1/2/3)`.
 """
 struct PolynomialSpline <: SplineCurve
     order::Int
+    function PolynomialSpline(order::Integer)
+        order >= 1 || throw(ArgumentError("Spline.PolynomialSpline: order must be ≥ 1 (got $order)."))
+        return new(order)
+    end
 end
 
 """
@@ -78,6 +82,10 @@ they build faster, have better key-rate locality, and are thread-safe.
 """
 struct BSpline <: SplineCurve
     order::Int
+    function BSpline(order::Integer)
+        order >= 1 || throw(ArgumentError("Spline.BSpline: order must be ≥ 1 (got $order)."))
+        return new(order)
+    end
 end
 
 """

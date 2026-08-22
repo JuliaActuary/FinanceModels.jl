@@ -123,6 +123,30 @@ __default_optic(m::Yield.MonotoneConvex) = ntuple(i -> (@optic(_.rates[i]) => -1
 # stored rates/times, which recomputes the cache and keeps `f`/`fᵈ` consistent.
 Accessors.ConstructionBase.constructorof(::Type{<:Yield.MonotoneConvex}) =
     (f, fᵈ, rates, times) -> Yield.MonotoneConvex(rates, times)
+
+# One bounded optic per knot rate, as for `MonotoneConvex`.
+__default_optic(m::Yield.ZeroRateCurve) = ntuple(i -> (@optic(_.rates[i]) => -1.0 .. 1.0), length(m.rates))
+
+# ConstructionBase protocol for `ZeroRateCurve`, a struct with a derived cache (`_model`):
+#  * the public properties are (rates, tenors, spline) — `getproperties` excludes the cache;
+#  * `setproperties` re-validates and rebuilds through the single constructor and REJECTS a
+#    patch to `_model` (or any unknown key) rather than silently ignoring it, so
+#    `setproperties(z, getproperties(z)) == z` and `Accessors.mapproperties(identity, z) == z`;
+#  * the raw `constructorof` closure (same shape as the MonotoneConvex one) discards the cache
+#    argument and rebuilds, satisfying `constructorof(typeof(z))(getfields(z)...) == z`
+#    without introducing a public 4-arg constructor.
+# Every `@set`/`setall`/`fit` reconstruction therefore recomputes the cache; it can never go stale.
+Accessors.ConstructionBase.getproperties(z::Yield.ZeroRateCurve) =
+    (rates = z.rates, tenors = z.tenors, spline = z.spline)
+function Accessors.ConstructionBase.setproperties(z::Yield.ZeroRateCurve, patch::NamedTuple)
+    all(k -> k in (:rates, :tenors, :spline), keys(patch)) || throw(ArgumentError(
+        "ZeroRateCurve: only `rates`, `tenors` and `spline` can be set (got $(keys(patch))); " *
+        "the interpolation cache is derived from them and rebuilt automatically."))
+    return Yield.ZeroRateCurve(
+        get(patch, :rates, z.rates), get(patch, :tenors, z.tenors), get(patch, :spline, z.spline))
+end
+Accessors.ConstructionBase.constructorof(::Type{<:Yield.ZeroRateCurve}) =
+    (rates, tenors, spline, _model) -> Yield.ZeroRateCurve(rates, tenors, spline)
 __default_optic(m::Yield.NelsonSiegel) = (
         @optic(_.τ₁) => 0.0 .. 100.0,
         @optic(_.β₀) => -10.0 .. 10.0,
