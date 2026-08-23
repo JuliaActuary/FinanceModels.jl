@@ -43,10 +43,12 @@ zrc_ns = ZeroRateCurve(ns, [1.0, 2.0, 5.0, 10.0, 20.0])
 
 ## Storage and validation
 
-The curve **owns** its data: `rates` and `tenors` are copied at construction (so later
-mutation of the vectors you passed in does not affect the curve) and promoted to a single
-concrete floating-point element type (`Int` → `Float64`, `Float32` + `BigFloat` → `BigFloat`,
-`Float64` + `ForwardDiff.Dual` → `Dual`). Ranges and tuples are accepted. The public
+The curve **owns** its data: `rates` and `tenors` go through the shared knot-grid construction
+(`Yield.KnotGrid`, also used by `Yield.Spline` and `Yield.MonotoneConvex`) — they are copied at
+construction (so later mutation of the vectors you passed in does not affect the curve) and
+each promoted to a single concrete floating-point element type (`Int` → `Float64`,
+`Float32` + `BigFloat` → `BigFloat`, `Float64` + `ForwardDiff.Dual` → `Dual`). Ranges and
+tuples are accepted. The public
 properties are `rates`, `tenors` and `spline`; the first two are exposed as **read-only**
 vectors — indexed assignment (`zrc.rates[1] = …`, `.=`, `sort!`, …) throws. Use
 `copy(zrc.rates)` for a mutable copy. The interpolation cache is internal and not accessible.
@@ -72,8 +74,8 @@ zrc3 = @set zrc.tenors = [1.0, 3.0, 6.0, 12.0]  # whole grid (must stay strictly
 zrc4 = @set zrc.spline = Spline.Linear()  # different interpolant over the same knots
 ```
 
-`fit(zrc, quotes)` is supported, with one bounded optic per knot rate (as for
-`Yield.MonotoneConvex`).
+`fit(zrc, quotes)` is supported: all knot rates vary through one batch optic (as for
+`Yield.MonotoneConvex`), so each optimizer candidate rebuilds the curve once.
 
 ## Performance note
 
@@ -97,31 +99,16 @@ struct ZeroRateCurve{R, T, S <: Sp.SplineCurve, M} <: AbstractYieldModel
     spline::S                  # e.g., Spline.Linear(), Spline.MonotoneConvex()
     _model::M                  # pure function of (rates, tenors, spline); internal, not settable
 
-    # The only constructor. Copies and promotes the inputs, validates them, builds the
-    # interpolation cache, and wraps the storage read-only — so `_model` can never disagree
-    # with `(rates, tenors, spline)`. There is deliberately no 4-arg constructor:
-    # Accessors/ConstructionBase reconstruct through `setproperties`/`constructorof`
-    # (see src/fit.jl), both of which route back here.
+    # The only constructor. Obtains an owned, validated grid (`KnotGrid`: copy, promote,
+    # validate), builds the interpolation cache over it, and wraps the storage read-only — so
+    # `_model` can never disagree with `(rates, tenors, spline)`. There is deliberately no
+    # 4-arg constructor: Accessors/ConstructionBase reconstruct through
+    # `setproperties`/`constructorof` (see src/fit.jl), both of which route back here.
     function ZeroRateCurve(rates, tenors, spline::Sp.SplineCurve)
-        r = __owned_float_vector(rates, "rates")
-        t = __owned_float_vector(tenors, "tenors")
-        length(r) == length(t) || throw(ArgumentError(
-            "ZeroRateCurve: `rates` and `tenors` must have the same length (got $(length(r)) and $(length(t)))."))
-        all(isfinite, r) || throw(ArgumentError("ZeroRateCurve: all rates must be finite (got $(r))."))
-        all(isfinite, t) || throw(ArgumentError("ZeroRateCurve: all tenors must be finite (got $(t))."))
-        first(t) >= zero(eltype(t)) || throw(ArgumentError("ZeroRateCurve: tenors must be ≥ 0 (got $(t))."))
-        # finiteness is checked first so NaN cannot defeat the ordering comparison
-        for i in 2:length(t)
-            t[i] > t[i - 1] || throw(ArgumentError(
-                "ZeroRateCurve: tenors must be strictly increasing (sorted, no duplicates); got $(t). " *
-                "Sort the (rate, tenor) pairs before constructing."))
-        end
-        k = __min_knots(spline)
-        length(t) >= k || throw(ArgumentError(
-            "ZeroRateCurve: $(spline) requires at least $k knots (got $(length(t)))."))
-        model = Yield.build_model(spline, t, r)   # receives the raw owned Vectors
-        return new{eltype(r), eltype(t), typeof(spline), typeof(model)}(
-            ReadOnlyVector(r), ReadOnlyVector(t), spline, model)
+        g = KnotGrid(rates, tenors, spline; who = "ZeroRateCurve")   # copies, promotes, validates
+        model = Yield.build_model(spline, g)                           # receives the owned Vectors
+        return new{eltype(g.rates), eltype(g.tenors), typeof(spline), typeof(model)}(
+            ReadOnlyVector(g.rates), ReadOnlyVector(g.tenors), spline, model)
     end
 end
 
@@ -131,7 +118,7 @@ ZeroRateCurve(rates, tenors) = ZeroRateCurve(rates, tenors, Sp.MonotoneConvex())
 # twice) and validated BEFORE the source curve is touched (so `Inf` never reaches
 # `discount(curve, Inf)`), then sorted, checked for duplicates, and sampled.
 function ZeroRateCurve(curve::AbstractYieldModel, tenors; spline = Sp.MonotoneConvex())
-    t = sort!(__owned_float_vector(tenors, "tenors"))
+    t = sort!(__owned_float_vector(tenors, "tenors", "ZeroRateCurve"))
     all(isfinite, t) || throw(ArgumentError("ZeroRateCurve: all tenors must be finite (got $(t))."))
     first(t) > zero(eltype(t)) || throw(ArgumentError(
         "All tenors must be positive (t > 0). The zero rate is undefined at t = 0."))
@@ -146,35 +133,6 @@ function ZeroRateCurve(curve::AbstractYieldModel, tenors; spline = Sp.MonotoneCo
     # that are mathematically fine.
     rates = [FinanceCore.rate(convert(Continuous(), Base.zero(curve, tᵢ))) for tᵢ in t]
     return ZeroRateCurve(rates, t, spline)
-end
-
-# Minimum knot counts that the backing interpolants can handle (verified against
-# DataInterpolations 9; `Yield.Spline` already reduces a polynomial/B-spline order to n-1).
-__min_knots(::Sp.SplineCurve) = 2     # Linear / Quadratic / Cubic / BSpline
-__min_knots(::Sp.PCHIP) = 3
-__min_knots(::Sp.Akima) = 3           # 2 knots reach an UndefRefError inside DataInterpolations
-__min_knots(::Sp.MonotoneConvex) = 1  # single knot is a flat curve
-
-# Owned, concretely-typed float `Vector` from any iterable of reals. Always copies (even
-# when handed a `Vector`), so the curve never aliases caller-owned memory; never narrows
-# AD types (`float(::Dual)` is a `Dual`).
-function __owned_float_vector(x, what)
-    v = x isa AbstractVector ? x : collect(x)
-    isempty(v) && throw(ArgumentError("ZeroRateCurve: `$what` must not be empty."))
-    T = isconcretetype(eltype(v)) ? eltype(v) : mapreduce(typeof, promote_type, v)
-    T <: Real || throw(ArgumentError("ZeroRateCurve: `$what` must be real numbers (got element type $T)."))
-    F = try
-        float(T)
-    catch
-        T   # `float(::Type{Real})` etc. has no method; rejected just below
-    end
-    (F <: Real && isconcretetype(F)) || throw(ArgumentError(
-        "ZeroRateCurve: `$what` must promote to one concrete floating-point type (got $F)."))
-    return try
-        Vector{F}(v)   # Array-from-AbstractArray always allocates a fresh copy
-    catch e
-        throw(ArgumentError("ZeroRateCurve: could not convert `$what` to Vector{$F}: $(sprint(showerror, e))"))
-    end
 end
 
 # `_model` is internal: hidden from property access. Internal code uses `getfield`.

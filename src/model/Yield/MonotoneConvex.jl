@@ -27,21 +27,56 @@ zero(c, 2.5)  # Get the zero rate at t=2.5
 discount(c, 2.5)  # Get the discount factor at t=2.5
 ```
 
+## Storage and validation
+
+The curve **owns** its data: `rates` and `times` go through the shared knot-grid construction
+(see `Yield.KnotGrid`) — they are copied (later mutation of the vectors you passed in does not
+affect the curve) and promoted to one concrete floating-point element type each; ranges and
+tuples are accepted. The node forwards `f` and discrete forwards `fᵈ` are computed once at
+construction and are a pure function of `(rates, times)`. All four are exposed as **read-only**
+vectors — indexed assignment (`c.rates[1] = …`, `.=`, `sort!`, …) throws — so the cached
+forwards can never disagree with the knots. Use `copy(c.rates)` for a mutable copy.
+
+Construction throws an `ArgumentError` for a length mismatch, empty or non-finite inputs, or
+negative, unsorted or duplicate `times` (a single knot is allowed and gives a flat curve).
+
+To change a curve, use `Accessors.@set`, which re-validates and recomputes the forwards:
+
+```julia
+using Accessors
+c2 = @set c.rates[2] = 0.031          # one knot rate
+c3 = @set c.times = [1.0, 3.0, 6.0, 12.0, 20.0]  # whole grid (must stay strictly increasing)
+```
+
+Setting `f` or `fᵈ` through Accessors throws: they are derived. `fit(c, quotes)` varies all knot
+rates through one batch optic (a single rebuild per optimizer candidate).
+
 # References
 - Hagan & West, "Interpolation Methods for Curve Construction", WILMOTT magazine
 - Dehlbom, "Interpolation of the yield curve" (http://uu.diva-portal.org/smash/get/diva2:1477828/FULLTEXT01.pdf)
 """
 struct MonotoneConvex{T, U} <: AbstractYieldModel
-    f::Vector{T}
-    fᵈ::Vector{T}
-    rates::Vector{T}
-    times::Vector{U}
-    # inner constructor ensures f consistency with rates at construction
-    function MonotoneConvex(rates::Vector{T}, times::Vector{U}) where {T, U}
-        f, fᵈ = __monotone_convex_fs(rates, times)
-        return new{T, U}(f, fᵈ, rates, times)
+    f::ReadOnlyVector{T}      # node instantaneous forwards; derived from (rates, times)
+    fᵈ::ReadOnlyVector{T}     # discrete forwards; derived from (rates, times)
+    rates::ReadOnlyVector{T}  # continuously-compounded zero rates (finite); read-only
+    times::ReadOnlyVector{U}  # finite, ≥ 0, strictly increasing; read-only
+    # The only inner constructor: takes an owned, validated grid and computes the forwards
+    # from it, so `f`/`fᵈ` are consistent with `rates`/`times` by construction. There is
+    # deliberately no 4-arg constructor; Accessors/ConstructionBase reconstruct through
+    # `setproperties`/`constructorof` (see src/fit.jl), which route back to `KnotGrid`.
+    function MonotoneConvex(g::KnotGrid{T, U}) where {T, U}
+        f, fᵈ = __monotone_convex_fs(g.rates, g.tenors)
+        return new{T, U}(ReadOnlyVector(f), ReadOnlyVector(fᵈ), ReadOnlyVector(g.rates), ReadOnlyVector(g.tenors))
     end
 end
+
+# Public form: copies, promotes and validates through the shared knot-grid path.
+MonotoneConvex(rates, times) = MonotoneConvex(KnotGrid(rates, times, Sp.MonotoneConvex(); who = "MonotoneConvex"))
+
+# `f`/`fᵈ` are internal caches: listed only with `propertynames(c, true)` (Base's convention),
+# still readable as `c.f`. The ConstructionBase protocol (src/fit.jl) mirrors this split.
+Base.propertynames(::MonotoneConvex, private::Bool = false) =
+    private ? (:f, :fᵈ, :rates, :times) : (:rates, :times)
 
 
 struct MonotoneConvexUnInit

@@ -71,7 +71,7 @@ for (name, make_fwd) in [
         pt -> fwd_from_interp(interp, pt)
     end),
     ("MonotoneConvex", (r, t) -> begin
-        mc = FinanceModels.Yield.MonotoneConvex(collect(r), collect(float.(t)))
+        mc = FinanceModels.Yield.MonotoneConvex(r, t)
         pt -> fwd_from_discount(mc, pt)
     end),
     ("Akima", (r, t) -> begin
@@ -128,7 +128,7 @@ for (name, rate_at) in [
         DI.PCHIPInterpolation(r, t;
             extrapolation=DI.ExtrapolationType.Extension)(pt)),
     ("MonotoneConvex", (r, t, pt) -> begin
-        mc = FinanceModels.Yield.MonotoneConvex(collect(r), collect(float.(t)))
+        mc = FinanceModels.Yield.MonotoneConvex(r, t)
         -log(discount(mc, pt)) / pt
     end),
     ("Akima", (r, t, pt) ->
