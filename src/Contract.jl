@@ -557,7 +557,7 @@ function cashflows_timepoints(qs)
     end |> Iterators.flatten |> unique |> sort!
 
     amounts = [cf.amount for contract_cashflows in cfs for cf in contract_cashflows]
-    amount_type = isempty(amounts) ? Float64 : promote_type(typeof.(amounts)...)
+    amount_type = isempty(amounts) ? Float64 : mapreduce(typeof, promote_type, amounts)
     m = zeros(amount_type, length(times), length(qs))
 
     for t in 1:length(times)
