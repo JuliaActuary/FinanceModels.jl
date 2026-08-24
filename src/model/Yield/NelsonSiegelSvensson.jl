@@ -55,14 +55,25 @@ function NelsonSiegel(τ₁ = 1.0)
     return NelsonSiegel(τ₁, 1.0, 0.0, 0.0)
 end
 
+# Stable Nelson-Siegel factor loadings. The direct formulas lose all short-end
+# information when exp(-q) rounds to one, while their series remain regular.
+function _ns_loadings(q)
+    if abs(q) < 1.0e-4
+        decay = 1 - q / 2 + q^2 / 6 - q^3 / 24 + q^4 / 120
+        hump = q / 2 - q^2 / 3 + q^3 / 8 - q^4 / 30
+    else
+        e = exp(-q)
+        decay = -expm1(-q) / q
+        hump = decay - e
+    end
+    return decay, hump
+end
+
 function Base.zero(ns::NelsonSiegel, t)
     iszero(t) && return Continuous(ns.β₀ + ns.β₁)  # lim_{t→0}: decay → 1, hump → 0
-    # Bind leaf subexpressions (q, e) only — do NOT combine into `decay = (1-e)/q` and
-    # write `β·decay`: that reassociates `(β·(1-e))/q → β·((1-e)/q)`, and the sub-ULP
-    # gradient shift tips the (documented, highly sensitive) NSS calibration into NaN.
     q = t / ns.τ₁
-    e = exp(-q)
-    return Continuous(ns.β₀ + ns.β₁ * (1.0 - e) / q + ns.β₂ * ((1.0 - e) / q - e))
+    decay, hump = _ns_loadings(q)
+    return Continuous(ns.β₀ + ns.β₁ * decay + ns.β₂ * hump)
 end
 FinanceCore.discount(ns::NelsonSiegel, t) = _discount_from_zero(ns, t)
 Base.zero(ns::NelsonSiegel, ts::AbstractArray) = zero.(Ref(ns), ts)
@@ -132,14 +143,11 @@ NelsonSiegelSvensson(τ₁ = 1.0, τ₂ = 1.0) = NelsonSiegelSvensson(τ₁, τ�
 
 function Base.zero(nss::NelsonSiegelSvensson, t)
     iszero(t) && return Continuous(nss.β₀ + nss.β₁)  # lim_{t→0}: same as NelsonSiegel; β₂, β₃ vanish
-    # Bind leaf subexpressions (q, e) only — see the NelsonSiegel `zero` above. Do NOT
-    # combine into shared `decay = (1-e)/q` intermediates: reassociating the `β·(1-e)/q`
-    # products shifts ForwardDiff gradients enough to tip the sensitive NSS fit into NaN.
     q₁ = t / nss.τ₁
     q₂ = t / nss.τ₂
-    e₁ = exp(-q₁)
-    e₂ = exp(-q₂)
-    return Continuous(nss.β₀ + nss.β₁ * (1.0 - e₁) / q₁ + nss.β₂ * ((1.0 - e₁) / q₁ - e₁) + nss.β₃ * ((1.0 - e₂) / q₂ - e₂))
+    decay₁, hump₁ = _ns_loadings(q₁)
+    _, hump₂ = _ns_loadings(q₂)
+    return Continuous(nss.β₀ + nss.β₁ * decay₁ + nss.β₂ * hump₁ + nss.β₃ * hump₂)
 end
 FinanceCore.discount(nss::NelsonSiegelSvensson, t) = _discount_from_zero(nss, t)
 Base.zero(nss::NelsonSiegelSvensson, ts::AbstractArray) = zero.(Ref(nss), ts)

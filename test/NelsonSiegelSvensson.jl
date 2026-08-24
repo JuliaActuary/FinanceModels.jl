@@ -88,6 +88,10 @@
         # continuity: zero(model, ε) ≈ zero(model, 0) for small ε
         @test FinanceCore.rate(FinanceModels.zero(ns, 1e-10)) ≈ FinanceCore.rate(FinanceModels.zero(ns, 0.0)) atol = 1e-6
         @test FinanceCore.rate(FinanceModels.zero(nss, 1e-10)) ≈ FinanceCore.rate(FinanceModels.zero(nss, 0.0)) atol = 1e-6
+
+        tiny = big"1e-40"
+        @test FinanceCore.rate(FinanceModels.zero(ns, tiny)) != FinanceCore.rate(FinanceModels.zero(ns, 0.0))
+        @test FinanceCore.rate(FinanceModels.zero(nss, tiny)) != FinanceCore.rate(FinanceModels.zero(nss, 0.0))
     end
 
 end
