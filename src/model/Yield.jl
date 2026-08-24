@@ -7,7 +7,7 @@ import ..Bond: coupon_times, __regular_schedule, __par_coupon
 
 using ..FinanceCore: Continuous, Periodic, discount, accumulation, forward, pv, AbstractContract
 
-export discount, zero, forward, par, pv, instantaneous_forward
+export discount, zero, zero_rate, forward, par, pv, instantaneous_forward
 
 abstract type AbstractYieldModel <: AbstractModel end
 
@@ -234,6 +234,18 @@ function Base.zero(c::YC, time) where {YC <: AbstractYieldModel}
     r = -log(df) / time
     return Continuous(r)
 end
+
+"""
+    zero_rate(curve, time)
+
+Return the continuously compounded zero-coupon rate for `curve` at `time`.
+
+This named financial operation is preferred over `Base.zero(curve, time)`, which
+is retained for compatibility. A future major release may make `zero_rate` the
+primary extension point so `Base.zero` can recover its usual additive-identity
+meaning.
+"""
+zero_rate(c::AbstractYieldModel, time) = Base.zero(c, time)
 
 """
     accumulation(yc, from, to)

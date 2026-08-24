@@ -10,6 +10,7 @@
 
     my = MyYield(0.05)
     @test zero(my, 1) ≈ Continuous(0.05)
+    @test zero_rate(my, 1) ≈ Continuous(0.05)
     @test forward(my, 1) ≈ Continuous(0.05)
     @test forward(my, 1, 2) ≈ Continuous(0.05)
     @test discount(my, 1, 2) ≈ exp(-0.05 * 1)
