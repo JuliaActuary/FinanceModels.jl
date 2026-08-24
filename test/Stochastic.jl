@@ -952,6 +952,13 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             @test_throws ArgumentError simulate(v; timestep = -0.1)
         end
 
+        @testset "pv_mc: horizon covers maturity" begin
+            v = ShortRate.Vasicek(0.1, 0.05, 0.0, 0.03)
+            contract = Cashflow(1.0, 10.0)
+            @test_throws ArgumentError pv_mc(v, contract; horizon = 1.0, n_scenarios = 1)
+            @test pv_mc(v, contract; horizon = 10.0, n_scenarios = 1) isa Real
+        end
+
         @testset "ZCB option: strike must be positive" begin
             hw = ShortRate.HullWhite(0.1, 0.01, Yield.Constant(Continuous(0.05)))
             @test_throws ArgumentError present_value(hw, Option.ZCBCall(1.0, 5.0, 0.0))

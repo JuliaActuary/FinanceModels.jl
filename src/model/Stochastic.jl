@@ -391,14 +391,17 @@ by averaging `present_value` across simulated scenarios.
     provides the discount factors. For floating-rate instruments whose cashflows depend
     on the rate path, project cashflows per scenario using `Projection` instead.
 
-The `horizon` should cover the contract's maturity. The default (`maturity + 1`) ensures this.
+The `horizon` must cover the contract's maturity. The default (`maturity + 1`) ensures this;
+an explicitly shorter horizon throws an `ArgumentError` rather than extrapolating the path.
 """
 function pv_mc(model::AbstractStochasticModel, contract;
                n_scenarios::Int = 1000,
                timestep::Real = 1 / 12,
                horizon::Union{Nothing,Real} = nothing,
                rng::Random.AbstractRNG = Random.default_rng())
-    h = horizon === nothing ? Float64(FinanceModels.maturity(contract)) + 1.0 : Float64(horizon)
+    contract_maturity = Float64(FinanceModels.maturity(contract))
+    h = horizon === nothing ? contract_maturity + 1.0 : Float64(horizon)
+    h >= contract_maturity || throw(ArgumentError("simulation horizon $h is shorter than contract maturity $contract_maturity"))
     scenarios = simulate(model; n_scenarios, timestep, horizon = h, rng)
     total = sum(FinanceCore.present_value(sc, contract) for sc in scenarios)
     return total / n_scenarios
