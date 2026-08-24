@@ -161,10 +161,13 @@ function _cir_zcb(a, b, σ, r, τ)
         end
     end
     γ = sqrt(a^2 + 2σ^2)
-    expγτ = exp(γ * τ)
-    denom = (γ + a) * (expγτ - 1) + 2γ
-    B = 2(expγτ - 1) / denom
-    A = (2γ * exp((a + γ) * τ / 2) / denom)^(2a * b / σ^2)
+    # Divide the standard formula through by exp(γτ). This avoids forming
+    # exp(γτ) directly, which overflows for valid long maturities.
+    one_minus_exp_neg = -expm1(-γ * τ)
+    exp_neg = exp(-γ * τ)
+    scaled_denom = (γ + a) * one_minus_exp_neg + 2γ * exp_neg
+    B = 2one_minus_exp_neg / scaled_denom
+    A = (2γ * exp((a - γ) * τ / 2) / scaled_denom)^(2a * b / σ^2)
     return A * exp(-B * r)
 end
 
