@@ -972,6 +972,13 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             @test ShortRate.HullWhite(0.1, 0.0, curve) isa ShortRate.HullWhite
         end
 
+
+        @testset "CIR long-horizon discount stability" begin
+            cir = ShortRate.CoxIngersollRoss(0.3, 0.05, 0.1, 0.03)
+            @test isfinite(discount(cir, 10_000.0))
+            @test 0.0 <= discount(cir, 10_000.0) <= 1.0
+        end
+
         @testset "Tenor validation: non-integer periods" begin
             hw = ShortRate.HullWhite(0.1, 0.01, Yield.Constant(Continuous(0.05)))
             # Cap maturity 1.3 with quarterly freq → 1.3 * 4 = 5.2, not integer
