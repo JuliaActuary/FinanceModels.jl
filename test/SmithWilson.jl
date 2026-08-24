@@ -1,3 +1,5 @@
+using ForwardDiff
+
 @testset "SmithWilson" begin
 
     ufr = 0.03
@@ -77,6 +79,12 @@
 
     sw_swq = fit(Yield.SmithWilson(ufr = ufr, α = α), qs)
     swq_payments, swq_times = FinanceModels.cashflows_timepoints(qs)
+    big_payments, _ = FinanceModels.cashflows_timepoints([Cashflow(big"1.000000000000000000000000000001", 1.0)])
+    @test eltype(big_payments) == BigFloat
+    @test big_payments[1] == big"1.000000000000000000000000000001"
+    dual_amount = ForwardDiff.Dual(1.0, 1.0)
+    dual_payments, _ = FinanceModels.cashflows_timepoints([Cashflow(dual_amount, 1.0)])
+    @test dual_payments[1] == dual_amount
     @testset "SwapQuotes round-trip" for swapIdx in 1:length(coupon)
         @test sum(discount.(sw_swq, swq_times) .* swq_payments[:, swapIdx]) ≈ 1.0
     end
