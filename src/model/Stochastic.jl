@@ -40,6 +40,10 @@ module ShortRate
         b::B
         σ::S
         initial::T
+        function Vasicek(a::A, b::B, σ::S, initial::T) where {A, B, S, T}
+            σ >= 0 || throw(ArgumentError("volatility σ must be non-negative, got $σ"))
+            return new{A, B, S, T}(a, b, σ, initial)
+        end
     end
 
     function Vasicek(a::Real, b::Real, σ::Real, initial::Real)
@@ -76,14 +80,21 @@ module ShortRate
         b::B
         σ::S
         initial::T
+        function CoxIngersollRoss(a::A, b::B, σ::S, initial::T) where {A, B, S, T}
+            σ >= 0 || throw(ArgumentError("volatility σ must be non-negative, got $σ"))
+            initial_value = initial isa Rate ? rate(Continuous(initial)) : initial
+            initial_value >= 0 || throw(ArgumentError("initial rate must be non-negative for CIR, got $initial"))
+            b_value = b isa Rate ? rate(Continuous(b)) : b
+            if 2 * a * b_value <= σ^2
+                @warn "Feller condition 2ab > σ² violated (2·$(a)·$(b_value) = $(2 * a * b_value) ≤ σ² = $(σ^2)). Short rate may reach zero, and `simulate`'s discretisation bias grows with σ²/(2ab) — prefer a finer `timestep`."
+            end
+            return new{A, B, S, T}(a, b, σ, initial)
+        end
     end
 
     function CoxIngersollRoss(a::Real, b::Real, σ::Real, initial::Real)
         σ >= 0 || throw(ArgumentError("volatility σ must be non-negative, got $σ"))
         initial >= 0 || throw(ArgumentError("initial rate must be non-negative for CIR, got $initial"))
-        if 2 * a * b <= σ^2
-            @warn "Feller condition 2ab > σ² violated (2·$(a)·$(b) = $(2 * a * b) ≤ σ² = $(σ^2)). Short rate may reach zero, and `simulate`'s discretisation bias grows with σ²/(2ab) — prefer a finer `timestep`."
-        end
         return CoxIngersollRoss(Float64(a), Float64(b), Float64(σ), Continuous(initial))
     end
 

@@ -963,9 +963,12 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
         @testset "Constructor parameter validation" begin
             @test_throws ArgumentError ShortRate.Vasicek(0.1, 0.05, -0.01, 0.03)
             @test ShortRate.Vasicek(0.1, 0.05, 0.0, 0.03) isa ShortRate.Vasicek
+            @test_throws ArgumentError ShortRate.Vasicek(0.1, Continuous(0.05), -0.01, Continuous(0.03))
 
             @test_throws ArgumentError ShortRate.CoxIngersollRoss(0.1, 0.05, -0.01, 0.03)
             @test_throws ArgumentError ShortRate.CoxIngersollRoss(0.1, 0.05, 0.01, -0.01)
+            @test_throws ArgumentError ShortRate.CoxIngersollRoss(0.1, Continuous(0.05), -0.01, Continuous(0.03))
+            @test_throws ArgumentError ShortRate.CoxIngersollRoss(0.1, Continuous(0.05), 0.01, Continuous(-0.01))
             @test_logs (:warn, r"Feller") ShortRate.CoxIngersollRoss(0.1, 0.05, 0.3, 0.03)
             @test_logs ShortRate.CoxIngersollRoss(0.3, 0.05, 0.1, 0.03)
 
