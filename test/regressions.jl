@@ -1,3 +1,5 @@
+using Dates
+
 # Regression tests from the 2026-06 ecosystem audit
 @testset "audit regressions" begin
     @testset "fit(spline, quotes, Fit.Loss) uses the supplied loss" begin
@@ -31,6 +33,8 @@
     @testset "Forward contract shifts cashflow times" begin
         b = Bond.Fixed(0.05, Periodic(1), 2)
         fwd = Forward(1.0, b)
+        @test maturity(fwd) == 3.0
+        @test_throws MethodError Forward(Date(2030, 1, 1), b)
         cfs = collect(Projection(fwd, NullModel(), CashflowProjection()))
         @test [cf.time for cf in cfs] ≈ [2.0, 3.0]
         @test [cf.amount for cf in cfs] ≈ [0.05, 1.05]

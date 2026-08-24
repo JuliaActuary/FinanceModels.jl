@@ -398,7 +398,7 @@ A European call option on the given contract with the given strike and maturity.
 # Arguments
  - contract::AbstractContract -  The underlying contract.
  - strike::Real -  The strike price.
- - maturity::Union{Real,Date} -  The maturity of the option.
+ - maturity::Real -  Time to maturity in years.
 
  Supertype Hierarchy
 ≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡
@@ -406,7 +406,7 @@ A European call option on the given contract with the given strike and maturity.
     EuroCall{S,K,M} <: FinanceCore.AbstractContract <: Any
 
 """
-struct EuroCall{S <: AbstractContract, K <: Real, M <: Timepoint} <: AbstractContract
+struct EuroCall{S <: AbstractContract, K <: Real, M <: Real} <: AbstractContract
     underlying::S
     strike::K
     maturity::M
@@ -420,7 +420,7 @@ A European put option on the given contract with the given strike and maturity.
 # Arguments
  - contract::AbstractContract -  The underlying contract.
  - strike::Real -  The strike price.
- - maturity::Union{Real,Date} -  The maturity of the option.
+ - maturity::Real -  Time to maturity in years.
 
  Supertype Hierarchy
 ≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡
@@ -428,7 +428,7 @@ A European put option on the given contract with the given strike and maturity.
     EuroPut{S,K,M} <: FinanceCore.AbstractContract <: Any
 
 """
-struct EuroPut{S <: AbstractContract, K <: Real, M <: Timepoint} <: AbstractContract
+struct EuroPut{S <: AbstractContract, K <: Real, M <: Real} <: AbstractContract
     underlying::S
     strike::K
     maturity::M
@@ -510,6 +510,8 @@ function Swaption(expiry, swap_maturity, strike, frequency; payer = true)
 end
 
 import ..FinanceCore: maturity
+maturity(c::EuroCall) = c.maturity
+maturity(c::EuroPut) = c.maturity
 maturity(c::ZCBCall) = c.bond_maturity
 maturity(c::ZCBPut) = c.bond_maturity
 maturity(c::Cap) = c.maturity
@@ -521,13 +523,17 @@ end
 """
 Forward(time,instrument)
 
-The instrument is relative to the Forward time.
+The instrument is relative to the Forward time. `time` and the instrument's
+timepoints are year fractions; calendar dates require an explicit valuation
+date and day-count conversion before construction.
 e.g. if you have a `Forward(1.0, Cashflow(1.0, 3.0))` then the instrument is a cashflow that pays 1.0 at time 4.0
 """
-struct Forward{T <: FinanceCore.Timepoint, I <: FinanceCore.AbstractContract} <: FinanceCore.AbstractContract
+struct Forward{T <: Real, I <: FinanceCore.AbstractContract} <: FinanceCore.AbstractContract
     time::T
     instrument::I
 end
+
+FinanceCore.maturity(c::Forward) = c.time + FinanceCore.maturity(c.instrument)
 
 
 """
