@@ -69,11 +69,11 @@ end
     #   in-arrears: coupon paid at t uses forward(t, t + Δ)
     base = FinanceModels.ZeroRateCurve(
         [0.02, 0.03, 0.04, 0.05],
-        [1.0,  2.0,  3.0,  4.0],
+        [1.0, 2.0, 3.0, 4.0],
         FinanceModels.Spline.Linear(),
     )
     floater = Bond.Floating(0.0, Periodic(1), 3.0, "BASE")
-    p   = Projection(floater, Dict("BASE" => base), CashflowProjection())
+    p = Projection(floater, Dict("BASE" => base), CashflowProjection())
     cfs = collect(p)
 
     fwd01 = rate(Periodic(1)(forward(base, 0.0, 1.0)))

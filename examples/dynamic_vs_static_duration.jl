@@ -30,8 +30,8 @@ Run:  julia examples/dynamic_vs_static_duration.jl
 
 # ── Environment setup ────────────────────────────────────────────────────────
 using Pkg
-Pkg.activate(; temp=true)
-Pkg.develop(path=dirname(@__DIR__))   # use local FinanceModels
+Pkg.activate(; temp = true)
+Pkg.develop(path = dirname(@__DIR__))   # use local FinanceModels
 Pkg.add("ActuaryUtilities")
 
 using FinanceModels
@@ -41,8 +41,8 @@ using Printf
 # ── 1. CMT Yield Curve ──────────────────────────────────────────────────────
 
 # Representative US Treasury CMT rates
-cmt_rates = [5.25, 5.30, 5.35, 5.40, 5.50, 5.60, 5.65, 5.70, 5.75, 5.80] ./ 100
-cmt_mats  = [0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0, 15.0, 20.0, 30.0]
+cmt_rates = [5.25, 5.3, 5.35, 5.4, 5.5, 5.6, 5.65, 5.7, 5.75, 5.8] ./ 100
+cmt_mats = [0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0, 15.0, 20.0, 30.0]
 
 qs = CMTYield.(cmt_rates, cmt_mats)
 bootstrapped = fit(Spline.Linear(), qs, Fit.Bootstrap())
@@ -52,18 +52,20 @@ tenors = [0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0]
 zrc_base = ZeroRateCurve(bootstrapped, tenors)
 
 # Credit spread curve: flat 120bps over treasury (same tenors required)
-credit_spread = 0.0120   # 120bps
+credit_spread = 0.012   # 120bps
 zrc_credit = ZeroRateCurve(fill(credit_spread, length(tenors)), tenors)
 
 println("── Base Curve (continuously compounded zero rates) ──")
 for (t, r) in zip(zrc_base.tenors, zrc_base.rates)
-    @printf("  %5.1fy: %.4f%%  (tsy) + %.0fbps (spread) = %.4f%%\n",
-            t, r * 100, credit_spread * 10_000, (r + credit_spread) * 100)
+    @printf(
+        "  %5.1fy: %.4f%%  (tsy) + %.0fbps (spread) = %.4f%%\n",
+        t, r * 100, credit_spread * 10_000, (r + credit_spread) * 100
+    )
 end
 
 # ── 2. Annuity Parameters ───────────────────────────────────────────────────
 
-new_money_spread = 0.0060                    # 60bps new money spread over par
+new_money_spread = 0.006                    # 60bps new money spread over par
 par_5yr = par(bootstrapped, 5.0)
 credited_rate = rate(Continuous(par_5yr)) + new_money_spread  # continuously compounded
 
@@ -76,13 +78,19 @@ dt = 1 / 12
 
 @printf("\n── Annuity Parameters ──\n")
 @printf("  5yr par rate:    %.4f%% (semi-annual)\n", rate(par_5yr) * 100)
-@printf("  Credited rate:   %.4f%% (cc) = par(cc) + %.0fbps\n",
-        credited_rate * 100, new_money_spread * 10_000)
-@printf("  Rate reset:      at renewal, new 5yr fwd rate + %.0fbps\n",
-        new_money_spread * 10_000)
+@printf(
+    "  Credited rate:   %.4f%% (cc) = par(cc) + %.0fbps\n",
+    credited_rate * 100, new_money_spread * 10_000
+)
+@printf(
+    "  Rate reset:      at renewal, new 5yr fwd rate + %.0fbps\n",
+    new_money_spread * 10_000
+)
 @printf("  Discount spread: %.0fbps over treasury\n", credit_spread * 10_000)
-@printf("  Fixed lapse:     %.1f%% p.a. (SC period & post-renewal)\n",
-        fixed_lapse_annual * 100)
+@printf(
+    "  Fixed lapse:     %.1f%% p.a. (SC period & post-renewal)\n",
+    fixed_lapse_annual * 100
+)
 @printf("  Projection:      %d years, monthly\n", n_months ÷ 12)
 
 # ── 3. Dynamic Lapse Function (renewal only) ────────────────────────────────
@@ -94,7 +102,7 @@ dt = 1 / 12
 # Calibrate midpoint `a` so sr(0) = 40% (base renewal lapse):
 #   1/(1+exp(a)) = 0.40  →  a = log(1/0.40 − 1) = log(1.5)
 
-target_renewal_lapse = 0.40
+target_renewal_lapse = 0.4
 midpoint = log(1 / target_renewal_lapse - 1)
 sensitivity = 60.0
 
@@ -114,9 +122,11 @@ println()
 # spread.  This means the post-renewal AV growth tracks market rates,
 # collapsing the duration of the tail.
 
-function liability_pv(base_curve, credit_curve, original_credited_rate,
-                      new_money_spread, fixed_lapse_monthly,
-                      renewal_month, n_months, dt)
+function liability_pv(
+        base_curve, credit_curve, original_credited_rate,
+        new_money_spread, fixed_lapse_monthly,
+        renewal_month, n_months, dt
+    )
     # Initialize with correct numeric type for ForwardDiff compatibility
     df1 = discount(base_curve, dt) * discount(credit_curve, dt)
     av = one(df1)
@@ -165,8 +175,10 @@ end
 
 # ── 5. Project Fixed Cashflows (for static duration) ────────────────────────
 
-function project_cashflows(curve, original_credited_rate, new_money_spread,
-                           fixed_lapse_monthly, renewal_month, n_months, dt)
+function project_cashflows(
+        curve, original_credited_rate, new_money_spread,
+        fixed_lapse_monthly, renewal_month, n_months, dt
+    )
     av = 1.0
     cfs = Float64[]
     times = Float64[]
@@ -195,7 +207,7 @@ function project_cashflows(curve, original_credited_rate, new_money_spread,
             av -= surrendered
         end
 
-        if surrendered > 1e-12
+        if surrendered > 1.0e-12
             push!(cfs, surrendered)
             push!(times, t)
         end
@@ -214,15 +226,18 @@ println("── Computing sensitivities... ──\n")
 
 # Dynamic: AD flows through renewal lapse AND credited rate reset
 dynamic = sensitivities(zrc_base, zrc_credit) do base_curve, credit_curve
-    liability_pv(base_curve, credit_curve, credited_rate,
-                 new_money_spread, fixed_lapse_monthly,
-                 renewal_month, n_months, dt)
+    liability_pv(
+        base_curve, credit_curve, credited_rate,
+        new_money_spread, fixed_lapse_monthly,
+        renewal_month, n_months, dt
+    )
 end
 
 # Static: cashflows frozen at base curve — only discounting changes
 static_cfs, static_times = project_cashflows(
     bootstrapped, credited_rate, new_money_spread,
-    fixed_lapse_monthly, renewal_month, n_months, dt)
+    fixed_lapse_monthly, renewal_month, n_months, dt
+)
 static = sensitivities(zrc_base, zrc_credit, static_cfs, static_times)
 
 # ── 7. Results ───────────────────────────────────────────────────────────────
@@ -240,8 +255,10 @@ println("═══════════════════════�
 
 @printf("\n  Base renewal market rate:  %.4f%% (5yr tsy fwd from yr 5)\n", base_mkt * 100)
 @printf("  Base renewal lapse rate:  %.2f%%\n", base_sr * 100)
-@printf("  Reset credited rate:      %.4f%% (cc) = fwd + %.0fbps\n",
-        reset_rate * 100, new_money_spread * 10_000)
+@printf(
+    "  Reset credited rate:      %.4f%% (cc) = fwd + %.0fbps\n",
+    reset_rate * 100, new_money_spread * 10_000
+)
 
 @printf("\n  Liability PV (dynamic): %.6f\n", dynamic.value)
 @printf("  Liability PV (static):  %.6f\n", static.value)
@@ -261,8 +278,10 @@ println("  ───────────────────────
 
 total_base_dyn = sum(dynamic.base_durations)
 total_base_sta = sum(static.base_durations)
-@printf("  %8s  %10.4f    %10.4f    %10.4f\n",
-        "TOTAL", total_base_dyn, total_base_sta, total_base_dyn - total_base_sta)
+@printf(
+    "  %8s  %10.4f    %10.4f    %10.4f\n",
+    "TOTAL", total_base_dyn, total_base_sta, total_base_dyn - total_base_sta
+)
 
 # ── Credit (Spread) Key Rate Durations ──
 
@@ -279,22 +298,30 @@ println("  ───────────────────────
 
 total_credit_dyn = sum(dynamic.credit_durations)
 total_credit_sta = sum(static.credit_durations)
-@printf("  %8s  %10.4f    %10.4f    %10.4f\n",
-        "TOTAL", total_credit_dyn, total_credit_sta, total_credit_dyn - total_credit_sta)
+@printf(
+    "  %8s  %10.4f    %10.4f    %10.4f\n",
+    "TOTAL", total_credit_dyn, total_credit_sta, total_credit_dyn - total_credit_sta
+)
 
 # ── Summary ──
 
 println("\n  ─────────────────────────────────────────────────────")
 println("  Summary:                Dynamic     Static        Δ")
 println("  ─────────────────────────────────────────────────────")
-@printf("  Base (IR) duration:   %10.4f  %10.4f  %10.4f\n",
-        total_base_dyn, total_base_sta, total_base_dyn - total_base_sta)
-@printf("  Credit (CS) duration: %10.4f  %10.4f  %10.4f\n",
-        total_credit_dyn, total_credit_sta, total_credit_dyn - total_credit_sta)
-@printf("  Total eff. duration:  %10.4f  %10.4f  %10.4f\n",
-        total_base_dyn + total_credit_dyn,
-        total_base_sta + total_credit_sta,
-        (total_base_dyn + total_credit_dyn) - (total_base_sta + total_credit_sta))
+@printf(
+    "  Base (IR) duration:   %10.4f  %10.4f  %10.4f\n",
+    total_base_dyn, total_base_sta, total_base_dyn - total_base_sta
+)
+@printf(
+    "  Credit (CS) duration: %10.4f  %10.4f  %10.4f\n",
+    total_credit_dyn, total_credit_sta, total_credit_dyn - total_credit_sta
+)
+@printf(
+    "  Total eff. duration:  %10.4f  %10.4f  %10.4f\n",
+    total_base_dyn + total_credit_dyn,
+    total_base_sta + total_credit_sta,
+    (total_base_dyn + total_credit_dyn) - (total_base_sta + total_credit_sta)
+)
 println("  ─────────────────────────────────────────────────────")
 
 println("\n  Interpretation:")
@@ -303,8 +330,10 @@ println("\n  Interpretation:")
 @printf("  duration because AV growth tracks the curve.\n\n")
 
 base_gap = total_base_dyn - total_base_sta
-@printf("  IR duration: dynamic=%.2f, static=%.2f, gap=%.4f\n",
-        total_base_dyn, total_base_sta, base_gap)
+@printf(
+    "  IR duration: dynamic=%.2f, static=%.2f, gap=%.4f\n",
+    total_base_dyn, total_base_sta, base_gap
+)
 
 if abs(base_gap) < 0.05
     println("  → Dynamic ≈ Static: the rate reset neutralizes post-renewal")

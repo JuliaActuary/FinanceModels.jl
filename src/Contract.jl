@@ -181,7 +181,7 @@ module Bond
     """
     function ParYield(yield, maturity; frequency = Periodic(2))
         frequency = __coerce_periodic(frequency)
-        ParYield(frequency(yield), maturity; frequency)
+        return ParYield(frequency(yield), maturity; frequency)
     end
     function ParYield(yield::Rate{N, T}, maturity; frequency = Periodic(2)) where {T <: Periodic, N}
         frequency = yield.compounding
@@ -387,134 +387,134 @@ struct CommonEquity <: FinanceCore.AbstractContract end
 
 """
 module Option
-import ..FinanceCore: AbstractContract, Timepoint
+    import ..FinanceCore: AbstractContract, Timepoint
 
 
-"""
-    EuroCall(contract,strike,maturity)
+    """
+        EuroCall(contract,strike,maturity)
 
-A European call option on the given contract with the given strike and maturity.
+    A European call option on the given contract with the given strike and maturity.
 
-# Arguments
- - contract::AbstractContract -  The underlying contract.
- - strike::Real -  The strike price.
- - maturity::Union{Real,Date} -  The maturity of the option.
+    # Arguments
+     - contract::AbstractContract -  The underlying contract.
+     - strike::Real -  The strike price.
+     - maturity::Union{Real,Date} -  The maturity of the option.
 
- Supertype Hierarchy
-≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡
+     Supertype Hierarchy
+    ≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡
 
-    EuroCall{S,K,M} <: FinanceCore.AbstractContract <: Any
+        EuroCall{S,K,M} <: FinanceCore.AbstractContract <: Any
 
-"""
-struct EuroCall{S <: AbstractContract, K <: Real, M <: Timepoint} <: AbstractContract
-    underlying::S
-    strike::K
-    maturity::M
-end
+    """
+    struct EuroCall{S <: AbstractContract, K <: Real, M <: Timepoint} <: AbstractContract
+        underlying::S
+        strike::K
+        maturity::M
+    end
 
-"""
-    EuroPut(contract,strike,maturity)
+    """
+        EuroPut(contract,strike,maturity)
 
-A European put option on the given contract with the given strike and maturity.
+    A European put option on the given contract with the given strike and maturity.
 
-# Arguments
- - contract::AbstractContract -  The underlying contract.
- - strike::Real -  The strike price.
- - maturity::Union{Real,Date} -  The maturity of the option.
+    # Arguments
+     - contract::AbstractContract -  The underlying contract.
+     - strike::Real -  The strike price.
+     - maturity::Union{Real,Date} -  The maturity of the option.
 
- Supertype Hierarchy
-≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡
+     Supertype Hierarchy
+    ≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡
 
-    EuroPut{S,K,M} <: FinanceCore.AbstractContract <: Any
+        EuroPut{S,K,M} <: FinanceCore.AbstractContract <: Any
 
-"""
-struct EuroPut{S <: AbstractContract, K <: Real, M <: Timepoint} <: AbstractContract
-    underlying::S
-    strike::K
-    maturity::M
-end
+    """
+    struct EuroPut{S <: AbstractContract, K <: Real, M <: Timepoint} <: AbstractContract
+        underlying::S
+        strike::K
+        maturity::M
+    end
 
-"""
-    ZCBCall(expiry, bond_maturity, strike)
+    """
+        ZCBCall(expiry, bond_maturity, strike)
 
-A European call option on a zero-coupon bond.
-The holder has the right to buy at time `expiry` a ZCB maturing at
-`bond_maturity` for `strike`.
-"""
-struct ZCBCall{T <: Real, S <: Real, K <: Real} <: AbstractContract
-    expiry::T
-    bond_maturity::S
-    strike::K
-end
+    A European call option on a zero-coupon bond.
+    The holder has the right to buy at time `expiry` a ZCB maturing at
+    `bond_maturity` for `strike`.
+    """
+    struct ZCBCall{T <: Real, S <: Real, K <: Real} <: AbstractContract
+        expiry::T
+        bond_maturity::S
+        strike::K
+    end
 
-"""
-    ZCBPut(expiry, bond_maturity, strike)
+    """
+        ZCBPut(expiry, bond_maturity, strike)
 
-A European put option on a zero-coupon bond.
-The holder has the right to sell at time `expiry` a ZCB maturing at
-`bond_maturity` for `strike`.
-"""
-struct ZCBPut{T <: Real, S <: Real, K <: Real} <: AbstractContract
-    expiry::T
-    bond_maturity::S
-    strike::K
-end
+    A European put option on a zero-coupon bond.
+    The holder has the right to sell at time `expiry` a ZCB maturing at
+    `bond_maturity` for `strike`.
+    """
+    struct ZCBPut{T <: Real, S <: Real, K <: Real} <: AbstractContract
+        expiry::T
+        bond_maturity::S
+        strike::K
+    end
 
-"""
-    Cap(strike, frequency, maturity)
+    """
+        Cap(strike, frequency, maturity)
 
-An interest rate cap — a portfolio of caplets that pay
-`max(L(Tᵢ₋₁,Tᵢ) - strike, 0) · τ` at each payment date `Tᵢ`,
-where `L` is the simply-compounded forward rate and `τ = 1/frequency`.
+    An interest rate cap — a portfolio of caplets that pay
+    `max(L(Tᵢ₋₁,Tᵢ) - strike, 0) · τ` at each payment date `Tᵢ`,
+    where `L` is the simply-compounded forward rate and `τ = 1/frequency`.
 
-The first caplet resets at time `τ` (the first period's rate is known).
-"""
-struct Cap{K <: Real, F, M <: Real} <: AbstractContract
-    strike::K
-    frequency::F
-    maturity::M
-end
+    The first caplet resets at time `τ` (the first period's rate is known).
+    """
+    struct Cap{K <: Real, F, M <: Real} <: AbstractContract
+        strike::K
+        frequency::F
+        maturity::M
+    end
 
-"""
-    Floor(strike, frequency, maturity)
+    """
+        Floor(strike, frequency, maturity)
 
-An interest rate floor — a portfolio of floorlets that pay
-`max(strike - L(Tᵢ₋₁,Tᵢ), 0) · τ` at each payment date `Tᵢ`.
-"""
-struct Floor{K <: Real, F, M <: Real} <: AbstractContract
-    strike::K
-    frequency::F
-    maturity::M
-end
+    An interest rate floor — a portfolio of floorlets that pay
+    `max(strike - L(Tᵢ₋₁,Tᵢ), 0) · τ` at each payment date `Tᵢ`.
+    """
+    struct Floor{K <: Real, F, M <: Real} <: AbstractContract
+        strike::K
+        frequency::F
+        maturity::M
+    end
 
-"""
-    Swaption(expiry, swap_maturity, strike, frequency; payer=true)
+    """
+        Swaption(expiry, swap_maturity, strike, frequency; payer=true)
 
-A European swaption — the right to enter an interest rate swap at `expiry`.
-The underlying swap has payment dates from `expiry + 1/frequency` to
-`swap_maturity`, paying a fixed rate `strike`.
+    A European swaption — the right to enter an interest rate swap at `expiry`.
+    The underlying swap has payment dates from `expiry + 1/frequency` to
+    `swap_maturity`, paying a fixed rate `strike`.
 
-- `payer=true` (default): right to pay fixed, receive floating
-- `payer=false`: right to receive fixed, pay floating
-"""
-struct Swaption{T <: Real, M <: Real, K <: Real, F} <: AbstractContract
-    expiry::T
-    swap_maturity::M
-    strike::K
-    frequency::F
-    payer::Bool
-end
+    - `payer=true` (default): right to pay fixed, receive floating
+    - `payer=false`: right to receive fixed, pay floating
+    """
+    struct Swaption{T <: Real, M <: Real, K <: Real, F} <: AbstractContract
+        expiry::T
+        swap_maturity::M
+        strike::K
+        frequency::F
+        payer::Bool
+    end
 
-function Swaption(expiry, swap_maturity, strike, frequency; payer = true)
-    return Swaption(expiry, swap_maturity, strike, frequency, payer)
-end
+    function Swaption(expiry, swap_maturity, strike, frequency; payer = true)
+        return Swaption(expiry, swap_maturity, strike, frequency, payer)
+    end
 
-import ..FinanceCore: maturity
-maturity(c::ZCBCall) = c.bond_maturity
-maturity(c::ZCBPut) = c.bond_maturity
-maturity(c::Cap) = c.maturity
-maturity(c::Floor) = c.maturity
-maturity(c::Swaption) = c.swap_maturity
+    import ..FinanceCore: maturity
+    maturity(c::ZCBCall) = c.bond_maturity
+    maturity(c::ZCBPut) = c.bond_maturity
+    maturity(c::Cap) = c.maturity
+    maturity(c::Floor) = c.maturity
+    maturity(c::Swaption) = c.swap_maturity
 
 end
 

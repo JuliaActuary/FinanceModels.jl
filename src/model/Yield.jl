@@ -406,7 +406,7 @@ but the rule function itself should be differentiable if used in an AD context.
 See also: [`ProjectedShift`](@ref), [`AbstractYieldShift`](@ref),
 [`CompositeYield`](@ref), [`ScaledYield`](@ref).
 """
-struct TenorShift{C<:AbstractYieldModel,F} <: AbstractYieldShift
+struct TenorShift{C <: AbstractYieldModel, F} <: AbstractYieldShift
     base::C
     rule::F
 end
@@ -461,7 +461,7 @@ The intended pattern: store `rule` once as a first-class value, then call
 
 See also: [`TenorShift`](@ref), [`AbstractYieldShift`](@ref).
 """
-struct ProjectedShift{C<:AbstractYieldModel,F,T} <: AbstractYieldShift
+struct ProjectedShift{C <: AbstractYieldModel, F, T} <: AbstractYieldShift
     base::C
     rule::F
     time::T
@@ -484,7 +484,7 @@ A yield model that scales the continuous zero rates of `curve` by a `Real` scala
 Created via `curve * scalar` or `curve / scalar`. For example, `curve * 0.79` scales
 all continuous zero rates by 0.79, which is useful for after-tax yield calculations.
 """
-struct ScaledYield{T<:AbstractYieldModel, S<:Real} <: AbstractYieldModel
+struct ScaledYield{T <: AbstractYieldModel, S <: Real} <: AbstractYieldModel
     curve::T
     factor::S
 end
@@ -529,7 +529,7 @@ struct ForwardStarting{T, U, V} <: AbstractYieldModel
     discount_to_forwardstart::V
     function ForwardStarting(curve::U, forwardstart::T) where {T, U}
         df = FinanceCore.discount(curve, forwardstart)
-        new{T, U, typeof(df)}(curve, forwardstart, df)
+        return new{T, U, typeof(df)}(curve, forwardstart, df)
     end
 end
 
@@ -552,11 +552,11 @@ function Base.:+(a::Constant, b::Constant)
     return Constant(Continuous(z_a + z_b))
 end
 
-function Base.:+(a::T, b::Union{Real,Rate}) where {T <: AbstractYieldModel}
+function Base.:+(a::T, b::Union{Real, Rate}) where {T <: AbstractYieldModel}
     return a + Constant(b)
 end
 
-function Base.:+(a::Union{Real,Rate}, b::T) where {T <: AbstractYieldModel}
+function Base.:+(a::Union{Real, Rate}, b::T) where {T <: AbstractYieldModel}
     return Constant(a) + b
 end
 
@@ -609,11 +609,11 @@ function Base.:-(a::Constant, b::Constant)
     return Constant(Continuous(z_a - z_b))
 end
 
-function Base.:-(a::T, b::Union{Real,Rate}) where {T <: AbstractYieldModel}
+function Base.:-(a::T, b::Union{Real, Rate}) where {T <: AbstractYieldModel}
     return a - Constant(b)
 end
 
-function Base.:-(a::Union{Real,Rate}, b::T) where {T <: AbstractYieldModel}
+function Base.:-(a::Union{Real, Rate}, b::T) where {T <: AbstractYieldModel}
     return Constant(a) - b
 end
 

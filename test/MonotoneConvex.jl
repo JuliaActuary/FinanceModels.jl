@@ -16,8 +16,8 @@
     f, fᵈ = Yield.__monotone_convex_fs(rates, times)
 
     @testset "$name" for (name, c) in curves
-        @test all(isapprox.(f, c.f; atol=1e-8))
-        @test all(isapprox.(fᵈ, c.fᵈ; atol=1e-8))
+        @test all(isapprox.(f, c.f; atol = 1.0e-8))
+        @test all(isapprox.(fᵈ, c.fᵈ; atol = 1.0e-8))
 
         @test fᵈ[1] ≈ 0.0202 atol = 0.0001
         @test fᵈ[2] ≈ 0.0258 atol = 0.0001
@@ -207,8 +207,8 @@
         times = [1.0, 2.0, 3.0, 4.0]
         # discrete forwards with sharp spikes/dips so the Hagan-West collar must bind
         cases = [
-            [0.001, 0.20, 0.05, 0.04],
-            [0.10, 0.001, 0.10, 0.002],
+            [0.001, 0.2, 0.05, 0.04],
+            [0.1, 0.001, 0.1, 0.002],
             [0.05, 0.001, 0.15, 0.001],
             [0.2, 0.02, 0.001, 0.1],
         ]
@@ -277,8 +277,10 @@
         # fix `fit` returned a NaN-repricing curve for every optimizer because the
         # loss gradient was NaN at the (degenerate) fixed ramp seed.
         tenors = [1 / 12, 2 / 12, 3 / 12, 0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0, 20.0, 30.0]
-        pars = [0.0375, 0.0372, 0.0372, 0.0372, 0.0364, 0.0368,
-            0.0369, 0.0380, 0.0400, 0.0423, 0.0483, 0.0486]
+        pars = [
+            0.0375, 0.0372, 0.0372, 0.0372, 0.0364, 0.0368,
+            0.0369, 0.038, 0.04, 0.0423, 0.0483, 0.0486,
+        ]
         qs = sort(CMTYield.(pars, tenors); by = maturity)
         reprice(c) = maximum(abs, present_value(c, q.instrument) - q.price for q in qs)
         for opt in (
