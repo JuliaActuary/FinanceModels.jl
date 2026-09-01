@@ -36,7 +36,7 @@ end
 A yield curve representing a flat term structure. `rate` can be a [`Rate`](@ref) object or a `Real` object.
 
 
-If [`fit`](@ref FinanceModels.fit-Union{Tuple{F}, Tuple{Any, Any}, Tuple{Any, Any, F}} where F<:FinanceModels.Fit.Loss)ing with the default FinanceModels.jl settings, the solver will attempt to fit a discount rate with the range of: `-1.0 .. 1.0`
+If [`fit`](@ref FinanceModels.fit)ing with the default FinanceModels.jl settings, the solver will attempt to fit a discount rate with the range of: `-1.0 .. 1.0`
 """
 struct Constant{R} <: AbstractYieldModel
     rate::R
