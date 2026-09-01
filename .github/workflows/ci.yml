@@ -54,6 +54,8 @@ jobs:
       - uses: julia-actions/julia-downgrade-compat@v1
         with:
           skip: LinearAlgebra, Random
+          # exact "=floor" pins for every entry, incl. >=1.0 (default v0 tilde-pins those)
+          strict: 'true'
       - uses: julia-actions/cache@v2
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
