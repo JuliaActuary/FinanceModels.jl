@@ -86,8 +86,8 @@
         @test !isnan(FinanceCore.rate(FinanceModels.zero(nss, 0.0)))
 
         # continuity: zero(model, ε) ≈ zero(model, 0) for small ε
-        @test FinanceCore.rate(FinanceModels.zero(ns, 1e-10)) ≈ FinanceCore.rate(FinanceModels.zero(ns, 0.0)) atol = 1e-6
-        @test FinanceCore.rate(FinanceModels.zero(nss, 1e-10)) ≈ FinanceCore.rate(FinanceModels.zero(nss, 0.0)) atol = 1e-6
+        @test FinanceCore.rate(FinanceModels.zero(ns, 1.0e-10)) ≈ FinanceCore.rate(FinanceModels.zero(ns, 0.0)) atol = 1.0e-6
+        @test FinanceCore.rate(FinanceModels.zero(nss, 1.0e-10)) ≈ FinanceCore.rate(FinanceModels.zero(nss, 0.0)) atol = 1.0e-6
     end
 
 end

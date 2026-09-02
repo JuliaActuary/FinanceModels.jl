@@ -124,36 +124,36 @@ __default_optic(m::Yield.MonotoneConvex) = ntuple(i -> (@optic(_.rates[i]) => -1
 Accessors.ConstructionBase.constructorof(::Type{<:Yield.MonotoneConvex}) =
     (f, fᵈ, rates, times) -> Yield.MonotoneConvex(rates, times)
 __default_optic(m::Yield.NelsonSiegel) = (
-        @optic(_.τ₁) => 0.0 .. 100.0,
-        @optic(_.β₀) => -10.0 .. 10.0,
-        @optic(_.β₁) => -10.0 .. 10.0,
-        @optic(_.β₂) => -10.0 .. 10.0,
-    )
+    @optic(_.τ₁) => 0.0 .. 100.0,
+    @optic(_.β₀) => -10.0 .. 10.0,
+    @optic(_.β₁) => -10.0 .. 10.0,
+    @optic(_.β₂) => -10.0 .. 10.0,
+)
 __default_optic(m::Yield.NelsonSiegelSvensson) = (
-        @optic(_.τ₁) => 0.0 .. 100.0,
-        @optic(_.τ₂) => 0.0 .. 100.0,
-        @optic(_.β₀) => -10.0 .. 10.0,
-        @optic(_.β₁) => -10.0 .. 10.0,
-        @optic(_.β₂) => -10.0 .. 10.0,
-        @optic(_.β₃) => -10.0 .. 10.0,
-    )
+    @optic(_.τ₁) => 0.0 .. 100.0,
+    @optic(_.τ₂) => 0.0 .. 100.0,
+    @optic(_.β₀) => -10.0 .. 10.0,
+    @optic(_.β₁) => -10.0 .. 10.0,
+    @optic(_.β₂) => -10.0 .. 10.0,
+    @optic(_.β₃) => -10.0 .. 10.0,
+)
 __default_optic(m::Yield.CairnsPritchard) = (
-        @optic(_.c₁) => 0.001 .. 10.0,
-        @optic(_.c₂) => 0.001 .. 10.0,
-        @optic(_.b₀) => -1.0 .. 1.0,
-        @optic(_.b₁) => -10.0 .. 10.0,
-        @optic(_.b₂) => -10.0 .. 10.0,
-    )
+    @optic(_.c₁) => 0.001 .. 10.0,
+    @optic(_.c₂) => 0.001 .. 10.0,
+    @optic(_.b₀) => -1.0 .. 1.0,
+    @optic(_.b₁) => -10.0 .. 10.0,
+    @optic(_.b₂) => -10.0 .. 10.0,
+)
 __default_optic(m::Yield.CairnsPritchardExtended) = (
-        @optic(_.c₁) => 0.001 .. 10.0,
-        @optic(_.c₂) => 0.001 .. 10.0,
-        @optic(_.c₃) => 0.001 .. 10.0,
-        @optic(_.b₀) => -1.0 .. 1.0,
-        @optic(_.b₁) => -10.0 .. 10.0,
-        @optic(_.b₂) => -10.0 .. 10.0,
-        @optic(_.b₃) => -10.0 .. 10.0,
-    )
-__default_optic(m::Equity.BlackScholesMerton{T,U,V}) where {T,U,V<:Volatility.Constant} = ((@optic(_.σ.σ) => 0.0 .. 10.0),)
+    @optic(_.c₁) => 0.001 .. 10.0,
+    @optic(_.c₂) => 0.001 .. 10.0,
+    @optic(_.c₃) => 0.001 .. 10.0,
+    @optic(_.b₀) => -1.0 .. 1.0,
+    @optic(_.b₁) => -10.0 .. 10.0,
+    @optic(_.b₂) => -10.0 .. 10.0,
+    @optic(_.b₃) => -10.0 .. 10.0,
+)
+__default_optic(m::Equity.BlackScholesMerton{T, U, V}) where {T, U, V <: Volatility.Constant} = ((@optic(_.σ.σ) => 0.0 .. 10.0),)
 __default_optic(m::Volatility.Constant) = ((@optic(_.σ) => 0.0 .. 10.0),)
 __default_optic(m::ShortRate.Vasicek) = (
     @optic(_.a) => 0.0 .. 5.0,
@@ -344,9 +344,10 @@ function fit(
 
 end
 
-function fit(mod0::Yield.MonotoneConvexUnInit, quotes, method::F=Fit.Loss(x -> x^2);
-    optimizer=OptimizationOptimJL.LBFGS()
-) where {F<:Fit.Loss}
+function fit(
+        mod0::Yield.MonotoneConvexUnInit, quotes, method::F = Fit.Loss(x -> x^2);
+        optimizer = OptimizationOptimJL.LBFGS()
+    ) where {F <: Fit.Loss}
     # Extract times from quotes (sorted)
     times = sort([maturity(q.instrument) for q in quotes])
 
@@ -357,7 +358,7 @@ function fit(mod0::Yield.MonotoneConvexUnInit, quotes, method::F=Fit.Loss(x -> x
     # (a flat initial guess causes 0/0 in the g function due to division by zero
     # in sector iv); `range` requires distinct endpoints for length 1
     n = length(times)
-    x0 = n == 1 ? [0.03] : collect(range(0.01, 0.05, length=n))
+    x0 = n == 1 ? [0.03] : collect(range(0.01, 0.05, length = n))
 
     prob = Optimization.OptimizationProblem(loss, x0)
     sol = Optimization.solve(prob, optimizer)

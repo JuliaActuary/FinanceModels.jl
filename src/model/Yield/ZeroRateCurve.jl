@@ -57,7 +57,7 @@ and produces C1-smooth forward curves ([Hagan & West, 2006](https://doi.org/10.1
 For C2 smoothness, use `Spline.Cubic()`. `Spline.Linear()` produces kinks in the
 forward curve at tenor points.
 """
-struct ZeroRateCurve{R<:AbstractVector, T<:AbstractVector, S<:Sp.SplineCurve, M} <: AbstractYieldModel
+struct ZeroRateCurve{R <: AbstractVector, T <: AbstractVector, S <: Sp.SplineCurve, M} <: AbstractYieldModel
     rates::R      # continuously-compounded zero rates
     tenors::T     # time points
     spline::S     # e.g., Spline.Linear(), Spline.Cubic()
@@ -74,9 +74,12 @@ end
 
 ZeroRateCurve(rates, tenors) = ZeroRateCurve(rates, tenors, Sp.MonotoneConvex())
 
-function ZeroRateCurve(curve::AbstractYieldModel, tenors; spline=Sp.MonotoneConvex())
-    all(t -> t > zero(t), tenors) || throw(ArgumentError(
-        "All tenors must be positive (t > 0). The zero rate is undefined at t = 0."))
+function ZeroRateCurve(curve::AbstractYieldModel, tenors; spline = Sp.MonotoneConvex())
+    all(t -> t > zero(t), tenors) || throw(
+        ArgumentError(
+            "All tenors must be positive (t > 0). The zero rate is undefined at t = 0."
+        )
+    )
     tenors_f = collect(float.(tenors))
     rates = [-log(FinanceCore.discount(curve, t)) / t for t in tenors_f]
     perm = sortperm(tenors_f)

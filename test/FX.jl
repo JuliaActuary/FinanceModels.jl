@@ -13,9 +13,9 @@
         iso = FX.Pair(978, 840) # EUR/USD by ISO numeric code
         @test inv(iso) == FX.Pair(840, 978)
         @test repr(iso) == "FX.Pair(978, 840)"
-        m_iso = FX.Forwards(iso, 1.10, Yield.Constant(Continuous(0.05)), Yield.Constant(Continuous(0.03)))
-        @test forward(m_iso, 1.0) ≈ 1.10 * exp(0.02)
-        @test pv(m_iso, FX.Forward(iso, forward(m_iso, 1.0), 1.0)) ≈ 0.0 atol = 1e-14
+        m_iso = FX.Forwards(iso, 1.1, Yield.Constant(Continuous(0.05)), Yield.Constant(Continuous(0.03)))
+        @test forward(m_iso, 1.0) ≈ 1.1 * exp(0.02)
+        @test pv(m_iso, FX.Forward(iso, forward(m_iso, 1.0), 1.0)) ≈ 0.0 atol = 1.0e-14
         # a Symbol pair and an integer-code pair are distinct pairs, per the
         # direction-guard design
         @test_throws ArgumentError pv(m_iso, FX.Forward(FX.Pair(:EUR, :USD), 1.0, 1.0))
@@ -30,8 +30,8 @@
         sub = FX.Pair(SubString("EURO", 1, 3), SubString("USDX", 1, 3))
         @test sub == s
         @test hash(sub) == hash(s)
-        m_str = FX.Forwards(s, 1.10, Yield.Constant(Continuous(0.05)), Yield.Constant(Continuous(0.03)))
-        @test pv(m_str, FX.Forward(sub, forward(m_str, 1.0), 1.0)) ≈ 0.0 atol = 1e-14
+        m_str = FX.Forwards(s, 1.1, Yield.Constant(Continuous(0.05)), Yield.Constant(Continuous(0.03)))
+        @test pv(m_str, FX.Forward(sub, forward(m_str, 1.0), 1.0)) ≈ 0.0 atol = 1.0e-14
         # ...but a Symbol pair and a string pair are distinct conventions
         @test s != eurusd
         @test_throws ArgumentError pv(m_str, FX.Forward(eurusd, 1.0, 1.0))
@@ -39,7 +39,7 @@
 
     usd = Yield.Constant(Continuous(0.05))
     eur = Yield.Constant(Continuous(0.03))
-    S = 1.10
+    S = 1.1
     m = FX.Forwards(eurusd, S, usd, eur)
 
     @testset "covered interest parity forwards" begin
@@ -60,7 +60,7 @@
         # an exchange rate is a strictly positive price; anything else would corrupt
         # every downstream forward, pv, and implied discount factor silently
         @test_throws ArgumentError FX.Forwards(eurusd, 0.0, usd, eur)
-        @test_throws ArgumentError FX.Forwards(eurusd, -1.10, usd, eur)
+        @test_throws ArgumentError FX.Forwards(eurusd, -1.1, usd, eur)
         @test_throws ArgumentError FX.Forwards(eurusd, NaN, usd, eur)
         @test_throws ArgumentError FX.Forwards(eurusd, Inf, usd, eur)
     end
@@ -69,7 +69,7 @@
         F1 = forward(m, 1.0)
         atm = FX.Forward(eurusd, F1, 1.0)
         @test maturity(atm) == 1.0
-        @test pv(m, atm) ≈ 0.0 atol = 1e-14
+        @test pv(m, atm) ≈ 0.0 atol = 1.0e-14
         # struck below the forward: worth the discounted difference in quote currency
         off = FX.Forward(eurusd, F1 - 0.01, 1.0)
         @test pv(m, off) ≈ 0.01 * exp(-0.05)
@@ -101,7 +101,7 @@
         # points quotes have no constructor (the pair-dependent pip scale must stay
         # visible at the call site); the documented idiom is explicit arithmetic
         points = [10.0, 20.0]
-        qps = FX.Outright.(eurusd, 1.10 .+ points ./ 10_000, [0.5, 1.0])
+        qps = FX.Outright.(eurusd, 1.1 .+ points ./ 10_000, [0.5, 1.0])
         @test qps[1].instrument.strike ≈ 1.101
     end
 
@@ -139,7 +139,7 @@
 
         @testset "bootstrap fit round-trip" begin
             m_fit = fit(FX.Forwards(eurusd, S, usd_boot, Spline.Cubic()), quotes, Fit.Bootstrap())
-            @test all(abs(pv(m_fit, q.instrument)) < 1e-10 for q in quotes)
+            @test all(abs(pv(m_fit, q.instrument)) < 1.0e-10 for q in quotes)
             @test all(isapprox(forward(m_fit, t), forward(m_true, t)) for t in ts)
             # flat foreign truth → the interpolated curve is exact between knots too
             @test forward(m_fit, 3.3) ≈ forward(m_true, 3.3)
@@ -147,7 +147,7 @@
 
         @testset "all-at-once spline fit (Fit.Loss) via implied quotes" begin
             m_fit = fit(FX.Forwards(eurusd, S, usd_boot, Spline.Cubic()), quotes)
-            @test all(abs(pv(m_fit, q.instrument)) < 1e-6 for q in quotes)
+            @test all(abs(pv(m_fit, q.instrument)) < 1.0e-6 for q in quotes)
         end
     end
 
@@ -163,8 +163,8 @@
         ts = 0.5:0.5:5.0
         quotes = [FX.Outright(eurusd, forward(m, t), t) for t in ts]
         m_fit = fit(FX.Forwards(eurusd, S, usd, Yield.Constant()), quotes)
-        @test discount(m_fit.foreign, 1.0) ≈ exp(-0.03) atol = 1e-6
-        @test all(isapprox(forward(m_fit, t), forward(m, t); atol = 1e-6) for t in ts)
+        @test discount(m_fit.foreign, 1.0) ≈ exp(-0.03) atol = 1.0e-6
+        @test all(isapprox(forward(m_fit, t), forward(m, t); atol = 1.0e-6) for t in ts)
     end
 
     @testset "foreign-curve optic composition (unbounded forms)" begin
@@ -184,33 +184,33 @@
         # through the 9th edition (§5.10): spot 0.6200 USD per AUD and 2-year
         # continuously-compounded rates of 5% (AUD) and 7% (USD), so the 2-year
         # forward is 0.62·e^{(0.07−0.05)·2} = 0.6453.
-        hull9 = FX.Forwards(audusd, 0.6200, Yield.Constant(Continuous(0.07)), Yield.Constant(Continuous(0.05)))
-        @test forward(hull9, 2.0) ≈ 0.6453 atol = 5e-5
+        hull9 = FX.Forwards(audusd, 0.62, Yield.Constant(Continuous(0.07)), Yield.Constant(Continuous(0.05)))
+        @test forward(hull9, 2.0) ≈ 0.6453 atol = 5.0e-5
         # covered interest arbitrage: a forward struck below/above the CIP rate has
         # positive/negative value to the buyer of AUD
-        @test pv(hull9, FX.Forward(audusd, 0.6300, 2.0)) > 0
-        @test pv(hull9, FX.Forward(audusd, 0.6600, 2.0)) < 0
+        @test pv(hull9, FX.Forward(audusd, 0.63, 2.0)) > 0
+        @test pv(hull9, FX.Forward(audusd, 0.66, 2.0)) < 0
 
         # later editions restate the same example (Example 5.6): spot 0.7500 USD per
         # AUD, 2-year rates 3% (AUD) and 1% (USD) → forward 0.75·e^{(0.01−0.03)·2}
         # = 0.7206, and the two covered-interest-arbitrage strategies lock in riskless
         # profits of 21.87 and 55.79 USD at t = 2
-        hull11 = FX.Forwards(audusd, 0.7500, Yield.Constant(Continuous(0.01)), Yield.Constant(Continuous(0.03)))
-        @test forward(hull11, 2.0) ≈ 0.7206 atol = 5e-5
+        hull11 = FX.Forwards(audusd, 0.75, Yield.Constant(Continuous(0.01)), Yield.Constant(Continuous(0.03)))
+        @test forward(hull11, 2.0) ≈ 0.7206 atol = 5.0e-5
         # borrow 1,000 AUD (owing 1,061.84 at t=2) and buy them forward at 0.7000
-        @test 1061.84 * (forward(hull11, 2.0) - 0.7000) ≈ 21.87 atol = 0.01
+        @test 1061.84 * (forward(hull11, 2.0) - 0.7) ≈ 21.87 atol = 0.01
         # borrow 1,000 USD (1,415.79 AUD once grown at 3%) and sell forward at 0.7600
-        @test 1415.79 * (0.7600 - forward(hull11, 2.0)) ≈ 55.79 atol = 0.01
+        @test 1415.79 * (0.76 - forward(hull11, 2.0)) ≈ 55.79 atol = 0.01
         # the contract's time-0 value is the discounted locked-in profit
-        @test 1061.84 * pv(hull11, FX.Forward(audusd, 0.7000, 2.0)) ≈ 21.87 * exp(-0.01 * 2) atol = 0.01
+        @test 1061.84 * pv(hull11, FX.Forward(audusd, 0.7, 2.0)) ≈ 21.87 * exp(-0.01 * 2) atol = 0.01
     end
 
     @testset "interest rate parity with periodic compounding" begin
         # the discrete-compounding IRP form: F(n) = S·(1+r_d)ⁿ/(1+r_f)ⁿ with
         # annually-compounded rates
-        m1 = FX.Forwards(eurusd, 1.10, Yield.Constant(Periodic(0.02, 1)), Yield.Constant(Periodic(0.01, 1)))
-        @test forward(m1, 1.0) ≈ 1.10 * 1.02 / 1.01
-        @test forward(m1, 2.0) ≈ 1.10 * 1.02^2 / 1.01^2
+        m1 = FX.Forwards(eurusd, 1.1, Yield.Constant(Periodic(0.02, 1)), Yield.Constant(Periodic(0.01, 1)))
+        @test forward(m1, 1.0) ≈ 1.1 * 1.02 / 1.01
+        @test forward(m1, 2.0) ≈ 1.1 * 1.02^2 / 1.01^2
     end
 
     @testset "FX.Converted multi-currency projection" begin
@@ -276,9 +276,9 @@
         fx = FX.Forwards(jpyusd, spot, usd9, jpy4)
 
         # the forward exchange rates of Hull's Table 7.9
-        @test forward(fx, 1.0) ≈ 0.009557 atol = 5e-7
-        @test forward(fx, 2.0) ≈ 0.010047 atol = 5e-7
-        @test forward(fx, 3.0) ≈ 0.010562 atol = 5e-7
+        @test forward(fx, 1.0) ≈ 0.009557 atol = 5.0e-7
+        @test forward(fx, 2.0) ≈ 0.010047 atol = 5.0e-7
+        @test forward(fx, 3.0) ≈ 0.010562 atol = 5.0e-7
 
         yen_leg = FX.Converted(Bond.Fixed(0.05, Periodic(1), 3) |> Map(cf -> cf * 1200.0), jpyusd, "JPYUSD")
         usd_leg = Bond.Fixed(0.08, Periodic(1), 3) |> Map(cf -> cf * -10.0)
@@ -286,12 +286,12 @@
         p = Projection(swap, Dict("JPYUSD" => fx), CashflowProjection())
 
         # (a) the portfolio-of-forward-contracts valuation — our projection route
-        @test pv(usd9, p) ≈ 1.5430 atol = 1e-4
+        @test pv(usd9, p) ≈ 1.543 atol = 1.0e-4
         # (b) the two-bond valuation: B_F/110 − B_D = 1,230.55/110 − 9.6439
         B_D = 10.0 * pv(usd9, Bond.Fixed(0.08, Periodic(1), 3))
         B_F = 1200.0 * pv(jpy4, Bond.Fixed(0.05, Periodic(1), 3))
-        @test B_D ≈ 9.6439 atol = 1e-4
-        @test B_F ≈ 1230.55 atol = 1e-2
+        @test B_D ≈ 9.6439 atol = 1.0e-4
+        @test B_F ≈ 1230.55 atol = 1.0e-2
         # the two routes agree to numerical precision
         @test pv(usd9, p) ≈ B_F * spot - B_D
     end
@@ -310,24 +310,24 @@
         spot = 1 / 110
         fx = FX.Forwards(jpyusd, spot, usd25, jpy15)
 
-        @test forward(fx, 1.0) ≈ 0.009182 atol = 5e-7
-        @test forward(fx, 2.0) ≈ 0.009275 atol = 5e-7
-        @test forward(fx, 3.0) ≈ 0.009368 atol = 5e-7
+        @test forward(fx, 1.0) ≈ 0.009182 atol = 5.0e-7
+        @test forward(fx, 2.0) ≈ 0.009275 atol = 5.0e-7
+        @test forward(fx, 3.0) ≈ 0.009368 atol = 5.0e-7
 
         # Example 7.2's year-1 row: net cashflow 36·F(1) − 0.4 = −0.0694 discounts
         # to −0.0677
-        @test (36 * forward(fx, 1.0) - 0.4) * discount(usd25, 1.0) ≈ -0.0677 atol = 1e-4
+        @test (36 * forward(fx, 1.0) - 0.4) * discount(usd25, 1.0) ≈ -0.0677 atol = 1.0e-4
 
         yen_leg = FX.Converted(Bond.Fixed(0.03, Periodic(1), 3) |> Map(cf -> cf * 1200.0), jpyusd, "JPYUSD")
         usd_leg = Bond.Fixed(0.04, Periodic(1), 3) |> Map(cf -> cf * -10.0)
         swap = Composite(yen_leg, usd_leg)
         p = Projection(swap, Dict("JPYUSD" => fx), CashflowProjection())
-        @test pv(usd25, p) ≈ 0.9629 atol = 2e-4
+        @test pv(usd25, p) ≈ 0.9629 atol = 2.0e-4
 
         B_D = 10.0 * pv(usd25, Bond.Fixed(0.04, Periodic(1), 3))
         B_F = 1200.0 * pv(jpy15, Bond.Fixed(0.03, Periodic(1), 3))
-        @test B_D ≈ 10.4191 atol = 1e-4
-        @test B_F ≈ 1252.01 atol = 1e-2
+        @test B_D ≈ 10.4191 atol = 1.0e-4
+        @test B_F ≈ 1252.01 atol = 1.0e-2
         @test pv(usd25, p) ≈ B_F * spot - B_D
     end
 
@@ -348,7 +348,7 @@
             tenors = [1.0, 2.0, 5.0]
             qs = [FX.ParBasisSwap(eurusd, -0.002, T; reference = ref, frequency = Periodic(1)) for T in tenors]
             m_fit = fit(FX.Forwards(eurusd, S, usd, Spline.Linear()), qs, Fit.Bootstrap())
-            @test all(isapprox(discount(m_fit.foreign, T), 1.028^-T; atol = 1e-8) for T in tenors)
+            @test all(isapprox(discount(m_fit.foreign, T), 1.028^-T; atol = 1.0e-8) for T in tenors)
 
             # at-market legs price to par (in base-currency units) under the true model
             csa28 = Yield.Constant(Periodic(0.028, 1))
@@ -402,7 +402,7 @@
             # the property the stub convention preserves: a zero-spread leg on its
             # own reference curve telescopes to exactly par on any stub schedule
             q0 = FX.ParBasisSwap(eurusd, 0.0, 2.5; reference = ref, frequency = Periodic(1))
-            @test pv(ref, q0.instrument) ≈ 1.0 atol = 1e-14
+            @test pv(ref, q0.instrument) ≈ 1.0 atol = 1.0e-14
 
             # calibration through a stub-tenor quote: the analytic par spread on a
             # flat truth CSA curve is recovered exactly alongside whole tenors
@@ -420,8 +420,8 @@
             ]
             @test all(pv(csa, q.instrument) ≈ 1.0 for q in qs)
             m_fit = fit(FX.Forwards(eurusd, S, usd, Spline.Linear()), qs, Fit.Bootstrap())
-            @test all(abs(pv(m_fit, q.instrument) - 1.0) < 1e-9 for q in qs)
-            @test all(isapprox(discount(m_fit.foreign, t), 1.028^-t; atol = 1e-8) for t in [1.0, 2.0, 2.5])
+            @test all(abs(pv(m_fit, q.instrument) - 1.0) < 1.0e-9 for q in qs)
+            @test all(isapprox(discount(m_fit.foreign, t), 1.028^-t; atol = 1.0e-8) for t in [1.0, 2.0, 2.5])
         end
 
         @testset "mixed short-end forwards + long-end basis swaps" begin
@@ -442,7 +442,7 @@
                 (1 - dfs[end] - sum(fwds[i] / f * dfs[i] for i in eachindex(ts))) / (sum(dfs) / f)
             end
             # sanity: implied par spreads sit near the flat continuous basis
-            @test all(abs(b - -0.0018) < 2e-4 for b in spreads)
+            @test all(abs(b - -0.0018) < 2.0e-4 for b in spreads)
 
             fx_qs = [FX.Outright(eurusd, forward(m_true, t), t) for t in [0.25, 0.5, 1.0]]
             bs_qs = [FX.ParBasisSwap(eurusd, spreads[i], tenors[i]; reference = estr) for i in eachindex(tenors)]
@@ -452,8 +452,8 @@
             m_fit = fit(FX.Forwards(eurusd, S, sofr, Spline.Linear()), vcat(fx_qs, bs_qs), Fit.Bootstrap())
 
             # both quote families reprice on the fitted model
-            @test all(abs(pv(m_fit, q.instrument)) < 1e-9 for q in fx_qs)
-            @test all(abs(pv(m_fit, q.instrument) - 1.0) < 1e-9 for q in bs_qs)
+            @test all(abs(pv(m_fit, q.instrument)) < 1.0e-9 for q in fx_qs)
+            @test all(abs(pv(m_fit, q.instrument) - 1.0) < 1.0e-9 for q in bs_qs)
 
             # independent cross-check through the projection machinery: the actual
             # constant-notional basis swap — a floating EUR leg converted at the fitted
@@ -464,7 +464,7 @@
                 Bond.Floating(0.0, freq, T5, "SOFR") |> Map(cf -> cf * -S),
             )
             p = Projection(swap, Dict("EURUSD" => m_fit, "ESTR" => estr, "SOFR" => sofr), CashflowProjection())
-            @test abs(pv(sofr, p)) < 1e-6
+            @test abs(pv(sofr, p)) < 1.0e-6
         end
 
         @testset "MTM (resetting-notional) equivalence" begin
@@ -494,7 +494,7 @@
                         notionals[i] * (1 + d_fwds[i] * δs[i]) * discount(sofr, ts[i])
                         for i in 1:n
                 ]
-                @test maximum(abs, per_period) < 1e-14
+                @test maximum(abs, per_period) < 1.0e-14
 
                 # ...so the whole resetting leg — interest on the resetting
                 # notional, interior reset exchanges, final notional — nets the
@@ -502,7 +502,7 @@
                 leg = sum(notionals[i] * d_fwds[i] * δs[i] * discount(sofr, ts[i]) for i in 1:n) -
                     sum((Fs[i] - notionals[i]) * discount(sofr, ts[i]) for i in 1:(n - 1)) +
                     Fs[n - 1] * discount(sofr, ts[n])
-                @test leg ≈ S atol = 1e-12
+                @test leg ≈ S atol = 1.0e-12
 
                 # ...leaving exactly the constant-notional par condition: the full
                 # MTM swap priced at the constant-notional par spread is worth
@@ -513,7 +513,7 @@
                 b_cn = (1 - dfs[end] - sum(fwds[i] * δs[i] * dfs[i] for i in 1:n)) /
                     sum(δs[i] * dfs[i] for i in 1:n)
                 foreign_leg = S * (sum((fwds[i] + b_cn) * δs[i] * dfs[i] for i in 1:n) + dfs[end])
-                @test foreign_leg - leg ≈ 0.0 atol = 1e-12
+                @test foreign_leg - leg ≈ 0.0 atol = 1.0e-12
             end
 
             # matched-pair leg pricing at a rolled valuation date delegates to the
@@ -532,8 +532,8 @@
             ref = Yield.Constant(Periodic(0.03, 1))
             qs = [FX.ParBasisSwap(eurusd, -0.002, T; reference = ref, frequency = Periodic(1)) for T in [1.0, 2.0, 3.0]]
             m_fit = fit(FX.Forwards(eurusd, S, usd, Yield.Constant()), qs)
-            @test discount(m_fit.foreign, 1.0) ≈ 1 / 1.028 atol = 1e-6
-            @test discount(m_fit.foreign, 3.0) ≈ 1.028^-3 atol = 1e-6
+            @test discount(m_fit.foreign, 1.0) ≈ 1 / 1.028 atol = 1.0e-6
+            @test discount(m_fit.foreign, 3.0) ≈ 1.028^-3 atol = 1.0e-6
         end
 
         @testset "guards" begin

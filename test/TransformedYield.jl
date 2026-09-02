@@ -107,7 +107,7 @@
         @test zero(shifted, 0.0) ≈ Continuous(0.06)
 
         # very small tenor
-        @test isfinite(discount(shifted, 1e-10))
+        @test isfinite(discount(shifted, 1.0e-10))
 
         # large tenor
         @test discount(shifted, 100.0) ≈ exp(-0.06 * 100.0)
@@ -187,16 +187,16 @@ end
 
     @testset "both axes (τ and t) dependency" begin
         # Steepener that decays in tenor and fades across projection time.
-        steepener_fade = (τ, z, t) -> z + Continuous(0.02 * max(0.0, 1.0 - t/30.0) * exp(-τ/10))
+        steepener_fade = (τ, z, t) -> z + Continuous(0.02 * max(0.0, 1.0 - t / 30.0) * exp(-τ / 10))
 
         # τ=0: full strength, tenor-decaying twist.
         c0 = Yield.ProjectedShift(base, steepener_fade, 0.0)
-        @test zero(c0, 1.0) ≈ Continuous(0.05 + 0.02 * (1.0 - 1.0/30.0))
+        @test zero(c0, 1.0) ≈ Continuous(0.05 + 0.02 * (1.0 - 1.0 / 30.0))
         @test zero(c0, 30.0) ≈ Continuous(0.05)  # twist dies at 30y
 
         # τ=10: shift is multiplied by exp(-1).
         c10 = Yield.ProjectedShift(base, steepener_fade, 10.0)
-        @test zero(c10, 1.0) ≈ Continuous(0.05 + 0.02 * (1.0 - 1.0/30.0) * exp(-1.0))
+        @test zero(c10, 1.0) ≈ Continuous(0.05 + 0.02 * (1.0 - 1.0 / 30.0) * exp(-1.0))
     end
 
     @testset "Real return raises TypeError (strict Rate contract)" begin
@@ -233,7 +233,7 @@ end
         @test discount(ps, 0.0) == 1.0
 
         # very small and very large tenor
-        @test isfinite(discount(ps, 1e-10))
+        @test isfinite(discount(ps, 1.0e-10))
         @test discount(ps, 100.0) ≈ exp(-(0.05 - 0.0075) * 100.0)
 
         # negative τ is just numerically valid (min(τ, 10) clamps to τ when τ<10).
@@ -284,7 +284,7 @@ end
             @test outer isa Yield.ProjectedShift
             for t in [1.0, 5.0, 10.0]
                 z_base = zero(base, t).continuous_value
-                expected = z_base + (-0.015 * 5/10) + (0.002 * t * 5/10)
+                expected = z_base + (-0.015 * 5 / 10) + (0.002 * t * 5 / 10)
                 @test zero(outer, t) ≈ Continuous(expected)
             end
         end
@@ -294,7 +294,7 @@ end
             outer = Yield.ProjectedShift(inner, rule2, 10.0)  # outer sees τ=10
             for t in [1.0, 5.0, 10.0]
                 z_base = zero(base, t).continuous_value
-                expected = z_base + (-0.015 * 3/10) + (0.002 * t * 10/10)
+                expected = z_base + (-0.015 * 3 / 10) + (0.002 * t * 10 / 10)
                 @test zero(outer, t) ≈ Continuous(expected)
             end
         end
@@ -326,7 +326,7 @@ end
         # field itself. The latter is the novel capability this type enables:
         # projection-time Greeks of a stress.
         using ForwardDiff
-        h = 1e-6  # central-difference step for cross-check
+        h = 1.0e-6  # central-difference step for cross-check
 
         # (a) ∂(discount)/∂(rule parameter): scenario-parameter sensitivity.
         f_slope(slope) = let rule = (τ, z, _) -> z + Continuous(slope * min(τ, 10) / 10)
@@ -335,7 +335,7 @@ end
         ad_slope = ForwardDiff.derivative(f_slope, -0.015)
         fd_slope = (f_slope(-0.015 + h) - f_slope(-0.015 - h)) / (2h)
         @test isfinite(ad_slope)
-        @test ad_slope ≈ fd_slope rtol = 1e-5
+        @test ad_slope ≈ fd_slope rtol = 1.0e-5
 
         # (b) ∂(discount)/∂τ: projection-time sensitivity — the new axis.
         # Differentiate at τ=5.0 (well inside the phase-in region; min is smooth here).
@@ -343,6 +343,6 @@ end
         ad_tau = ForwardDiff.derivative(f_tau, 5.0)
         fd_tau = (f_tau(5.0 + h) - f_tau(5.0 - h)) / (2h)
         @test isfinite(ad_tau)
-        @test ad_tau ≈ fd_tau rtol = 1e-5
+        @test ad_tau ≈ fd_tau rtol = 1.0e-5
     end
 end

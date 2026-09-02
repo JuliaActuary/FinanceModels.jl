@@ -40,8 +40,10 @@
     end
 
     @testset "inverse symmetry ($name base, $sname shift)" for (name, base) in bases,
-                                                                (sname, Δ) in (("Continuous", Continuous(0.0075)),
-                                                                                ("Periodic(m=2)", Periodic(0.01, 2)))
+            (sname, Δ) in (
+                ("Continuous", Continuous(0.0075)),
+                ("Periodic(m=2)", Periodic(0.01, 2)),
+            )
 
         up = base + ((z, t) -> z + Δ)
         round_trip = up + ((z, t) -> z - Δ)

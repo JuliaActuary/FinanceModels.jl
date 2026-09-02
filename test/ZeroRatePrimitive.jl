@@ -40,8 +40,8 @@
     @testset "discount ≡ exp(-z·t)  ($name)" for (name, c) in curves
         for t in (0.25, 0.5, 1.0, 2.0, 3.7, 5.0, 10.0, 20.0, 30.0)
             z = FinanceCore.rate(zero(c, t))
-            @test exp(-z * t) ≈ discount(c, t) rtol = 1e-12
-            @test discount(zero(c, t), t) ≈ discount(c, t) rtol = 1e-12
+            @test exp(-z * t) ≈ discount(c, t) rtol = 1.0e-12
+            @test discount(zero(c, t), t) ≈ discount(c, t) rtol = 1.0e-12
         end
     end
 
@@ -60,16 +60,18 @@
     end
 
     @testset "zero(c, 0) is finite (regression: was 0/0 → NaN)" begin
-        for (name, c) in (("Spline", spl), ("Constant(cont)", cc),
-            ("Constant(per)", cper), ("Composite(+)", comp_add), ("Scaled", scaled),
-            ("MonotoneConvex", mc), ("NelsonSiegel", ns), ("NSS", nss), ("CairnsPritchard", cpr))
+        for (name, c) in (
+                ("Spline", spl), ("Constant(cont)", cc),
+                ("Constant(per)", cper), ("Composite(+)", comp_add), ("Scaled", scaled),
+                ("MonotoneConvex", mc), ("NelsonSiegel", ns), ("NSS", nss), ("CairnsPritchard", cpr),
+            )
             @test !isnan(FinanceCore.rate(zero(c, 0.0)))
         end
         # flat curve: zero(·, 0) is its own continuous rate
         @test FinanceCore.rate(zero(cc, 0.0)) ≈ 0.03
         # continuity of the zero curve into t = 0
-        @test FinanceCore.rate(zero(spl, 1e-9)) ≈ FinanceCore.rate(zero(spl, 0.0)) atol = 1e-6
-        @test FinanceCore.rate(zero(comp_add, 1e-9)) ≈ FinanceCore.rate(zero(comp_add, 0.0)) atol = 1e-6
+        @test FinanceCore.rate(zero(spl, 1.0e-9)) ≈ FinanceCore.rate(zero(spl, 0.0)) atol = 1.0e-6
+        @test FinanceCore.rate(zero(comp_add, 1.0e-9)) ≈ FinanceCore.rate(zero(comp_add, 0.0)) atol = 1.0e-6
     end
 
     @testset "NS/NSS array tenors preserve scalar semantics" begin
@@ -101,7 +103,7 @@
     @testset "forward matches log-discount definition  ($name)" for (name, c) in curves
         for (from, to) in ((0.0, 1.0), (1.0, 2.0), (2.0, 5.0), (5.0, 10.0))
             expected = Continuous(log(discount(c, from) / discount(c, to)) / (to - from))
-            @test forward(c, from, to) ≈ expected rtol = 1e-9
+            @test forward(c, from, to) ≈ expected rtol = 1.0e-9
         end
     end
 end

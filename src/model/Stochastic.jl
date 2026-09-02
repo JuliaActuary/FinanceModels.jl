@@ -13,106 +13,106 @@ abstract type AbstractStochasticModel <: Yield.AbstractYieldModel end
 
 module ShortRate
 
-import ..Yield
-import ..AbstractStochasticModel
-import ..FinanceCore
-using ..FinanceCore: Continuous, Rate, rate
+    import ..Yield
+    import ..AbstractStochasticModel
+    import ..FinanceCore
+    using ..FinanceCore: Continuous, Rate, rate
 
-"""
-    Vasicek(a, b, σ, initial)
+    """
+        Vasicek(a, b, σ, initial)
 
-Vasicek (1977) mean-reverting short-rate model:
+    Vasicek (1977) mean-reverting short-rate model:
 
-    dr = a(b - r) dt + σ dW
+        dr = a(b - r) dt + σ dW
 
-# Arguments
-- `a`: speed of mean reversion
-- `b`: long-term mean rate (continuous compounding). Can be passed as a `Real` or `Continuous(b)`.
-- `σ`: volatility
-- `initial`: initial short rate `r₀` (a `Rate` object or `Real`)
+    # Arguments
+    - `a`: speed of mean reversion
+    - `b`: long-term mean rate (continuous compounding). Can be passed as a `Real` or `Continuous(b)`.
+    - `σ`: volatility
+    - `initial`: initial short rate `r₀` (a `Rate` object or `Real`)
 
-!!! note
-    The Vasicek model allows negative rates. For very negative rates or long horizons,
-    discount factors may exceed 1.
-"""
-struct Vasicek{A,B,S,T} <: AbstractStochasticModel
-    a::A
-    b::B
-    σ::S
-    initial::T
-end
-
-function Vasicek(a::Real, b::Real, σ::Real, initial::Real)
-    σ >= 0 || throw(ArgumentError("volatility σ must be non-negative, got $σ"))
-    return Vasicek(Float64(a), Float64(b), Float64(σ), Continuous(initial))
-end
-
-# Accept Continuous(b) for the long-term mean rate parameter
-Vasicek(a, b::Rate{<:Any,Continuous}, σ, initial) = Vasicek(a, rate(b), σ, initial)
-
-"""
-    CoxIngersollRoss(a, b, σ, initial)
-
-Cox-Ingersoll-Ross (1985) mean-reverting short-rate model:
-
-    dr = a(b - r) dt + σ √r dW
-
-# Arguments
-- `a`: speed of mean reversion
-- `b`: long-term mean rate (continuous compounding). Can be passed as a `Real` or `Continuous(b)`.
-- `σ`: volatility
-- `initial`: initial short rate `r₀` (a `Rate` object or `Real`)
-
-!!! note "Feller condition"
-    The condition `2ab > σ²` is required for the variance process to stay strictly
-    positive. When violated, the short rate can reach zero; simulation uses the
-    full truncation scheme (Lord, Koekkoek & Van Dijk, 2010), which lets an
-    auxiliary process go negative while the observed rate is floored at zero.
-    Discretisation bias grows with `σ²/(2ab)` — use a finer `timestep` when the
-    Feller condition is strongly violated.
-"""
-struct CoxIngersollRoss{A,B,S,T} <: AbstractStochasticModel
-    a::A
-    b::B
-    σ::S
-    initial::T
-end
-
-function CoxIngersollRoss(a::Real, b::Real, σ::Real, initial::Real)
-    σ >= 0 || throw(ArgumentError("volatility σ must be non-negative, got $σ"))
-    initial >= 0 || throw(ArgumentError("initial rate must be non-negative for CIR, got $initial"))
-    if 2 * a * b <= σ^2
-        @warn "Feller condition 2ab > σ² violated (2·$(a)·$(b) = $(2*a*b) ≤ σ² = $(σ^2)). Short rate may reach zero, and `simulate`'s discretisation bias grows with σ²/(2ab) — prefer a finer `timestep`."
+    !!! note
+        The Vasicek model allows negative rates. For very negative rates or long horizons,
+        discount factors may exceed 1.
+    """
+    struct Vasicek{A, B, S, T} <: AbstractStochasticModel
+        a::A
+        b::B
+        σ::S
+        initial::T
     end
-    return CoxIngersollRoss(Float64(a), Float64(b), Float64(σ), Continuous(initial))
-end
 
-# Accept Continuous(b) for the long-term mean rate parameter
-CoxIngersollRoss(a, b::Rate{<:Any,Continuous}, σ, initial) = CoxIngersollRoss(a, rate(b), σ, initial)
-
-"""
-    HullWhite(a, σ, curve)
-
-Hull-White (1990) one-factor model:
-
-    dr = (θ(t) - a r) dt + σ dW
-
-where `θ(t)` is calibrated to fit the initial term structure `curve`.
-
-# Arguments
-- `a`: speed of mean reversion
-- `σ`: volatility
-- `curve`: an existing yield model providing the initial term structure
-"""
-struct HullWhite{A,S,C} <: AbstractStochasticModel
-    a::A
-    σ::S
-    curve::C
-    function HullWhite(a::A, σ::S, curve::C) where {A,S,C}
+    function Vasicek(a::Real, b::Real, σ::Real, initial::Real)
         σ >= 0 || throw(ArgumentError("volatility σ must be non-negative, got $σ"))
-        return new{A,S,C}(a, σ, curve)
+        return Vasicek(Float64(a), Float64(b), Float64(σ), Continuous(initial))
     end
-end
+
+    # Accept Continuous(b) for the long-term mean rate parameter
+    Vasicek(a, b::Rate{<:Any, Continuous}, σ, initial) = Vasicek(a, rate(b), σ, initial)
+
+    """
+        CoxIngersollRoss(a, b, σ, initial)
+
+    Cox-Ingersoll-Ross (1985) mean-reverting short-rate model:
+
+        dr = a(b - r) dt + σ √r dW
+
+    # Arguments
+    - `a`: speed of mean reversion
+    - `b`: long-term mean rate (continuous compounding). Can be passed as a `Real` or `Continuous(b)`.
+    - `σ`: volatility
+    - `initial`: initial short rate `r₀` (a `Rate` object or `Real`)
+
+    !!! note "Feller condition"
+        The condition `2ab > σ²` is required for the variance process to stay strictly
+        positive. When violated, the short rate can reach zero; simulation uses the
+        full truncation scheme (Lord, Koekkoek & Van Dijk, 2010), which lets an
+        auxiliary process go negative while the observed rate is floored at zero.
+        Discretisation bias grows with `σ²/(2ab)` — use a finer `timestep` when the
+        Feller condition is strongly violated.
+    """
+    struct CoxIngersollRoss{A, B, S, T} <: AbstractStochasticModel
+        a::A
+        b::B
+        σ::S
+        initial::T
+    end
+
+    function CoxIngersollRoss(a::Real, b::Real, σ::Real, initial::Real)
+        σ >= 0 || throw(ArgumentError("volatility σ must be non-negative, got $σ"))
+        initial >= 0 || throw(ArgumentError("initial rate must be non-negative for CIR, got $initial"))
+        if 2 * a * b <= σ^2
+            @warn "Feller condition 2ab > σ² violated (2·$(a)·$(b) = $(2 * a * b) ≤ σ² = $(σ^2)). Short rate may reach zero, and `simulate`'s discretisation bias grows with σ²/(2ab) — prefer a finer `timestep`."
+        end
+        return CoxIngersollRoss(Float64(a), Float64(b), Float64(σ), Continuous(initial))
+    end
+
+    # Accept Continuous(b) for the long-term mean rate parameter
+    CoxIngersollRoss(a, b::Rate{<:Any, Continuous}, σ, initial) = CoxIngersollRoss(a, rate(b), σ, initial)
+
+    """
+        HullWhite(a, σ, curve)
+
+    Hull-White (1990) one-factor model:
+
+        dr = (θ(t) - a r) dt + σ dW
+
+    where `θ(t)` is calibrated to fit the initial term structure `curve`.
+
+    # Arguments
+    - `a`: speed of mean reversion
+    - `σ`: volatility
+    - `curve`: an existing yield model providing the initial term structure
+    """
+    struct HullWhite{A, S, C} <: AbstractStochasticModel
+        a::A
+        σ::S
+        curve::C
+        function HullWhite(a::A, σ::S, curve::C) where {A, S, C}
+            σ >= 0 || throw(ArgumentError("volatility σ must be non-negative, got $σ"))
+            return new{A, S, C}(a, σ, curve)
+        end
+    end
 
 end # module ShortRate
 
@@ -136,8 +136,8 @@ function _vasicek_zcb(a, b, σ, r, τ)
         # lnA = σ²τ³/6 - a(bτ²/2 + σ²τ⁴/8) + a²(bτ³/6 + 7σ²τ⁵/120)
         B = τ * (1 - a * τ / 2 + (a * τ)^2 / 6 - (a * τ)^3 / 24)
         lnA = σ^2 * τ^3 / 6 -
-               a * (b * τ^2 / 2 + σ^2 * τ^4 / 8) +
-               a^2 * (b * τ^3 / 6 + 7 * σ^2 * τ^5 / 120)
+            a * (b * τ^2 / 2 + σ^2 * τ^4 / 8) +
+            a^2 * (b * τ^3 / 6 + 7 * σ^2 * τ^5 / 120)
     else
         B = (1 - exp(-a * τ)) / a
         lnA = (B - τ) * (a^2 * b - 0.5 * σ^2) / a^2 - σ^2 * B^2 / (4a)
@@ -151,10 +151,10 @@ end
 
 # CIR ZCB price: P = A(τ) exp(-B(τ) r)
 function _cir_zcb(a, b, σ, r, τ)
-    if abs(σ) < 1e-15
+    if abs(σ) < 1.0e-15
         # Deterministic limit: dr = a(b-r)dt → r(t) = b + (r0-b)exp(-at)
         # P(0,τ) = exp(-∫₀ᵗ r(s)ds) = exp(-(bτ + (r-b)(1-exp(-aτ))/a))
-        if abs(a) < 1e-12
+        if abs(a) < 1.0e-12
             return exp(-r * τ)
         else
             return exp(-(b * τ + (r - b) * (1 - exp(-a * τ)) / a))
@@ -215,7 +215,7 @@ function FinanceCore.discount(m::ShortRate.HullWhite, t, T, r_t)
     P0T = FinanceCore.discount(m.curve, T)
     B_tT = _hw_B(a, t, T)
     f0t = _hw_forward_rate(m.curve, t)
-    if abs(a) < 1e-12
+    if abs(a) < 1.0e-12
         lnA = log(P0T / P0t) + B_tT * f0t - 0.5 * σ^2 * t * B_tT^2
     else
         lnA = log(P0T / P0t) + B_tT * f0t - σ^2 / (4a) * B_tT^2 * (1 - exp(-2a * t))
@@ -264,11 +264,13 @@ with the trapezoidal rule between grid points, so pathwise discount factors
 (and hence `pv_mc`) retain an integration error that grows with `timestep`
 even when the short-rate transition itself is exact.
 """
-function simulate(model::AbstractStochasticModel;
-                  n_scenarios::Int = 1000,
-                  timestep::Real = 1 / 12,
-                  horizon::Real = 30.0,
-                  rng::Random.AbstractRNG = Random.default_rng())
+function simulate(
+        model::AbstractStochasticModel;
+        n_scenarios::Int = 1000,
+        timestep::Real = 1 / 12,
+        horizon::Real = 30.0,
+        rng::Random.AbstractRNG = Random.default_rng()
+    )
     timestep > 0 || throw(ArgumentError("timestep must be positive, got $timestep"))
     dt = Float64(timestep)
     n_steps = ceil(Int, horizon / dt)
@@ -320,7 +322,7 @@ end
 #   x_{t+dt} | x_t ~ Normal(x_t·ϕ, sd²),  ϕ = exp(-a·dt),  sd² = σ²(1-ϕ²)/(2a)
 function _ou_step_params(a, σ, dt)
     ϕ = exp(-a * dt)
-    var = abs(a) < 1e-12 ? σ^2 * dt : σ^2 * (-expm1(-2a * dt)) / (2a)
+    var = abs(a) < 1.0e-12 ? σ^2 * dt : σ^2 * (-expm1(-2a * dt)) / (2a)
     return (ϕ = ϕ, sd = sqrt(var))
 end
 
@@ -359,7 +361,7 @@ end
 function _hw_alpha(m::ShortRate.HullWhite, t)
     a, σ = m.a, m.σ
     f0t = _hw_forward_rate(m.curve, t)
-    if abs(a) < 1e-12
+    if abs(a) < 1.0e-12
         return f0t + σ^2 * t^2 / 2
     else
         return f0t + σ^2 / (2a^2) * (1 - exp(-a * t))^2
@@ -372,8 +374,10 @@ end
 _sim_cache(::AbstractStochasticModel, dt, n_steps) = nothing
 _sim_cache(m::ShortRate.Vasicek, dt, n_steps) = _ou_step_params(m.a, m.σ, dt)
 function _sim_cache(m::ShortRate.HullWhite, dt, n_steps)
-    return (ou = _ou_step_params(m.a, m.σ, dt),
-            α = [_hw_alpha(m, j * dt) for j in 0:n_steps])
+    return (
+        ou = _ou_step_params(m.a, m.σ, dt),
+        α = [_hw_alpha(m, j * dt) for j in 0:n_steps],
+    )
 end
 
 # ─── pv_mc: Monte Carlo expected present value ───────────────────────────────
@@ -393,11 +397,13 @@ by averaging `present_value` across simulated scenarios.
 
 The `horizon` should cover the contract's maturity. The default (`maturity + 1`) ensures this.
 """
-function pv_mc(model::AbstractStochasticModel, contract;
-               n_scenarios::Int = 1000,
-               timestep::Real = 1 / 12,
-               horizon::Union{Nothing,Real} = nothing,
-               rng::Random.AbstractRNG = Random.default_rng())
+function pv_mc(
+        model::AbstractStochasticModel, contract;
+        n_scenarios::Int = 1000,
+        timestep::Real = 1 / 12,
+        horizon::Union{Nothing, Real} = nothing,
+        rng::Random.AbstractRNG = Random.default_rng()
+    )
     h = horizon === nothing ? Float64(FinanceModels.maturity(contract)) + 1.0 : Float64(horizon)
     scenarios = simulate(model; n_scenarios, timestep, horizon = h, rng)
     total = sum(FinanceCore.present_value(sc, contract) for sc in scenarios)
@@ -413,7 +419,7 @@ end
 # Hull-White B(t,T) function
 function _hw_B(a, t, T)
     τ = T - t
-    if abs(a) < 1e-12
+    if abs(a) < 1.0e-12
         return τ
     else
         return (1 - exp(-a * τ)) / a
@@ -422,7 +428,7 @@ end
 
 # Instantaneous forward rate f(0,t) = -d/dt ln P(0,t) via automatic differentiation
 function _hw_forward_rate(curve, t)
-    t_eval = max(t, 1e-10)  # avoid exactly zero for AD stability
+    t_eval = max(t, 1.0e-10)  # avoid exactly zero for AD stability
     return -DifferentiationInterface.derivative(
         s -> log(FinanceCore.discount(curve, s)),
         AutoForwardDiff(), t_eval
@@ -456,23 +462,23 @@ function _zcb_option_price(m::_GaussianModel, T, S, K)
 
     # σ_P: volatility of the ZCB price at expiry
     B_TS = _hw_B(a, T, S)
-    if abs(a) < 1e-12
+    if abs(a) < 1.0e-12
         σ_P = σ * B_TS * sqrt(T)
     else
         σ_P = σ * B_TS * sqrt((1 - exp(-2a * T)) / (2a))
     end
 
-    if σ_P < 1e-15
+    if σ_P < 1.0e-15
         # Degenerate case: no vol → intrinsic value
         call = max(P0S - K * P0T, 0.0)
-        put  = max(K * P0T - P0S, 0.0)
+        put = max(K * P0T - P0S, 0.0)
         return (call, put)
     end
 
     h = (1 / σ_P) * log(P0S / (K * P0T)) + σ_P / 2
 
     call = P0S * N(h) - K * P0T * N(h - σ_P)
-    put  = K * P0T * N(-h + σ_P) - P0S * N(-h)
+    put = K * P0T * N(-h + σ_P) - P0S * N(-h)
     return (call, put)
 end
 
@@ -512,7 +518,7 @@ function FinanceCore.present_value(m::_GaussianModel, c::Option.Cap)
     total = 0.0
     for i in 2:n_periods
         T_reset = (i - 1) * τ   # option expiry = reset date
-        T_pay   = i * τ         # bond maturity = payment date
+        T_pay = i * τ         # bond maturity = payment date
         _, put = _zcb_option_price(m, T_reset, T_pay, K_bond)
         total += (1.0 + K * τ) * put
     end
@@ -528,7 +534,7 @@ function FinanceCore.present_value(m::_GaussianModel, c::Option.Floor)
     total = 0.0
     for i in 2:n_periods
         T_reset = (i - 1) * τ
-        T_pay   = i * τ
+        T_pay = i * τ
         call, _ = _zcb_option_price(m, T_reset, T_pay, K_bond)
         total += (1.0 + K * τ) * call
     end
@@ -608,13 +614,16 @@ end
 function _check_integer_periods(value, freq, label)
     n = value * freq
     n_int = round(Int, n)
-    abs(n - n_int) < 1e-8 || throw(ArgumentError(
-        "$label ($value) must be an integer multiple of the period length (1/$freq)"))
+    abs(n - n_int) < 1.0e-8 || throw(
+        ArgumentError(
+            "$label ($value) must be an integer multiple of the period length (1/$freq)"
+        )
+    )
     return n_int
 end
 
 # Simple bisection solver with automatic bracket widening
-function _bisect(f, lo, hi; tol = 1e-12, maxiter = 200)
+function _bisect(f, lo, hi; tol = 1.0e-12, maxiter = 200)
     flo, fhi = f(lo), f(hi)
     if sign(flo) == sign(fhi)
         # Try widening the bounds symmetrically

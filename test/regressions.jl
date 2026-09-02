@@ -100,7 +100,7 @@
         # auto-promote to `SecondOrder` once per fit. They now declare `SecondOrder` AD.
         # The bare `@test_logs` (default `min_level = Warn`) asserts no warnings; the
         # default `LBFGS` path only requests gradients, so it is unaffected.
-        qs = ZCBPrice.([0.97, 0.93, 0.88, 0.80], [1.0, 2.0, 3.0, 5.0])
+        qs = ZCBPrice.([0.97, 0.93, 0.88, 0.8], [1.0, 2.0, 3.0, 5.0])
         reprice(c) = maximum(abs, present_value(c, q.instrument) - q.price for q in qs)
 
         # generic (bounded) path: IPNewton is the bounds-compatible second-order method

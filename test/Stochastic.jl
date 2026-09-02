@@ -81,7 +81,7 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
 
         @testset "mean reversion" begin
             # With high mean reversion, long-term rate should approach b
-            v_strong = ShortRate.Vasicek(2.0, 0.05, 0.01, Continuous(0.10))
+            v_strong = ShortRate.Vasicek(2.0, 0.05, 0.01, Continuous(0.1))
             z_long = zero(v_strong, 30.0)
             @test abs(FinanceCore.rate(z_long) - 0.05) < 0.01
         end
@@ -186,7 +186,7 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
     @testset "Hull-White ZCB options" begin
         # Reference: Hull "Options, Futures, and Other Derivatives" Technical Note 31
         # a=0.08, σ=0.01, flat 10% continuous, T=1, S=5, L=100, K=68
-        hw_hull = ShortRate.HullWhite(0.08, 0.01, Yield.Constant(Continuous(0.10)))
+        hw_hull = ShortRate.HullWhite(0.08, 0.01, Yield.Constant(Continuous(0.1)))
 
         @testset "Hull textbook example" begin
             call_price = present_value(hw_hull, Option.ZCBCall(1.0, 5.0, 0.68))
@@ -201,12 +201,12 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             # T=1, S=5, K = P(0,5)/P(0,1) (ATM forward)
             K1 = exp(-0.01 * 5) / exp(-0.01 * 1)
             call1 = present_value(hw_tf, Option.ZCBCall(1.0, 5.0, K1))
-            @test call1 ≈ 0.02817777 atol = 1e-5
+            @test call1 ≈ 0.02817777 atol = 1.0e-5
 
             # T=2, S=4, K = P(0,4)/P(0,2) (ATM forward)
             K2 = exp(-0.01 * 4) / exp(-0.01 * 2)
             call2 = present_value(hw_tf, Option.ZCBCall(2.0, 4.0, K2))
-            @test call2 ≈ 0.02042677 atol = 1e-5
+            @test call2 ≈ 0.02042677 atol = 1.0e-5
         end
 
         @testset "put-call parity" begin
@@ -214,10 +214,10 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             hw_pcp = ShortRate.HullWhite(0.1, 0.015, Yield.Constant(Continuous(0.05)))
             T, S, K = 1.0, 5.0, 0.75
             call = present_value(hw_pcp, Option.ZCBCall(T, S, K))
-            put  = present_value(hw_pcp, Option.ZCBPut(T, S, K))
+            put = present_value(hw_pcp, Option.ZCBPut(T, S, K))
             P0S = discount(hw_pcp, S)
             P0T = discount(hw_pcp, T)
-            @test call - put ≈ P0S - K * P0T atol = 1e-10
+            @test call - put ≈ P0S - K * P0T atol = 1.0e-10
         end
     end
 
@@ -252,18 +252,18 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             τ = 1.0 / freq
             n_periods = round(Int, mat * freq)
 
-            cap  = present_value(hw_cf, Option.Cap(strike, freq, mat))
-            flr  = present_value(hw_cf, Option.Floor(strike, freq, mat))
+            cap = present_value(hw_cf, Option.Cap(strike, freq, mat))
+            flr = present_value(hw_cf, Option.Floor(strike, freq, mat))
 
             # Compute the forward swap value from the curve
             annuity = sum(discount(hw_cf, i * τ) for i in 2:n_periods)
             swap_value = discount(hw_cf, τ) - discount(hw_cf, n_periods * τ) - strike * τ * annuity
-            @test cap - flr ≈ swap_value atol = 1e-8
+            @test cap - flr ≈ swap_value atol = 1.0e-8
         end
 
         @testset "cap increases with volatility" begin
             hw_lo = ShortRate.HullWhite(0.1, 0.005, Yield.Constant(Continuous(0.03)))
-            hw_hi = ShortRate.HullWhite(0.1, 0.020, Yield.Constant(Continuous(0.03)))
+            hw_hi = ShortRate.HullWhite(0.1, 0.02, Yield.Constant(Continuous(0.03)))
             cap_lo = present_value(hw_lo, Option.Cap(0.03, 4, 2.0))
             cap_hi = present_value(hw_hi, Option.Cap(0.03, 4, 2.0))
             @test cap_hi > cap_lo
@@ -298,7 +298,7 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             freq = 2
             τ = 1.0 / freq
 
-            payer    = present_value(hw_pcp, Option.Swaption(expiry, swap_mat, strike, freq; payer = true))
+            payer = present_value(hw_pcp, Option.Swaption(expiry, swap_mat, strike, freq; payer = true))
             receiver = present_value(hw_pcp, Option.Swaption(expiry, swap_mat, strike, freq; payer = false))
 
             # Compute the forward swap value from the curve
@@ -306,12 +306,12 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             payment_times = [expiry + i * τ for i in 1:n_payments]
             annuity = sum(discount(hw_pcp, Ti) for Ti in payment_times)
             fwd_swap = discount(hw_pcp, expiry) - discount(hw_pcp, swap_mat) - strike * τ * annuity
-            @test payer - receiver ≈ fwd_swap atol = 1e-6
+            @test payer - receiver ≈ fwd_swap atol = 1.0e-6
         end
 
         @testset "swaption increases with volatility" begin
             hw_lo = ShortRate.HullWhite(0.1, 0.005, Yield.Constant(Continuous(0.03)))
-            hw_hi = ShortRate.HullWhite(0.1, 0.020, Yield.Constant(Continuous(0.03)))
+            hw_hi = ShortRate.HullWhite(0.1, 0.02, Yield.Constant(Continuous(0.03)))
             sw_lo = present_value(hw_lo, Option.Swaption(1.0, 6.0, 0.03, 2))
             sw_hi = present_value(hw_hi, Option.Swaption(1.0, 6.0, 0.03, 2))
             @test sw_hi > sw_lo
@@ -344,7 +344,7 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
         # Construct a RatePath manually and verify it works
         import DataInterpolations
         ts = [0.0, 1.0, 2.0, 3.0]
-        cum = [0.0, 0.03, 0.065, 0.10]  # cumulative integral of rates
+        cum = [0.0, 0.03, 0.065, 0.1]  # cumulative integral of rates
         interp = DataInterpolations.LinearInterpolation(
             cum, ts;
             extrapolation = DataInterpolations.ExtrapolationType.Extension
@@ -365,11 +365,11 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             T = 5.0
             a, b, r0 = 0.5, 0.04, 0.02
             expected = exp(-(b * T + (r0 - b) * (1 - exp(-a * T)) / a))
-            @test discount(v0, T) ≈ expected rtol = 1e-8
+            @test discount(v0, T) ≈ expected rtol = 1.0e-8
 
             # CIR with σ=0: same deterministic formula
             cir0 = ShortRate.CoxIngersollRoss(0.5, 0.04, 0.0, Continuous(0.02))
-            @test discount(cir0, T) ≈ expected rtol = 1e-8
+            @test discount(cir0, T) ≈ expected rtol = 1.0e-8
         end
 
         @testset "a = 0 (no mean reversion)" begin
@@ -378,18 +378,18 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             v_a0 = ShortRate.Vasicek(0.0, 0.04, 0.01, Continuous(0.03))
             T = 5.0
             expected = exp(-0.03 * T + 0.01^2 * T^3 / 6)
-            @test discount(v_a0, T) ≈ expected rtol = 1e-8
+            @test discount(v_a0, T) ≈ expected rtol = 1.0e-8
 
             # Larger σ makes the convexity correction more visible
-            v_a0_bigσ = ShortRate.Vasicek(0.0, 0.04, 0.10, Continuous(0.03))
-            expected_bigσ = exp(-0.03 * T + 0.10^2 * T^3 / 6)
-            @test discount(v_a0_bigσ, T) ≈ expected_bigσ rtol = 1e-8
+            v_a0_bigσ = ShortRate.Vasicek(0.0, 0.04, 0.1, Continuous(0.03))
+            expected_bigσ = exp(-0.03 * T + 0.1^2 * T^3 / 6)
+            @test discount(v_a0_bigσ, T) ≈ expected_bigσ rtol = 1.0e-8
             # P > 1 because convexity adjustment dominates the short rate
             @test expected_bigσ > 1.0
 
             # Convergence: tiny a should match a=0 limit
-            v_tiny = ShortRate.Vasicek(1e-8, 0.04, 0.10, Continuous(0.03))
-            @test discount(v_tiny, T) ≈ expected_bigσ rtol = 1e-4
+            v_tiny = ShortRate.Vasicek(1.0e-8, 0.04, 0.1, Continuous(0.03))
+            @test discount(v_tiny, T) ≈ expected_bigσ rtol = 1.0e-4
 
             # CIR with a=0: formula should still work (γ = σ√2)
             cir_a0 = ShortRate.CoxIngersollRoss(0.0, 0.04, 0.05, Continuous(0.03))
@@ -399,7 +399,7 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
 
         @testset "large a (instant mean reversion)" begin
             # With very large a, long-term rate ≈ b
-            v_big = ShortRate.Vasicek(50.0, 0.05, 0.01, Continuous(0.10))
+            v_big = ShortRate.Vasicek(50.0, 0.05, 0.01, Continuous(0.1))
             z = zero(v_big, 10.0)
             @test abs(FinanceCore.rate(z) - 0.05) < 0.005
         end
@@ -415,13 +415,13 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
 
         @testset "very short maturity" begin
             v = ShortRate.Vasicek(0.136, 0.0168, 0.0119, Continuous(0.01))
-            @test discount(v, 1e-15) ≈ 1.0 atol = 1e-10
+            @test discount(v, 1.0e-15) ≈ 1.0 atol = 1.0e-10
 
             cir = ShortRate.CoxIngersollRoss(0.3, 0.05, 0.1, Continuous(0.03))
-            @test discount(cir, 1e-15) ≈ 1.0 atol = 1e-10
+            @test discount(cir, 1.0e-15) ≈ 1.0 atol = 1.0e-10
 
             hw = ShortRate.HullWhite(0.1, 0.01, Yield.Constant(0.03))
-            @test discount(hw, 1e-15) ≈ 1.0 atol = 1e-10
+            @test discount(hw, 1.0e-15) ≈ 1.0 atol = 1.0e-10
         end
     end
 
@@ -498,10 +498,10 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
         @testset "Reuvers (2020): a=0.86, b=0.08, σ=0.01, r₀=0.06" begin
             # Source: hannoreuvers.github.io/post/vasicek/ (MC-validated)
             v = ShortRate.Vasicek(0.86, 0.08, 0.01, Continuous(0.06))
-            @test discount(v, 1.0) ≈ 0.935591823311 atol = 1e-8
-            @test discount(v, 5.0) ≈ 0.686027543267 atol = 1e-8
-            @test discount(v, 10.0) ≈ 0.460155726152 atol = 1e-8
-            @test discount(v, 30.0) ≈ 0.093029933048 atol = 1e-8
+            @test discount(v, 1.0) ≈ 0.935591823311 atol = 1.0e-8
+            @test discount(v, 5.0) ≈ 0.686027543267 atol = 1.0e-8
+            @test discount(v, 10.0) ≈ 0.460155726152 atol = 1.0e-8
+            @test discount(v, 30.0) ≈ 0.093029933048 atol = 1.0e-8
 
             # Asymptotic long rate: R∞ = b − σ²/(2a²)
             R_inf = 0.08 - 0.01^2 / (2 * 0.86^2)
@@ -511,18 +511,18 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
 
         @testset "R-bloggers: a=0.3, b=0.10, σ=0.03, r₀=0.03" begin
             # Source: r-bloggers.com/2010/04/fun-with-the-vasicek-interest-rate-model/
-            v = ShortRate.Vasicek(0.3, 0.10, 0.03, Continuous(0.03))
-            @test discount(v, 1.0) ≈ 0.961362489229 atol = 1e-8
-            @test discount(v, 5.0) ≈ 0.732195597561 atol = 1e-8
-            @test discount(v, 10.0) ≈ 0.471590272742 atol = 1e-8
-            @test discount(v, 30.0) ≈ 0.071240674775 atol = 1e-8
+            v = ShortRate.Vasicek(0.3, 0.1, 0.03, Continuous(0.03))
+            @test discount(v, 1.0) ≈ 0.961362489229 atol = 1.0e-8
+            @test discount(v, 5.0) ≈ 0.732195597561 atol = 1.0e-8
+            @test discount(v, 10.0) ≈ 0.471590272742 atol = 1.0e-8
+            @test discount(v, 30.0) ≈ 0.071240674775 atol = 1.0e-8
         end
 
         @testset "dpicone1: a=3.0, b=0.02, σ=0.15, r₀=0.05" begin
             # Source: github.com/dpicone1/Vasicek_CIR_HoLee_HullWhite_Models_Python
             v = ShortRate.Vasicek(3.0, 0.02, 0.15, Continuous(0.05))
-            @test discount(v, 5.0) ≈ 0.900887404280 atol = 1e-8
-            @test discount(v, 10.0) ≈ 0.820267313315 atol = 1e-8
+            @test discount(v, 5.0) ≈ 0.90088740428 atol = 1.0e-8
+            @test discount(v, 10.0) ≈ 0.820267313315 atol = 1.0e-8
         end
     end
 
@@ -539,42 +539,42 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
         @testset "Feller satisfied: a=0.3, b=0.08, σ=0.15, r₀=0.05" begin
             # 2ab = 0.048 > σ² = 0.0225. Independent source: QuantLib 1.42.1
             cir = ShortRate.CoxIngersollRoss(0.3, 0.08, 0.15, Continuous(0.05))
-            @test discount(cir, 1.0) ≈ 0.947503053857 atol = 1e-8
-            @test discount(cir, 5.0) ≈ 0.731755780942 atol = 1e-8
-            @test discount(cir, 10.0) ≈ 0.514277221058 atol = 1e-8
-            @test discount(cir, 30.0) ≈ 0.122202611804 atol = 1e-8
+            @test discount(cir, 1.0) ≈ 0.947503053857 atol = 1.0e-8
+            @test discount(cir, 5.0) ≈ 0.731755780942 atol = 1.0e-8
+            @test discount(cir, 10.0) ≈ 0.514277221058 atol = 1.0e-8
+            @test discount(cir, 30.0) ≈ 0.122202611804 atol = 1.0e-8
         end
 
         @testset "Higher vol: a=0.5, b=0.10, σ=0.20, r₀=0.05" begin
             # 2ab = 0.10 > σ² = 0.04. Independent source: QuantLib 1.42.1
-            cir = ShortRate.CoxIngersollRoss(0.5, 0.10, 0.20, Continuous(0.05))
-            @test discount(cir, 1.0) ≈ 0.941394105702 atol = 1e-8
-            @test discount(cir, 5.0) ≈ 0.673617793268 atol = 1e-8
-            @test discount(cir, 10.0) ≈ 0.424642886353 atol = 1e-8
-            @test discount(cir, 30.0) ≈ 0.066027931612 atol = 1e-8
+            cir = ShortRate.CoxIngersollRoss(0.5, 0.1, 0.2, Continuous(0.05))
+            @test discount(cir, 1.0) ≈ 0.941394105702 atol = 1.0e-8
+            @test discount(cir, 5.0) ≈ 0.673617793268 atol = 1.0e-8
+            @test discount(cir, 10.0) ≈ 0.424642886353 atol = 1.0e-8
+            @test discount(cir, 30.0) ≈ 0.066027931612 atol = 1.0e-8
         end
 
         @testset "Feller boundary: σ = √(2ab)" begin
             # At the exact Feller boundary: 2ab = σ², process can touch zero.
             # Independent source: Riccati ODE integration (see testset header)
-            a, b = 0.5, 0.10
+            a, b = 0.5, 0.1
             σ_bdy = sqrt(2 * a * b)  # ≈ 0.3162
             cir = ShortRate.CoxIngersollRoss(a, b, σ_bdy, Continuous(0.05))
-            @test discount(cir, 1.0) ≈ 0.941755369937 atol = 1e-8
-            @test discount(cir, 5.0) ≈ 0.685261321235 atol = 1e-8
-            @test discount(cir, 10.0) ≈ 0.447811827223 atol = 1e-8
+            @test discount(cir, 1.0) ≈ 0.941755369937 atol = 1.0e-8
+            @test discount(cir, 5.0) ≈ 0.685261321235 atol = 1.0e-8
+            @test discount(cir, 10.0) ≈ 0.447811827223 atol = 1.0e-8
         end
 
         @testset "Feller violated: σ=0.50 > √(2ab)=0.316" begin
             # 2ab = 0.10 < σ² = 0.25 — formula still valid, higher convexity.
             # Independent source: Riccati ODE integration (see testset header)
-            cir = ShortRate.CoxIngersollRoss(0.5, 0.10, 0.50, Continuous(0.05))
-            @test discount(cir, 1.0) ≈ 0.942631527602 atol = 1e-8
-            @test discount(cir, 5.0) ≈ 0.708602161384 atol = 1e-8
-            @test discount(cir, 10.0) ≈ 0.491497678238 atol = 1e-8
+            cir = ShortRate.CoxIngersollRoss(0.5, 0.1, 0.5, Continuous(0.05))
+            @test discount(cir, 1.0) ≈ 0.942631527602 atol = 1.0e-8
+            @test discount(cir, 5.0) ≈ 0.708602161384 atol = 1.0e-8
+            @test discount(cir, 10.0) ≈ 0.491497678238 atol = 1.0e-8
 
             # Higher vol → more convexity → higher bond prices
-            cir_lo = ShortRate.CoxIngersollRoss(0.5, 0.10, 0.10, Continuous(0.05))
+            cir_lo = ShortRate.CoxIngersollRoss(0.5, 0.1, 0.1, Continuous(0.05))
             @test discount(cir, 5.0) > discount(cir_lo, 5.0)
         end
 
@@ -582,19 +582,19 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             # 2ab = 0.02 ≪ σ² = 0.25 — the truth standard for the Feller-violated
             # martingale test below. Independent source: Riccati ODE integration
             # (see testset header); matches to ~1e-13.
-            cir = ShortRate.CoxIngersollRoss(0.1, 0.10, 0.50, Continuous(0.05))
-            @test discount(cir, 1.0) ≈ 0.950729464416 atol = 1e-9
-            @test discount(cir, 5.0) ≈ 0.821656416270 atol = 1e-9
-            @test discount(cir, 10.0) ≈ 0.723687625316 atol = 1e-9
+            cir = ShortRate.CoxIngersollRoss(0.1, 0.1, 0.5, Continuous(0.05))
+            @test discount(cir, 1.0) ≈ 0.950729464416 atol = 1.0e-9
+            @test discount(cir, 5.0) ≈ 0.82165641627 atol = 1.0e-9
+            @test discount(cir, 10.0) ≈ 0.723687625316 atol = 1.0e-9
         end
 
         @testset "QuantLib near-deterministic: a=1.0, b=0.1, σ≈0, r₀=0.1" begin
             # Source: QuantLib test-suite/shortratemodels.cpp
             # testExtendedCoxIngersollRossDiscountFactor
-            cir = ShortRate.CoxIngersollRoss(1.0, 0.1, 1e-4, Continuous(0.1))
-            @test discount(cir, 1.0) ≈ exp(-0.1 * 1.0) atol = 1e-6
-            @test discount(cir, 5.0) ≈ exp(-0.1 * 5.0) atol = 1e-5
-            @test discount(cir, 10.0) ≈ exp(-0.1 * 10.0) atol = 1e-5
+            cir = ShortRate.CoxIngersollRoss(1.0, 0.1, 1.0e-4, Continuous(0.1))
+            @test discount(cir, 1.0) ≈ exp(-0.1 * 1.0) atol = 1.0e-6
+            @test discount(cir, 5.0) ≈ exp(-0.1 * 5.0) atol = 1.0e-5
+            @test discount(cir, 10.0) ≈ exp(-0.1 * 10.0) atol = 1.0e-5
         end
 
         @testset "CIR asymptotic long rate" begin
@@ -608,7 +608,7 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             @test z_long ≈ R_inf atol = 0.0005
 
             # Higher σ → lower R∞ (more convexity drag)
-            γ_hi = sqrt(a^2 + 2 * 0.50^2)
+            γ_hi = sqrt(a^2 + 2 * 0.5^2)
             R_inf_hi = 2a * b / (a + γ_hi)
             @test R_inf_hi < R_inf
         end
@@ -621,30 +621,30 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
     @testset "Vasicek yield curve shapes" begin
         @testset "Normal (upward sloping): r₀ < b" begin
             # r₀=0.03 < b=0.10, low σ → monotonically increasing toward R∞≈0.0992
-            v = ShortRate.Vasicek(0.5, 0.10, 0.02, Continuous(0.03))
+            v = ShortRate.Vasicek(0.5, 0.1, 0.02, Continuous(0.03))
             tenors = [1.0, 5.0, 10.0, 20.0, 30.0]
             rates = [FinanceCore.rate(zero(v, T)) for T in tenors]
-            for i in 1:length(rates)-1
-                @test rates[i+1] > rates[i]  # monotonically increasing
+            for i in 1:(length(rates) - 1)
+                @test rates[i + 1] > rates[i]  # monotonically increasing
             end
             @test rates[1] > 0.03  # above initial short rate
         end
 
         @testset "Inverted (downward sloping): r₀ > b" begin
-            v = ShortRate.Vasicek(0.5, 0.03, 0.02, Continuous(0.10))
+            v = ShortRate.Vasicek(0.5, 0.03, 0.02, Continuous(0.1))
             tenors = [1.0, 5.0, 10.0, 20.0, 30.0]
             rates = [FinanceCore.rate(zero(v, T)) for T in tenors]
-            for i in 1:length(rates)-1
-                @test rates[i+1] < rates[i]  # monotonically decreasing
+            for i in 1:(length(rates) - 1)
+                @test rates[i + 1] < rates[i]  # monotonically decreasing
             end
-            @test rates[1] < 0.10  # below initial short rate
+            @test rates[1] < 0.1  # below initial short rate
         end
 
         @testset "Humped: r₀ < b but R∞ < r₀ (convexity drag)" begin
             # a=0.3, b=0.10, σ=0.08, r₀=0.08
             # R∞ = b − σ²/(2a²) = 0.10 − 0.0064/0.18 ≈ 0.0644
-            v = ShortRate.Vasicek(0.3, 0.10, 0.08, Continuous(0.08))
-            R_inf = 0.10 - 0.08^2 / (2 * 0.3^2)
+            v = ShortRate.Vasicek(0.3, 0.1, 0.08, Continuous(0.08))
+            R_inf = 0.1 - 0.08^2 / (2 * 0.3^2)
             @test R_inf < 0.08  # R∞ < r₀ confirms hump is possible
 
             # Short end rises (mean reversion pulls toward b > r₀)
@@ -670,7 +670,7 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             # Source: Hull "Options, Futures, and Other Derivatives" variant
             # Also verified in github.com/Royiswho/Use-Hull-White-Model-to-Valuate-European-Call-on-Bond
             hw = ShortRate.HullWhite(0.08, 0.02, Yield.Constant(Continuous(0.05)))
-            call = present_value(hw, Option.ZCBCall(1.0, 5.0, 0.70))
+            call = present_value(hw, Option.ZCBCall(1.0, 5.0, 0.7))
             # Expected: 11.3077 per 100 face (0.113077 per unit)
             @test call ≈ 0.113077 atol = 0.0005
         end
@@ -686,7 +686,7 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             # E[r(T)] = b + (r₀−b)exp(−aT)
             # Var[r(T)] = σ²(1−exp(−2aT))/(2a)
             # Source: Vasicek (1977); Brigo & Mercurio (2006) §3.2.1
-            a, b, σ, r0 = 0.3, 0.10, 0.03, 0.03
+            a, b, σ, r0 = 0.3, 0.1, 0.03, 0.03
             v = ShortRate.Vasicek(a, b, σ, Continuous(r0))
             T = 5.0
             E_rT = b + (r0 - b) * exp(-a * T)
@@ -765,7 +765,7 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             T = 5.0
             E_rT = b + (r0 - b) * exp(-a * T)
             V_rT = r0 * σ^2 * exp(-a * T) * (1 - exp(-a * T)) / a +
-                   b * σ^2 * (1 - exp(-a * T))^2 / (2a)
+                b * σ^2 * (1 - exp(-a * T))^2 / (2a)
 
             N = 10_000
             dt = 1 / 52
@@ -787,7 +787,7 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
 
             # Wider tolerances for CIR (full truncation scheme introduces small bias)
             @test sample_mean ≈ E_rT atol = 4 * sqrt(V_rT) / sqrt(N)
-            @test sample_var ≈ V_rT rtol = 0.10
+            @test sample_var ≈ V_rT rtol = 0.1
         end
     end
 
@@ -801,7 +801,7 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             # must equal the analytical ZCB price. The exact Gaussian
             # transition leaves only trapezoidal-integration and sampling
             # error, so the tolerance can be tight.
-            v = ShortRate.Vasicek(0.3, 0.10, 0.03, Continuous(0.03))
+            v = ShortRate.Vasicek(0.3, 0.1, 0.03, Continuous(0.03))
             rng = Random.MersenneTwister(42)
             scenarios = simulate(v; n_scenarios = 10_000, timestep = 1 / 12, horizon = 11.0, rng)
             for T in [1.0, 5.0, 10.0]
@@ -828,7 +828,7 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             # at weekly steps. The closed-form truth standard is itself
             # independently verified (Riccati ODE) in the "Feller strongly
             # violated" regression testset above.
-            cir_fv = ShortRate.CoxIngersollRoss(0.1, 0.10, 0.50, Continuous(0.05))
+            cir_fv = ShortRate.CoxIngersollRoss(0.1, 0.1, 0.5, Continuous(0.05))
             rng = Random.MersenneTwister(42)
             scenarios = simulate(cir_fv; n_scenarios = 20_000, timestep = 1 / 52, horizon = 11.0, rng)
             for T in [5.0, 10.0]
@@ -849,7 +849,7 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
 
             # P(0, T | r₀) should match discount(v, T)
             for T in [1.0, 5.0, 10.0]
-                @test discount(v, 0.0, T, r0) ≈ discount(v, T) rtol = 1e-12
+                @test discount(v, 0.0, T, r0) ≈ discount(v, T) rtol = 1.0e-12
             end
 
             # Time-homogeneity: P(t, T | r) = P(0, T-t | r)
@@ -857,7 +857,7 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             for (t, T) in [(1.0, 5.0), (2.0, 7.0), (0.5, 3.0)]
                 @test discount(v, t, T, r_t) ≈ discount(
                     ShortRate.Vasicek(a, b, σ, Continuous(r_t)), T - t
-                ) rtol = 1e-12
+                ) rtol = 1.0e-12
             end
 
             # P(t, t | r) = 1 for any r
@@ -870,7 +870,7 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
 
             # P(0, T | r₀) should match discount(cir, T)
             for T in [1.0, 5.0, 10.0]
-                @test discount(cir, 0.0, T, r0) ≈ discount(cir, T) rtol = 1e-12
+                @test discount(cir, 0.0, T, r0) ≈ discount(cir, T) rtol = 1.0e-12
             end
 
             # Time-homogeneity
@@ -878,7 +878,7 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             for (t, T) in [(1.0, 5.0), (2.0, 7.0)]
                 @test discount(cir, t, T, r_t) ≈ discount(
                     ShortRate.CoxIngersollRoss(a, b, σ, Continuous(r_t)), T - t
-                ) rtol = 1e-12
+                ) rtol = 1.0e-12
             end
 
             # P(t, t | r) = 1
@@ -893,7 +893,7 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             # For a flat continuous curve, f(0,0) = 0.05
             f00 = 0.05
             for T in [1.0, 5.0, 10.0]
-                @test discount(hw, 0.0, T, f00) ≈ discount(hw, T) rtol = 1e-8
+                @test discount(hw, 0.0, T, f00) ≈ discount(hw, T) rtol = 1.0e-8
             end
 
             # P(t, t | r) = 1
@@ -909,8 +909,10 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
         # External AbstractStochasticModel subtypes historically needed only an
         # initial-state extractor and a step method when no cache was required.
         model = TestStochasticModel(0.03)
-        scenarios = simulate(model; n_scenarios = 2, timestep = 0.5,
-                             horizon = 1.0, rng = Random.MersenneTwister(42))
+        scenarios = simulate(
+            model; n_scenarios = 2, timestep = 0.5,
+            horizon = 1.0, rng = Random.MersenneTwister(42)
+        )
         @test length(scenarios) == 2
         @test all(discount(path, 1.0) ≈ exp(-0.03) for path in scenarios)
     end
@@ -924,7 +926,7 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             c = 0.05
             curve = Yield.Constant(Continuous(c))
             for t in [0.0, 1.0, 5.0, 10.0]
-                @test FinanceModels._hw_forward_rate(curve, t) ≈ c atol = 1e-8
+                @test FinanceModels._hw_forward_rate(curve, t) ≈ c atol = 1.0e-8
             end
         end
 
@@ -1000,10 +1002,10 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
         @testset "ZCB options satisfy put-call parity" begin
             T, S, K = 1.0, 5.0, 0.75
             call = present_value(hw, Option.ZCBCall(T, S, K))
-            put  = present_value(hw, Option.ZCBPut(T, S, K))
+            put = present_value(hw, Option.ZCBPut(T, S, K))
             P0S = discount(hw, S)
             P0T = discount(hw, T)
-            @test call - put ≈ P0S - K * P0T atol = 1e-10
+            @test call - put ≈ P0S - K * P0T atol = 1.0e-10
         end
 
         @testset "Cap-floor parity" begin
@@ -1012,11 +1014,11 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             mat = 4.0
             τ = 1.0 / freq
             n_periods = round(Int, mat * freq)
-            cap  = present_value(hw, Option.Cap(strike, freq, mat))
-            flr  = present_value(hw, Option.Floor(strike, freq, mat))
+            cap = present_value(hw, Option.Cap(strike, freq, mat))
+            flr = present_value(hw, Option.Floor(strike, freq, mat))
             annuity = sum(discount(hw, i * τ) for i in 2:n_periods)
             swap_value = discount(hw, τ) - discount(hw, n_periods * τ) - strike * τ * annuity
-            @test cap - flr ≈ swap_value atol = 1e-8
+            @test cap - flr ≈ swap_value atol = 1.0e-8
         end
 
         @testset "Simulation martingale test with non-flat curve" begin
@@ -1038,14 +1040,14 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
         P0S = discount(hw, 5.0)
         # ITM call at T≈0: max(P(0,5) - K, 0) = P(0,5) - K
         K_itm = P0S - 0.01
-        @test present_value(hw, Option.ZCBCall(1e-10, 5.0, K_itm)) ≈ P0S - K_itm atol = 1e-6
+        @test present_value(hw, Option.ZCBCall(1.0e-10, 5.0, K_itm)) ≈ P0S - K_itm atol = 1.0e-6
         # OTM call at T≈0: max(P(0,5) - K, 0) = 0
         K_otm = P0S + 0.01
-        @test present_value(hw, Option.ZCBCall(1e-10, 5.0, K_otm)) ≈ 0.0 atol = 1e-6
+        @test present_value(hw, Option.ZCBCall(1.0e-10, 5.0, K_otm)) ≈ 0.0 atol = 1.0e-6
         # ITM put at T≈0
-        @test present_value(hw, Option.ZCBPut(1e-10, 5.0, K_otm)) ≈ K_otm - P0S atol = 1e-6
+        @test present_value(hw, Option.ZCBPut(1.0e-10, 5.0, K_otm)) ≈ K_otm - P0S atol = 1.0e-6
         # OTM put at T≈0
-        @test present_value(hw, Option.ZCBPut(1e-10, 5.0, K_itm)) ≈ 0.0 atol = 1e-6
+        @test present_value(hw, Option.ZCBPut(1.0e-10, 5.0, K_itm)) ≈ 0.0 atol = 1.0e-6
     end
 
     # ──────────────────────────────────────────────────────────────────────────
@@ -1061,7 +1063,7 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
         # P(0, T | f(0,0)) ≈ P(0, T)
         f00 = FinanceModels._hw_forward_rate(curve, 0.0)
         for T in [1.0, 5.0, 10.0]
-            @test discount(hw, 0.0, T, f00) ≈ discount(hw, T) rtol = 1e-8
+            @test discount(hw, 0.0, T, f00) ≈ discount(hw, T) rtol = 1.0e-8
         end
     end
 
@@ -1071,7 +1073,7 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
 
     @testset "CIR simulation with Feller violation" begin
         # 2ab = 0.02 < σ² = 0.25 — Feller violated, truncation scheme needed
-        cir_fv = ShortRate.CoxIngersollRoss(0.1, 0.10, 0.50, Continuous(0.05))
+        cir_fv = ShortRate.CoxIngersollRoss(0.1, 0.1, 0.5, Continuous(0.05))
         rng = Random.MersenneTwister(42)
         scenarios = simulate(cir_fv; n_scenarios = 100, timestep = 1 / 52, horizon = 5.0, rng)
         # All discounts should be positive and finite
@@ -1111,10 +1113,10 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
         @testset "ZCB call/put with put-call parity" begin
             T, S, K = 1.0, 5.0, 0.75
             call = present_value(v, Option.ZCBCall(T, S, K))
-            put  = present_value(v, Option.ZCBPut(T, S, K))
+            put = present_value(v, Option.ZCBPut(T, S, K))
             P0S = discount(v, S)
             P0T = discount(v, T)
-            @test call - put ≈ P0S - K * P0T atol = 1e-10
+            @test call - put ≈ P0S - K * P0T atol = 1.0e-10
         end
 
         @testset "cap-floor parity" begin
@@ -1123,11 +1125,11 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             mat = 4.0
             τ = 1.0 / freq
             n_periods = round(Int, mat * freq)
-            cap  = present_value(v, Option.Cap(strike, freq, mat))
-            flr  = present_value(v, Option.Floor(strike, freq, mat))
+            cap = present_value(v, Option.Cap(strike, freq, mat))
+            flr = present_value(v, Option.Floor(strike, freq, mat))
             annuity = sum(discount(v, i * τ) for i in 2:n_periods)
             swap_value = discount(v, τ) - discount(v, n_periods * τ) - strike * τ * annuity
-            @test cap - flr ≈ swap_value atol = 1e-8
+            @test cap - flr ≈ swap_value atol = 1.0e-8
         end
 
         @testset "swaption payer-receiver parity" begin
@@ -1137,14 +1139,14 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             freq = 2
             τ = 1.0 / freq
 
-            payer    = present_value(v, Option.Swaption(expiry, swap_mat, strike, freq; payer = true))
+            payer = present_value(v, Option.Swaption(expiry, swap_mat, strike, freq; payer = true))
             receiver = present_value(v, Option.Swaption(expiry, swap_mat, strike, freq; payer = false))
 
             n_payments = round(Int, (swap_mat - expiry) * freq)
             payment_times = [expiry + i * τ for i in 1:n_payments]
             annuity = sum(discount(v, Ti) for Ti in payment_times)
             fwd_swap = discount(v, expiry) - discount(v, swap_mat) - strike * τ * annuity
-            @test payer - receiver ≈ fwd_swap atol = 1e-6
+            @test payer - receiver ≈ fwd_swap atol = 1.0e-6
         end
 
         @testset "Vasicek matches HW with flat curve" begin
@@ -1160,11 +1162,11 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             T, S, K = 1.0, 5.0, 0.75
             v_call = present_value(v, Option.ZCBCall(T, S, K))
             hw_call = present_value(hw_equiv, Option.ZCBCall(T, S, K))
-            @test v_call ≈ hw_call rtol = 1e-8
+            @test v_call ≈ hw_call rtol = 1.0e-8
 
             v_cap = present_value(v, Option.Cap(0.05, 2, 4.0))
             hw_cap = present_value(hw_equiv, Option.Cap(0.05, 2, 4.0))
-            @test v_cap ≈ hw_cap rtol = 1e-8
+            @test v_cap ≈ hw_cap rtol = 1.0e-8
         end
     end
 
@@ -1177,7 +1179,7 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
         # Manual RatePath: cumulative = [0, 0.03, 0.065, 0.10] at [0, 1, 2, 3]
         # Linear interp slopes: 0.03 (0→1), 0.035 (1→2), 0.035 (2→3)
         ts = [0.0, 1.0, 2.0, 3.0]
-        cum = [0.0, 0.03, 0.065, 0.10]
+        cum = [0.0, 0.03, 0.065, 0.1]
         interp = DataInterpolations.LinearInterpolation(
             cum, ts;
             extrapolation = DataInterpolations.ExtrapolationType.Extension

@@ -43,7 +43,7 @@ end
 
 # Default constructor with different c values to break symmetry during fitting.
 # Non-zero b values provide a reasonable starting curve for the optimizer.
-CairnsPritchard(c₁=0.5, c₂=3.0) = CairnsPritchard(c₁, c₂, 0.05, -0.01, -0.01)
+CairnsPritchard(c₁ = 0.5, c₂ = 3.0) = CairnsPritchard(c₁, c₂, 0.05, -0.01, -0.01)
 
 function Base.zero(cp::CairnsPritchard, t)
     # At t=0 the formula is already well-defined: exp(0) = 1, so z(0) = b₀ + b₁ + b₂
@@ -99,7 +99,7 @@ end
 
 # Default constructor with different c values to break symmetry during fitting.
 # Non-zero b values provide a reasonable starting curve for the optimizer.
-CairnsPritchardExtended(c₁=0.5, c₂=2.0, c₃=5.0) = CairnsPritchardExtended(c₁, c₂, c₃, 0.05, -0.01, -0.01, -0.01)
+CairnsPritchardExtended(c₁ = 0.5, c₂ = 2.0, c₃ = 5.0) = CairnsPritchardExtended(c₁, c₂, c₃, 0.05, -0.01, -0.01, -0.01)
 
 function Base.zero(cp::CairnsPritchardExtended, t)
     # At t=0 the formula is already well-defined: exp(0) = 1, so z(0) = b₀ + b₁ + b₂ + b₃

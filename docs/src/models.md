@@ -94,7 +94,7 @@ julia> rate(r)
 
 ### Available Models - Stochastic Short Rates
 
-Stochastic short-rate models with closed-form zero-coupon bond prices. These are full yield models that also support Monte Carlo simulation. See the [Stochastic Models](@ref) guide for details and examples.
+Stochastic short-rate models with closed-form zero-coupon bond prices. These are full yield models that also support Monte Carlo simulation. See the [Stochastic Interest Rate Models](@ref) guide for details and examples.
 
 - [`FinanceModels.ShortRate.Vasicek`](@ref)
 - [`FinanceModels.ShortRate.CoxIngersollRoss`](@ref)
