@@ -37,7 +37,7 @@ end
 A yield curve representing a flat term structure. `rate` can be a [`Rate`](@ref) object or a `Real` object.
 
 
-If [`fit`](@ref FinanceModels.fit-Union{Tuple{F}, Tuple{Any, Any}, Tuple{Any, Any, F}} where F<:FinanceModels.Fit.Loss)ing with the default FinanceModels.jl settings, the solver will attempt to fit a discount rate with the range of: `-1.0 .. 1.0`
+If [`fit`](@ref FinanceModels.fit)ing with the default FinanceModels.jl settings, the solver will attempt to fit a discount rate with the range of: `-1.0 .. 1.0`
 """
 struct Constant{R} <: AbstractYieldModel
     rate::R
@@ -57,6 +57,111 @@ FinanceCore.discount(c::Constant, t) = FinanceCore.discount(c.rate, t)
 # `Constant` stay in zero-rate space (see `CompositeYield`/`ScaledYield`).
 Base.zero(c::Constant, t) = convert(Continuous(), c.rate)
 
+# ── Shared knot-grid construction ──────────────────────────────────────────────────────
+#
+# Every curve that interpolates zero rates over a knot grid (`Yield.Spline`,
+# `Yield.MonotoneConvex`, `ZeroRateCurve`) obtains its knot data through `KnotGrid`, so all
+# of them copy their inputs, promote to one concrete float type, and raise the same
+# `ArgumentError`s for the same invalid grids.
+
+# Minimum knot counts that the backing interpolants can handle (verified against
+# DataInterpolations 9; `Yield.Spline` already reduces a polynomial/B-spline order to n-1).
+__min_knots(::Sp.SplineCurve) = 2     # Linear / Quadratic / Cubic / BSpline
+__min_knots(::Sp.PCHIP) = 3
+__min_knots(::Sp.Akima) = 3           # 2 knots reach an UndefRefError inside DataInterpolations
+__min_knots(::Sp.MonotoneConvex) = 1  # single knot is a flat curve
+
+# Owned, concretely-typed float `Vector` from any iterable of reals. Always copies (even
+# when handed a `Vector`), so the curve never aliases caller-owned memory; never narrows
+# AD types (`float(::Dual)` is a `Dual`).
+function __owned_float_vector(x, what, who)
+    v = x isa AbstractVector ? x : collect(x)
+    isempty(v) && throw(ArgumentError("$who: `$what` must not be empty."))
+    T = isconcretetype(eltype(v)) ? eltype(v) : mapreduce(typeof, promote_type, v)
+    T <: Real || throw(ArgumentError("$who: `$what` must be real numbers (got element type $T)."))
+    F = try
+        float(T)
+    catch
+        T   # `float(::Type{Real})` etc. has no method; rejected just below
+    end
+    (F <: Real && isconcretetype(F)) || throw(ArgumentError(
+        "$who: `$what` must promote to one concrete floating-point type (got $F)."))
+    return try
+        Vector{F}(v)   # Array-from-AbstractArray always allocates a fresh copy
+    catch e
+        throw(ArgumentError("$who: could not convert `$what` to Vector{$F}: $(sprint(showerror, e))"))
+    end
+end
+
+"""
+    KnotGrid(rates, tenors, spline::Spline.SplineCurve; who = "KnotGrid")
+
+Internal. The owned, validated knot data behind every curve that interpolates zero rates
+(`Yield.Spline`, `Yield.MonotoneConvex`, `ZeroRateCurve`). `rates` and `tenors` are each
+copied from any iterable of reals (a `Vector` is copied too, so no curve aliases caller-owned
+memory) and promoted **independently** to one concrete floating-point element type
+(`Int` → `Float64`, `Float32` + `BigFloat` → `BigFloat`, `Float64` + `ForwardDiff.Dual` →
+`Dual`, never narrowed).
+
+Throws an `ArgumentError` (prefixed with `who`, the public constructor's name) when:
+
+- `rates` and `tenors` differ in length, or either is empty;
+- any rate or tenor is not finite (`NaN`, `±Inf`);
+- any tenor is negative, or the tenors are not strictly increasing (unsorted or duplicated);
+- there are fewer knots than `spline` needs (`__min_knots`).
+
+The raw two-argument `KnotGrid(rates::Vector, tenors::Vector)` neither copies nor validates.
+It exists only for optimizer trial curves (`fit`, bootstrap) whose grid was validated up front
+and whose candidate rates may legitimately be non-finite mid-search; public results always go
+back through the validating form.
+"""
+struct KnotGrid{R, T}
+    rates::Vector{R}   # continuously-compounded zero rates (finite)
+    tenors::Vector{T}  # finite, ≥ 0, strictly increasing
+end
+# raw trial form over non-`Vector` buffers (an optimizer may hand over a view or similar)
+KnotGrid(rates::AbstractVector, tenors::AbstractVector) = KnotGrid(convert(Vector, rates), convert(Vector, tenors))
+
+function KnotGrid(rates, tenors, spline::Sp.SplineCurve; who = "KnotGrid")
+    r = __owned_float_vector(rates, "rates", who)
+    t = __owned_float_vector(tenors, "tenors", who)
+    length(r) == length(t) || throw(ArgumentError(
+        "$who: `rates` and `tenors` must have the same length (got $(length(r)) and $(length(t)))."))
+    all(isfinite, r) || throw(ArgumentError("$who: all rates must be finite (got $(r))."))
+    all(isfinite, t) || throw(ArgumentError("$who: all tenors must be finite (got $(t))."))
+    first(t) >= zero(eltype(t)) || throw(ArgumentError("$who: tenors must be ≥ 0 (got $(t))."))
+    # finiteness is checked first so NaN cannot defeat the ordering comparison; adjacent strict
+    # comparison rather than `allunique` so Duals with equal primals are caught
+    for i in 2:length(t)
+        t[i] > t[i - 1] || throw(ArgumentError(
+            "$who: tenors must be strictly increasing (sorted, no duplicates); got $(t). " *
+            "Sort the (rate, tenor) pairs before constructing."))
+    end
+    k = __min_knots(spline)
+    length(t) >= k || throw(ArgumentError(
+        "$who: $(spline) requires at least $k knots (got $(length(t)))."))
+    return KnotGrid(r, t)
+end
+
+# ── DataInterpolations-backed curve ────────────────────────────────────────────────────
+
+"""
+    Yield.Spline(spline::Spline.SplineCurve, tenors, rates)
+
+A yield curve that interpolates continuously-compounded zero rates over a knot grid with a
+DataInterpolations interpolant chosen by the `spline` descriptor (`Spline.Linear()`,
+`Spline.Cubic()`, `Spline.PCHIP()`, `Spline.BSpline(3)`, …). Polynomial and B-spline orders are
+reduced to `length(tenors) - 1` when the grid is short.
+
+Inputs go through the shared knot-grid construction: `rates` and `tenors` are **copied** (later
+mutation of the vectors you passed in does not affect the curve) and promoted to one concrete
+float element type each, and the same `ArgumentError`s as `ZeroRateCurve` are raised for a
+length mismatch, empty or non-finite inputs, negative/unsorted/duplicate tenors, or fewer knots
+than the interpolant needs. The curve keeps no public copy of the knots beside the interpolant;
+use [`ZeroRateCurve`](@ref) when the knot rates need to be inspected or varied.
+
+The one-argument `Spline(fn)` wraps any callable `t -> continuous zero rate` as a curve.
+"""
 struct Spline{U} <: AbstractYieldModel
     fn::U # here, fn is a map from time to instantaneous zero rate
 end
@@ -73,9 +178,14 @@ end
 # `0/0 → NaN` at t=0), which also makes composites/shifts built on a Spline cheap.
 Base.zero(c::Spline, time) = Continuous(c.fn(time))
 
-function Spline(b::Sp.BSpline, xs, ys)
+# Public, validating form: every direct construction copies and checks its inputs.
+Spline(spline::Sp.SplineCurve, tenors, rates) = Spline(spline, KnotGrid(rates, tenors, spline; who = "Yield.Spline"))
+
+# Internal builders over an already-owned, validated (or optimizer-trial) `KnotGrid`. The
+# interpolant stores the grid's vectors directly; nothing else references them.
+function Spline(b::Sp.BSpline, g::KnotGrid)
+    xs, ys = g.tenors, g.rates
     order = min(length(xs) - 1, b.order) # in case the length of xs is less than the spline order
-    xs = float.(xs)
     knot_type = if length(xs) < 3
         :Uniform
     else
@@ -85,15 +195,16 @@ function Spline(b::Sp.BSpline, xs, ys)
     return Spline(DataInterpolations.BSplineInterpolation(ys, xs, order, knot_type; extrapolation = DataInterpolations.ExtrapolationType.Extension))
 end
 
-function Spline(::Sp.PCHIP, xs, ys)
-    return Spline(DataInterpolations.PCHIPInterpolation(ys, float.(xs); extrapolation = DataInterpolations.ExtrapolationType.Extension))
+function Spline(::Sp.PCHIP, g::KnotGrid)
+    return Spline(DataInterpolations.PCHIPInterpolation(g.rates, g.tenors; extrapolation = DataInterpolations.ExtrapolationType.Extension))
 end
 
-function Spline(::Sp.Akima, xs, ys)
-    return Spline(DataInterpolations.AkimaInterpolation(ys, float.(xs); extrapolation = DataInterpolations.ExtrapolationType.Extension))
+function Spline(::Sp.Akima, g::KnotGrid)
+    return Spline(DataInterpolations.AkimaInterpolation(g.rates, g.tenors; extrapolation = DataInterpolations.ExtrapolationType.Extension))
 end
 
-function Spline(b::Sp.PolynomialSpline, xs, ys)
+function Spline(b::Sp.PolynomialSpline, g::KnotGrid)
+    xs, ys = g.tenors, g.rates
     order = min(length(xs) - 1, b.order) # in case the length of xs is less than the spline order
     # `cache_parameters = true` precomputes per-segment parameters at construction so that evaluation is
     # read-only and therefore thread-safe — notably for `QuadraticSpline`, which is B-spline-based and
@@ -124,7 +235,10 @@ Used by `ZeroRateCurve` and the AD pathway in ActuaryUtilities to construct the
 interpolation model efficiently (once per gradient step rather than per discount call).
 """
 build_model(spline::Sp.SplineCurve, tenors, rates) = Yield.Spline(spline, tenors, rates)
-build_model(::Sp.MonotoneConvex, tenors, rates) = Yield.MonotoneConvex(collect(rates), collect(float.(tenors)))
+build_model(::Sp.MonotoneConvex, tenors, rates) = Yield.MonotoneConvex(rates, tenors)
+# Internal: build over an already-validated `KnotGrid` (no second copy or validation).
+build_model(spline::Sp.SplineCurve, g::KnotGrid) = Yield.Spline(spline, g)
+build_model(::Sp.MonotoneConvex, g::KnotGrid) = Yield.MonotoneConvex(g)
 
 include("Yield/ZeroRateCurve.jl")
 

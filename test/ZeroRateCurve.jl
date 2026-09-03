@@ -406,7 +406,18 @@ using ForwardDiff
         target = [0.02, 0.025, 0.03, 0.035]
         qs = ZCBYield.(Continuous.(target), t)        # continuous quotes: fitted zero rates == target
         zrc0 = ZeroRateCurve(fill(0.01, length(t)), t)
-        @test length(FinanceModels.__default_optic(zrc0)) == length(t)
+        # one batch optic over all knot rates: a single rebuild per optimizer candidate
+        optics = FinanceModels.__default_optic(zrc0)
+        @test length(optics) == 1
+        o = first(optics).first
+        @test o isa FinanceModels.KnotRatesOptic
+        @test Accessors.getall(zrc0, o) === Tuple(zrc0.rates)
+        zb = Accessors.setall(zrc0, o, target)
+        @test zb isa ZeroRateCurve && zb.rates == target && zb.tenors == t
+        @test discount(zb, 2.0) ≈ exp(-0.025 * 2.0)
+        @test zrc0.rates == fill(0.01, length(t))                  # original untouched
+        @test Accessors.modify(x -> 2x, zrc0, o).rates == fill(0.02, length(t))
+        @test_throws ArgumentError Accessors.setall(zrc0, o, [NaN, 0.0, 0.0, 0.0])   # still validated
         fitted = fit(zrc0, qs)
         @test fitted isa ZeroRateCurve
         @test fitted.tenors == t

@@ -769,3 +769,75 @@ end
     end
 
 end
+
+@testset "Yield.Spline: shared knot grid (owned copies, validation)" begin
+    rates = [0.02, 0.03, 0.035, 0.04]
+    tenors = [1.0, 2.0, 5.0, 10.0]
+    descriptors = (Spline.Linear(), Spline.Quadratic(), Spline.Cubic(), Spline.BSpline(3), Spline.PCHIP(), Spline.Akima())
+
+    @testset "caller-input isolation: $d" for d in descriptors
+        r = copy(rates); t = copy(tenors)
+        c = Yield.Spline(d, t, r)
+        d3 = discount(c, 3.0); z7 = zero(c, 7.0)
+        r[1] = 0.2; t[1] = 0.5; r .= 0.0
+        @test discount(c, 3.0) == d3
+        @test zero(c, 7.0) == z7
+        @test discount(c, 3.0) == discount(Yield.Spline(d, tenors, rates), 3.0)
+    end
+
+    @testset "validation: $d" for d in descriptors
+        @test_throws ArgumentError Yield.Spline(d, [2.0, 1.0, 3.0], [0.1, 0.2, 0.3])        # unsorted
+        @test_throws ArgumentError Yield.Spline(d, [1.0, 1.0, 2.0], [0.1, 0.2, 0.3])        # duplicate
+        @test_throws ArgumentError Yield.Spline(d, [-1.0, 1.0, 2.0], [0.1, 0.2, 0.3])       # negative
+        @test_throws ArgumentError Yield.Spline(d, [1.0, 2.0, 3.0], [0.1, NaN, 0.3])        # non-finite rate
+        @test_throws ArgumentError Yield.Spline(d, [1.0, 2.0, Inf], [0.1, 0.2, 0.3])        # non-finite tenor
+        @test_throws ArgumentError Yield.Spline(d, [1.0, 2.0], [0.1, 0.2, 0.3])             # length
+        @test_throws ArgumentError Yield.Spline(d, Float64[], Float64[])                     # empty
+        k = FinanceModels.Yield.__min_knots(d)
+        k > 1 && @test_throws ArgumentError Yield.Spline(d, collect(1.0:(k - 1)), fill(0.02, k - 1))
+        ck = Yield.Spline(d, collect(1.0:k), fill(0.02, k))
+        @test 0 < discount(ck, 0.5 + k / 2) <= 1
+        # same errors through `build_model` (the ActuaryUtilities AD entry point)
+        @test_throws ArgumentError Yield.build_model(d, [2.0, 1.0, 3.0], [0.1, 0.2, 0.3])
+    end
+
+    @testset "promotion: $d" for d in descriptors
+        c = Yield.Spline(d, 1:4, [2, 3, 4, 5] ./ 100)           # range tenors, Int-derived rates
+        @test discount(c, 2.5) ≈ discount(Yield.Spline(d, [1.0, 2.0, 3.0, 4.0], [0.02, 0.03, 0.04, 0.05]), 2.5)
+        ct = Yield.Spline(d, (1, 2, 3, 4), (0.02, 0.03, 0.04, 0.05))  # tuples
+        @test discount(ct, 2.5) ≈ discount(c, 2.5)
+        @test_throws ArgumentError Yield.Spline(d, [1.0, 2.0, 3.0], ["a", "b", "c"])
+    end
+
+    @testset "fit paths: grid validated up front, results validated" begin
+        t = [1.0, 2.0, 5.0, 10.0]
+        target = [0.02, 0.025, 0.03, 0.032]
+        qs = ZCBYield.(Continuous.(target), t)
+        for d in (Spline.Linear(), Spline.Cubic())
+            fl = fit(d, qs, Fit.Loss(x -> x^2))
+            @test maximum(abs, present_value(fl, q.instrument) - q.price for q in qs) < 1e-8
+            fb = fit(d, qs, Fit.Bootstrap())
+            @test maximum(abs, present_value(fb, q.instrument) - q.price for q in qs) < 1e-8
+        end
+        dup = [qs[1], qs[1], qs[3]]
+        @test_throws ArgumentError fit(Spline.Linear(), dup, Fit.Loss(x -> x^2))
+        @test_throws ArgumentError fit(Spline.Linear(), dup, Fit.Bootstrap())
+        # too few quotes for the interpolant is reported before any optimisation runs
+        @test_throws ArgumentError fit(Spline.PCHIP(), qs[1:2], Fit.Loss(x -> x^2))
+    end
+
+    @testset "KnotGrid (internal): owned copies, independent promotion, raw trial form" begin
+        KG = FinanceModels.Yield.KnotGrid
+        r = [0.02, 0.03]; t = [1, 2]
+        g = KG(r, t, Spline.Linear())
+        @test g.rates !== r && g.rates == r && g.tenors == [1.0, 2.0]
+        @test eltype(g.tenors) == Float64 && eltype(g.rates) == Float64
+        gb = KG((0.02f0, 0.03f0), (big"1", big"2"), Spline.Linear())
+        @test eltype(gb.rates) == Float32 && eltype(gb.tenors) == BigFloat   # promoted independently
+        @test_throws ArgumentError KG([0.02, 0.03], [2.0, 1.0], Spline.Linear())
+        @test_throws ArgumentError KG([0.02, 0.03], [1.0, 2.0], Spline.PCHIP())   # min knots
+        # the raw form neither copies nor validates — reserved for optimizer trial curves
+        raw = KG([NaN, 0.0], [2.0, 1.0])
+        @test isnan(raw.rates[1]) && raw.tenors == [2.0, 1.0]
+    end
+end
