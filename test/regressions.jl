@@ -1,3 +1,15 @@
+# Test-only solver that deterministically exercises `fit`'s unsuccessful-retcode path.
+struct FailingFitOptimizer end
+function FinanceModels.Optimization.solve(
+        prob::FinanceModels.Optimization.OptimizationProblem,
+        ::FailingFitOptimizer
+    )
+    return (
+        u = prob.u0,
+        retcode = FinanceModels.Optimization.SciMLBase.ReturnCode.Failure,
+    )
+end
+
 # Regression tests from the 2026-06 ecosystem audit
 @testset "audit regressions" begin
     @testset "fit(spline, quotes, Fit.Loss) uses the supplied loss" begin
@@ -66,6 +78,42 @@
                 @test rate(zero(zrc, t)) ≈ r atol = 1.0e-10
             end
             @test 0 < discount(zrc, 3.0) < 1
+        end
+    end
+
+    @testset "PCHIP and Akima loss fits do not stall at a flat seed" begin
+        tenors = [1 / 12, 2 / 12, 3 / 12, 0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0]
+        rates = [0.0375, 0.0372, 0.0372, 0.0372, 0.0364,
+            0.0368, 0.0369, 0.0380, 0.0400, 0.0423]
+
+        for quote_type in (CMTYield, ParYield), spline in (Spline.PCHIP(), Spline.Akima())
+            qs = quote_type.(rates, tenors)
+            curve = fit(spline, qs)
+            max_price_error = maximum(abs,
+                present_value(curve, q.instrument) - q.price for q in qs)
+            @test max_price_error < 1.0e-6
+        end
+    end
+
+    @testset "optimizer failures are never returned as fitted models" begin
+        qs = ZCBPrice.([0.97, 0.93, 0.88], [1.0, 2.0, 3.0])
+        fits = (
+            () -> fit(Yield.Constant(), qs; optimizer = FailingFitOptimizer()),
+            () -> fit(Yield.MonotoneConvex(), qs; optimizer = FailingFitOptimizer()),
+            () -> fit(Spline.Linear(), qs, Fit.Loss(abs2); optimizer = FailingFitOptimizer()),
+        )
+
+        for run_fit in fits
+            err = try
+                run_fit()
+                nothing
+            catch e
+                e
+            end
+            @test err isa ErrorException
+            if err isa ErrorException
+                @test occursin("optimizer return code Failure", sprint(showerror, err))
+            end
         end
     end
 

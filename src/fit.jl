@@ -255,6 +255,21 @@ function __reprice_loss(build, loss_method, quotes)
     return Optimization.OptimizationFunction(loss, __FIT_ADTYPE)
 end
 
+# Every optimizer-backed fit must either return a successful solution or throw. A
+# failed solve may leave `sol.u` equal to the initial guess, so constructing a model
+# from it would make optimizer failure look like a valid (but unfitted) result.
+function __successful_fit_solution(sol)
+    Optimization.SciMLBase.successful_retcode(sol.retcode) ||
+        error("model fitting failed with optimizer return code $(sol.retcode)")
+    return sol
+end
+
+# Flat knot rates are singular under ForwardDiff for interpolants whose slope formula
+# contains divided differences (notably PCHIP and Akima). Start curve calibration from
+# a small slope; the one-knot case is used by MonotoneConvex only.
+__curve_fit_seed(n, lo = 0.01, hi = 0.05) =
+    n <= 1 ? fill((lo + hi) / 2, n) : collect(range(lo, hi; length = n))
+
 """
     fit(
         model, 
@@ -389,7 +404,7 @@ function fit(
         end
     end
     prob = Optimization.OptimizationProblem(optf, x0, AccessibleModels.rawdata(amodel); lb, ub)
-    sol = Optimization.solve(prob, optimizer)
+    sol = __successful_fit_solution(Optimization.solve(prob, optimizer))
     return AccessibleModels.from_transformed(sol.u, amodel)
 
 end
@@ -400,11 +415,8 @@ function fit(mod0::Yield.MonotoneConvexUnInit, quotes, method::F=Fit.Loss(x -> x
     # Extract times from quotes (sorted)
     times = sort([maturity(q.instrument) for q in quotes])
 
-    # Initial guess - use a non-uniform guess to avoid NaN in MonotoneConvex
-    # (a flat initial guess causes 0/0 in the g function due to division by zero
-    # in sector iv); `range` requires distinct endpoints for length 1
-    n = length(times)
-    x0 = n == 1 ? [0.03] : collect(range(0.01, 0.05, length=n))
+    # Initial guess - use a non-uniform guess to avoid singular slope calculations.
+    x0 = __curve_fit_seed(length(times))
 
     # Validate the knot grid once, up front (duplicate maturities, non-finite times, …), with
     # the same errors as direct construction; the optimizer's trial curves then reuse the
@@ -413,7 +425,7 @@ function fit(mod0::Yield.MonotoneConvexUnInit, quotes, method::F=Fit.Loss(x -> x
     loss = __monotone_convex_loss_function(grid0.tenors, method, quotes)
 
     prob = Optimization.OptimizationProblem(loss, grid0.rates)
-    sol = Optimization.solve(prob, optimizer)
+    sol = __successful_fit_solution(Optimization.solve(prob, optimizer))
     return Yield.MonotoneConvex(sol.u, grid0.tenors)   # public result: validated (finite rates)
 end
 
@@ -422,15 +434,17 @@ end
 __monotone_convex_loss_function(times, loss_method, quotes) =
     __reprice_loss(u -> Yield.MonotoneConvex(Yield.KnotGrid(u, times)), loss_method, quotes)
 
-function fit(mod0::T, quotes, method::F) where {T <: Spline.SplineCurve, F <: Fit.Loss}
+function fit(mod0::T, quotes, method::F; optimizer = __default_optim(mod0)) where {T <: Spline.SplineCurve, F <: Fit.Loss}
     times = sort!(maturity.(quotes))
 
     # Validate the knot grid once, up front (duplicate maturities, too few knots for the
     # interpolant, …) with the same errors as direct construction; trial curves reuse it.
-    grid0 = Yield.KnotGrid(fill(0.05, length(quotes)), times, mod0; who = "fit($(mod0))")
+    # Stay close to the former 5% flat seed while making it non-degenerate.
+    x0 = __curve_fit_seed(length(quotes), 0.049, 0.051)
+    grid0 = Yield.KnotGrid(x0, times, mod0; who = "fit($(mod0))")
     optf = __spline_loss_function(mod0, grid0.tenors, method, quotes)
     prob = Optimization.OptimizationProblem(optf, grid0.rates)
-    sol = Optimization.solve(prob, __default_optim(mod0))
+    sol = __successful_fit_solution(Optimization.solve(prob, optimizer))
     return Yield.Spline(mod0, grid0.tenors, sol.u)   # public result: validated (finite rates)
 
 end
