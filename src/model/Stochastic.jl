@@ -27,7 +27,7 @@ module ShortRate
 
     # Arguments
     - `a`: speed of mean reversion
-    - `b`: long-term mean rate (continuous compounding). Can be passed as a `Real` or `Continuous(b)`.
+    - `b`: long-term mean rate. A `Rate` is converted to its continuously compounded equivalent.
     - `σ`: volatility
     - `initial`: initial short rate `r₀` (a `Rate` object or `Real`)
 
@@ -47,12 +47,12 @@ module ShortRate
     end
 
     function Vasicek(a::Real, b::Real, σ::Real, initial::Real)
-        σ >= 0 || throw(ArgumentError("volatility σ must be non-negative, got $σ"))
-        return Vasicek(Float64(a), Float64(b), Float64(σ), Continuous(initial))
+        return Vasicek(a, b, σ, Continuous(initial))
     end
 
-    # Accept Continuous(b) for the long-term mean rate parameter
-    Vasicek(a, b::Rate{<:Any, Continuous}, σ, initial) = Vasicek(a, rate(b), σ, initial)
+    # Store the long-term mean as a continuous scalar, regardless of the input
+    # compounding convention.
+    Vasicek(a, b::Rate, σ, initial) = Vasicek(a, rate(Continuous(b)), σ, initial)
 
     """
         CoxIngersollRoss(a, b, σ, initial)
@@ -63,7 +63,7 @@ module ShortRate
 
     # Arguments
     - `a`: speed of mean reversion
-    - `b`: long-term mean rate (continuous compounding). Can be passed as a `Real` or `Continuous(b)`.
+    - `b`: long-term mean rate. A `Rate` is converted to its continuously compounded equivalent.
     - `σ`: volatility
     - `initial`: initial short rate `r₀` (a `Rate` object or `Real`)
 
@@ -82,9 +82,9 @@ module ShortRate
         initial::T
         function CoxIngersollRoss(a::A, b::B, σ::S, initial::T) where {A, B, S, T}
             σ >= 0 || throw(ArgumentError("volatility σ must be non-negative, got $σ"))
-            initial_value = initial isa Rate ? rate(Continuous(initial)) : initial
+            initial_value = rate(Continuous(initial))
             initial_value >= 0 || throw(ArgumentError("initial rate must be non-negative for CIR, got $initial"))
-            b_value = b isa Rate ? rate(Continuous(b)) : b
+            b_value = rate(Continuous(b))
             if 2 * a * b_value <= σ^2
                 @warn "Feller condition 2ab > σ² violated (2·$(a)·$(b_value) = $(2 * a * b_value) ≤ σ² = $(σ^2)). Short rate may reach zero, and `simulate`'s discretisation bias grows with σ²/(2ab) — prefer a finer `timestep`."
             end
@@ -93,13 +93,13 @@ module ShortRate
     end
 
     function CoxIngersollRoss(a::Real, b::Real, σ::Real, initial::Real)
-        σ >= 0 || throw(ArgumentError("volatility σ must be non-negative, got $σ"))
-        initial >= 0 || throw(ArgumentError("initial rate must be non-negative for CIR, got $initial"))
-        return CoxIngersollRoss(Float64(a), Float64(b), Float64(σ), Continuous(initial))
+        return CoxIngersollRoss(a, b, σ, Continuous(initial))
     end
 
-    # Accept Continuous(b) for the long-term mean rate parameter
-    CoxIngersollRoss(a, b::Rate{<:Any, Continuous}, σ, initial) = CoxIngersollRoss(a, rate(b), σ, initial)
+    # Store the long-term mean as a continuous scalar, regardless of the input
+    # compounding convention.
+    CoxIngersollRoss(a, b::Rate, σ, initial) =
+        CoxIngersollRoss(a, rate(Continuous(b)), σ, initial)
 
     """
         HullWhite(a, σ, curve)
@@ -289,9 +289,9 @@ function simulate(
 
     cache = _sim_cache(model, dt, n_steps)
 
-    # Determine element type from initial rate (may be a ForwardDiff.Dual)
+    # Parameters other than the initial rate may carry an AD number type.
     r0 = _sim_initial_rate(model)
-    T = typeof(r0)
+    T = _sim_eltype(model, r0)
 
     times = Vector{Float64}(undef, n_steps + 1)
     times[1] = 0.0
@@ -328,6 +328,17 @@ _sim_initial_rate(m::ShortRate.CoxIngersollRoss) = _initial_rate(m)
 function _sim_initial_rate(m::ShortRate.HullWhite)
     return _hw_forward_rate(m.curve, 0.0)
 end
+
+# Include every model parameter that can flow into a simulated state. Falling
+# back to the initial-rate type preserves the extension contract for custom
+# stochastic models.
+_sim_eltype(::AbstractStochasticModel, r0) = typeof(r0)
+_sim_eltype(m::ShortRate.Vasicek, r0) =
+    promote_type(typeof(r0), typeof(m.a), typeof(m.b), typeof(m.σ))
+_sim_eltype(m::ShortRate.CoxIngersollRoss, r0) =
+    promote_type(typeof(r0), typeof(m.a), typeof(m.b), typeof(m.σ))
+_sim_eltype(m::ShortRate.HullWhite, r0) =
+    promote_type(typeof(r0), typeof(m.a), typeof(m.σ))
 
 # Exact Ornstein-Uhlenbeck transition parameters over one step of length dt:
 #   x_{t+dt} | x_t ~ Normal(x_t·ϕ, sd²),  ϕ = exp(-a·dt),  sd² = σ²(1-ϕ²)/(2a)

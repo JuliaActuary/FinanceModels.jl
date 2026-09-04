@@ -1,4 +1,5 @@
 using Random
+using ForwardDiff
 
 struct TestStochasticModel <: AbstractStochasticModel
     initial::Float64
@@ -975,6 +976,59 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             curve = Yield.Constant(0.03)
             @test_throws ArgumentError ShortRate.HullWhite(0.1, -0.01, curve)
             @test ShortRate.HullWhite(0.1, 0.0, curve) isa ShortRate.HullWhite
+        end
+
+        @testset "Constructor types and rate normalization" begin
+            v32 = ShortRate.Vasicek(0.1f0, 0.05f0, 0.01f0, 0.03f0)
+            @test v32.a isa Float32
+            @test v32.b isa Float32
+            @test v32.σ isa Float32
+            @test rate(v32.initial) isa Float32
+
+            cir32 = ShortRate.CoxIngersollRoss(0.3f0, 0.05f0, 0.01f0, 0.03f0)
+            @test cir32.a isa Float32
+            @test cir32.b isa Float32
+            @test cir32.σ isa Float32
+            @test rate(cir32.initial) isa Float32
+
+            periodic_b = Periodic(0.04, 2)
+            continuous_b = rate(Continuous(periodic_b))
+            v = ShortRate.Vasicek(0.5, periodic_b, 0.01, Continuous(0.02))
+            cir = ShortRate.CoxIngersollRoss(0.5, periodic_b, 0.01, Continuous(0.02))
+            @test v.b === continuous_b
+            @test cir.b === continuous_b
+            @test isfinite(discount(v, 1.0))
+            @test isfinite(discount(cir, 1.0))
+        end
+
+        @testset "ForwardDiff through simulation parameters" begin
+            path_discount(model) = discount(
+                only(
+                    simulate(
+                        model; n_scenarios = 1, timestep = 0.25, horizon = 1.0,
+                        rng = MersenneTwister(1234)
+                    )
+                ), 1.0
+            )
+
+            for derivative in (
+                    a -> path_discount(ShortRate.Vasicek(a, 0.05, 0.01, 0.03)),
+                    σ -> path_discount(ShortRate.Vasicek(0.3, 0.05, σ, 0.03)),
+                    a -> path_discount(ShortRate.CoxIngersollRoss(a, 0.05, 0.01, 0.03)),
+                    σ -> path_discount(ShortRate.CoxIngersollRoss(0.3, 0.05, σ, 0.03)),
+                    a -> path_discount(
+                        ShortRate.HullWhite(
+                            a, 0.01, Yield.Constant(Continuous(0.03))
+                        )
+                    ),
+                    σ -> path_discount(
+                        ShortRate.HullWhite(
+                            0.3, σ, Yield.Constant(Continuous(0.03))
+                        )
+                    ),
+                )
+                @test isfinite(ForwardDiff.derivative(derivative, 0.1))
+            end
         end
 
         @testset "Tenor validation: non-integer periods" begin
