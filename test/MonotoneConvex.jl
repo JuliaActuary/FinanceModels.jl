@@ -292,10 +292,10 @@
             @test reprice(c) < 1.0e-6   # finite (not NaN) and actually fits
         end
 
-        # the Spline.MonotoneConvex tag routes to the native curve on every path
+        # The tag routes loss fitting to the native curve; bootstrap is unsupported.
         @test reprice(fit(Spline.MonotoneConvex(), qs)) < 1.0e-6
         @test reprice(fit(Spline.MonotoneConvex(), qs, Fit.Loss(x -> x^2))) < 1.0e-6
-        @test reprice(fit(Spline.MonotoneConvex(), qs, Fit.Bootstrap())) < 1.0e-6
+        @test_throws ArgumentError fit(Spline.MonotoneConvex(), qs, Fit.Bootstrap())
     end
 
     @testset "g0 == 0 (flat-forward segment): continuous zero rates" begin
