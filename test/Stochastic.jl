@@ -970,7 +970,7 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             @test_throws ArgumentError ShortRate.CoxIngersollRoss(0.1, 0.05, 0.01, -0.01)
             @test_throws ArgumentError ShortRate.CoxIngersollRoss(0.1, Continuous(0.05), -0.01, Continuous(0.03))
             @test_throws ArgumentError ShortRate.CoxIngersollRoss(0.1, Continuous(0.05), 0.01, Continuous(-0.01))
-            @test_logs (:warn, r"Feller") ShortRate.CoxIngersollRoss(0.1, 0.05, 0.3, 0.03)
+            @test_logs ShortRate.CoxIngersollRoss(0.1, 0.05, 0.3, 0.03)
             @test_logs ShortRate.CoxIngersollRoss(0.3, 0.05, 0.1, 0.03)
 
             curve = Yield.Constant(0.03)

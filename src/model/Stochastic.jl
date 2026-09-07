@@ -84,10 +84,6 @@ module ShortRate
             σ >= 0 || throw(ArgumentError("volatility σ must be non-negative, got $σ"))
             initial_value = rate(Continuous(initial))
             initial_value >= 0 || throw(ArgumentError("initial rate must be non-negative for CIR, got $initial"))
-            b_value = rate(Continuous(b))
-            if 2 * a * b_value <= σ^2
-                @warn "Feller condition 2ab > σ² violated (2·$(a)·$(b_value) = $(2 * a * b_value) ≤ σ² = $(σ^2)). Short rate may reach zero, and `simulate`'s discretisation bias grows with σ²/(2ab) — prefer a finer `timestep`."
-            end
             return new{A, B, S, T}(a, b, σ, initial)
         end
     end
