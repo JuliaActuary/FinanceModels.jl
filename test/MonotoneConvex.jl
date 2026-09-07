@@ -395,8 +395,8 @@
             @test searchsortedlast(c.times, 3.0) == 2
             @test Yield.__monotone_convex_fs(c.rates, c.times)[1] == c.f
             # the cached forwards are internal: hidden from the public listing, readable as fields
-            @test propertynames(c) == (:rates, :times)
-            @test propertynames(c, true) == (:f, :fᵈ, :rates, :times)
+            @test propertynames(c) == (:rates, :times, :extrapolation)
+            @test propertynames(c, true) == (:f, :fᵈ, :rates, :times, :extrapolation)
         end
 
         @testset "validation and promotion (shared knot grid)" begin
@@ -439,7 +439,7 @@
             @test_throws ArgumentError CB.setproperties(c, (f = c.f,))
             @test_throws ArgumentError CB.setproperties(c, (foo = 1,))
             # ConstructionBase laws over the public properties
-            @test keys(CB.getproperties(c)) == (:rates, :times)
+            @test keys(CB.getproperties(c)) == (:rates, :times, :extrapolation)
             rt = CB.setproperties(c, CB.getproperties(c))
             @test rt.rates == c.rates && rt.times == c.times && rt.f == c.f
             raw = CB.constructorof(typeof(c))(CB.getfields(c)...)

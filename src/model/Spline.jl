@@ -126,6 +126,7 @@ discrete forward rates at knot points. Produces the best KRD locality among smoo
 
 Unlike other `SplineCurve` types that wrap DataInterpolations, this dispatches to
 `Yield.MonotoneConvex` which implements the Hagan-West sector-based polynomial construction.
+Fitting this descriptor returns that native curve for every supported extrapolation policy.
 
 # References
 - Hagan & West, "Interpolation Methods for Curve Construction", Applied Mathematical Finance (2006)

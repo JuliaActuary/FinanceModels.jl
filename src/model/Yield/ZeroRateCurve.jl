@@ -11,7 +11,9 @@ The `spline` argument is a `Spline.SplineCurve` object (e.g. `Spline.MonotoneCon
 The default `extrapolation=:flat_forward` holds the instantaneous forward rate constant beyond
 the last tenor, anchored at its value there. `:flat_zero` instead holds the last zero rate;
 `:linear` extends the zero rate at its boundary slope; and `:extension` continues the final
-DataInterpolations polynomial piece. `:extension` is unavailable with `Spline.MonotoneConvex()`.
+DataInterpolations polynomial piece. [`FlatForwardAt`](@ref) holds a user-specified
+instantaneous forward fixed, including when knot rates are fitted or changed.
+`:extension` is unavailable with `Spline.MonotoneConvex()`.
 
 The curve stores the `rates` vector with its original element type, making it compatible
 with ForwardDiff: construct `ZeroRateCurve(dual_rates, tenors, spline)` inside an AD closure
@@ -64,7 +66,8 @@ Construction throws an `ArgumentError` when:
 - `rates` and `tenors` differ in length, or either is empty;
 - any rate or tenor is not finite (`NaN`, `±Inf`);
 - any tenor is negative, or the tenors are not strictly increasing (unsorted or duplicated);
-- `extrapolation` is not one of `:flat_forward`, `:flat_zero`, `:linear`, or `:extension`,
+- `extrapolation` is neither `FlatForwardAt(forward)` nor one of `:flat_forward`,
+  `:flat_zero`, `:linear`, or `:extension`,
   or `:extension` is requested with `Spline.MonotoneConvex()`;
 - there are fewer knots than the interpolant needs: `Spline.PCHIP()` and `Spline.Akima()`
   need 3, `Spline.Linear()`/`Quadratic()`/`Cubic()`/`BSpline(n)` need 2,
@@ -97,17 +100,17 @@ is ignored by `==`, `isequal` and `hash`.
 
 ## Forward curve smoothness
 
-The default `Spline.MonotoneConvex()` guarantees positive continuous forward rates
-and produces C1-smooth forward curves ([Hagan & West, 2006](https://doi.org/10.1080/13504860600829233)).
+With the default extrapolation and inputs implying positive discrete forwards,
+`Spline.MonotoneConvex()` guarantees positive continuous forward rates ([Hagan & West, 2006](https://doi.org/10.1080/13504860600829233)).
 For C2 zero-rate smoothness between knots, use `Spline.Cubic()`. `Spline.Linear()` produces
 kinks in the forward curve at tenor points. At the last tenor, the default `:flat_forward`
 policy keeps the instantaneous forward continuous; the other policies need not.
 """
-struct ZeroRateCurve{R, T, S <: Sp.SplineCurve, M} <: AbstractYieldModel
+struct ZeroRateCurve{R, T, S <: Sp.SplineCurve, M, E} <: AbstractYieldModel
     rates::ReadOnlyVector{R}   # continuously-compounded zero rates (finite); read-only
     tenors::ReadOnlyVector{T}  # finite, ≥ 0, strictly increasing; read-only
     spline::S                  # e.g., Spline.Linear(), Spline.MonotoneConvex()
-    extrapolation::Symbol      # :flat_forward, :flat_zero, :linear, or :extension
+    extrapolation::E           # requested policy; boundary quantities live in _model
     _model::M                  # pure function of the four public fields; internal, not settable
 
     # The only constructor. Obtains an owned, validated grid (`KnotGrid`: copy, promote,
@@ -120,7 +123,7 @@ struct ZeroRateCurve{R, T, S <: Sp.SplineCurve, M} <: AbstractYieldModel
         g = KnotGrid(rates, tenors, spline; who = "ZeroRateCurve")   # copies, promotes, validates
         extrapolation = __extrapolation_method(extrapolation)
         model = Yield.build_model(spline, g; extrapolation)          # receives the owned Vectors
-        return new{eltype(g.rates), eltype(g.tenors), typeof(spline), typeof(model)}(
+        return new{eltype(g.rates), eltype(g.tenors), typeof(spline), typeof(model), typeof(extrapolation)}(
             ReadOnlyVector(g.rates), ReadOnlyVector(g.tenors), spline, extrapolation, model)
     end
 end
