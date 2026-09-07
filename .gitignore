@@ -6,3 +6,6 @@
 Manifest.toml
 .DS_Store
 .claude/
+
+# Local review and planning notes
+/notes/

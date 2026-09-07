@@ -2,14 +2,19 @@
     CairnsPritchard(c₁, c₂, b₀, b₁, b₂)
     CairnsPritchard(c₁=0.5, c₂=3.0) # used in fitting
 
-A Cairns-Pritchard yield curve model with 2 exponential components.
+A spot-rate curve with 2 exponential components, retained under the historical
+`CairnsPritchard` API name.
 
 The continuous zero rate at time `t` is:
 
 ``r(t) = b₀ + b₁ \\exp(-c₁ t) + b₂ \\exp(-c₂ t)``
 
-This is a generalization of Nelson-Siegel with independent decay rates per
-exponential component. Parameters and default fitting bounds:
+This implementation fits spot rates and optimizes the decay rates along with the
+coefficients. Cairns (1998), Sections 1.4 and 3, instead proposes a forward-rate
+model with four exponential components and fixed decay constants. This type does
+not reproduce that model or its parameter-stability properties.
+
+Parameters and default fitting bounds:
 
 - `c₁` decay rate for first component: `0.001 .. 10.0`
 - `c₂` decay rate for second component: `0.001 .. 10.0`
@@ -19,8 +24,8 @@ exponential component. Parameters and default fitting bounds:
 
 See also [`CairnsPritchardExtended`](@ref) for a 3-component variant.
 
-# References
-- Cairns, A.J.G. (1998). "Descriptive Bond-Yield and Forward-Rate Models for the British Government Securities Market". British Actuarial Journal, 4(2), 265-321.
+# Background reference
+- Cairns, A.J.G. (1998). "Descriptive Bond-Yield and Forward-Rate Models for the British Government Securities Market". British Actuarial Journal, 4(2), 265-321. [Author PDF](https://www.macs.hw.ac.uk/~andrewc/papers/ajgc11.pdf).
 """
 struct CairnsPritchard{T} <: AbstractYieldModel
     c₁::T
@@ -55,7 +60,12 @@ FinanceCore.discount(cp::CairnsPritchard, t) = _discount_from_zero(cp, t)
     CairnsPritchardExtended(c₁, c₂, c₃, b₀, b₁, b₂, b₃)
     CairnsPritchardExtended(c₁=0.5, c₂=2.0, c₃=5.0) # used in fitting
 
-A Cairns-Pritchard yield curve model with 3 exponential components.
+A spot-rate curve with 3 exponential components, retained under the historical
+`CairnsPritchardExtended` API name.
+
+Like [`CairnsPritchard`](@ref), this implementation optimizes decay rates and
+models spot rates. It does not implement the fixed-decay forward-rate model
+proposed by Cairns (1998).
 
 The continuous zero rate at time `t` is:
 
@@ -73,8 +83,8 @@ Parameters and default fitting bounds:
 
 See also [`CairnsPritchard`](@ref) for a 2-component variant.
 
-# References
-- Cairns, A.J.G. (1998). "Descriptive Bond-Yield and Forward-Rate Models for the British Government Securities Market". British Actuarial Journal, 4(2), 265-321.
+# Background reference
+- Cairns, A.J.G. (1998). "Descriptive Bond-Yield and Forward-Rate Models for the British Government Securities Market". British Actuarial Journal, 4(2), 265-321. [Author PDF](https://www.macs.hw.ac.uk/~andrewc/papers/ajgc11.pdf).
 """
 struct CairnsPritchardExtended{T} <: AbstractYieldModel
     c₁::T
