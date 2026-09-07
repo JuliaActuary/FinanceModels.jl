@@ -5,11 +5,11 @@ In interactive sessions (e.g. REPL, Notebooks, VS Code, etc.) you can get a pret
 ```julia-repl
 julia> using FinanceModels
 julia> q_rate = ZCBYield.([0.01, 0.02, 0.03,0.04,0.03],[1,3,5,10,20]);
-julia> fit(Spline.PolynomialSpline(3), q_rate, Fit.Bootstrap())
+julia> fit(Spline.PolynomialSpline(3), q_rate, Fit.Loss(x -> x^2))
 FinanceModels.Yield.Spline{DataInterpolations.CubicSpline{Vector{Float64}, Vector{Float64}, Vector{Float64}, Vector{Float64}, true, Float64}}([0.009950330853168092, 0.009950330853168092, 0.019802627296179747, 0.02955880224154443, 0.0, 1.0, 2.0, 3.0])
 
 julia> using UnicodePlots 
-julia> fit(Spline.PolynomialSpline(3), q_rate, Fit.Bootstrap()) # after importing UnicodePlots
+julia> fit(Spline.PolynomialSpline(3), q_rate, Fit.Loss(x -> x^2)) # after importing UnicodePlots
               ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀Yield Curve (FinanceModels.Yield.Spline)⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀           
               ┌────────────────────────────────────────────────────────────┐           
          0.04 │⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⠤⠖⠒⠊⠉⠉⠉⠒⠒⠢⠤⣄⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀│ Zero rates

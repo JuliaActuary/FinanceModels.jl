@@ -138,7 +138,7 @@
         @test_throws ArgumentError FX.__implied_foreign_quote(m_true, bad)
 
         @testset "bootstrap fit round-trip" begin
-            m_fit = fit(FX.Forwards(eurusd, S, usd_boot, Spline.Cubic()), quotes, Fit.Bootstrap())
+            m_fit = fit(FX.Forwards(eurusd, S, usd_boot, Spline.Linear()), quotes, Fit.Bootstrap())
             @test all(abs(pv(m_fit, q.instrument)) < 1.0e-10 for q in quotes)
             @test all(isapprox(forward(m_fit, t), forward(m_true, t)) for t in ts)
             # flat foreign truth → the interpolated curve is exact between knots too

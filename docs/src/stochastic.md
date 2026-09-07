@@ -57,7 +57,7 @@ cir = ShortRate.CoxIngersollRoss(0.3, 0.05, 0.1, Continuous(0.03))
 The Hull-White model takes an existing yield curve and adds stochastic dynamics. The drift is calibrated so that the model exactly reproduces the initial term structure.
 
 ```julia
-curve = fit(Spline.Cubic(), CMTYield.([0.04, 0.05, 0.055, 0.06], [1, 5, 10, 30]), Fit.Bootstrap())
+curve = fit(Spline.Linear(), CMTYield.([0.04, 0.05, 0.055, 0.06], [1, 5, 10, 30]), Fit.Bootstrap())
 hw = ShortRate.HullWhite(0.1, 0.01, curve)
 
 # discount factors match the initial curve exactly:
