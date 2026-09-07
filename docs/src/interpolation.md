@@ -4,7 +4,7 @@
 
 ## Available Methods
 
-| Method | Smoothness | Locality | Description |
+| Method | Interior smoothness | Locality | Description |
 |--------|-----------|----------|-------------|
 | `Spline.MonotoneConvex()` | C1 (smooth) | Best among smooth | **Default.** Finance-aware. Positive forwards, best KRD locality, fastest AD. |
 | `Spline.PCHIP()` | C1 (smooth) | Local | Monotonicity-preserving, local. Good general-purpose alternative. |
@@ -26,7 +26,45 @@ zrc_pchip = ZeroRateCurve(rates, tenors, Spline.PCHIP())        # PCHIP
 zrc_lin = ZeroRateCurve(rates, tenors, Spline.Linear())          # linear
 zrc_cub = ZeroRateCurve(rates, tenors, Spline.Cubic())           # natural cubic spline
 zrc_aki = ZeroRateCurve(rates, tenors, Spline.Akima())           # Akima
+zrc_flat_zero = ZeroRateCurve(rates, tenors, Spline.Cubic();
+    extrapolation=:flat_zero)
 ```
+
+## Extrapolation Beyond the Last Knot
+
+Every knot-based curve defaults to `extrapolation=:flat_forward`, independently of its
+interpolation method. For a final knot `(tₙ, zₙ)`, let
+`fₙ = zₙ + tₙz′(tₙ⁻)` be the left-hand instantaneous forward there. Then for `t > tₙ`,
+
+```math
+z(t) = f_n + (z_n - f_n)\frac{t_n}{t}.
+```
+
+This preserves the discount factor at `tₙ`, keeps the instantaneous forward continuous (though
+not necessarily differentiable) at the boundary, and prevents a quadratic or cubic's final
+polynomial piece from dominating at long horizons. The extrapolated zero rate is not flat
+unless `fₙ = zₙ`; it converges to `fₙ` as the horizon increases. This policy applies to
+`Yield.Spline`, `ZeroRateCurve`, and `Yield.MonotoneConvex`. A callable-only `Yield.Spline(fn)`
+has no knots and therefore does not apply an extrapolation policy.
+
+Pass the `extrapolation` keyword to `ZeroRateCurve`, `Yield.Spline`, or a spline `fit` call
+to select the long-end behavior:
+
+| Value | Long-end zero rate | Notes |
+|-------|--------------------|-------|
+| `:flat_forward` | `fₙ + (zₙ-fₙ)tₙ/t` | **Default.** Preserves forward continuity. |
+| `:flat_zero` | `zₙ` | Holds the zero rate constant; usually introduces a forward jump at `tₙ`. |
+| `:linear` | `zₙ + z′(tₙ⁻)(t-tₙ)` | Extends the zero rate at its boundary slope. |
+| `:extension` | Final interpolation piece | Restores the former DataInterpolations behavior and can become extreme far beyond the grid. Not available for `Spline.MonotoneConvex()`. |
+
+```julia
+curve = Yield.Spline(Spline.Cubic(), tenors, rates; extrapolation=:flat_zero)
+zrc = ZeroRateCurve(rates, tenors, Spline.Cubic(); extrapolation=:linear)
+fitted = fit(Spline.Cubic(), quotes, Fit.Bootstrap(); extrapolation=:extension)
+```
+
+The selected value is available as `zrc.extrapolation` and is preserved when deriving a new
+`ZeroRateCurve` with `Accessors.@set`.
 
 ## Key Tradeoffs
 
@@ -62,12 +100,12 @@ end
 for (name, make_fwd) in [
     ("Linear", (r, t) -> begin
         interp = DI.BSplineInterpolation(r, t, 1, :Uniform, :Average;
-            extrapolation=DI.ExtrapolationType.Extension)
+            extrapolation_left=DI.ExtrapolationType.Extension)
         pt -> fwd_from_interp(interp, pt)
     end),
     ("PCHIP", (r, t) -> begin
         interp = DI.PCHIPInterpolation(r, t;
-            extrapolation=DI.ExtrapolationType.Extension)
+            extrapolation_left=DI.ExtrapolationType.Extension)
         pt -> fwd_from_interp(interp, pt)
     end),
     ("MonotoneConvex", (r, t) -> begin
@@ -76,12 +114,12 @@ for (name, make_fwd) in [
     end),
     ("Akima", (r, t) -> begin
         interp = DI.AkimaInterpolation(r, t;
-            extrapolation=DI.ExtrapolationType.Extension)
+            extrapolation_left=DI.ExtrapolationType.Extension)
         pt -> fwd_from_interp(interp, pt)
     end),
     ("CubicSpline", (r, t) -> begin
         interp = DI.CubicSpline(r, t;
-            extrapolation=DI.ExtrapolationType.Extension)
+            extrapolation_left=DI.ExtrapolationType.Extension)
         pt -> fwd_from_interp(interp, pt)
     end),
 ]
@@ -123,20 +161,20 @@ eval_points = [0.5, 1.0, 1.5, 2.0, 3.0, 5.0, 7.0, 10.0, 15.0, 20.0]
 for (name, rate_at) in [
     ("Linear", (r, t, pt) ->
         DI.BSplineInterpolation(r, t, 1, :Uniform, :Average;
-            extrapolation=DI.ExtrapolationType.Extension)(pt)),
+            extrapolation_left=DI.ExtrapolationType.Extension)(pt)),
     ("PCHIP", (r, t, pt) ->
         DI.PCHIPInterpolation(r, t;
-            extrapolation=DI.ExtrapolationType.Extension)(pt)),
+            extrapolation_left=DI.ExtrapolationType.Extension)(pt)),
     ("MonotoneConvex", (r, t, pt) -> begin
         mc = FinanceModels.Yield.MonotoneConvex(r, t)
         -log(discount(mc, pt)) / pt
     end),
     ("Akima", (r, t, pt) ->
         DI.AkimaInterpolation(r, t;
-            extrapolation=DI.ExtrapolationType.Extension)(pt)),
+            extrapolation_left=DI.ExtrapolationType.Extension)(pt)),
     ("CubicSpline", (r, t, pt) ->
         DI.CubicSpline(r, t;
-            extrapolation=DI.ExtrapolationType.Extension)(pt)),
+            extrapolation_left=DI.ExtrapolationType.Extension)(pt)),
 ]
     println("\n--- $name: ∂rate(t)/∂r₃  (bump at 5yr) ---")
     for pt in eval_points

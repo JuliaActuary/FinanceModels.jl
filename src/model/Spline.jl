@@ -16,6 +16,11 @@ Convenience methods which create a *local* `Spline.PolynomialSpline` of the appr
 
 For a *global* B-spline (e.g. as a basis for smooth least-squares fitting) use `Spline.BSpline(d)` explicitly, noting its thread-safety caveat.
 
+Knot-based yield curves built from these descriptors extrapolate flat-forward beyond their
+last knot by default. Pass `extrapolation=:flat_zero`, `:linear`, or `:extension` to
+[`Yield.Spline`](@ref FinanceModels.Yield.Spline), `ZeroRateCurve`, or spline `fit` methods to
+select a different long-end policy.
+
 Notes on Fitting:
 - `fit(spline,quotes)` will fit entire curve at once, with knots equal to the maturity points of the `Quote`s
 - `fit(spline, quotes, Fit.Bootstrap())` will curve one knot at a time, with knots equal to the maturity points of the `Quote`s

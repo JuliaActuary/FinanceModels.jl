@@ -154,25 +154,29 @@ Accessors.ConstructionBase.constructorof(::Type{<:Yield.MonotoneConvex}) =
     (f, fᵈ, rates, times) -> Yield.MonotoneConvex(rates, times)
 
 # ConstructionBase protocol for `ZeroRateCurve`, a struct with a derived cache (`_model`):
-#  * the public properties are (rates, tenors, spline) — `getproperties` excludes the cache;
+#  * the public properties are (rates, tenors, spline, extrapolation) — `getproperties`
+#    excludes the cache;
 #  * `setproperties` re-validates and rebuilds through the single constructor and REJECTS a
 #    patch to `_model` (or any unknown key) rather than silently ignoring it, so
 #    `setproperties(z, getproperties(z)) == z` and `Accessors.mapproperties(identity, z) == z`;
 #  * the raw `constructorof` closure (same shape as the MonotoneConvex one) discards the cache
 #    argument and rebuilds, satisfying `constructorof(typeof(z))(getfields(z)...) == z`
-#    without introducing a public 4-arg constructor.
+#    without introducing a public positional cache constructor.
 # Every `@set`/`setall`/`fit` reconstruction therefore recomputes the cache; it can never go stale.
 Accessors.ConstructionBase.getproperties(z::Yield.ZeroRateCurve) =
-    (rates = z.rates, tenors = z.tenors, spline = z.spline)
+    (rates = z.rates, tenors = z.tenors, spline = z.spline, extrapolation = z.extrapolation)
 function Accessors.ConstructionBase.setproperties(z::Yield.ZeroRateCurve, patch::NamedTuple)
-    all(k -> k in (:rates, :tenors, :spline), keys(patch)) || throw(ArgumentError(
-        "ZeroRateCurve: only `rates`, `tenors` and `spline` can be set (got $(keys(patch))); " *
+    all(k -> k in (:rates, :tenors, :spline, :extrapolation), keys(patch)) || throw(ArgumentError(
+        "ZeroRateCurve: only `rates`, `tenors`, `spline` and `extrapolation` can be set " *
+        "(got $(keys(patch))); " *
         "the interpolation cache is derived from them and rebuilt automatically."))
     return Yield.ZeroRateCurve(
-        get(patch, :rates, z.rates), get(patch, :tenors, z.tenors), get(patch, :spline, z.spline))
+        get(patch, :rates, z.rates), get(patch, :tenors, z.tenors), get(patch, :spline, z.spline);
+        extrapolation = get(patch, :extrapolation, z.extrapolation))
 end
 Accessors.ConstructionBase.constructorof(::Type{<:Yield.ZeroRateCurve}) =
-    (rates, tenors, spline, _model) -> Yield.ZeroRateCurve(rates, tenors, spline)
+    (rates, tenors, spline, extrapolation, _model) ->
+        Yield.ZeroRateCurve(rates, tenors, spline; extrapolation)
 __default_optic(m::Yield.NelsonSiegel) = (
         @optic(_.τ₁) => 0.0 .. 100.0,
         @optic(_.β₀) => -10.0 .. 10.0,
@@ -288,6 +292,8 @@ Fit a model to a collection of quotes using a loss function and optimization met
   - `method` can also be `Bootstrap()`. If this is the case, `model` should be a spline such as `Spline.Linear()`, `Spline.Cubic()`...
 - `variables=__default_optic(model)`: The variables to optimize over. This is a tuple of optic => interval pairs specifying which parameters of the model can vary. See extended help for more.
 - `optimizer=__default_optim(model)`: The optimization algorithm to use. The default optimization for a given model is `LBFGS()` from Optim.jl (via OptimizationOptimJL), a quasi-Newton method with automatic differentiation via ForwardDiff. See extended help for more on customizing the solver.
+- `extrapolation=:flat_forward`: For `Spline.SplineCurve` fits, the long-end policy. Also
+  accepts `:flat_zero`, `:linear`, and (except for `Spline.MonotoneConvex()`) `:extension`.
 
 The optimization routine will then attempt to modify parameters of `model` to best fit the quoted prices of the contracts underlying the `quotes` by calling `present_value(model,contract)`. The optimization will minimize the loss function specified within `Fit.Loss(...)`. 
 
@@ -434,7 +440,21 @@ end
 __monotone_convex_loss_function(times, loss_method, quotes) =
     __reprice_loss(u -> Yield.MonotoneConvex(Yield.KnotGrid(u, times)), loss_method, quotes)
 
-function fit(mod0::T, quotes, method::F; optimizer = __default_optim(mod0)) where {T <: Spline.SplineCurve, F <: Fit.Loss}
+function fit(mod0::T, quotes; optimizer = __default_optim(mod0),
+        extrapolation = :flat_forward) where {T <: Spline.SplineCurve}
+    return fit(mod0, quotes, __default_loss(mod0); optimizer, extrapolation)
+end
+
+# Preserve the dedicated MonotoneConvex optimizer default rather than inheriting the
+# generic SplineCurve Newton default from the convenience method above.
+function fit(mod0::Spline.MonotoneConvex, quotes;
+        optimizer = OptimizationOptimJL.LBFGS(), extrapolation = :flat_forward)
+    return fit(mod0, quotes, __default_loss(mod0); optimizer, extrapolation)
+end
+
+function fit(mod0::T, quotes, method::F; optimizer = __default_optim(mod0),
+        extrapolation = :flat_forward) where {T <: Spline.SplineCurve, F <: Fit.Loss}
+    extrapolation = Yield.__extrapolation_method(extrapolation)
     times = sort!(maturity.(quotes))
 
     # Validate the knot grid once, up front (duplicate maturities, too few knots for the
@@ -442,10 +462,10 @@ function fit(mod0::T, quotes, method::F; optimizer = __default_optim(mod0)) wher
     # Stay close to the former 5% flat seed while making it non-degenerate.
     x0 = __curve_fit_seed(length(quotes), 0.049, 0.051)
     grid0 = Yield.KnotGrid(x0, times, mod0; who = "fit($(mod0))")
-    optf = __spline_loss_function(mod0, grid0.tenors, method, quotes)
+    optf = __spline_loss_function(mod0, grid0.tenors, method, quotes, extrapolation)
     prob = Optimization.OptimizationProblem(optf, grid0.rates)
     sol = __successful_fit_solution(Optimization.solve(prob, optimizer))
-    return Yield.Spline(mod0, grid0.tenors, sol.u)   # public result: validated (finite rates)
+    return Yield.Spline(mod0, grid0.tenors, sol.u; extrapolation)   # public result: validated (finite rates)
 
 end
 
@@ -456,10 +476,20 @@ end
 # to the dedicated `Yield.MonotoneConvex` fit, which reprices the whole quote set
 # at once (matching `Spline.MonotoneConvex`'s documented "dispatches to
 # Yield.MonotoneConvex" behavior).
-function fit(::Spline.MonotoneConvex, quotes, method::Fit.Loss; optimizer = OptimizationOptimJL.LBFGS())
-    return fit(Yield.MonotoneConvex(), quotes, method; optimizer)
+function fit(::Spline.MonotoneConvex, quotes, method::Fit.Loss;
+        optimizer = OptimizationOptimJL.LBFGS(), extrapolation = :flat_forward)
+    extrapolation = Yield.__monotone_extrapolation_method(extrapolation)
+    curve = fit(Yield.MonotoneConvex(), quotes, method; optimizer)
+    extrapolation === :flat_forward && return curve
+    return Yield.ZeroRateCurve(curve.rates, curve.times, Spline.MonotoneConvex(); extrapolation)
 end
-fit(::Spline.MonotoneConvex, quotes, ::Fit.Bootstrap) = fit(Yield.MonotoneConvex(), quotes)
+function fit(::Spline.MonotoneConvex, quotes, ::Fit.Bootstrap;
+        extrapolation = :flat_forward)
+    extrapolation = Yield.__monotone_extrapolation_method(extrapolation)
+    curve = fit(Yield.MonotoneConvex(), quotes)
+    extrapolation === :flat_forward && return curve
+    return Yield.ZeroRateCurve(curve.rates, curve.times, Spline.MonotoneConvex(); extrapolation)
+end
 
 # FX.Forwards with a spline placeholder as the foreign curve: given spot, the domestic
 # curve, and market quotes, each quote reduces to an equivalent quote on the
@@ -477,7 +507,9 @@ end
 fit(mod0::FX.Forwards{P, S, D, F}, quotes, method::Fit.Bootstrap) where {P, S, D, F <: Spline.SplineCurve} = __fit_fx_via_implied(mod0, quotes, method)
 fit(mod0::FX.Forwards{P, S, D, F}, quotes, method::Fit.Loss) where {P, S, D, F <: Spline.SplineCurve} = __fit_fx_via_implied(mod0, quotes, method)
 
-function fit(mod0::T, quotes, method::Fit.Bootstrap) where {T <: Spline.SplineCurve}
+function fit(mod0::T, quotes, method::Fit.Bootstrap;
+        extrapolation = :flat_forward) where {T <: Spline.SplineCurve}
+    extrapolation = Yield.__extrapolation_method(extrapolation)
     quotes = sort(collect(quotes); by = maturity)
     n = length(quotes)
     times = [float(maturity(q)) for q in quotes]
@@ -502,7 +534,9 @@ function fit(mod0::T, quotes, method::Fit.Bootstrap) where {T <: Spline.SplineCu
             z_at_0 = i == 1 ? z : zs[1]
             # trial curve over the raw grid: no copy, and no finite-rate check so a wild
             # secant step surfaces as a bad residual, not an exception
-            c = Yield.Spline(mod0, Yield.KnotGrid([z_at_0; zs[1:i]], [zero(eltype(times)); times[1:i]]))
+            c = Yield.Spline(mod0,
+                Yield.KnotGrid([z_at_0; zs[1:i]], [zero(eltype(times)); times[1:i]]);
+                extrapolation)
             return present_value(c, q.instrument) - q.price
         end
         seed = i == 1 ? 0.0 : zs[i - 1] # seed with the previous zero rate
@@ -516,7 +550,7 @@ function fit(mod0::T, quotes, method::Fit.Bootstrap) where {T <: Spline.SplineCu
             Roots.find_zero(f, (-1.0, 1.0), Roots.A42())
         end
     end
-    return Yield.Spline(mod0, [zero(eltype(times)); times], [first(zs); zs])
+    return Yield.Spline(mod0, [zero(eltype(times)); times], [first(zs); zs]; extrapolation)
 end
 
 function fit(mod0::Yield.SmithWilson, quotes)
@@ -528,5 +562,7 @@ function fit(mod0::Yield.SmithWilson, quotes)
 end
 
 # Trial curves over the raw (pre-validated) grid: see `__monotone_convex_loss_function`.
-__spline_loss_function(mod0::T, times, loss_method, quotes) where {T <: Spline.SplineCurve} =
-    __reprice_loss(u -> Yield.Spline(mod0, Yield.KnotGrid(u, times)), loss_method, quotes)
+__spline_loss_function(mod0::T, times, loss_method, quotes,
+        extrapolation = :flat_forward) where {T <: Spline.SplineCurve} =
+    __reprice_loss(u -> Yield.Spline(mod0, Yield.KnotGrid(u, times); extrapolation),
+        loss_method, quotes)
