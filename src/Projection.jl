@@ -65,7 +65,7 @@ Base.collect(c::C) where {C <: FinanceCore.AbstractContract} = Projection(c) |> 
 
 # the default projection is just one where we get the cashflows and assume that the contract needs
 # no assumptions/model to determine the cashflows (the contract will error if a certain model is needed)
-Projection(c) = Projection(c, NullModel(), CashflowProjection())
+# The default and keyword index forms are defined in projection_models.jl.
 # if the model is also given, assume that we want a `CashflowProjection` by default
 Projection(c, m) = Projection(c, m, CashflowProjection())
 

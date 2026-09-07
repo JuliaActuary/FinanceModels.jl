@@ -146,6 +146,27 @@ end
 
 ##### Cashflows are model dependent
 
+FinanceModels owns the model requirements of projectable contracts. Use
+`model_requirements(contract)` to inspect the `key => model_type` pairs, including
+those inside composites, forward-starting contracts, transformed legs, portfolios,
+and FX wrappers. Custom projectable contracts extend this function; an unknown
+contract is never assumed to be model independent.
+
+For a shared index curve, `Projection(contract; index=curve)` wires the required
+keys automatically. Rebuild this projection inside a valuation closure to recompute
+floating coupons when the index curve changes:
+
+```julia
+curve = Yield.Constant(0.04)
+swap = InterestRateSwap(curve, 5.0)
+value(index, credit) = present_value(credit, Projection(swap; index))
+value(curve, curve) # approximately zero
+```
+
+For multiple index curves or combined yield and FX requirements, use an explicit
+store, for example `Projection(contract, Dict("SOFR" => sofr, "EURUSD" => fx))`.
+The single-model convenience form rejects a model of the wrong required type.
+
 An example of this is a floating bond where the coupon paid depends on a view of forward rates. See [this section in the overview](@ref Contracts-that-depend-on-the-model-(or-multiple-models)) on projections for how this is handled.
 
 ## Available Contracts & Modules
