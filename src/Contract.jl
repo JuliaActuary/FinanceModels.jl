@@ -236,7 +236,7 @@ module Bond
     end
 
     """
-    OISYield(yield, maturity)
+        OISYield(yield, maturity)
 
     Returns the implied `Quote` for the fixed bond implied by the given `yield` and `maturity`. Assumes that maturities less than or equal to 12 months are settled once (per Hull textbook, 4.7), otherwise quarterly and that the FinanceModels given are bond equivalent.
 
@@ -384,7 +384,10 @@ See also: [`Option`](@ref).
 struct CommonEquity <: FinanceCore.AbstractContract end
 
 """
+Option contracts, including European calls and puts on underlying contracts,
+zero-coupon bond options, caps, and floors.
 
+See [`Option.EuroCall`](@ref) and [`Option.EuroPut`](@ref).
 """
 module Option
     import ..FinanceCore: AbstractContract, Timepoint

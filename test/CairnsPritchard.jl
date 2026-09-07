@@ -18,6 +18,24 @@
         @test FinanceModels.rate(FinanceModels.zero(cp, 1000.0)) ≈ 0.04 atol = 1.0e-10
     end
 
+    @testset "Fit synthetic spot-rate curves" begin
+        times = collect(0.5:0.5:20.0)
+        for (truth, initial) in (
+                (Yield.CairnsPritchard(0.5, 3.0, 0.04, -0.02, 0.01), Yield.CairnsPritchard()),
+                (Yield.CairnsPritchardExtended(0.5, 2.0, 5.0, 0.04, -0.02, 0.01, 0.005), Yield.CairnsPritchardExtended()),
+            )
+            # Generate prices independently from the documented spot-rate formula.
+            rates = [
+                truth.b₀ + truth.b₁ * exp(-truth.c₁ * t) + truth.b₂ * exp(-truth.c₂ * t) +
+                    (truth isa Yield.CairnsPritchardExtended ? truth.b₃ * exp(-truth.c₃ * t) : 0.0)
+                    for t in times
+            ]
+            prices = exp.(-rates .* times)
+            fitted = fit(initial, ZCBPrice.(prices, times))
+            @test maximum(abs.(discount.(fitted, times) .- prices)) < 5.0e-5
+        end
+    end
+
     @testset "DomainError for negative c" begin
         @test_throws DomainError Yield.CairnsPritchard(-1.0, 1.0, 0.0, 0.0, 0.0)
         @test_throws DomainError Yield.CairnsPritchard(1.0, -1.0, 0.0, 0.0, 0.0)
@@ -26,10 +44,12 @@
         @test_throws DomainError Yield.CairnsPritchardExtended(1.0, 2.0, -1.0, 0.0, 0.0, 0.0, 0.0)
     end
 
-    @testset "Fit to Cairns (1998) Figure 1 data" begin
-        # Source: Cairns (1998), Figure 1 — digitized via WebPlotDigitizer
-        # Cairns, A.J.G. (1998). "Descriptive Bond-Yield and Forward-Rate Models for
-        # the British Government Securities Market". British Actuarial Journal, 4(2), 265-321.
+    @testset "Fit to legacy digitized yield fixture" begin
+        # Previously attributed to Cairns (1998), Figure 1, via WebPlotDigitizer.
+        # Figure 1 in the author PDF illustrates optimizer jumps, not yield data:
+        # https://www.macs.hw.ac.uk/~andrewc/papers/ajgc11.pdf
+        # Provenance is unverified; retain only as a numerical regression fixture,
+        # not as validation of the published forward-rate model.
         target = [
             4.106762688183153, 4.264064261935675, 4.403887883049028, 4.550725327846389,
             4.739607977033906, 4.925342222661497, 5.017616324256814, 5.01874845567391,
@@ -49,7 +69,7 @@
         @test discount(c, 0) ≈ 1.0
 
         @testset "zero rates: $t" for (t, r) in zip(mats, target)
-            @test FinanceModels.rate(FinanceModels.zero(c, t)) ≈ r atol = 0.005
+            @test FinanceModels.rate(FinanceModels.zero(c, t)) ≈ r atol = 0.0025
         end
     end
 

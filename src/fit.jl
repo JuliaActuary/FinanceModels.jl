@@ -29,11 +29,18 @@ module Fit
     """
         Bootstrap()
 
-    A singleton type which is passed to `fit` in order to bootstrap Splines. The curves are fit such that the spline passes through the zero rates of the curve. 
+    A singleton type passed to `fit` to bootstrap a spline curve one quote at a time.
+    Each step solves for the zero rate at the next quote maturity to match its price.
 
     A subtype of FitMethod.
 
     # Examples
+
+    ```julia
+    quotes = ZCBPrice([0.99, 0.97, 0.94])
+    curve = fit(Spline.Linear(), quotes, Fit.Bootstrap())
+    discount(curve, 2) ≈ 0.97 # true
+    ```
     """
     struct Bootstrap <: FitMethod
         # spline method
