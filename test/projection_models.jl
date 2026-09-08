@@ -6,6 +6,11 @@ struct DeclaredProjectionContract <: FinanceCore.AbstractContract
 end
 FinanceModels.model_requirements(c::DeclaredProjectionContract) = (c.key => Yield.AbstractYieldModel,)
 
+struct IterableProjectionContract{R} <: FinanceCore.AbstractContract
+    requirements::R
+end
+FinanceModels.model_requirements(c::IterableProjectionContract) = c.requirements
+
 @testset "Projection model requirements" begin
     curve = Yield.Constant(Continuous(0.04))
     credit = Yield.Constant(Continuous(0.06))
@@ -29,7 +34,7 @@ FinanceModels.model_requirements(c::DeclaredProjectionContract) = (c.key => Yiel
         @test ForwardDiff.derivative(auto, 0.04) ≈ ForwardDiff.derivative(explicit, 0.04)
     end
     @test present_value(curve, Projection(swap; index = curve)) ≈ 0.0 atol = 1.0e-12
-    @test model_requirements(portfolio) == (:index => Yield.AbstractYieldModel, :index => Yield.AbstractYieldModel)
+    @test collect(model_requirements(portfolio)) == [:index => Yield.AbstractYieldModel, :index => Yield.AbstractYieldModel]
     @test present_value(credit, Projection(portfolio; index = curve)) ≈
         sum(present_value(credit, Projection(c, store)) for c in portfolio)
     @test isempty(model_requirements(FinanceCore.AbstractContract[]))
@@ -64,4 +69,68 @@ FinanceModels.model_requirements(c::DeclaredProjectionContract) = (c.key => Yiel
     @test_throws MethodError Projection(unknown; index = curve)
     @test Projection(unknown, store).model === store
     @test Projection(DeclaredProjectionContract(:custom); index = curve).model[:custom] === curve
+
+    @testset "Runtime portfolios stay lazy through wrappers" begin
+        small = fill(floating, 1)
+        large = fill(floating, 10_000)
+        yield_requirement = :index => Yield.AbstractYieldModel
+        fx_requirement = :fx => FX.AbstractFXModel
+        for (wrap, expected) in (
+                (identity, (yield_requirement,)),
+                (cs -> FinanceCore.Composite(fixed, cs), (yield_requirement,)),
+                (cs -> FinanceCore.Composite(cs, floating), (yield_requirement, yield_requirement)),
+                (cs -> Forward(1.0, FinanceCore.Composite(fixed, cs)), (yield_requirement,)),
+                (cs -> cs |> Map(-), (yield_requirement,)),
+                (cs -> FX.Converted(cs, pair, :fx), (fx_requirement, yield_requirement)),
+                (cs -> FinanceCore.Composite(FX.Converted(cs, pair, :fx), cs), (fx_requirement, yield_requirement, yield_requirement)),
+            )
+            small_requirements = @inferred model_requirements(wrap(small))
+            large_requirements = @inferred model_requirements(wrap(large))
+            @test !(large_requirements isa Tuple)
+            @test typeof(small_requirements) === typeof(large_requirements)
+            @test Tuple(small_requirements) == expected
+        end
+        @test count(==(:index => Yield.AbstractYieldModel), model_requirements(large)) == length(large)
+        @test Projection(large; index = curve).model == store
+        @test collect(model_requirements(reshape(large, 100, 100))) == collect(model_requirements(large))
+        nested = [Bond.Floating[], small, Bond.Floating[], small]
+        @test collect(model_requirements(nested)) == fill(:index => Yield.AbstractYieldModel, 2)
+
+        # Obtaining requirements must not visit array elements, even through wrappers.
+        for wrap in (identity, cs -> FinanceCore.Composite(fixed, cs), cs -> FX.Converted(cs, pair, :fx))
+            cs = FinanceCore.AbstractContract[floating, unknown]
+            requirements = model_requirements(wrap(cs))
+            @test first(requirements) in (:index => Yield.AbstractYieldModel, :fx => FX.AbstractFXModel)
+            @test_throws MethodError collect(requirements)
+        end
+    end
+
+    @testset "Every occurrence is validated in one pass" begin
+        requirements = Iterators.Stateful(
+            [
+                :index => Yield.AbstractYieldModel,
+                :index => typeof(curve),
+                :other => Yield.AbstractYieldModel,
+            ]
+        )
+        custom = IterableProjectionContract(requirements)
+        @test Projection(custom; index = curve).model == Dict(:index => curve, :other => curve)
+        @test isempty(requirements)
+
+        # Repeated keys may impose incompatible constraints, in either order.
+        for types in ((Yield.AbstractYieldModel, FX.AbstractFXModel), (FX.AbstractFXModel, Yield.AbstractYieldModel))
+            for index in (curve, fx)
+                requirements = Iterators.Stateful([:index => types[1], :index => types[2]])
+                custom = IterableProjectionContract(requirements)
+                invalid_type = index isa types[1] ? types[2] : types[1]
+                @test_throws "key :index requires $invalid_type" Projection(custom; index)
+            end
+        end
+        conflict = FX.Converted(fixed, pair, :index)
+        cs = FinanceCore.AbstractContract[fill(floating, 1_000); conflict]
+        for wrap in (identity, cs -> FinanceCore.Composite(fixed, cs), cs -> Forward(1.0, FinanceCore.Composite(fixed, cs)), cs -> cs |> Map(-))
+            @test_throws "key :index requires $(FX.AbstractFXModel)" Projection(wrap(cs); index = curve)
+        end
+        @test_throws "key :index requires $(Yield.AbstractYieldModel)" Projection(FX.Converted(floating, pair, :index); index = fx)
+    end
 end

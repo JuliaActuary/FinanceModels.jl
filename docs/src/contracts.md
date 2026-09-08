@@ -147,10 +147,16 @@ end
 ##### Cashflows are model dependent
 
 FinanceModels owns the model requirements of projectable contracts. Use
-`model_requirements(contract)` to inspect the `key => model_type` pairs, including
+`model_requirements(contract)` to iterate over the `key => model_type` pairs, including
 those inside composites, forward-starting contracts, transformed legs, portfolios,
 and FX wrappers. Custom projectable contracts extend this function; an unknown
 contract is never assumed to be model independent.
+
+The protocol returns an iterable: small fixed contracts may return tuples, while
+runtime portfolios are flattened lazily, including inside contract wrappers.
+Use `collect(model_requirements(contract))` when a materialized list is needed.
+The convenience constructor consumes requirements once and validates every
+occurrence, even when a repeated key has different model type constraints.
 
 For a shared index curve, `Projection(contract; index=curve)` wires the required
 keys automatically. Rebuild this projection inside a valuation closure to recompute
