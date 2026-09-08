@@ -1,13 +1,21 @@
 """
-    MonotoneConvex(rates, times)
+    MonotoneConvex(rates, times; extrapolation=:flat_forward)
 
 A Monotone Convex yield curve model implementing the Hagan-West interpolation method.
 
-This interpolation method guarantees:
+With the default extrapolation, this interpolation method guarantees:
 - Continuous forward rates (including at and beyond the last knot, where the
   forward is extrapolated flat at the boundary instantaneous forward `f(t_n)`)
 - Positive forward rates (when input rates imply positive discrete forwards)
 - Monotone convex forward curves that match discrete forward rates at knot points
+
+The `extrapolation` keyword also accepts `:flat_zero`, `:linear`, and
+[`FlatForwardAt`](@ref). These change only the tail strictly beyond the last knot;
+`:flat_zero` and a supplied forward usually introduce a forward jump there.
+`:extension` is unavailable because this model has no DataInterpolations polynomial
+piece to continue. Every policy keeps the native `MonotoneConvex` curve interface.
+`MonotoneConvex` and its documented properties are public API; the number and order
+of its type parameters are implementation details.
 
 Negative input rates are supported: the Hagan-West positivity collar is applied
 symmetrically (bounding node forwards between 0 and twice the adjacent discrete
@@ -33,7 +41,8 @@ The curve **owns** its data: `rates` and `times` go through the shared knot-grid
 (see `Yield.KnotGrid`) — they are copied (later mutation of the vectors you passed in does not
 affect the curve) and promoted to one concrete floating-point element type each; ranges and
 tuples are accepted. The node forwards `f` and discrete forwards `fᵈ` are computed once at
-construction and are a pure function of `(rates, times)`. All four are exposed as **read-only**
+construction and are a pure function of `(rates, times)`. The selected policy is available as `c.extrapolation`; its tail boundary data are also
+rebuilt when knots change. All four vectors are exposed as **read-only**
 vectors — indexed assignment (`c.rates[1] = …`, `.=`, `sort!`, …) throws — so the cached
 forwards can never disagree with the knots. Use `copy(c.rates)` for a mutable copy.
 
@@ -46,6 +55,7 @@ To change a curve, use `Accessors.@set`, which re-validates and recomputes the f
 using Accessors
 c2 = @set c.rates[2] = 0.031          # one knot rate
 c3 = @set c.times = [1.0, 3.0, 6.0, 12.0, 20.0]  # whole grid (must stay strictly increasing)
+c4 = @set c.extrapolation = Yield.FlatForwardAt(0.035)
 ```
 
 Setting `f` or `fᵈ` through Accessors throws: they are derived. `fit(c, quotes)` varies all knot
@@ -55,28 +65,52 @@ rates through one batch optic (a single rebuild per optimizer candidate).
 - Hagan & West, "Interpolation Methods for Curve Construction", WILMOTT magazine
 - Dehlbom, "Interpolation of the yield curve" (http://uu.diva-portal.org/smash/get/diva2:1477828/FULLTEXT01.pdf)
 """
-struct MonotoneConvex{T, U} <: AbstractYieldModel
+struct MonotoneConvex{T, U, P, E} <: AbstractYieldModel
     f::ReadOnlyVector{T}      # node instantaneous forwards; derived from (rates, times)
     fᵈ::ReadOnlyVector{T}     # discrete forwards; derived from (rates, times)
     rates::ReadOnlyVector{T}  # continuously-compounded zero rates (finite); read-only
     times::ReadOnlyVector{U}  # finite, ≥ 0, strictly increasing; read-only
+    extrapolation::P         # requested policy, preserved when knots change
+    _tail::E                 # boundary quantities derived from the policy and knots
     # The only inner constructor: takes an owned, validated grid and computes the forwards
     # from it, so `f`/`fᵈ` are consistent with `rates`/`times` by construction. There is
     # deliberately no 4-arg constructor; Accessors/ConstructionBase reconstruct through
     # `setproperties`/`constructorof` (see src/fit.jl), which route back to `KnotGrid`.
-    function MonotoneConvex(g::KnotGrid{T, U}) where {T, U}
+    function MonotoneConvex(g::KnotGrid{T, U}; extrapolation = :flat_forward) where {T, U}
+        # This entry also serves direct construction and optimizer trial grids, so
+        # it validates the policy even when ZeroRateCurve already validated it.
+        extrapolation = __monotone_extrapolation_method(extrapolation)
         f, fᵈ = __monotone_convex_fs(g.rates, g.tenors)
-        return new{T, U}(ReadOnlyVector(f), ReadOnlyVector(fᵈ), ReadOnlyVector(g.rates), ReadOnlyVector(g.tenors))
+        t, z = last(g.tenors), last(g.rates)
+        boundary = () -> (forward = last(f), slope = iszero(t) ? zero(z) : (last(f) - z) / t)
+        tail = __build_tail(extrapolation, t, z, boundary)
+        return new{T, U, typeof(extrapolation), typeof(tail)}(
+            ReadOnlyVector(f), ReadOnlyVector(fᵈ), ReadOnlyVector(g.rates), ReadOnlyVector(g.tenors),
+            extrapolation, tail)
     end
 end
 
 # Public form: copies, promotes and validates through the shared knot-grid path.
-MonotoneConvex(rates, times) = MonotoneConvex(KnotGrid(rates, times, Sp.MonotoneConvex(); who = "MonotoneConvex"))
+MonotoneConvex(rates, times; extrapolation = :flat_forward) =
+    MonotoneConvex(KnotGrid(rates, times, Sp.MonotoneConvex(); who = "MonotoneConvex"); extrapolation)
 
 # `f`/`fᵈ` are internal caches: listed only with `propertynames(c, true)` (Base's convention),
 # still readable as `c.f`. The ConstructionBase protocol (src/fit.jl) mirrors this split.
 Base.propertynames(::MonotoneConvex, private::Bool = false) =
-    private ? (:f, :fᵈ, :rates, :times) : (:rates, :times)
+    private ? (:f, :fᵈ, :rates, :times, :extrapolation) : (:rates, :times, :extrapolation)
+function Base.getproperty(c::MonotoneConvex, s::Symbol)
+    s === :_tail && throw(ArgumentError("MonotoneConvex: `_tail` is internal; use `zero`/`instantaneous_forward`."))
+    return getfield(c, s)
+end
+
+# Owned storage makes both the forward cache and tail pure functions of these
+# public inputs. Compare configuration, not the identity of the cached arrays.
+Base.:(==)(a::MonotoneConvex, b::MonotoneConvex) =
+    a.rates == b.rates && a.times == b.times && a.extrapolation == b.extrapolation
+Base.isequal(a::MonotoneConvex, b::MonotoneConvex) =
+    isequal(a.rates, b.rates) && isequal(a.times, b.times) && isequal(a.extrapolation, b.extrapolation)
+Base.hash(c::MonotoneConvex, h::UInt) =
+    hash(c.rates, hash(c.times, hash(c.extrapolation, hash(:MonotoneConvex, h))))
 
 
 struct MonotoneConvexUnInit
@@ -233,9 +267,11 @@ end
     instantaneous_forward(mc::MonotoneConvex, t)
 
 The instantaneous (continuously-compounded) forward rate of the Hagan-West
-interpolant at time `t`. Beyond the last knot the forward is extrapolated flat
-at the boundary instantaneous forward `f(t_n)`, so the forward curve is
-continuous everywhere, including at the last knot.
+interpolant at time `t`. Beyond the last knot it follows `mc.extrapolation`.
+The default `:flat_forward` holds the boundary forward constant. `:flat_zero`
+holds the forward at the last zero rate, `:linear` derives it from the linearly
+extended zero rate, and `FlatForwardAt(f)` holds it at `f`.
+At the last knot itself this method returns the interior (left) forward.
 
 Note this is distinct from `forward(curve, from, to)`, which is the *discrete*
 forward `Rate` between two times and is defined for every yield model.
@@ -244,9 +280,11 @@ function instantaneous_forward(mc::MonotoneConvex, t)
     f, fᵈ, times = mc.f, mc.fᵈ, mc.times
     lt = last(times)
 
-    # Extrapolation: constant forward beyond the last knot, anchored at the
-    # boundary instantaneous forward so the curve stays continuous at t_n
-    if t >= lt
+    # At the boundary report the interior (left) forward. Policies that impose a
+    # different forward begin strictly after the knot, consistently with `zero`.
+    if t > lt
+        return __tail_forward(getfield(mc, :_tail), t)
+    elseif t == lt
         return f[end]
     end
 
@@ -339,12 +377,8 @@ function Base.zero(mc::MonotoneConvex, t)
         return Continuous(f[1])
     end
 
-    # Extrapolation beyond the last knot: constant forward anchored at the
-    # boundary instantaneous forward f(t_n), consistent with `instantaneous_forward`
     if t > lt
-        r_lt = rate(Base.zero(mc, lt))  # extract scalar rate for calculation
-        f_lt = f[end]  # instantaneous forward at the last knot
-        return Continuous(r_lt * lt / t + f_lt * (1 - lt / t))
+        return Continuous(getfield(mc, :_tail)(t))
     end
 
     i_time = __i_time(t, times)

@@ -824,6 +824,20 @@ end
         @test_throws ArgumentError fit(Spline.Linear(), dup, Fit.Bootstrap())
         # too few quotes for the interpolant is reported before any optimisation runs
         @test_throws ArgumentError fit(Spline.PCHIP(), qs[1:2], Fit.Loss(x -> x^2))
+
+        selected = fit(Spline.Linear(), qs; extrapolation = :flat_zero)
+        @test rate(zero(selected, 100.0)) ≈ rate(zero(selected, last(t))) atol = 1.0e-10
+        selected_bootstrap = fit(Spline.Cubic(), qs, Fit.Bootstrap();
+            extrapolation = :extension)
+        @test rate(zero(selected_bootstrap, 100.0)) !=
+            rate(zero(selected_bootstrap, last(t)))
+
+        selected_mc = fit(Spline.MonotoneConvex(), qs; extrapolation = :flat_zero)
+        @test selected_mc isa Yield.MonotoneConvex
+        @test selected_mc.extrapolation === :flat_zero
+        @test rate(zero(selected_mc, 100.0)) ≈ last(selected_mc.rates) atol = 1.0e-10
+        @test_throws ArgumentError fit(Spline.MonotoneConvex(), qs;
+            extrapolation = :extension)
     end
 
     @testset "KnotGrid (internal): owned copies, independent promotion, raw trial form" begin
@@ -839,5 +853,80 @@ end
         # the raw form neither copies nor validates — reserved for optimizer trial curves
         raw = KG([NaN, 0.0], [2.0, 1.0])
         @test isnan(raw.rates[1]) && raw.tenors == [2.0, 1.0]
+    end
+
+    @testset "flat-forward long-end extrapolation" begin
+        # Regression: DataInterpolations.Extension used to continue the final
+        # polynomial piece, making ordinary quadratic/cubic curves explode at 100y.
+        long_rates = [0.02, 0.025, 0.03, 0.035, 0.04, 0.042]
+        long_tenors = [1.0, 2.0, 5.0, 10.0, 20.0, 30.0]
+        tₙ, horizon = last(long_tenors), 100.0
+
+        for d in descriptors
+            # Both public knot-curve construction paths use the same policy.
+            for curve in (Yield.Spline(d, long_tenors, long_rates),
+                    ZeroRateCurve(long_rates, long_tenors, d))
+                terminal_forward = rate(forward(curve, tₙ, 2tₙ))
+
+                # Every later interval has that same continuously-compounded forward.
+                @test rate(forward(curve, 2tₙ, horizon)) ≈ terminal_forward atol = 1.0e-14
+
+                # The zero rate is the maturity-weighted blend required to preserve
+                # the last-knot discount factor; it does not continue a polynomial.
+                expected_zero = (last(long_rates) * tₙ + terminal_forward * (horizon - tₙ)) / horizon
+                @test rate(zero(curve, horizon)) ≈ expected_zero atol = 1.0e-14
+                @test isfinite(rate(zero(curve, 10_000.0)))
+
+                # The flat forward is anchored to the last polynomial piece's left
+                # derivative, so no forward jump is introduced at the boundary.
+                ε = 1.0e-4
+                @test rate(forward(curve, tₙ - ε, tₙ)) ≈
+                    rate(forward(curve, tₙ, tₙ + ε)) atol = 1.0e-6
+            end
+        end
+    end
+
+    @testset "selectable long-end extrapolation" begin
+        long_rates = [0.02, 0.025, 0.03, 0.035, 0.04, 0.042]
+        long_tenors = [1.0, 2.0, 5.0, 10.0, 20.0, 30.0]
+        tₙ, horizon = last(long_tenors), 100.0
+        d = Spline.Cubic()
+
+        default = Yield.Spline(d, long_tenors, long_rates)
+        explicit_default = Yield.Spline(d, long_tenors, long_rates;
+            extrapolation = :flat_forward)
+        @test rate(zero(default, horizon)) == rate(zero(explicit_default, horizon))
+
+        flat_zero = Yield.Spline(d, long_tenors, long_rates; extrapolation = :flat_zero)
+        @test rate(zero(flat_zero, horizon)) == last(long_rates)
+
+        linear = Yield.Spline(d, long_tenors, long_rates; extrapolation = :linear)
+        z31 = rate(zero(linear, tₙ + 1))
+        @test rate(zero(linear, horizon)) ≈
+            last(long_rates) + (horizon - tₙ) * (z31 - last(long_rates)) atol = 1.0e-14
+
+        extension = Yield.Spline(d, long_tenors, long_rates; extrapolation = :extension)
+        DI = FinanceModels.DataInterpolations
+        legacy = DI.CubicSpline(long_rates, long_tenors;
+            extrapolation = DI.ExtrapolationType.Extension, cache_parameters = true)
+        @test rate(zero(extension, horizon)) ≈ legacy(horizon) atol = 1.0e-14
+
+        # ZeroRateCurve stores the selection so Accessors/fit reconstruction can preserve it.
+        for method in (:flat_forward, :flat_zero, :linear, :extension)
+            zrc = ZeroRateCurve(long_rates, long_tenors, d; extrapolation = method)
+            @test zrc.extrapolation === method
+            @test rate(zero(zrc, horizon)) ≈
+                rate(zero(Yield.Spline(d, long_tenors, long_rates;
+                    extrapolation = method), horizon)) atol = 1.0e-14
+        end
+
+        # MonotoneConvex supports the financial boundary policies, but has no
+        # DataInterpolations polynomial for `:extension` to continue.
+        mc_flat = ZeroRateCurve(long_rates, long_tenors; extrapolation = :flat_zero)
+        @test rate(zero(mc_flat, horizon)) ≈ last(long_rates) atol = 1.0e-14
+        @test ZeroRateCurve(long_rates, long_tenors; extrapolation = :linear).extrapolation === :linear
+
+        @test_throws ArgumentError Yield.Spline(d, long_tenors, long_rates;
+            extrapolation = :unknown)
     end
 end

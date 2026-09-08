@@ -4,6 +4,34 @@ using ForwardDiff
     rates = [0.02, 0.03, 0.035, 0.04]
     tenors = [1.0, 2.0, 5.0, 10.0]
 
+    @testset "zero-rate primitive survives the wrapper" begin
+        for spline in (
+                Spline.Linear(), Spline.Quadratic(), Spline.Cubic(),
+                Spline.PCHIP(), Spline.Akima(), Spline.MonotoneConvex(), Spline.BSpline(1),
+            )
+            flat = ZeroRateCurve(fill(0.05, 4), tenors, spline)
+            zrc = ZeroRateCurve(rates, tenors, spline)
+            model = Yield.build_model(spline, tenors, rates)
+            for t in (0.0, 1.0e-20, 0.5, 3.0, 10.0, 2.0e4)
+                @test rate(zero(flat, t)) ≈ 0.05
+                @test zero(zrc, t) == zero(model, t)
+                @test rate(zero(flat + Yield.Constant(Continuous(0.01)), t)) ≈ 0.06
+                @test rate(zero(flat + ((z, t) -> z + Continuous(0.01)), t)) ≈ 0.06
+            end
+            @test_throws DomainError zero(zrc, -1.0)
+        end
+
+        for t in (0.0, 1.0e-20, 3.0, 2.0e4)
+            wrapped(rs) = rate(zero(ZeroRateCurve(rs, tenors, Spline.Linear()), t))
+            direct(rs) = rate(zero(Yield.build_model(Spline.Linear(), tenors, rs), t))
+            @test ForwardDiff.gradient(wrapped, rates) ≈ ForwardDiff.gradient(direct, rates)
+        end
+        zrc = ZeroRateCurve(rates, tenors, Spline.Linear())
+        model = Yield.build_model(Spline.Linear(), tenors, rates)
+        @test ForwardDiff.derivative(t -> rate(zero(zrc, t)), 3.0) ≈
+            ForwardDiff.derivative(t -> rate(zero(model, t)), 3.0)
+    end
+
     @testset "MonotoneConvex (default)" begin
         zrc = ZeroRateCurve(rates, tenors)
 
@@ -123,6 +151,20 @@ using ForwardDiff
             ad = ForwardDiff.derivative(f, 0.02)
             @test ad ≈ -1.0 * exp(-0.02 * 1.0) atol = 1e-12
         end
+
+        # The terminal forward (including the interpolant's endpoint derivative)
+        # is computed with the rate's numeric type, so long-end extrapolation must
+        # retain AD information rather than freezing the boundary at construction.
+        # `:extension` deliberately delegates to DataInterpolations' legacy tail;
+        # cubic, B-spline and Akima extension can themselves return NaN sensitivities
+        # far beyond the grid, which is one reason it is no longer the default.
+        for spl in (Spline.Linear(), Spline.Quadratic(), Spline.Cubic(),
+                Spline.BSpline(3), Spline.PCHIP(), Spline.Akima()),
+                extrapolation in (:flat_forward, :flat_zero, :linear)
+            f(r) = rate(zero(ZeroRateCurve(
+                [rates_ad[1:(end - 1)]...; r], tenors_ad, spl; extrapolation), 100.0))
+            @test isfinite(ForwardDiff.derivative(f, last(rates_ad)))
+        end
     end
 
     @testset "eager-build: structural equality preserved" begin
@@ -139,6 +181,9 @@ using ForwardDiff
         # same type).
         @test ZeroRateCurve(r, t, Spline.Linear()) != ZeroRateCurve(r, t, Spline.Cubic())
         @test hash(ZeroRateCurve(r, t, Spline.Linear())) != hash(ZeroRateCurve(r, t, Spline.Cubic()))
+        # The extrapolation policy is value-carrying state too.
+        @test ZeroRateCurve(r, t, Spline.Linear()) !=
+            ZeroRateCurve(r, t, Spline.Linear(); extrapolation = :flat_zero)
     end
 
     # ─── Owned, read-only storage ─────────────────────────────────────────────
@@ -161,8 +206,8 @@ using ForwardDiff
             @test_throws ArgumentError zrc.rates._data
             @test propertynames(zrc.rates) == ()
             @test propertynames(zrc.rates, true) == ()
-            @test propertynames(zrc) == (:rates, :tenors, :spline)
-            @test propertynames(zrc, true) == (:rates, :tenors, :spline)
+            @test propertynames(zrc) == (:rates, :tenors, :spline, :extrapolation)
+            @test propertynames(zrc, true) == (:rates, :tenors, :spline, :extrapolation)
             @test_throws ArgumentError zrc._model
             # nothing above changed the curve
             @test discount(zrc, 1.0) == df1
@@ -217,15 +262,18 @@ using ForwardDiff
     @testset "ConstructionBase round-trips" begin
         CB = Accessors.ConstructionBase
         z = ZeroRateCurve([0.02, 0.03, 0.04], [1.0, 2.0, 5.0], Spline.Linear())
-        @test keys(CB.getproperties(z)) == (:rates, :tenors, :spline)
+        @test keys(CB.getproperties(z)) == (:rates, :tenors, :spline, :extrapolation)
         @test CB.setproperties(z, CB.getproperties(z)) == z
         raw = CB.constructorof(typeof(z))(CB.getfields(z)...)
         @test raw == z && discount(raw, 3.5) == discount(z, 3.5)
         @test Accessors.mapproperties(identity, z) == z
-        @test Accessors.getall(z, Accessors.Properties()) == (z.rates, z.tenors, z.spline)
+        @test Accessors.getall(z, Accessors.Properties()) ==
+            (z.rates, z.tenors, z.spline, z.extrapolation)
         newrates = [0.03, 0.04, 0.05]
-        zp = Accessors.setall(z, Accessors.Properties(), (newrates, z.tenors, z.spline))
-        @test zp == ZeroRateCurve(newrates, [1.0, 2.0, 5.0], Spline.Linear())
+        zp = Accessors.setall(z, Accessors.Properties(),
+            (newrates, z.tenors, z.spline, :flat_zero))
+        @test zp == ZeroRateCurve(newrates, [1.0, 2.0, 5.0], Spline.Linear();
+            extrapolation = :flat_zero)
         @test discount(zp, 5.0) ≈ exp(-0.05 * 5.0)
     end
 
@@ -247,6 +295,10 @@ using ForwardDiff
         @test lin == ZeroRateCurve(r, t, Spline.Linear())
         @test discount(lin, 3.5) ≈ discount(ZeroRateCurve(r, t, Spline.Linear()), 3.5)
         @test discount(lin, 3.5) != discount(zrc, 3.5)
+        flat_zero = Accessors.@set lin.extrapolation = :flat_zero
+        @test flat_zero.extrapolation === :flat_zero
+        @test rate(zero(flat_zero, 10.0)) ≈ last(r)
+        @test_throws ArgumentError Accessors.@set lin.extrapolation = :unknown
         # tenor patches: whole-grid replacement and order-preserving single-element updates work
         g = Accessors.@set zrc.tenors = [1.0, 3.0, 6.0]
         @test g == ZeroRateCurve(r, [1.0, 3.0, 6.0], Spline.MonotoneConvex())
@@ -264,7 +316,7 @@ using ForwardDiff
         @test_throws ArgumentError (Accessors.@set zrc._model = nothing)
         @test_throws ArgumentError CB.setproperties(zrc, (_model = nothing,))
         @test_throws ArgumentError CB.setproperties(zrc, (foo = 1,))
-        # positional 4-arg reconstruction path (what `setproperties`/`fit` call internally)
+        # ConstructionBase reconstruction preserves the public policy and rebuilds the cache.
         sp = CB.setproperties(zrc, (rates = [0.03, 0.04, 0.05],))
         @test sp == ZeroRateCurve([0.03, 0.04, 0.05], t, Spline.MonotoneConvex())
         @test discount(sp, 5.0) ≈ exp(-0.05 * 5.0)
@@ -273,13 +325,20 @@ using ForwardDiff
         @test eltype(dz.rates) <: ForwardDiff.Dual
         @test discount(dz, 1.0) isa ForwardDiff.Dual
         @test ForwardDiff.partials(discount(dz, 1.0), 1) ≈ -1.0 * exp(-0.02 * 1.0) atol = 1e-12
-        # no public 4-arg constructor
+        # The policy is keyword-only and there is no public positional cache constructor.
+        @test_throws MethodError ZeroRateCurve(r, t, Spline.Linear(), :flat_zero)
         @test_throws MethodError ZeroRateCurve(r, t, Spline.Linear(), getfield(zrc, :_model))
     end
 
     # ─── Validation ───────────────────────────────────────────────────────────
 
     @testset "validation" begin
+        @test_throws ArgumentError ZeroRateCurve([0.02, 0.03], [1.0, 2.0];
+            extrapolation = :unknown)
+        @test_throws ArgumentError ZeroRateCurve([0.02, 0.03], [1.0, 2.0];
+            extrapolation = "flat_forward")
+        @test_throws ArgumentError ZeroRateCurve([0.02, 0.03], [1.0, 2.0];
+            extrapolation = :extension)  # MonotoneConvex has no polynomial extension
         @test_throws ArgumentError ZeroRateCurve([0.02, 0.03], [1.0])                  # length mismatch
         @test_throws ArgumentError ZeroRateCurve(Float64[], Float64[])                 # empty
         @test_throws ArgumentError ZeroRateCurve([0.02, 0.03], [-1.0, 2.0])            # negative tenor
