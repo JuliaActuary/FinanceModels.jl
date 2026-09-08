@@ -6,6 +6,9 @@ abstract type AbstractProjection end
 The set of `contract`s and assumptions (`model`) to project the `kind` of output desired. Some assets require a projection in order to be valued (e.g. a floating rate bond).
 
 If attempting to `collect` or otherwise reduce a contract (`<:AbstractContract`), by default it will get wrapped into a `Projection(contract,NullModel(),CashflowProjection())`
+
+Use `Projection(contract; index)` to build a shared-index model store from
+[`model_requirements`](@ref).
 """
 struct Projection{C, M, K} <: AbstractProjection
     contract::C
@@ -65,7 +68,7 @@ Base.collect(c::C) where {C <: FinanceCore.AbstractContract} = Projection(c) |> 
 
 # the default projection is just one where we get the cashflows and assume that the contract needs
 # no assumptions/model to determine the cashflows (the contract will error if a certain model is needed)
-Projection(c) = Projection(c, NullModel(), CashflowProjection())
+# The default and keyword index forms are defined in projection_models.jl.
 # if the model is also given, assume that we want a `CashflowProjection` by default
 Projection(c, m) = Projection(c, m, CashflowProjection())
 
