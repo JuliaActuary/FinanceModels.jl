@@ -31,7 +31,7 @@ FinanceModelsUnicodePlots = "UnicodePlots"
 [compat]
 AccessibleModels = "0.1.11"
 Accessors = "0.1.42"
-DataInterpolations = "9.2"
+DataInterpolations = "9.2, 10"
 DifferentiationInterface = "0.7.4"
 FinanceCore = "2.3, 3"
 IntervalSets = "0.7.11"
