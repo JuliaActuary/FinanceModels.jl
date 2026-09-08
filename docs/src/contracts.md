@@ -49,6 +49,9 @@ struct PrincipleOnlyBond{F<:FinanceCore.Frequency} <: FinanceModels.Bond.Abstrac
     maturity::Float64
 end
 
+# This contract needs no model when using Projection(contract; index).
+FinanceModels.model_requirements(::PrincipleOnlyBond) = ()
+
 # We extend the interface to say what should happen as the bond is projected
 # There's two parts to customize:
 # 1. any initialization or state to keep track of
@@ -154,6 +157,8 @@ contract is never assumed to be model independent.
 
 The protocol returns an iterable: small fixed contracts may return tuples, while
 runtime portfolios are flattened lazily, including inside contract wrappers.
+Use arrays for large portfolios to avoid compilation costs from deeply nested
+`Composite` types.
 Use `collect(model_requirements(contract))` when a materialized list is needed.
 The convenience constructor consumes requirements once and validates every
 occurrence, even when a repeated key has different model type constraints.
@@ -172,6 +177,9 @@ value(curve, curve) # approximately zero
 For multiple index curves or combined yield and FX requirements, use an explicit
 store, for example `Projection(contract, Dict("SOFR" => sofr, "EURUSD" => fx))`.
 The single-model convenience form rejects a model of the wrong required type.
+Its generated store is a `Dict{Any, typeof(index)}`, supporting mixed key types
+while retaining concrete model values. Pass an explicit store when downstream
+code requires a particular store or key type.
 
 An example of this is a floating bond where the coupon paid depends on a view of forward rates. See [this section in the overview](@ref Contracts-that-depend-on-the-model-(or-multiple-models)) on projections for how this is handled.
 

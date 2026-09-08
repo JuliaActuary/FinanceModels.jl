@@ -8,14 +8,29 @@ Composites, forwards, portfolios, and Transducers eductions retain the requireme
 of their underlying contracts. Runtime portfolios are traversed lazily; small,
 fixed contract requirements may be tuples. A key may occur more than once: its
 model must satisfy every occurrence.
+Use arrays for large portfolios to avoid compilation costs from deeply nested
+`Composite` types.
 
 Custom projectable contracts should implement this function, returning an iterable
 of pairs (empty, for example `()`, only when they require no model). The convenience
 constructor consumes the requirements once. There is no model-independent fallback
-for unknown contracts. Explicit `Projection(contract, model_store)` remains available
-without implementing this convenience protocol.
+for unknown contracts: an undeclared `AbstractContract` raises an `ArgumentError`
+that explains how to declare its requirements. Explicit
+`Projection(contract, model_store)` remains available without implementing this
+convenience protocol.
 """
 function model_requirements end
+
+function model_requirements(c::FinanceCore.AbstractContract)
+    throw(
+        ArgumentError(
+            "$(typeof(c)) does not declare its projection model requirements. " *
+                "Define FinanceModels.model_requirements for this contract " *
+                "(returning () if no model is needed), or pass an explicit model store " *
+                "with Projection(contract, models)."
+        )
+    )
+end
 
 model_requirements(::Cashflow) = ()
 model_requirements(::Bond.Fixed) = ()
@@ -42,6 +57,10 @@ Project a contract or portfolio using `index` for every required model key.
 The model must satisfy all [`model_requirements`](@ref). For contracts with
 different index curves or an FX conversion, pass an explicit model store instead:
 `Projection(contract, Dict("SOFR" => sofr, "EURUSD" => fx))`.
+
+The generated store is a `Dict{Any, typeof(index)}`: keys may have mixed types,
+while model values keep the concrete type of `index`. Pass an explicit store if
+downstream code requires a particular store or key type.
 
 This form is useful inside a valuation closure: rebuilding the projection with a
 bumped `index` recomputes floating coupons, including transformed swap legs.

@@ -6,6 +6,9 @@ abstract type AbstractProjection end
 The set of `contract`s and assumptions (`model`) to project the `kind` of output desired. Some assets require a projection in order to be valued (e.g. a floating rate bond).
 
 If attempting to `collect` or otherwise reduce a contract (`<:AbstractContract`), by default it will get wrapped into a `Projection(contract,NullModel(),CashflowProjection())`
+
+Use `Projection(contract; index)` to build a shared-index model store from
+[`model_requirements`](@ref).
 """
 struct Projection{C, M, K} <: AbstractProjection
     contract::C

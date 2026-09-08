@@ -1,4 +1,6 @@
-using ForwardDiff
+module ProjectionModelTests
+
+using Test, FinanceCore, FinanceModels, Transducers, ForwardDiff
 
 struct UndeclaredProjectionContract <: FinanceCore.AbstractContract end
 struct DeclaredProjectionContract <: FinanceCore.AbstractContract
@@ -65,8 +67,8 @@ FinanceModels.model_requirements(c::IterableProjectionContract) = c.requirements
     # An extension must declare its needs; explicit stores keep working without
     # adopting the convenience protocol, and are not replaced by inferred wiring.
     unknown = UndeclaredProjectionContract()
-    @test_throws MethodError model_requirements(unknown)
-    @test_throws MethodError Projection(unknown; index = curve)
+    @test_throws ArgumentError model_requirements(unknown)
+    @test_throws r"UndeclaredProjectionContract.*Define FinanceModels.model_requirements.*returning \(\).*explicit model store" Projection(unknown; index = curve)
     @test Projection(unknown, store).model === store
     @test Projection(DeclaredProjectionContract(:custom); index = curve).model[:custom] === curve
 
@@ -101,7 +103,7 @@ FinanceModels.model_requirements(c::IterableProjectionContract) = c.requirements
             cs = FinanceCore.AbstractContract[floating, unknown]
             requirements = model_requirements(wrap(cs))
             @test first(requirements) in (:index => Yield.AbstractYieldModel, :fx => FX.AbstractFXModel)
-            @test_throws MethodError collect(requirements)
+            @test_throws ArgumentError collect(requirements)
         end
     end
 
@@ -134,3 +136,5 @@ FinanceModels.model_requirements(c::IterableProjectionContract) = c.requirements
         @test_throws "key :index requires $(Yield.AbstractYieldModel)" Projection(FX.Converted(floating, pair, :index); index = fx)
     end
 end
+
+end # module ProjectionModelTests
