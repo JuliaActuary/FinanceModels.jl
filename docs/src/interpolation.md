@@ -13,7 +13,7 @@
 | `Spline.Cubic()` | C2 (smoothest) | Global | Natural cubic spline. Smoothest, but bumping one rate affects the whole curve. Thread-safe. |
 | `Spline.BSpline(n)` | Varies | Global | nth-order B-spline. Opt-in basis for least-squares *fitting*; **not thread-safe** for concurrent evaluation on a shared curve (shared internal buffer). |
 
-Since v6.0, `Spline.Linear()`, `Spline.Quadratic()`, and `Spline.Cubic()` return **local** interpolants (`PolynomialSpline`) — fast, with good key-rate locality, and safe to evaluate concurrently across threads. For a *global* B-spline (e.g. as a least-squares fitting basis) request `Spline.BSpline(d)` explicitly; it is **not** thread-safe for concurrent evaluation on a shared curve.
+Since v6.0, `Spline.Linear()`, `Spline.Quadratic()`, and `Spline.Cubic()` use piecewise polynomial interpolants (`PolynomialSpline`) that are safe to evaluate concurrently across threads. Evaluating a local polynomial piece does not imply local knot-rate sensitivities: cubic coefficients depend on the whole grid. For a *global* B-spline (e.g. as a least-squares fitting basis) request `Spline.BSpline(d)` explicitly; it is **not** thread-safe for concurrent evaluation on a shared curve.
 
 ```julia
 using FinanceModels
@@ -32,8 +32,8 @@ zrc_flat_zero = ZeroRateCurve(rates, tenors, Spline.Cubic();
 
 ## Extrapolation Beyond the Last Knot
 
-Every knot-based curve defaults to `extrapolation=:flat_forward`, independently of its
-interpolation method. For a final knot `(tₙ, zₙ)`, let
+Every knot-based curve defaults to the same `extrapolation=:flat_forward` rule.
+The resulting terminal forward level depends on the interpolation method. For a final knot `(tₙ, zₙ)`, let
 `fₙ = zₙ + tₙz′(tₙ⁻)` be the left-hand instantaneous forward there. Then for `t > tₙ`,
 
 ```math
@@ -47,12 +47,25 @@ unless `fₙ = zₙ`; it converges to `fₙ` as the horizon increases. This poli
 `Yield.Spline`, `ZeroRateCurve`, and `Yield.MonotoneConvex`. A callable-only `Yield.Spline(fn)`
 has no knots and therefore does not apply an extrapolation policy.
 
+The terminal forward is a consequence of the interpolant's endpoint derivative, rather
+than an independently selected long-term rate. For example, zero rates
+`[0.02, 0.025, 0.03, 0.035, 0.04, 0.042]` at `[1, 2, 5, 10, 20, 30]` produce terminal
+forwards of about 4.35% with PCHIP, 4.76% with Cubic, and 6.57% with `BSpline(3)`.
+The default prevents polynomial continuation from driving the tail; it does not constrain
+the terminal forward's level or sign for arbitrary interpolants and inputs.
+
+These are general curve-extension choices, not implementations of an accounting basis
+or prescribed regulatory extrapolation. For convergence to an independently chosen
+ultimate forward rate, see [`Yield.SmithWilson`](@ref), which accepts `ufr` and a
+convergence-speed parameter `α`; model selection and calibration remain explicit choices.
+
 Pass the `extrapolation` keyword to `ZeroRateCurve`, `Yield.Spline`, or a spline `fit` call
 to select the long-end behavior:
 
 | Value | Long-end zero rate | Notes |
 |-------|--------------------|-------|
 | `:flat_forward` | `fₙ + (zₙ-fₙ)tₙ/t` | **Default.** Preserves forward continuity. |
+| `Yield.FlatForwardAt(f)` | `f + (zₙ-f)tₙ/t` | Independent, continuously-compounded forward assumption; usually introduces a boundary jump. |
 | `:flat_zero` | `zₙ` | Holds the zero rate constant; usually introduces a forward jump at `tₙ`. |
 | `:linear` | `zₙ + z′(tₙ⁻)(t-tₙ)` | Extends the zero rate at its boundary slope. |
 | `:extension` | Final interpolation piece | Restores the former DataInterpolations behavior and can become extreme far beyond the grid. Not available for `Spline.MonotoneConvex()`. |
@@ -60,11 +73,34 @@ to select the long-end behavior:
 ```julia
 curve = Yield.Spline(Spline.Cubic(), tenors, rates; extrapolation=:flat_zero)
 zrc = ZeroRateCurve(rates, tenors, Spline.Cubic(); extrapolation=:linear)
-fitted = fit(Spline.Cubic(), quotes, Fit.Bootstrap(); extrapolation=:extension)
+quotes = ZCBYield.(Continuous.(rates), tenors)
+fitted = fit(Spline.Linear(), quotes, Fit.Bootstrap(); extrapolation=:extension)
 ```
 
-The selected value is available as `zrc.extrapolation` and is preserved when deriving a new
-`ZeroRateCurve` with `Accessors.@set`.
+The selected value is available as `curve.extrapolation` on `ZeroRateCurve` and native
+`Yield.MonotoneConvex` curves. It is preserved by fitting and `Accessors.@set`; derived
+boundary quantities are recomputed when knots change. Fitting `Spline.MonotoneConvex()`
+returns a native `Yield.MonotoneConvex` with `.rates`, `.times`, and
+`Yield.instantaneous_forward` for every supported policy.
+
+An explicit forward can be chosen directly or computed from the last discrete forward:
+
+```julia
+assumed = ZeroRateCurve(rates, tenors; extrapolation=Yield.FlatForwardAt(0.035))
+n = length(tenors)
+last_discrete = (rates[n]*tenors[n] - rates[n-1]*tenors[n-1]) / (tenors[n] - tenors[n-1])
+discrete_tail = ZeroRateCurve(rates, tenors;
+    extrapolation=Yield.FlatForwardAt(last_discrete))
+```
+
+`FlatForwardAt` treats a bare number as continuously compounded (unlike
+`Yield.Constant`, which treats a bare number as annual effective). It also accepts rate
+objects: `Yield.FlatForwardAt(Periodic(0.035, 1))` converts an annual-effective 3.5% rate,
+while `Yield.FlatForwardAt(Continuous(0.035))` is equivalent to the bare-number example.
+The normalized continuous value is stored in the policy and stays fixed when knot rates
+are bumped or fitted. Recompute `last_discrete` and reconstruct the policy if that anchor
+should instead track changed knots. Appending a synthetic far knot does not generally
+impose a chosen terminal instantaneous forward and can also change interior interpolation.
 
 ## Key Tradeoffs
 
@@ -77,53 +113,29 @@ The following code evaluates forward rates near the 2yr and 5yr tenor points to 
 ```julia
 using FinanceModels
 using FinanceCore: discount
-DI = FinanceModels.DataInterpolations
 
 rates = [0.02, 0.025, 0.03, 0.035, 0.04]
 tenors = [1.0, 2.0, 5.0, 10.0, 20.0]
 
 eval_points = [1.9, 1.99, 2.0, 2.01, 2.1, 4.9, 4.99, 5.0, 5.01, 5.1]
 
-# Helper: numerical forward rate from a zero-rate interpolator
-function fwd_from_interp(interp, t)
-    r = interp(t); h = 1e-6
-    dr = (interp(t+h) - interp(t-h)) / (2h)
-    r + t * dr
-end
-
-# Helper: numerical forward rate from a discount function
-function fwd_from_discount(model, t)
+# Numerical instantaneous forward from the curve's continuous zero rate.
+function fwd_from_zero(model, t)
     h = 1e-6
-    -log(discount(model, t+h) / discount(model, t-h)) / (2h)
+    z = rate(zero(model, t))
+    dz = (rate(zero(model, t+h)) - rate(zero(model, t-h))) / (2h)
+    z + t * dz
 end
 
-for (name, make_fwd) in [
-    ("Linear", (r, t) -> begin
-        interp = DI.BSplineInterpolation(r, t, 1, :Uniform, :Average;
-            extrapolation_left=DI.ExtrapolationType.Extension)
-        pt -> fwd_from_interp(interp, pt)
-    end),
-    ("PCHIP", (r, t) -> begin
-        interp = DI.PCHIPInterpolation(r, t;
-            extrapolation_left=DI.ExtrapolationType.Extension)
-        pt -> fwd_from_interp(interp, pt)
-    end),
-    ("MonotoneConvex", (r, t) -> begin
-        mc = FinanceModels.Yield.MonotoneConvex(r, t)
-        pt -> fwd_from_discount(mc, pt)
-    end),
-    ("Akima", (r, t) -> begin
-        interp = DI.AkimaInterpolation(r, t;
-            extrapolation_left=DI.ExtrapolationType.Extension)
-        pt -> fwd_from_interp(interp, pt)
-    end),
-    ("CubicSpline", (r, t) -> begin
-        interp = DI.CubicSpline(r, t;
-            extrapolation_left=DI.ExtrapolationType.Extension)
-        pt -> fwd_from_interp(interp, pt)
-    end),
+for (name, descriptor) in [
+    ("Linear", Spline.Linear()),
+    ("PCHIP", Spline.PCHIP()),
+    ("MonotoneConvex", Spline.MonotoneConvex()),
+    ("Akima", Spline.Akima()),
+    ("CubicSpline", Spline.Cubic()),
 ]
-    fwd = make_fwd(rates, tenors)
+    model = Yield.build_model(descriptor, tenors, rates)
+    fwd(t) = fwd_from_zero(model, t)
     println("\n--- $name: forward rate f(t) ---")
     for t in eval_points
         println("  t=$(lpad(round(t, digits=2), 5)):  f=$(round(fwd(t)*100, digits=4))%")
@@ -149,7 +161,6 @@ When computing key rate durations (KRDs), bumping one zero rate should ideally a
 
 ```julia
 using FinanceModels
-using FinanceModels: DataInterpolations as DI
 using FinanceCore: discount
 using ForwardDiff
 
@@ -158,24 +169,14 @@ tenors = [1.0, 2.0, 5.0, 10.0, 20.0]
 
 eval_points = [0.5, 1.0, 1.5, 2.0, 3.0, 5.0, 7.0, 10.0, 15.0, 20.0]
 
-for (name, rate_at) in [
-    ("Linear", (r, t, pt) ->
-        DI.BSplineInterpolation(r, t, 1, :Uniform, :Average;
-            extrapolation_left=DI.ExtrapolationType.Extension)(pt)),
-    ("PCHIP", (r, t, pt) ->
-        DI.PCHIPInterpolation(r, t;
-            extrapolation_left=DI.ExtrapolationType.Extension)(pt)),
-    ("MonotoneConvex", (r, t, pt) -> begin
-        mc = FinanceModels.Yield.MonotoneConvex(r, t)
-        -log(discount(mc, pt)) / pt
-    end),
-    ("Akima", (r, t, pt) ->
-        DI.AkimaInterpolation(r, t;
-            extrapolation_left=DI.ExtrapolationType.Extension)(pt)),
-    ("CubicSpline", (r, t, pt) ->
-        DI.CubicSpline(r, t;
-            extrapolation_left=DI.ExtrapolationType.Extension)(pt)),
+for (name, descriptor) in [
+    ("Linear", Spline.Linear()),
+    ("PCHIP", Spline.PCHIP()),
+    ("MonotoneConvex", Spline.MonotoneConvex()),
+    ("Akima", Spline.Akima()),
+    ("CubicSpline", Spline.Cubic()),
 ]
+    rate_at(r, t, pt) = rate(zero(Yield.build_model(descriptor, t, r), pt))
     println("\n--- $name: ∂rate(t)/∂r₃  (bump at 5yr) ---")
     for pt in eval_points
         g = ForwardDiff.gradient(r -> rate_at(r, tenors, pt), rates)
@@ -199,7 +200,24 @@ Results (sensitivity of interpolated rate to 5yr rate bump):
 | 15.0 | 0.0 | **-0.23** | **-0.08** | **-0.42** | **-0.56** |
 | 20.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
 
-**Linear** is perfectly local — zero sensitivity outside adjacent intervals. **MonotoneConvex** has the best locality among smooth methods (only -0.08 at t=15 vs -0.23 for PCHIP, -0.42 for Akima, and -0.56 for CubicSpline). All smooth methods have zero sensitivity at the exact tenor points (t=1, 2, 10, 20) because the interpolation passes through those data points exactly.
+**Linear** is perfectly local within the knot grid — zero sensitivity outside adjacent intervals. **MonotoneConvex** has the best locality among smooth methods (only -0.08 at t=15 vs -0.23 for PCHIP, -0.42 for Akima, and -0.56 for CubicSpline). All smooth methods have zero sensitivity at the exact tenor points (t=1, 2, 10, 20) because the interpolation passes through those data points exactly.
+
+Beyond the final knot, locality depends on the extrapolation policy as well. With
+`:flat_forward`, for fixed tenors,
+
+```math
+\frac{\partial z(t)}{\partial r_i}
+= \frac{t_n}{t}\,\mathbf{1}_{i=n}
++ \left(1-\frac{t_n}{t}\right)\frac{\partial f_n}{\partial r_i}.
+```
+
+The endpoint forward's sensitivities therefore persist throughout the tail. Cubic can
+spread alternating positive and negative sensitivities across the whole grid; even linear
+interpolation propagates sensitivity to its last two knots beyond the last interval.
+Narrow final intervals can amplify those sensitivities. With `FlatForwardAt(f)` held
+fixed, only the final knot rate contributes to the extrapolated zero rate, with weight
+`tₙ/t`. These statements concern zero-rate sensitivities; cashflow PV sensitivities also
+depend on maturity and discounting.
 
 ### Performance
 
@@ -256,6 +274,6 @@ MonotoneConvex is fastest at both sizes. At 12 tenors the advantage is substanti
 
 - **`Spline.MonotoneConvex()`** (default): Best for finance applications. Guarantees positive continuous forward rates, best KRD locality among smooth methods (-0.08 vs -0.23 for PCHIP), and fastest AD performance. Based on [Hagan & West (2006)](https://doi.org/10.1080/13504860600829233).
 - **`Spline.PCHIP()`**: Good general-purpose alternative. Smooth forward curves, local sensitivity, monotonicity-preserving.
-- **`Spline.Linear()`**: Use when you need perfectly localized KRDs (zero sensitivity outside adjacent intervals) and don't need smooth forwards.
+- **`Spline.Linear()`**: Use when you need localized sensitivities within the knot grid and don't need smooth forwards.
 - **`Spline.Akima()`**: Alternative to PCHIP with different behavior near inflection points. Slightly more non-local leakage than PCHIP.
 - **`Spline.Cubic()`**: Use when curve smoothness matters most and you accept non-local KRD effects (e.g. negative duration at distant tenors from a local rate bump).

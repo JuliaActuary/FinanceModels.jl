@@ -833,7 +833,7 @@ end
             rate(zero(selected_bootstrap, last(t)))
 
         selected_mc = fit(Spline.MonotoneConvex(), qs; extrapolation = :flat_zero)
-        @test selected_mc isa ZeroRateCurve
+        @test selected_mc isa Yield.MonotoneConvex
         @test selected_mc.extrapolation === :flat_zero
         @test rate(zero(selected_mc, 100.0)) ≈ last(selected_mc.rates) atol = 1.0e-10
         @test_throws ArgumentError fit(Spline.MonotoneConvex(), qs;

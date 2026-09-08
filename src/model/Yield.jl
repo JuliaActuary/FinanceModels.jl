@@ -160,7 +160,8 @@ the last knot. If the last knot is `(tₙ, zₙ)` and the interpolant's left der
 and makes the forward curve continuous there instead of continuing the last polynomial piece.
 Set `extrapolation` to `:flat_zero`, `:linear`, or `:extension` to instead hold the zero rate
 constant, extend the zero rate at its boundary slope, or continue the final interpolation
-piece, respectively.
+piece, respectively. [`FlatForwardAt`](@ref) holds a supplied instantaneous forward
+fixed beyond the last knot; it usually introduces a forward jump.
 
 Inputs go through the shared knot-grid construction: `rates` and `tenors` are **copied** (later
 mutation of the vectors you passed in does not affect the curve) and promoted to one concrete
@@ -187,77 +188,7 @@ end
 # `0/0 → NaN` at t=0), which also makes composites/shifts built on a Spline cheap.
 Base.zero(c::Spline, time) = Continuous(c.fn(time))
 
-# Public constructors accept symbols rather than DataInterpolations' enum so FinanceModels'
-# financial extrapolation policies do not depend on that package's API. `:extension` restores
-# the historical behavior; the other policies intercept the right boundary themselves.
-const __EXTRAPOLATION_METHODS = (:flat_forward, :flat_zero, :linear, :extension)
-function __extrapolation_method(method)
-    method isa Symbol && method in __EXTRAPOLATION_METHODS || throw(ArgumentError(
-        "extrapolation must be one of $(join(__EXTRAPOLATION_METHODS, ", ")); got $(repr(method))."))
-    return method
-end
-
-function __monotone_extrapolation_method(method)
-    method = __extrapolation_method(method)
-    method === :extension && throw(ArgumentError(
-        "extrapolation=:extension is only available for DataInterpolations-backed curves; " *
-        "use :flat_forward, :flat_zero, or :linear with Spline.MonotoneConvex()."))
-    return method
-end
-
-function __interpolation_extrapolation(method)
-    method = __extrapolation_method(method)
-    extension = DataInterpolations.ExtrapolationType.Extension
-    return method === :extension ? (; extrapolation = extension) : (; extrapolation_left = extension)
-end
-
-# Long-end wrappers. The underlying interpolant is only responsible for the knot interval
-# (and for extending the short end toward t=0 when the first knot is positive). Boundary
-# values are precomputed once because the knots and interpolation parameters are immutable.
-struct FlatForward{I, T, Z, F}
-    interpolant::I
-    last_tenor::T
-    last_zero::Z
-    last_forward::F
-end
-
-function (e::FlatForward)(t)
-    t <= e.last_tenor && return e.interpolant(t)
-    # Algebraically `(zₙtₙ + fₙ(t-tₙ))/t`, written this way to avoid an
-    # avoidable overflow in `fₙ*t` at very long (but finite) horizons.
-    return e.last_forward + (e.last_zero - e.last_forward) * (e.last_tenor / t)
-end
-
-struct FlatZero{I, T, Z}
-    interpolant::I
-    last_tenor::T
-    last_zero::Z
-end
-
-(e::FlatZero)(t) = t <= e.last_tenor ? e.interpolant(t) : e.last_zero
-
-struct LinearZero{I, T, Z, D}
-    interpolant::I
-    last_tenor::T
-    last_zero::Z
-    last_derivative::D
-end
-
-function (e::LinearZero)(t)
-    t <= e.last_tenor && return e.interpolant(t)
-    return e.last_zero + e.last_derivative * (t - e.last_tenor)
-end
-
-function __extrapolate(interpolant, g::KnotGrid, method)
-    method = __extrapolation_method(method)
-    tₙ = last(g.tenors)
-    zₙ = last(g.rates)
-    method === :extension && return Spline(interpolant)
-    method === :flat_zero && return Spline(FlatZero(interpolant, tₙ, zₙ))
-    z′ₙ = DataInterpolations.derivative(interpolant, tₙ)
-    method === :linear && return Spline(LinearZero(interpolant, tₙ, zₙ, z′ₙ))
-    return Spline(FlatForward(interpolant, tₙ, zₙ, zₙ + tₙ * z′ₙ))
-end
+include("Yield/Extrapolation.jl")
 
 # Public, validating form: every direct construction copies and checks its inputs.
 Spline(spline::Sp.SplineCurve, tenors, rates; extrapolation = :flat_forward) =
@@ -336,21 +267,8 @@ build_model(::Sp.MonotoneConvex, tenors, rates; extrapolation = :flat_forward) =
 build_model(spline::Sp.SplineCurve, g::KnotGrid; extrapolation = :flat_forward) =
     Yield.Spline(spline, g; extrapolation)
 
-struct ZeroRateFunction{M}
-    model::M
-end
-(z::ZeroRateFunction)(t) = FinanceCore.rate(Base.zero(z.model, t))
-
-function build_model(::Sp.MonotoneConvex, g::KnotGrid; extrapolation = :flat_forward)
-    extrapolation = __monotone_extrapolation_method(extrapolation)
-    model = Yield.MonotoneConvex(g)
-    extrapolation === :flat_forward && return model
-    tₙ, zₙ = last(g.tenors), last(g.rates)
-    zero_rate = ZeroRateFunction(model)
-    extrapolation === :flat_zero && return Spline(FlatZero(zero_rate, tₙ, zₙ))
-    z′ₙ = iszero(tₙ) ? zero(zₙ) : (last(model.f) - zₙ) / tₙ
-    return Spline(LinearZero(zero_rate, tₙ, zₙ, z′ₙ))
-end
+build_model(::Sp.MonotoneConvex, g::KnotGrid; extrapolation = :flat_forward) =
+    Yield.MonotoneConvex(g; extrapolation)
 
 include("Yield/ZeroRateCurve.jl")
 
