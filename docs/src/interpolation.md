@@ -93,10 +93,14 @@ discrete_tail = ZeroRateCurve(rates, tenors;
     extrapolation=Yield.FlatForwardAt(last_discrete))
 ```
 
-`FlatForwardAt` stores the supplied value: it stays fixed when knot rates are bumped or
-fitted. Recompute `last_discrete` and reconstruct the policy if that anchor should instead
-track changed knots. Appending a synthetic far knot does not generally impose a chosen
-terminal instantaneous forward and can also change interior interpolation.
+`FlatForwardAt` treats a bare number as continuously compounded (unlike
+`Yield.Constant`, which treats a bare number as annual effective). It also accepts rate
+objects: `Yield.FlatForwardAt(Periodic(0.035, 1))` converts an annual-effective 3.5% rate,
+while `Yield.FlatForwardAt(Continuous(0.035))` is equivalent to the bare-number example.
+The normalized continuous value is stored in the policy and stays fixed when knot rates
+are bumped or fitted. Recompute `last_discrete` and reconstruct the policy if that anchor
+should instead track changed knots. Appending a synthetic far knot does not generally
+impose a chosen terminal instantaneous forward and can also change interior interpolation.
 
 ## Key Tradeoffs
 

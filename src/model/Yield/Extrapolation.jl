@@ -1,7 +1,7 @@
 """
     Yield.FlatForwardAt(forward)
 
-Hold the instantaneous forward at the supplied, continuously-compounded scalar rate
+Hold the instantaneous forward at the supplied rate
 beyond the last knot. Pass this object as `extrapolation` to `Yield.Spline`,
 `Yield.MonotoneConvex`, `ZeroRateCurve`, `Yield.build_model`, or a spline `fit` call.
 
@@ -9,6 +9,8 @@ The last-knot discount factor and all interpolation through that knot are preser
 The forward usually jumps at the boundary. Unlike `:flat_forward`, the supplied
 forward is an independent assumption: changing or fitting knot rates keeps it fixed.
 The value must be finite; negative rates and automatic differentiation are supported.
+Bare numbers are continuously compounded, unlike `Yield.Constant`'s annual-effective
+convention. A `FinanceCore.Rate` is converted from its stated compounding convention.
 
 ```julia
 curve = ZeroRateCurve([0.02, 0.03, 0.04], [1.0, 10.0, 30.0];
@@ -24,6 +26,9 @@ struct FlatForwardAt{F <: Real}
         return new{typeof(f)}(f)
     end
 end
+
+FlatForwardAt(forward::FinanceCore.Rate) =
+    FlatForwardAt(FinanceCore.rate(convert(Continuous(), forward)))
 
 Base.:(==)(a::FlatForwardAt, b::FlatForwardAt) = a.forward == b.forward
 Base.isequal(a::FlatForwardAt, b::FlatForwardAt) = isequal(a.forward, b.forward)
@@ -60,43 +65,55 @@ function __interpolation_extrapolation(method)
     return method === :extension ? (; extrapolation = extension) : (; extrapolation_left = extension)
 end
 
-struct FlatForwardTail{T, Z, F}
+# All policies share a coefficient layout so a runtime Symbol cannot change the
+# constructed curve's type. The coefficients represent
+# z(t) = α + β*tₙ/t + γ*(t-tₙ), f(t) = α + γ*(2t-tₙ).
+# `linear` selects which nonconstant term can be present. Keeping that selection
+# as a value avoids evaluating structurally absent terms (notably 0*Inf) and does
+# not mistake a zero-valued Dual coefficient for an identically zero term.
+struct CurveTail{T, C}
     last_tenor::T
-    last_zero::Z
-    last_forward::F
+    α::C
+    β::C
+    γ::C
+    linear::Bool
 end
 
-function (e::FlatForwardTail)(t)
+# Include the tenor's numeric type in coefficient promotion even for flat tails;
+# otherwise mixed-precision grids could still select different C types by policy.
+function __curve_tail(t, α, β, γ, linear)
+    a, b, c, _ = promote(α, β, γ, zero(t))
+    return CurveTail{typeof(t), typeof(a)}(t, a, b, c, linear)
+end
+
+function (e::CurveTail)(t)
+    e.linear && return e.α + e.γ * (t - e.last_tenor)
     # Avoid forming fₙ*t, which can overflow at very long finite horizons.
-    return e.last_forward + (e.last_zero - e.last_forward) * (e.last_tenor / t)
+    return e.α + e.β * (e.last_tenor / t)
 end
-__tail_forward(e::FlatForwardTail, t) = e.last_forward
 
-struct FlatZeroTail{T, Z}
-    last_tenor::T
-    last_zero::Z
+function __tail_forward(e::CurveTail, t)
+    # Do not form 2t: it can overflow while γ*t is still representable.
+    return e.linear ? e(t) + e.γ * t : e.α
 end
-(e::FlatZeroTail)(t) = e.last_zero
-__tail_forward(e::FlatZeroTail, t) = e.last_zero
-
-struct LinearZeroTail{T, Z, D}
-    last_tenor::T
-    last_zero::Z
-    last_derivative::D
-end
-(e::LinearZeroTail)(t) = e.last_zero + e.last_derivative * (t - e.last_tenor)
-__tail_forward(e::LinearZeroTail, t) = e(t) + t * e.last_derivative
 
 # `boundary()` supplies the interpolator's own endpoint forward and zero slope.
 # Keeping it lazy avoids computing derivatives for flat-zero or supplied-forward
 # policies, and lets MonotoneConvex use its native forward without a round-trip.
 function __build_tail(method::Symbol, t, z, boundary)
-    method === :flat_zero && return FlatZeroTail(t, z)
+    method === :flat_zero && return __curve_tail(t, z, zero(z), zero(z), false)
+    method in (:flat_forward, :linear) || throw(
+        ArgumentError(
+            "cannot build a financial tail for extrapolation=$(repr(method)); " *
+                ":extension must delegate to the interpolant."
+        )
+    )
     endpoint = boundary()
-    method === :linear && return LinearZeroTail(t, z, endpoint.slope)
-    return FlatForwardTail(t, z, endpoint.forward)
+    method === :linear && return __curve_tail(t, z, zero(z), endpoint.slope, true)
+    return __curve_tail(t, endpoint.forward, z - endpoint.forward, zero(z), false)
 end
-__build_tail(method::FlatForwardAt, t, z, boundary) = FlatForwardTail(t, z, method.forward)
+__build_tail(method::FlatForwardAt, t, z, boundary) =
+    __curve_tail(t, method.forward, z - method.forward, zero(z), false)
 
 # A single callable adapter combines a DataInterpolations zero-rate interpolant
 # with its tail. Native curves reuse the same tails in their own evaluation methods.

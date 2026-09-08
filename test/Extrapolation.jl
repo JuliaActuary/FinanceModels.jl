@@ -1,5 +1,9 @@
 using ForwardDiff
 
+# Exercise runtime Symbol selection, not just constant-folded keyword literals.
+monotone_with_policy(r, t, policy::Symbol) = Yield.MonotoneConvex(r, t; extrapolation = policy)
+zero_curve_with_policy(r, t, policy::Symbol) = ZeroRateCurve(r, t; extrapolation = policy)
+
 @testset "shared curve tails" begin
     rates = [0.02, 0.025, 0.03, 0.035, 0.04, 0.042]
     times = [1.0, 2.0, 5.0, 10.0, 20.0, 30.0]
@@ -10,6 +14,33 @@ using ForwardDiff
         Spline.Linear(), Spline.Quadratic(), Spline.Cubic(),
         Spline.PCHIP(), Spline.Akima(), Spline.BSpline(3), Spline.MonotoneConvex(),
     )
+
+    @testset "concrete construction through the AD path" begin
+        for T in (Float32, Float64), U in (Float32, Float64, BigFloat)
+            r, t = T.(rates), U.(times)
+            @test (@inferred Yield.MonotoneConvex(r, t)) isa Yield.MonotoneConvex
+            @test (@inferred ZeroRateCurve(r, t)) isa ZeroRateCurve
+            for policy in (:flat_forward, :flat_zero, :linear)
+                @test (@inferred monotone_with_policy(r, t, policy)).extrapolation === policy
+                @test (@inferred zero_curve_with_policy(r, t, policy)).extrapolation === policy
+            end
+        end
+        function pv(r)
+            c = @inferred ZeroRateCurve(r, times)
+            return sum(discount(c, t) for t in range(1.0, 100.0; length = 80))
+        end
+        @test all(isfinite, ForwardDiff.gradient(pv, rates))
+        # A zero-valued coefficient may still carry knot-rate derivatives. Both
+        # reciprocal and linear terms must remain active for their selected policy.
+        for policy in (:flat_forward, :linear)
+            z(r) = rate(zero(ZeroRateCurve(r, times, Spline.Linear(); extrapolation = policy), horizon))
+            flat = fill(0.03, length(rates))
+            ad = ForwardDiff.gradient(z, flat)
+            delta = horizon - tn
+            weight = policy === :linear ? delta / (tn - times[end - 1]) : delta / horizon * tn / (tn - times[end - 1])
+            @test ad ≈ [zeros(length(rates) - 2); -weight; 1 + weight]
+        end
+    end
 
     @testset "boundary and AD: $descriptor" for descriptor in descriptors
         base = Yield.build_model(descriptor, times, rates)
@@ -88,6 +119,7 @@ using ForwardDiff
                         CB.constructorof(typeof(c))(CB.getfields(c)...),
                         Accessors.mapproperties(identity, c),
                     )
+                    @test rebuilt == c && isequal(rebuilt, c) && hash(rebuilt) == hash(c)
                     @test rebuilt.extrapolation == policy
                     @test zero(rebuilt, horizon) == zero(c, horizon)
                 end
@@ -106,7 +138,6 @@ using ForwardDiff
                 else
                     moved = @set c.tenors = times .* 2
                     @test moved.extrapolation == policy
-                    @test c == CB.setproperties(c, CB.getproperties(c))
                 end
                 @test_throws ArgumentError (@set c.extrapolation = :unknown)
             end
@@ -123,6 +154,33 @@ using ForwardDiff
         @test a != (@set a.extrapolation = Yield.FlatForwardAt(0.04))
         @test Yield.FlatForwardAt(-0.0) == Yield.FlatForwardAt(0.0)
         @test !isequal(Yield.FlatForwardAt(-0.0), Yield.FlatForwardAt(0.0))
+        for policy in policies
+            c = Yield.MonotoneConvex(rates, times; extrapolation = policy)
+            @test c == Yield.MonotoneConvex(copy(rates), copy(times); extrapolation = policy)
+            @test c != (@set c.rates[end] = c.rates[end] + 0.001)
+            @test c != (@set c.times[end] = c.times[end] + 1)
+            @test c != (@set c.extrapolation = Yield.FlatForwardAt(0.045))
+            @test Set([c, deepcopy(c)]) == Set([c])
+        end
+        negative_zero = Yield.MonotoneConvex([-0.0], [1.0])
+        positive_zero = Yield.MonotoneConvex([0.0], [1.0])
+        @test negative_zero == positive_zero
+        @test !isequal(negative_zero, positive_zero)
+        @test length(Set([negative_zero, positive_zero])) == 2
+    end
+
+    @testset "explicit compounding conventions" begin
+        @test Yield.FlatForwardAt(Continuous(0.035)) == fixed
+        annual = Yield.FlatForwardAt(Periodic(0.035, 1))
+        @test annual.forward ≈ log1p(0.035)
+        @test annual != fixed
+        @test annual.forward == rate(zero(Yield.Constant(0.035), 1.0))
+        c = Yield.MonotoneConvex(rates, times; extrapolation = annual)
+        @test rate(forward(c, tn, horizon)) ≈ log1p(0.035)
+        @test ForwardDiff.derivative(f -> Yield.FlatForwardAt(Periodic(f, 2)).forward, 0.035) ≈ 1 / (1 + 0.035 / 2)
+        for r in (Continuous(Inf), Continuous(NaN))
+            @test_throws ArgumentError Yield.FlatForwardAt(r)
+        end
     end
 
     @testset "fits retain the policy and native MonotoneConvex interface" begin
@@ -168,6 +226,17 @@ using ForwardDiff
     end
 
     @testset "validation, degenerate grids, and numeric types" begin
+        # Bounded tails retain their limits at infinity; linear forwards avoid
+        # prematurely overflowing 2t at very large finite horizons.
+        for policy in (:flat_forward, :flat_zero, fixed)
+            c = Yield.MonotoneConvex(rates, times; extrapolation = policy)
+            @test isfinite(rate(zero(c, Inf)))
+            @test rate(zero(c, Inf)) == Yield.instantaneous_forward(c, Inf)
+        end
+        c = Yield.MonotoneConvex(rates, times; extrapolation = :linear)
+        @test isfinite(Yield.instantaneous_forward(c, floatmax(Float64)))
+        @test_throws ArgumentError Yield.__build_tail(:extension, tn, zn, () -> error("must not inspect boundary"))
+        @test_throws ArgumentError Yield.__build_tail(:unknown, tn, zn, () -> error("must not inspect boundary"))
         for f in (Inf, -Inf, NaN)
             @test_throws ArgumentError Yield.FlatForwardAt(f)
         end

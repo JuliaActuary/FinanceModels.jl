@@ -14,6 +14,8 @@ The `extrapolation` keyword also accepts `:flat_zero`, `:linear`, and
 `:flat_zero` and a supplied forward usually introduce a forward jump there.
 `:extension` is unavailable because this model has no DataInterpolations polynomial
 piece to continue. Every policy keeps the native `MonotoneConvex` curve interface.
+`MonotoneConvex` and its documented properties are public API; the number and order
+of its type parameters are implementation details.
 
 Negative input rates are supported: the Hagan-West positivity collar is applied
 symmetrically (bounding node forwards between 0 and twice the adjacent discrete
@@ -75,6 +77,8 @@ struct MonotoneConvex{T, U, P, E} <: AbstractYieldModel
     # deliberately no 4-arg constructor; Accessors/ConstructionBase reconstruct through
     # `setproperties`/`constructorof` (see src/fit.jl), which route back to `KnotGrid`.
     function MonotoneConvex(g::KnotGrid{T, U}; extrapolation = :flat_forward) where {T, U}
+        # This entry also serves direct construction and optimizer trial grids, so
+        # it validates the policy even when ZeroRateCurve already validated it.
         extrapolation = __monotone_extrapolation_method(extrapolation)
         f, fᵈ = __monotone_convex_fs(g.rates, g.tenors)
         t, z = last(g.tenors), last(g.rates)
@@ -98,6 +102,15 @@ function Base.getproperty(c::MonotoneConvex, s::Symbol)
     s === :_tail && throw(ArgumentError("MonotoneConvex: `_tail` is internal; use `zero`/`instantaneous_forward`."))
     return getfield(c, s)
 end
+
+# Owned storage makes both the forward cache and tail pure functions of these
+# public inputs. Compare configuration, not the identity of the cached arrays.
+Base.:(==)(a::MonotoneConvex, b::MonotoneConvex) =
+    a.rates == b.rates && a.times == b.times && a.extrapolation == b.extrapolation
+Base.isequal(a::MonotoneConvex, b::MonotoneConvex) =
+    isequal(a.rates, b.rates) && isequal(a.times, b.times) && isequal(a.extrapolation, b.extrapolation)
+Base.hash(c::MonotoneConvex, h::UInt) =
+    hash(c.rates, hash(c.times, hash(c.extrapolation, hash(:MonotoneConvex, h))))
 
 
 struct MonotoneConvexUnInit
