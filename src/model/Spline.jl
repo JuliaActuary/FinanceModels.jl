@@ -3,12 +3,12 @@ Spline is a module which offers various degree splines used for fitting or boots
 
 Available methods:
 
-- `Spline.PolynomialSpline(n)` where n is the nth order. A *local* interpolating spline (order 1/2/3 → linear / quadratic / natural cubic). Local means each segment depends only on nearby points, giving good key-rate locality; these are also fast and thread-safe to evaluate.
+- `Spline.PolynomialSpline(n)` where n is the nth order. A piecewise polynomial interpolating spline (order 1/2/3 → linear / quadratic / natural cubic). These are fast and thread-safe to evaluate. Knot-rate sensitivities depend on the order: linear is local within the knot grid, while natural cubic coefficients depend on the whole grid.
 - `Spline.BSpline(d)` where d is the polynomial degree. A degree-d B-spline produces (d-1)th-order-continuous piecewise polynomials. That is, degree 2/3 is very similar to a quadratic/cubic spline respectively. BSplines are global in that a change in one point affects the entire spline (though the spline still passes through the other given points still). Useful as a basis for least-squares fitting, but **not** thread-safe for concurrent evaluation — see [`Spline.BSpline`](@ref).
 
 This object is not a fitted spline itself, rather it is a placeholder object which will be a spline representing the data only after using within [`fit`](@ref FinanceModels.fit).
 
-Convenience methods which create a *local* `Spline.PolynomialSpline` of the appropriate order (recommended for interpolating curves — fast, good key-rate locality, and safe to evaluate concurrently):
+Convenience methods which create a `Spline.PolynomialSpline` of the appropriate order (recommended for interpolating curves — fast and safe to evaluate concurrently):
 
 - `Spline.Linear()` equals `PolynomialSpline(1)` (numerically identical to `BSpline(1)`)
 - `Spline.Quadratic()` equals `PolynomialSpline(2)`
@@ -17,9 +17,10 @@ Convenience methods which create a *local* `Spline.PolynomialSpline` of the appr
 For a *global* B-spline (e.g. as a basis for smooth least-squares fitting) use `Spline.BSpline(d)` explicitly, noting its thread-safety caveat.
 
 Knot-based yield curves built from these descriptors extrapolate flat-forward beyond their
-last knot by default. Pass `extrapolation=:flat_zero`, `:linear`, or `:extension` to
+last knot by default. Pass `extrapolation=:flat_zero`, `:linear`, `:extension`, or
+`Yield.FlatForwardAt(forward)` to
 [`Yield.Spline`](@ref FinanceModels.Yield.Spline), `ZeroRateCurve`, or spline `fit` methods to
-select a different long-end policy.
+select a different long-end policy. `:extension` is unavailable for MonotoneConvex.
 
 Notes on Fitting:
 - `fit(spline,quotes)` will fit entire curve at once, with knots equal to the maturity points of the `Quote`s
@@ -50,10 +51,11 @@ abstract type SplineCurve end
 """
     Spline.PolynomialSpline(order)
 
-A *local* polynomial interpolating spline of the given `order`, backed by DataInterpolations
-(`order` 1 → `LinearInterpolation`, 2 → `QuadraticSpline`, 3 → natural `CubicSpline`). Local means each
-segment depends only on nearby points, so bumping one knot has a bounded effect (good key-rate locality);
-these are also thread-safe to evaluate concurrently.
+A piecewise polynomial interpolating spline of the given `order`, backed by DataInterpolations
+(`order` 1 → `LinearInterpolation`, 2 → `QuadraticSpline`, 3 → natural `CubicSpline`).
+These interpolants are thread-safe to evaluate concurrently. Linear interpolation has local
+knot-rate sensitivities within the knot grid. Natural cubic coefficients depend on the whole
+grid, so bumping one knot can affect other intervals and the default long-end forward.
 
 The convenience constructors [`Spline.Linear`](@ref), [`Spline.Quadratic`](@ref), and [`Spline.Cubic`](@ref)
 return `PolynomialSpline(1/2/3)`.
@@ -78,12 +80,12 @@ it still passes through the other given points).
     A `BSpline`-backed curve is **not safe to evaluate from multiple threads at once**. The underlying
     `DataInterpolations.BSplineInterpolation` reuses a single internal coefficient buffer that it
     overwrites on every evaluation, so concurrent `discount`/`zero`/`forward` calls on one shared curve can
-    silently return wrong values. For multithreaded valuation, use a *local* interpolant (`Spline.Linear()`,
+    silently return wrong values. For multithreaded valuation, use a thread-safe interpolant (`Spline.Linear()`,
     `Spline.Quadratic()`, `Spline.Cubic()`, `Spline.PCHIP()`, or `Spline.MonotoneConvex()`), or give each
     thread its own copy of the curve.
 
-For interpolating an already-known curve, prefer the local convenience constructors (`Spline.Cubic()` etc.):
-they build faster, have better key-rate locality, and are thread-safe.
+For interpolating an already-known curve, prefer the piecewise polynomial convenience constructors
+(`Spline.Cubic()` etc.): they build faster and are thread-safe. Knot-rate locality depends on the order.
 """
 struct BSpline <: SplineCurve
     order::Int
@@ -120,9 +122,13 @@ struct Akima <: SplineCurve end
 """
     Spline.MonotoneConvex()
 
-Hagan-West (2006) monotone convex interpolation. Finance-aware: guarantees positive
-continuous forward rates (when input rates imply positive forwards) and matches
+Hagan-West (2006) monotone convex interpolation. With the default `:flat_forward`
+extrapolation, it guarantees positive continuous forward rates when input rates imply
+positive discrete forwards, and matches
 discrete forward rates at knot points. Produces the best KRD locality among smooth methods.
+
+Other extrapolation policies change only the tail beyond the last knot. They can introduce
+a forward jump at that knot or negative forwards in the tail; the interior guarantees remain.
 
 Unlike other `SplineCurve` types that wrap DataInterpolations, this dispatches to
 `Yield.MonotoneConvex` which implements the Hagan-West sector-based polynomial construction.
@@ -141,8 +147,8 @@ This object is not a fitted spline itself, rather it is a placeholder which beco
 within [`fit`](@ref FinanceModels.fit),
 or when passed to `ZeroRateCurve`.
 
-Numerically **identical** to `BSpline(1)`, but local and thread-safe (`Spline.BSpline` carries a
-thread-safety caveat for concurrent evaluation).
+Numerically **identical** to `BSpline(1)`, with local knot-rate sensitivities within the knot grid
+and thread-safe evaluation (`Spline.BSpline` carries a thread-safety caveat for concurrent evaluation).
 
 # Returns
 - A `PolynomialSpline` object representing a linear spline.
@@ -158,13 +164,13 @@ Linear() = PolynomialSpline(1)
 """
     Spline.Quadratic()
 
-Create a local quadratic spline (returns `PolynomialSpline(2)`, backed by `DataInterpolations.QuadraticSpline`).
+Create a piecewise quadratic spline (returns `PolynomialSpline(2)`, backed by `DataInterpolations.QuadraticSpline`).
 This object is not a fitted spline itself, rather it is a placeholder which becomes a spline only after use
 within [`fit`](@ref FinanceModels.fit),
 or when passed to `ZeroRateCurve`.
 
 Differs numerically from `BSpline(2)` (a global quadratic B-spline); use `Spline.BSpline(2)` to recover the
-previous behavior. This local form is thread-safe.
+previous behavior. This piecewise polynomial form is thread-safe.
 
 # Returns
 - A `PolynomialSpline` object representing a quadratic spline.
@@ -180,13 +186,14 @@ Quadratic() = PolynomialSpline(2)
 """
     Spline.Cubic()
 
-Create a local (natural) cubic spline (returns `PolynomialSpline(3)`, backed by `DataInterpolations.CubicSpline`).
+Create a piecewise natural cubic spline (returns `PolynomialSpline(3)`, backed by `DataInterpolations.CubicSpline`).
 This object is not a fitted spline itself, rather it is a placeholder which becomes a spline only after use
 within [`fit`](@ref FinanceModels.fit),
 or when passed to `ZeroRateCurve`.
 
 Differs numerically from `BSpline(3)` (a global cubic B-spline); use `Spline.BSpline(3)` to recover the
-previous behavior. This local form builds faster, has better key-rate locality, and is thread-safe.
+previous behavior. This form builds faster and is thread-safe. Its coefficients depend on the whole
+knot grid, so bumping one knot can affect other intervals and the default long-end forward.
 
 # Returns
 - A `PolynomialSpline` object representing a cubic spline.
