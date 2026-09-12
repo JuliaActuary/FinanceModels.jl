@@ -174,7 +174,7 @@ julia> map(q -> pv(m,q.instrument),quotes)
        Model                                                                Method
           |                                                                    |
     |------------|                                                      |---------------|
-fit(Spline.Cubic(), CMTYield.([0.04,0.05,0.055,0.06,0.055],[1,2,3,4,5]), Fit.Bootstrap())
+fit(Spline.Linear(), CMTYield.([0.04,0.05,0.055,0.06,0.055],[1,2,3,4,5]), Fit.Bootstrap())
                     |-------------------------------------------------|
                                               |
                                               Quotes
@@ -208,7 +208,7 @@ function FinanceModels.fit(m::ABDiscountLine, quotes, ...)
 end
 ```
 
-- As an example, the splines (`Spline.Linear()`, `Spline.Cubic()`,...) define a dedicated bootstrapping method which is used when `Fit.Bootstrap()` is passed explicitly: `fit(mod0::Spline.SplineCurve, quotes, method::Fit.Bootstrap)`. Note that the default `fit(spline, quotes)` (no third argument) performs a least-squares fit, not a bootstrap.
+- As an example, the linear splines (`Spline.Linear()` and `Spline.BSpline(1)`) define a dedicated bootstrapping method which is used when `Fit.Bootstrap()` is passed explicitly: `fit(mod0::Spline.SplineCurve, quotes, method::Fit.Bootstrap)`. Note that the default `fit(spline, quotes)` (no third argument) performs a least-squares fit, not a bootstrap.
 
 ### Using models without fitting
 

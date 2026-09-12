@@ -33,7 +33,7 @@ usd = Yield.Constant(Continuous(0.05))
 quotes = FX.Outright.(eurusd, [1.1055, 1.1113, 1.1225, 1.1459], [0.25, 0.5, 1.0, 2.0])
 
 # closed-form implied EUR discount factors, bootstrapped through a spline
-m = fit(FX.Forwards(eurusd, 1.10, usd, Spline.Cubic()), quotes, Fit.Bootstrap())
+m = fit(FX.Forwards(eurusd, 1.10, usd, Spline.Linear()), quotes, Fit.Bootstrap())
 
 forward(m, 1.0)  # ≈ 1.1225, and every quote reprices to zero PV
 ```
@@ -309,7 +309,7 @@ usd = Yield.Constant(Continuous(0.05))
 quotes = FX.Outright.(eurusd, [1.1055, 1.1113, 1.1225], [0.25, 0.5, 1.0])
 
 implied = FX.implied_zcb_quotes(quotes, 1.10, usd)   # Vector of ZCB-price Quotes
-eur = fit(Spline.Cubic(), implied, Fit.Bootstrap())  # the implied EUR discount curve
+eur = fit(Spline.Linear(), implied, Fit.Bootstrap())  # the implied EUR discount curve
 ```
 """
 function implied_zcb_quotes(quotes, spot, domestic)

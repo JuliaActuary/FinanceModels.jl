@@ -134,7 +134,7 @@ to a quote transformation followed by the ordinary fitting machinery, which is w
 one-step `fit` methods do:
 
 ```julia
-m = fit(FX.Forwards(eurusd, 1.10, usd, Spline.Cubic()), quotes, Fit.Bootstrap())
+m = fit(FX.Forwards(eurusd, 1.10, usd, Spline.Linear()), quotes, Fit.Bootstrap())
 
 forward(m, 1.0)                        # ≈ 1.1225: every quote reprices exactly
 present_value(m, quotes[3].instrument) # ≈ 0.0

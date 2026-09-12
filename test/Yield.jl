@@ -65,7 +65,7 @@ end
 
     @testset "short curve" begin
         zs = ZCBYield.([0.0, 0.05], [1, 2])
-        z = fit(Spline.Cubic(), zs, Fit.Bootstrap())
+        z = fit(Spline.BSpline(1), zs, Fit.Bootstrap())
 
         @test isapprox(zero(z, 1), Periodic(0.0, 1); atol = 1.0e-12)
         @test discount(z, 1) ≈ 1.0
@@ -73,7 +73,7 @@ end
 
         # test no times constructor
         zs = ZCBYield([0.0, 0.05])
-        z = fit(Spline.Cubic(), zs, Fit.Bootstrap())
+        z = fit(Spline.BSpline(1), zs, Fit.Bootstrap())
         @test zero(z, 1) ≈ Periodic(0.0, 1)
         @test discount(z, 1) ≈ 1.0
         @test zero(z, 2) ≈ Periodic(0.05, 1)
@@ -91,8 +91,8 @@ end
         fwd = [6.0, 10.2, 13.07, 14.36, 13.77, 13.1, 12.61, 12.14, 12.05, 11.84] ./ 100  # modified
 
         rs = FinanceModels.ParYield.(Periodic(1).(par), maturity)
-        m = fit(Spline.Cubic(), rs, Fit.Bootstrap())
-        @testset "quadratic UTYC Figure 9 par -> spot : $mat" for mat in maturity
+        m = fit(Spline.BSpline(1), rs, Fit.Bootstrap())
+        @testset "linear B-spline UTYC Figure 9 par -> spot : $mat" for mat in maturity
             @test zero(m, mat) ≈ Periodic(spot[mat], 1) atol = 0.0001
             @test forward(m, mat - 1) ≈ FinanceModels.Periodic(fwd[mat], 1) atol = 0.0001
         end
@@ -250,7 +250,8 @@ end
             Spline.PolynomialSpline(3),
         ]
         @testset "Constructor $i" for (i, m) in enumerate(variants)
-            curve = fit(m, zs, Fit.Bootstrap())
+            # Interpolate the known zero rates to exercise every spline constructor.
+            curve = Yield.Spline(m, maturity, log1p.(zero))
             @test discount(curve, 1) ≈ 1 / 1.058
             @test discount(curve, 1.5) ≈ 1 / 1.064^1.5
             @test discount(curve, 2) ≈ 1 / 1.068^2
@@ -274,7 +275,7 @@ end
         # Risk Managment and Financial Institutions, 5th ed. Appendix B
         forwards = [0.05, 0.04, 0.03, 0.08]
         qs = ForwardYield(forwards, [1, 2, 3, 4])
-        curve = fit(Spline.Cubic(), qs, Fit.Bootstrap())
+        curve = fit(Spline.BSpline(1), qs, Fit.Bootstrap())
 
 
         @testset "discounts: $t" for (t, r) in enumerate(forwards)
@@ -319,7 +320,7 @@ end
         # test construction using vector of reals and of Rates
         curve_c = let
             qs = ForwardYield(Continuous.(forwards), [1, 2, 3, 4])
-            fit(Spline.Cubic(), qs, Fit.Bootstrap())
+            fit(Spline.BSpline(1), qs, Fit.Bootstrap())
         end
         @test discount(curve, 1) > discount(curve_c, 1)
 
@@ -345,7 +346,7 @@ end
         maturity = [0.5, 1.0, 1.5, 2.0]
         zeros = [5.0, 5.8, 6.4, 6.8] ./ 100
         qs = ZCBYield.(zeros, maturity)
-        curve = fit(Spline.Cubic(), qs, Fit.Bootstrap())
+        curve = fit(Spline.BSpline(1), qs, Fit.Bootstrap())
 
         fwd = Yield.ForwardStarting(curve, 1.0)
         @test discount(fwd, 0) ≈ 1
@@ -368,8 +369,7 @@ end
 
         curves = [
             fit(Spline.Linear(), qs, Fit.Bootstrap()),
-            fit(Spline.Quadratic(), qs, Fit.Bootstrap()),
-            fit(Spline.Cubic(), qs, Fit.Bootstrap()),
+            fit(Spline.BSpline(1), qs, Fit.Bootstrap()),
         ]
 
         @testset "curve bootstrapping choices" for curve in curves
@@ -416,7 +416,7 @@ end
         @testset "bootstrapped rates" for (mat, target) in zip(mats, targets)
             @test zero(curve, mat) ≈ target atol = 0.001
         end
-        curve = fit(Spline.Cubic(), qs, Fit.Bootstrap())
+        curve = fit(Spline.BSpline(1), qs, Fit.Bootstrap())
         @testset "bootstrapped rates" for (mat, target) in zip(mats, targets)
             @test zero(curve, mat) ≈ target atol = 0.001
         end
@@ -435,7 +435,7 @@ end
         end
 
         # https://quant.stackexchange.com/questions/57608/how-to-compute-par-yield-from-zero-rate-curve
-        c = fit(Spline.Cubic(), ZCBYield.(Continuous.([0.02, 0.025, 0.03, 0.035]), 0.5:0.5:2), Fit.Bootstrap())
+        c = fit(Spline.BSpline(1), ZCBYield.(Continuous.([0.02, 0.025, 0.03, 0.035]), 0.5:0.5:2), Fit.Bootstrap())
         @test FinanceModels.par(c, 2) ≈ Periodic(0.03508591, 2) atol = 0.000001
 
         c = Yield.Constant(0.04)
@@ -452,7 +452,7 @@ end
 
             pars = [6.0, 8.0, 9.5, 10.5, 11.0, 11.25, 11.38, 11.44, 11.48, 11.5] ./ 100
 
-            curve = fit(Spline.Cubic(), ParYield.(pars, maturity), Fit.Bootstrap())
+            curve = fit(Spline.BSpline(1), ParYield.(pars, maturity), Fit.Bootstrap())
 
             for (p, m) in zip(pars, maturity)
                 @test par(curve, m) ≈ Periodic(p, 2) atol = 0.001

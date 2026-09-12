@@ -32,6 +32,13 @@ module Fit
     A singleton type passed to `fit` to bootstrap a spline curve one quote at a time.
     Each step solves for the zero rate at the next quote maturity to match its price.
 
+    Supports `Spline.Linear()` (also `Spline.PolynomialSpline(1)`) and
+    `Spline.BSpline(1)`. Linear interpolation can construct the first two-point
+    curve and retains earlier segments when later knots are added. Higher-order
+    splines can change previously priced cashflows; PCHIP and Akima also cannot
+    construct the initial two-point curve. Use an explicit `Fit.Loss(x -> x^2)`
+    to fit those strategies across the complete quote set.
+
     A subtype of FitMethod.
 
     # Examples
@@ -227,7 +234,7 @@ Fit a model to a collection of quotes using a loss function and optimization met
 - `model`: The initial model to fit, which is generally an instantiated but un-optimized model.
 - `quotes`: A collection of quotes to fit the model to.
 - `method::F=Fit.Loss(x -> x^2)`: The loss function to use for fitting the model. Defaults to the squared loss function. 
-  - `method` can also be `Bootstrap()`. If this is the case, `model` should be a spline such as `Spline.Linear()`, `Spline.Cubic()`...
+  - `method` can also be `Bootstrap()` with `Spline.Linear()` or `Spline.BSpline(1)`. Other interpolation strategies require a full-curve `Fit.Loss`.
 - `variables=__default_optic(model)`: The variables to optimize over. This is a tuple of optic => interval pairs specifying which parameters of the model can vary. See extended help for more.
 - `optimizer=__default_optim(model)`: The optimization algorithm to use. The default optimization for a given model is `LBFGS()` from Optim.jl (via OptimizationOptimJL), a quasi-Newton method with automatic differentiation via ForwardDiff. See extended help for more on customizing the solver.
 
@@ -380,23 +387,22 @@ function fit(mod0::T, quotes, method::F) where {T <: Spline.SplineCurve, F <: Fi
 
 
     optf = __spline_loss_function(mod0, times, method, quotes)
-    prob = Optimization.OptimizationProblem(optf, fill(0.05, length(quotes)))
+    # A flat seed has undefined slope derivatives for PCHIP/Akima. Keep the
+    # starting rates near 5%, with distinct values for full-grid loss fitting.
+    n = length(quotes)
+    seed = n == 1 ? [0.05] : collect(range(0.049, 0.051; length = n))
+    prob = Optimization.OptimizationProblem(optf, seed)
     sol = Optimization.solve(prob, __default_optim(mod0))
     return Yield.Spline(mod0, times, sol.u)
 
 end
 
 # `Spline.MonotoneConvex` is a tag for the native Hagan-West curve, not a
-# DataInterpolations spline: the generic spline paths above build `Yield.Spline`
-# (no MonotoneConvex method) and bootstrap's incremental, t=0-anchored knots do
-# not match Hagan-West's non-local forward construction. Both entry points route
-# to the dedicated `Yield.MonotoneConvex` fit, which reprices the whole quote set
-# at once (matching `Spline.MonotoneConvex`'s documented "dispatches to
-# Yield.MonotoneConvex" behavior).
+# DataInterpolations spline: loss fitting routes to the native curve, while
+# bootstrap rejects its non-local forward construction below.
 function fit(::Spline.MonotoneConvex, quotes, method::Fit.Loss; optimizer = OptimizationOptimJL.LBFGS())
     return fit(Yield.MonotoneConvex(), quotes, method; optimizer)
 end
-fit(::Spline.MonotoneConvex, quotes, ::Fit.Bootstrap) = fit(Yield.MonotoneConvex(), quotes)
 
 # FX.Forwards with a spline placeholder as the foreign curve: given spot, the domestic
 # curve, and market quotes, each quote reduces to an equivalent quote on the
@@ -414,10 +420,25 @@ end
 fit(mod0::FX.Forwards{P, S, D, F}, quotes, method::Fit.Bootstrap) where {P, S, D, F <: Spline.SplineCurve} = __fit_fx_via_implied(mod0, quotes, method)
 fit(mod0::FX.Forwards{P, S, D, F}, quotes, method::Fit.Loss) where {P, S, D, F <: Spline.SplineCurve} = __fit_fx_via_implied(mod0, quotes, method)
 
+# Appending a knot must preserve every earlier segment, not merely the earlier
+# knot values. In particular, "local" smooth splines need not have this property.
+__supports_bootstrap(::Spline.SplineCurve) = false
+__supports_bootstrap(s::Union{Spline.PolynomialSpline, Spline.BSpline}) = s.order == 1
+
 function fit(mod0::T, quotes, method::Fit.Bootstrap) where {T <: Spline.SplineCurve}
+    __supports_bootstrap(mod0) || throw(
+        ArgumentError(
+            "Fit.Bootstrap does not support $mod0: every prefix must be constructible " *
+                "without changing earlier curve segments. Use Spline.Linear() or Spline.BSpline(1), " *
+                "or explicitly fit this strategy with Fit.Loss(x -> x^2)."
+        )
+    )
     quotes = sort(collect(quotes); by = maturity)
     n = length(quotes)
+    n > 0 || throw(ArgumentError("bootstrap requires at least one quote"))
     times = [float(maturity(q)) for q in quotes]
+    all(t -> isfinite(t) && t > zero(t), times) ||
+        throw(ArgumentError("bootstrap quote maturities must be finite and positive; got $times"))
     # duplicate knots make the interpolant degenerate and would otherwise
     # surface as a cryptic root-bracketing failure deep in the solve
     allunique(times) || throw(ArgumentError("bootstrap quotes must have distinct maturities; got duplicates among $times"))

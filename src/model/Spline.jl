@@ -18,7 +18,7 @@ For a *global* B-spline (e.g. as a basis for smooth least-squares fitting) use `
 
 Notes on Fitting:
 - `fit(spline,quotes)` will fit entire curve at once, with knots equal to the maturity points of the `Quote`s
-- `fit(spline, quotes, Fit.Bootstrap())` will curve one knot at a time, with knots equal to the maturity points of the `Quote`s
+- `fit(spline, quotes, Fit.Bootstrap())` solves one knot at a time with `Spline.Linear()` or `Spline.BSpline(1)`. Other strategies require full-curve loss fitting because adding knots can change earlier segments or the first two-point prefix is unavailable.
 
 Generally, the former will be preferred for performance reasons.
 
