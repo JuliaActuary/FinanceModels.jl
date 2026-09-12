@@ -4,6 +4,34 @@ using ForwardDiff
     rates = [0.02, 0.03, 0.035, 0.04]
     tenors = [1.0, 2.0, 5.0, 10.0]
 
+    @testset "zero-rate primitive survives the wrapper" begin
+        for spline in (
+                Spline.Linear(), Spline.Quadratic(), Spline.Cubic(),
+                Spline.PCHIP(), Spline.Akima(), Spline.MonotoneConvex(), Spline.BSpline(1),
+            )
+            flat = ZeroRateCurve(fill(0.05, 4), tenors, spline)
+            zrc = ZeroRateCurve(rates, tenors, spline)
+            model = Yield.build_model(spline, tenors, rates)
+            for t in (0.0, 1.0e-20, 0.5, 3.0, 10.0, 2.0e4)
+                @test rate(zero(flat, t)) ≈ 0.05
+                @test zero(zrc, t) == zero(model, t)
+                @test rate(zero(flat + Yield.Constant(Continuous(0.01)), t)) ≈ 0.06
+                @test rate(zero(flat + ((z, t) -> z + Continuous(0.01)), t)) ≈ 0.06
+            end
+            @test_throws DomainError zero(zrc, -1.0)
+        end
+
+        for t in (0.0, 1.0e-20, 3.0, 2.0e4)
+            wrapped(rs) = rate(zero(ZeroRateCurve(rs, tenors, Spline.Linear()), t))
+            direct(rs) = rate(zero(Yield.build_model(Spline.Linear(), tenors, rs), t))
+            @test ForwardDiff.gradient(wrapped, rates) ≈ ForwardDiff.gradient(direct, rates)
+        end
+        zrc = ZeroRateCurve(rates, tenors, Spline.Linear())
+        model = Yield.build_model(Spline.Linear(), tenors, rates)
+        @test ForwardDiff.derivative(t -> rate(zero(zrc, t)), 3.0) ≈
+            ForwardDiff.derivative(t -> rate(zero(model, t)), 3.0)
+    end
+
     @testset "MonotoneConvex (default)" begin
         zrc = ZeroRateCurve(rates, tenors)
 
