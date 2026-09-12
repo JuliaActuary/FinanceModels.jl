@@ -31,7 +31,9 @@ export Bond, ZCBYield, ZCBPrice, ParSwapYield, ParYield, CMTYield, ForwardYield,
 
 export Spline
 
-export NullModel, Yield, discount, accumulation, zero, forward
+export NullModel, Yield, discount, accumulation, zero, zero_rate, forward
+
+using .Yield: zero_rate
 
 using .Yield: ZeroRateCurve
 export ZeroRateCurve
