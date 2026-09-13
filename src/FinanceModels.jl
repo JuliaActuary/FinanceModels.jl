@@ -22,6 +22,7 @@ include("utils.jl")
 include("Contract.jl")
 include("model/Model.jl")
 include("Projection.jl")
+include("projection_models.jl")
 include("fit.jl")
 
 export Cashflow, Quote, Forward, CommonEquity, Option, InterestRateSwap
@@ -42,7 +43,7 @@ export par
 export Equity, Volatility
 export FX
 export ShortRate, AbstractStochasticModel, RatePath, simulate, pv_mc, short_rate
-export Projection, CashflowProjection
+export Projection, CashflowProjection, model_requirements
 export pv
 export Fit, fit
 

@@ -53,6 +53,9 @@ struct PrincipalOnlyBond{F<:FinanceCore.Frequency} <: FinanceModels.Bond.Abstrac
     maturity::Float64
 end
 
+# This contract needs no model when using Projection(contract; index).
+FinanceModels.model_requirements(::PrincipalOnlyBond) = ()
+
 # We extend the interface to say what should happen as the bond is projected
 # There's two parts to customize:
 # 1. any initialization or state to keep track of
@@ -72,7 +75,11 @@ function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:Principa
 end
 ```
 
-That's it! then we can use this contract to fitting models, create projections, quotes, etc. Here we simply collect the bond into an array of cashflows:
+Custom contracts declare [`model_requirements`](@ref) to support
+`Projection(contract; index)`: return `()` when no model is needed, or an iterable
+of `key => model_type` pairs for model-dependent cashflows.
+
+We can now use this contract to fit models, create projections, quotes, etc. Here we simply collect the bond into an array of cashflows:
 
 ```julia-repl
 julia> PrincipalOnlyBond(Periodic(2),5.) |> collect
