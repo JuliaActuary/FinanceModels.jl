@@ -34,7 +34,7 @@
         ("Constant(cont)", cc), ("Constant(per)", cper),
         ("NelsonSiegel", ns), ("NSS", nss), ("CairnsPritchard", cpr),
         ("Composite(+)", comp_add), ("Composite(-)", comp_sub),
-        ("Scaled", scaled), ("TenorShift", shifted),
+        ("Scaled", scaled), ("TenorShift", shifted), ("ZeroRateCurve", zrc),
     ]
 
     @testset "discount ≡ exp(-z·t)  ($name)" for (name, c) in curves
@@ -64,6 +64,7 @@
                 ("Spline", spl), ("Constant(cont)", cc),
                 ("Constant(per)", cper), ("Composite(+)", comp_add), ("Scaled", scaled),
                 ("MonotoneConvex", mc), ("NelsonSiegel", ns), ("NSS", nss), ("CairnsPritchard", cpr),
+                ("ZeroRateCurve", zrc),
             )
             @test !isnan(FinanceCore.rate(zero(c, 0.0)))
         end

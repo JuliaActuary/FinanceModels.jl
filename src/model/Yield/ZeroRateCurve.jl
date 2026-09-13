@@ -97,6 +97,13 @@ function FinanceCore.discount(zrc::ZeroRateCurve, t)
 end
 # The callable `zrc(t) ≡ discount(zrc, t)` comes from the generic `AbstractYieldModel` fallback.
 
+# Preserve the cached model's zero-rate primitive, including its limit at the
+# origin. Recovering this from discounts loses precision at tiny/long tenors.
+function Base.zero(zrc::ZeroRateCurve, t)
+    t < zero(t) && throw(DomainError(t, "ZeroRateCurve zero rate is only defined for t ≥ 0"))
+    return zero(getfield(zrc, :_model), t)
+end
+
 # Structural equality on the value-carrying fields. The `_model` field is a
 # deterministic function of (rates, tenors, spline) and may not implement `==`
 # on its underlying interpolation; ignoring it here keeps `a == b` meaningful
