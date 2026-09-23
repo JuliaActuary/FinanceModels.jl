@@ -33,6 +33,7 @@ include("ZeroRateCurve.jl")
 include("Extrapolation.jl")
 include("regressions.jl")
 include("bootstrap.jl")
+include("implied_quote.jl")
 
 include("extensions.jl")
 include("Stochastic.jl")
