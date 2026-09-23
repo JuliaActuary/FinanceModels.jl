@@ -1,3 +1,11 @@
+# A test contract whose reported maturity precedes its last payment.
+struct PaysAfterMaturity{C} <: FinanceCore.AbstractContract
+    inner::C
+    stated_maturity::Float64
+end
+FinanceCore.maturity(c::PaysAfterMaturity) = c.stated_maturity
+FinanceCore.present_value(model, c::PaysAfterMaturity) = FinanceCore.present_value(model, c.inner)
+
 @testset "Bootstrap strategy boundary" begin
     # Uneven coupon dates expose changed earlier segments; zero-coupon quotes at
     # knots alone cannot detect that a later solve has undone an earlier fit.
@@ -25,13 +33,21 @@
 
     for spline in (
             Spline.Quadratic(), Spline.Cubic(), Spline.PolynomialSpline(4),
-            Spline.BSpline(2), Spline.BSpline(3), Spline.PCHIP(), Spline.Akima(), Spline.MonotoneConvex(),
+            Spline.BSpline(2), Spline.BSpline(3), Spline.PCHIP(), Spline.Akima(),
         )
         @test_throws "Fit.Loss" fit(spline, qs, Fit.Bootstrap())
         # Reject the strategy before even consuming the quotes or entering a solver.
         quotes = (error("quotes should not be consumed") for _ in 1:4)
         @test_throws "Fit.Loss" fit(spline, quotes, Fit.Bootstrap())
     end
+    # Monotone convex curves have their own full-curve fit.
+    @test_throws "fit(Spline.MonotoneConvex(), quotes)" fit(Spline.MonotoneConvex(), qs, Fit.Bootstrap())
+
+    # A contract paying after its stated maturity is priced off the curve beyond
+    # its knot, so later knots move it. The returned curve must not silently
+    # misprice it.
+    late = Quote(0.90, PaysAfterMaturity(Cashflow(1.0, 3.0), 1.5))
+    @test_throws "could not reprice" fit(Spline.Linear(), [ZCBPrice(0.97, 1.0), late, ZCBPrice(0.93, 2.0)], Fit.Bootstrap())
 
     # The documented full-grid alternative must actually fit the quote set.
     # A flat optimizer seed previously stalled PCHIP and Akima at the seed curve.
