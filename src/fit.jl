@@ -32,12 +32,17 @@ module Fit
     A singleton type passed to `fit` to bootstrap a spline curve one quote at a time.
     Each step solves for the zero rate at the next quote maturity to match its price.
 
-    Supports `Spline.Linear()` (also `Spline.PolynomialSpline(1)`) and
-    `Spline.BSpline(1)`. Linear interpolation can construct the first two-point
-    curve and retains earlier segments when later knots are added. Higher-order
-    splines can change previously priced cashflows; PCHIP and Akima also cannot
-    construct the initial two-point curve. Use an explicit `Fit.Loss(x -> x^2)`
-    to fit those strategies across the complete quote set.
+    Supports `Spline.Linear()` (equivalently `Spline.PolynomialSpline(1)` or
+    `Spline.BSpline(1)`). Bootstrapping requires that adding a knot on the right
+    leaves every earlier curve segment unchanged, so earlier quotes stay exactly
+    priced. Linear interpolation of zero rates has this property; quadratic,
+    cubic, higher-order B-spline, PCHIP, and Akima interpolation do not, because
+    a later knot changes the shape of earlier segments. Fit those strategies
+    across the complete quote set with `Fit.Loss(x -> x^2)`, and fit a monotone
+    convex curve with `fit(Spline.MonotoneConvex(), quotes)`.
+
+    After solving, every quote is repriced on the returned curve; a residual
+    beyond root-finder precision throws an `ArgumentError` naming the quote.
 
     A subtype of FitMethod.
 
@@ -234,7 +239,7 @@ Fit a model to a collection of quotes using a loss function and optimization met
 - `model`: The initial model to fit, which is generally an instantiated but un-optimized model.
 - `quotes`: A collection of quotes to fit the model to.
 - `method::F=Fit.Loss(x -> x^2)`: The loss function to use for fitting the model. Defaults to the squared loss function. 
-  - `method` can also be `Bootstrap()` with `Spline.Linear()` or `Spline.BSpline(1)`. Other interpolation strategies require a full-curve `Fit.Loss`.
+  - `method` can also be `Bootstrap()` with `Spline.Linear()`. Other interpolation strategies require a full-curve `Fit.Loss`.
 - `variables=__default_optic(model)`: The variables to optimize over. This is a tuple of optic => interval pairs specifying which parameters of the model can vary. See extended help for more.
 - `optimizer=__default_optim(model)`: The optimization algorithm to use. The default optimization for a given model is `LBFGS()` from Optim.jl (via OptimizationOptimJL), a quasi-Newton method with automatic differentiation via ForwardDiff. See extended help for more on customizing the solver.
 
@@ -425,12 +430,15 @@ fit(mod0::FX.Forwards{P, S, D, F}, quotes, method::Fit.Loss) where {P, S, D, F <
 __supports_bootstrap(::Spline.SplineCurve) = false
 __supports_bootstrap(s::Union{Spline.PolynomialSpline, Spline.BSpline}) = s.order == 1
 
+__bootstrap_alternative(::Spline.SplineCurve) = "fit this strategy across all quotes with Fit.Loss(x -> x^2)"
+__bootstrap_alternative(::Spline.MonotoneConvex) = "fit a monotone convex curve to all quotes with fit(Spline.MonotoneConvex(), quotes)"
+
 function fit(mod0::T, quotes, method::Fit.Bootstrap) where {T <: Spline.SplineCurve}
     __supports_bootstrap(mod0) || throw(
         ArgumentError(
-            "Fit.Bootstrap does not support $mod0: every prefix must be constructible " *
-                "without changing earlier curve segments. Use Spline.Linear() or Spline.BSpline(1), " *
-                "or explicitly fit this strategy with Fit.Loss(x -> x^2)."
+            "Fit.Bootstrap does not support $mod0: adding a knot would change earlier " *
+                "curve segments and reprice earlier quotes. Use Spline.Linear(), or " *
+                __bootstrap_alternative(mod0) * "."
         )
     )
     quotes = sort(collect(quotes); by = maturity)
@@ -469,7 +477,20 @@ function fit(mod0::T, quotes, method::Fit.Bootstrap) where {T <: Spline.SplineCu
             Roots.find_zero(f, (-1.0, 1.0), Roots.A42())
         end
     end
-    return Yield.Spline(mod0, [zero(eltype(times)); times], [first(zs); zs])
+    curve = Yield.Spline(mod0, [zero(eltype(times)); times], [first(zs); zs])
+    # Every quote's cashflows must end at its maturity for later knots to leave
+    # it priced. Check the returned curve so a contract that pays beyond its
+    # maturity cannot drift silently.
+    for q in quotes
+        residual = present_value(curve, q.instrument) - q.price
+        abs(residual) <= 1.0e-8 * max(one(q.price), abs(q.price)) || throw(
+            ArgumentError(
+                "bootstrap could not reprice the quote maturing at $(maturity(q)) " *
+                    "(residual $residual); its cashflows may extend beyond its maturity"
+            )
+        )
+    end
+    return curve
 end
 
 function fit(mod0::Yield.SmithWilson, quotes)

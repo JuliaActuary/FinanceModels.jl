@@ -473,10 +473,10 @@ quotes = [
 m = fit(FX.Forwards(eurusd, 1.10, sofr, Spline.Linear()), quotes, Fit.Bootstrap())
 ```
 
-Prefer a *local* interpolation (such as `Spline.Linear`, as above) when the quote set
-includes coupon-bearing instruments: their cashflows fall between knots, and a global
-spline reshapes already-solved segments as later knots are added, silently drifting
-solved quotes off par.
+Bootstrapping requires `Spline.Linear` (as above): coupon-bearing instruments have
+cashflows between knots, and with smoother interpolation a later knot reshapes
+already-solved segments and drifts solved quotes off par. Use `Fit.Loss` to fit a
+smooth curve to the whole quote set.
 
 This is the constant-notional representation. Interbank basis swaps are quoted on the
 mark-to-market (resetting-notional) structure, in which the *flat domestic* leg's

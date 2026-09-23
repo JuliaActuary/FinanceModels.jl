@@ -307,9 +307,9 @@ Every quote — outright or swap — reprices under the fitted model, and the co
 basis swap from the previous section values to zero against it (the test suite asserts
 both). Two practical notes:
 
-- Prefer *local* interpolation (e.g. `Spline.Linear`) when bootstrapping coupon-bearing
-  quotes: a global spline reshapes earlier segments as later knots are added, drifting
-  already-solved swaps off par.
+- Bootstrapping requires `Spline.Linear`: with smoother interpolation, adding a knot
+  reshapes earlier segments and drifts already-solved swaps off par, so `Fit.Bootstrap`
+  rejects those strategies. Use `Fit.Loss` to fit a smooth curve to the whole quote set.
 - A mixed quote set under `Fit.Loss` (rather than `Fit.Bootstrap`) sums residuals of
   different scales — discount-factor units for implied zero-coupon quotes, par-price
   units for basis-swap strips — implicitly weighting the two families differently; the

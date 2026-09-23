@@ -539,7 +539,7 @@
         @testset "guards" begin
             gbpusd = FX.Pair(:GBP, :USD)
             q_gbp = FX.ParBasisSwap(gbpusd, -0.001, 2.0; reference = estr)
-            m0 = FX.Forwards(eurusd, S, sofr, Spline.Cubic())
+            m0 = FX.Forwards(eurusd, S, sofr, Spline.Linear())
             @test_throws ArgumentError fit(m0, [q_gbp], Fit.Bootstrap())
             m_e = FX.Forwards(eurusd, S, sofr, estr)
             @test_throws ArgumentError pv(m_e, q_gbp.instrument)
@@ -547,7 +547,7 @@
             # an outright and a basis swap at the same maturity are refused by the
             # bootstrap's distinct-maturities check rather than silently blended
             clash = [FX.Outright(eurusd, 1.12, 2.0), FX.ParBasisSwap(eurusd, -0.001, 2.0; reference = estr)]
-            @test_throws ArgumentError fit(m0, clash, Fit.Bootstrap())
+            @test_throws "distinct maturities" fit(m0, clash, Fit.Bootstrap())
         end
     end
 end

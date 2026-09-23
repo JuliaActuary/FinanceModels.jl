@@ -3,12 +3,12 @@ Spline is a module which offers various degree splines used for fitting or boots
 
 Available methods:
 
-- `Spline.PolynomialSpline(n)` where n is the nth order. A *local* interpolating spline (order 1/2/3 → linear / quadratic / natural cubic). Local means each segment depends only on nearby points, giving good key-rate locality; these are also fast and thread-safe to evaluate.
+- `Spline.PolynomialSpline(n)` where n is the nth order: linear, quadratic, or natural cubic interpolation for orders 1, 2, or 3. Linear is local: each segment depends only on its two end knots. Quadratic and natural cubic splines are global: moving one knot changes every segment. All are fast and thread-safe to evaluate.
 - `Spline.BSpline(d)` where d is the polynomial degree. A degree-d B-spline produces (d-1)th-order-continuous piecewise polynomials. That is, degree 2/3 is very similar to a quadratic/cubic spline respectively. BSplines are global in that a change in one point affects the entire spline (though the spline still passes through the other given points still). Useful as a basis for least-squares fitting, but **not** thread-safe for concurrent evaluation — see [`Spline.BSpline`](@ref).
 
 This object is not a fitted spline itself, rather it is a placeholder object which will be a spline representing the data only after using within [`fit`](@ref FinanceModels.fit).
 
-Convenience methods which create a *local* `Spline.PolynomialSpline` of the appropriate order (recommended for interpolating curves — fast, good key-rate locality, and safe to evaluate concurrently):
+Convenience methods which create a `Spline.PolynomialSpline` of the appropriate order (fast and safe to evaluate concurrently; `Spline.Linear` also gives the best key-rate locality):
 
 - `Spline.Linear()` equals `PolynomialSpline(1)` (numerically identical to `BSpline(1)`)
 - `Spline.Quadratic()` equals `PolynomialSpline(2)`
@@ -18,7 +18,7 @@ For a *global* B-spline (e.g. as a basis for smooth least-squares fitting) use `
 
 Notes on Fitting:
 - `fit(spline,quotes)` will fit entire curve at once, with knots equal to the maturity points of the `Quote`s
-- `fit(spline, quotes, Fit.Bootstrap())` solves one knot at a time with `Spline.Linear()` or `Spline.BSpline(1)`. Other strategies require full-curve loss fitting because adding knots can change earlier segments or the first two-point prefix is unavailable.
+- `fit(spline, quotes, Fit.Bootstrap())` solves one knot at a time with `Spline.Linear()`. Other strategies require full-curve loss fitting because adding a knot changes earlier segments.
 
 Generally, the former will be preferred for performance reasons.
 
@@ -45,10 +45,11 @@ abstract type SplineCurve end
 """
     Spline.PolynomialSpline(order)
 
-A *local* polynomial interpolating spline of the given `order`, backed by DataInterpolations
-(`order` 1 → `LinearInterpolation`, 2 → `QuadraticSpline`, 3 → natural `CubicSpline`). Local means each
-segment depends only on nearby points, so bumping one knot has a bounded effect (good key-rate locality);
-these are also thread-safe to evaluate concurrently.
+A polynomial interpolating spline of the given `order`, backed by DataInterpolations
+(`order` 1 → `LinearInterpolation`, 2 → `QuadraticSpline`, 3 → natural `CubicSpline`). Order 1 is local:
+each segment depends only on its two end knots, so bumping one knot moves only the adjacent segments.
+Orders 2 and 3 are global: bumping one knot moves every segment. All orders are thread-safe to evaluate
+concurrently.
 
 The convenience constructors [`Spline.Linear`](@ref), [`Spline.Quadratic`](@ref), and [`Spline.Cubic`](@ref)
 return `PolynomialSpline(1/2/3)`.
@@ -69,12 +70,12 @@ it still passes through the other given points).
     A `BSpline`-backed curve is **not safe to evaluate from multiple threads at once**. The underlying
     `DataInterpolations.BSplineInterpolation` reuses a single internal coefficient buffer that it
     overwrites on every evaluation, so concurrent `discount`/`zero`/`forward` calls on one shared curve can
-    silently return wrong values. For multithreaded valuation, use a *local* interpolant (`Spline.Linear()`,
-    `Spline.Quadratic()`, `Spline.Cubic()`, `Spline.PCHIP()`, or `Spline.MonotoneConvex()`), or give each
-    thread its own copy of the curve.
+    silently return wrong values. For multithreaded valuation, use a thread-safe interpolant
+    (`Spline.Linear()`, `Spline.Quadratic()`, `Spline.Cubic()`, `Spline.PCHIP()`, or
+    `Spline.MonotoneConvex()`), or give each thread its own copy of the curve.
 
-For interpolating an already-known curve, prefer the local convenience constructors (`Spline.Cubic()` etc.):
-they build faster, have better key-rate locality, and are thread-safe.
+For interpolating an already-known curve, prefer the convenience constructors (`Spline.Cubic()` etc.):
+they build faster and are thread-safe.
 """
 struct BSpline <: SplineCurve
     order::Int
@@ -144,7 +145,7 @@ Linear() = PolynomialSpline(1)
 """
     Spline.Quadratic()
 
-Create a local quadratic spline (returns `PolynomialSpline(2)`, backed by `DataInterpolations.QuadraticSpline`).
+Create a quadratic spline (returns `PolynomialSpline(2)`, backed by the global `DataInterpolations.QuadraticSpline`).
 This object is not a fitted spline itself, rather it is a placeholder which becomes a spline only after use
 within [`fit`](@ref FinanceModels.fit),
 or when passed to `ZeroRateCurve`.
@@ -166,7 +167,7 @@ Quadratic() = PolynomialSpline(2)
 """
     Spline.Cubic()
 
-Create a local (natural) cubic spline (returns `PolynomialSpline(3)`, backed by `DataInterpolations.CubicSpline`).
+Create a natural cubic spline (returns `PolynomialSpline(3)`, backed by the global `DataInterpolations.CubicSpline`).
 This object is not a fitted spline itself, rather it is a placeholder which becomes a spline only after use
 within [`fit`](@ref FinanceModels.fit),
 or when passed to `ZeroRateCurve`.

@@ -1,5 +1,27 @@
 # Migration Guide
 
+## v6.x to v7.0
+
+- **`Fit.Bootstrap()` supports only `Spline.Linear()`** (equivalently
+  `Spline.PolynomialSpline(1)` or `Spline.BSpline(1)`). Bootstrapping solves one
+  quote at a time and requires that each new knot leave earlier curve segments
+  unchanged. With quadratic, cubic, higher-order B-spline, PCHIP, or Akima
+  interpolation a later knot reshapes earlier segments, so earlier coupon quotes
+  silently stopped repricing: on uneven par quotes the residuals reached 0.40%
+  (quadratic) and 0.11% (cubic). These strategies now throw an `ArgumentError`.
+  **Migration:** use `Spline.Linear()` with `Fit.Bootstrap()`, or fit the smoother
+  strategy to all quotes at once with `Fit.Loss(x -> x^2)`; fit a monotone convex
+  curve with `fit(Spline.MonotoneConvex(), quotes)` (bootstrap previously switched
+  to this loss fit silently). Zero-coupon quote sets were exact with every strategy,
+  so their fitted curves change only if you switch to a loss fit.
+- Bootstrap validates its inputs up front: empty quote sets, non-finite or
+  non-positive maturities, and duplicate maturities throw an `ArgumentError`.
+  After solving, every quote is repriced on the returned curve, and a residual
+  beyond root-finder precision throws.
+- Full-curve `Fit.Loss` spline fits start from slightly sloped rates near 5%
+  instead of a flat 5%, which lets PCHIP and Akima fits converge. Converged fits
+  of other strategies move by at most about 1e-9 in zero rate.
+
 ## v6.0 to v6.1
 
 !!! warning "Changed numbers and new errors"
@@ -9,7 +31,7 @@
   - *Forward rates are now continuous at and beyond the last knot*: extrapolation is anchored at the boundary instantaneous forward `f(tₙ)` instead of the last discrete forward (see `Yield.instantaneous_forward`). **Extrapolated zero rates change** — on a typical upward-sloping curve with a 10y last knot, the 20y zero moves on the order of +10bp (about −2% PV for a 20y cashflow). For steeply inverted/humped curves the boundary forward can be collared to 0, giving a 0% forward tail beyond the last knot — extend your knot grid past your longest cashflow if you discount far beyond it.
   - *The Hagan-West positivity collar was corrected* (it previously clamped the wrong nodes and left one node unclamped, so the guaranteed-positive-forwards property could fail). Fitted/interpolated values change only where a clamp binds (sharply non-monotone forward curves); the collar is also generalized to negative discrete forwards.
   - The module-local `Yield.forward(mc::MonotoneConvex, t)` (instantaneous forward) was renamed `Yield.instantaneous_forward(mc, t)`. `Yield.forward` now refers to `FinanceCore.forward`, so the *same call* returns the discrete one-period forward as a `Rate` — update qualified callers.
-- **Bootstrap `fit` (`Fit.Bootstrap()`) supports `Spline.Linear()` and `Spline.BSpline(1)` only.** Each scalar root solve retains all earlier curve segments, so later quotes cannot undo earlier pricing constraints. Quadratic, cubic, higher-order B-spline, PCHIP, Akima, and MonotoneConvex strategies now throw an actionable `ArgumentError`; use `Fit.Loss(x -> x^2)` explicitly for full-curve fitting with those interpolants. In particular, requesting MonotoneConvex bootstrap no longer silently switches to loss fitting. Quotes are sorted by maturity; empty inputs, duplicate maturities, and non-finite or non-positive maturities are errors.
+- **Bootstrap `fit` (`Fit.Bootstrap()`) is now an exact per-knot root-solve** instead of a per-knot optimizer pass. For zero-coupon quotes (any interpolant) and for coupon quotes with *local* interpolants (`Spline.Linear/Quadratic/Cubic`), every quote is repriced to root-finder precision; with *global* interpolants (`Spline.BSpline`) later knots still reshape earlier segments, so earlier coupon quotes reprice approximately (comparable to the previous behavior). Quotes are now sorted by maturity internally; duplicate maturities are an error.
 - **`ZeroRateCurve` eagerly builds its interpolation at construction** rather than on first evaluation, and **`discount(zrc, t)` for `t < 0` now throws a `DomainError`** (it previously returned `1.0` silently — a misprice for anything that actually discounted at negative times). Notably, a `Bond.Floating` whose maturity is not an integer multiple of the coupon period generates a stub first coupon that references `forward(model, t - 1/freq, t)` with a *negative* start time: on a `ZeroRateCurve` this was previously a silent half-sized stub forward and is now a loud error. Align floater maturities/resets to the coupon period.
 - **`par` now throws an informative `ArgumentError`** when the requested maturity implies a stub period that cannot be represented with the given coupon frequency (previously a bare `InexactError`).
 - **`TransformedYield` is deprecated — use `Yield.TenorShift`.** The old name remains available as a `Base.@deprecate_binding` alias but will be removed in a future release.
