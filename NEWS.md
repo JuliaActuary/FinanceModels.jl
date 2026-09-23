@@ -64,6 +64,16 @@ keep the previous values. The other policies are
 `FinanceCore.Rate` such as `Continuous(0.035)` (a bare number throws). See the
 migration guide.
 
+### Quote conventions
+
+- `OISYield` builds annual-pay par swaps beyond one year (was quarterly), matching
+  SOFR, €STR, and SONIA overnight index swaps.
+- `ParSwapYield` and `InterestRateSwap` require an explicit `frequency`.
+- `ParYield` throws an `ArgumentError` when an explicit `frequency` conflicts with a
+  `Periodic` rate's own compounding; previously the keyword was ignored.
+
+See the migration guide for upgrade steps.
+
 ## v6.4.0
 
 ### `Spline.BSpline` fitted values changed on non-uniform tenor grids

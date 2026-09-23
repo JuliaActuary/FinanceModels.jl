@@ -18,7 +18,7 @@ FinanceModels.model_requirements(c::IterableProjectionContract) = c.requirements
     credit = Yield.Constant(Continuous(0.06))
     fixed = Bond.Fixed(0.05, Periodic(2), 5.0)
     floating = Bond.Floating(0.001, Periodic(4), 5.0, :index)
-    swap = InterestRateSwap(curve, 5.0; model_key = :index)
+    swap = InterestRateSwap(curve, 5.0; frequency = 4, model_key = :index)
     transformed = floating |> Map(-) |> Map(cf -> cf * 2)
     forward_start = Forward(1.0, floating)
     portfolio = [swap, fixed, forward_start]

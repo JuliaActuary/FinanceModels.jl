@@ -96,7 +96,7 @@ end
     # a swap value with the same curve used to parameterize should have
     # zero value at inception
     curve = Yield.Constant(0.05)
-    swap = InterestRateSwap(curve, 10)
+    swap = InterestRateSwap(curve, 10; frequency = 4)
     proj = Projection(swap, Dict("OIS" => curve), CashflowProjection())
     @test pv(0.04, proj |> collect) ≈ 0.0 atol = 1.0e-12
 end

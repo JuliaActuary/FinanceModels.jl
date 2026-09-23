@@ -161,9 +161,9 @@ module Bond
 
     """
         ParYield(yield, maturity; frequency=Periodic(2))
-        ParYield(yield::Rate{N,Periodic}, maturity; frequency=Periodic(2))
+        ParYield(yield::Rate{N,Periodic}, maturity; frequency=yield.compounding)
 
-    Create a `Quote` representing a par bond with the given `yield` and `maturity`. The default coupon `frequency` is semi-annual (`Periodic(2)`). If a `Rate` with `Periodic` compounding is passed, the frequency is inferred from the rate.
+    Create a `Quote` representing a par bond with the given `yield` and `maturity`. The default coupon `frequency` is semi-annual (`Periodic(2)`), the bond-equivalent convention of US Treasury par yields. A `Rate` with `Periodic` compounding sets the frequency itself; passing a different `frequency` with such a rate throws an `ArgumentError`. Convert the rate first, e.g. `Periodic(1)(yield)`, to quote it at another frequency.
 
     When `maturity` is not a whole number of coupon periods, the backward-anchored schedule (`Bond.coupon_times`) leaves a *short first stub* which accrues its actual length, and the coupon rate is solved so the bond prices to exactly `1.0` at the quoted yield: `c·Σᵢ δᵢ·DF(tᵢ) + DF(T) = 1`, where `δ₁ = t₁` is the stub length and `δᵢ = 1/frequency` otherwise. The sub-period case (`maturity ≤ 1/frequency`) is the single-coupon instance of this rule: the stub pays `accumulation(yield, maturity) - 1`, so `(1 + stub_coupon·maturity) * discount(yield, maturity) = 1.0`. Otherwise, a standard par coupon bond `Quote` with `price = 1.0` is returned.
 
@@ -181,9 +181,14 @@ module Bond
     """
     function ParYield(yield, maturity; frequency = Periodic(2))
         frequency = __coerce_periodic(frequency)
-        return ParYield(frequency(yield), maturity; frequency)
+        return ParYield(frequency(yield), maturity)
     end
-    function ParYield(yield::Rate{N, T}, maturity; frequency = Periodic(2)) where {T <: Periodic, N}
+    function ParYield(yield::Rate{N, T}, maturity; frequency = nothing) where {T <: Periodic, N}
+        if !isnothing(frequency) && __coerce_periodic(frequency) != yield.compounding
+            # Quoting a rate at a different frequency changes its value; never
+            # silently prefer one of the two conventions.
+            throw(ArgumentError("ParYield received a $(yield.compounding) rate with frequency = $(__coerce_periodic(frequency)); convert the rate first, e.g. `$(__coerce_periodic(frequency))(yield)`, or omit `frequency`"))
+        end
         frequency = yield.compounding
         coupon_rate = if __regular_schedule(maturity, frequency.frequency)
             rate(yield)
@@ -197,13 +202,18 @@ module Bond
     end
 
     """
-        ParSwapYield(yield, maturity; frequency=Periodic(4))
+        ParSwapYield(yield, maturity; frequency)
 
-    Same as [`ParYield`](@ref), except the `frequency` is four times per period by default.
+    Same as [`ParYield`](@ref) for a par swap's fixed leg. `frequency` is required
+    because fixed-leg conventions differ by market: annual for SOFR, €STR, and SONIA
+    overnight index swaps, semiannual for legacy USD swaps and several government
+    bond markets, and quarterly in some others. Pass an integer or a `Periodic`, e.g.
+    `ParSwapYield(0.04, 5; frequency = 1)`.
+
+    See also [`OISYield`](@ref).
     """
-    function ParSwapYield(yield, maturity; frequency = Periodic(4))
-        frequency = __coerce_periodic(frequency)
-        return ParYield(yield, maturity; frequency = frequency)
+    function ParSwapYield(yield, maturity; frequency)
+        return ParYield(yield, maturity; frequency = __coerce_periodic(frequency))
     end
 
     """
@@ -238,7 +248,15 @@ module Bond
     """
         OISYield(yield, maturity)
 
-    Returns the implied `Quote` for the fixed bond implied by the given `yield` and `maturity`. Assumes that maturities less than or equal to 12 months are settled once (per Hull textbook, 4.7), otherwise quarterly and that the FinanceModels given are bond equivalent.
+    Returns the `Quote` implied by an overnight index swap rate `yield` for the given `maturity`.
+    Maturities of one year or less settle once at maturity. Longer maturities pay annually on both legs,
+    matching SOFR (Act/360), €STR (Act/360), and SONIA (Act/365F) overnight index swaps; the rate is
+    quoted with annual compounding.
+
+    FinanceModels measures time in year fractions, so day counts are not modeled. A single-payment
+    quote discounts at the annual-effective `yield` (`discount(yield, maturity)`); markets quote
+    maturities under one year with simple interest, `1 / (1 + yield * maturity)`. The two agree at one
+    year. Pass an equivalent annual-effective rate for shorter maturities if the difference matters.
 
     Use broadcasting to create a set of quotes given a collection of FinanceModels and maturities, e.g. `OISYield.(FinanceModels,maturities)`.
 
@@ -248,7 +266,7 @@ module Bond
 
     ```
     julia> OISYield(0.05,10)
-    Quote{Float64, FinanceModels.Bond.Fixed{Periodic, Float64, Int64}}(1.0, FinanceModels.Bond.Fixed{Periodic, Float64, Int64}(0.05, Periodic(4), 10))
+    Quote{Float64, FinanceModels.Bond.Fixed{Periodic, Float64, Int64}}(1.0, FinanceModels.Bond.Fixed{Periodic, Float64, Int64}(0.05, Periodic(1), 10))
     ```
 
     """
@@ -257,8 +275,8 @@ module Bond
         if maturity <= 1
             return Quote(discount(yield, maturity), Fixed(0.0, Periodic(1), maturity))
         else
-            # quarterly-settled par swap; ParYield solves any front-stub schedule to par
-            return ParYield(Periodic(4)(yield), maturity)
+            # annually settled par swap; ParYield solves any front-stub schedule to par
+            return ParYield(Periodic(1)(yield), maturity)
         end
     end
 
@@ -579,11 +597,11 @@ function cashflows_timepoints(qs::Vector{Q}) where {Q <: Quote}
 end
 
 """
-    InterestRateSwap(curve, tenor; model_key="OIS")
+    InterestRateSwap(curve, tenor; frequency, model_key="OIS")
 
 A convenience method for creating an interest rate swap given a curve and a tenor via a `Composite` contract consisting of receiving a [fixed bond](@ref Bond.Fixed) and paying (i.e. the negative of) a [floating bond](@ref Bond.Floating).
 
-The notional is a unit (1.0) amount and assumed to settle four times per period. The fixed rate is the annualized par coupon for the tenor's schedule on `curve`, so the swap prices to zero at inception — including non-whole tenors, whose first period is a short stub accruing its actual length.
+The notional is a unit (1.0) amount, and both legs settle `frequency` times per period. `frequency` is required because swap conventions differ by market; overnight index swaps on SOFR, €STR, and SONIA settle annually (`frequency = 1`). The fixed rate is the annualized par coupon for the tenor's schedule on `curve`, so the swap prices to zero at inception — including non-whole tenors, whose first period is a short stub accruing its actual length.
 
 
 A [`Projection`](@ref), with an indexable `model_key` is still needed to project a swap. See examples below for what this looks like.
@@ -594,7 +612,7 @@ A [`Projection`](@ref), with an indexable `model_key` is still needed to project
 
 julia> curve = Yield.Constant(0.05);
 
-julia> swap = InterestRateSwap(curve,10);
+julia> swap = InterestRateSwap(curve, 10; frequency = 4);
 
 julia> Projection(swap,Dict("OIS" => curve),CashflowProjection()) |> collect
 80-element Vector{Cashflow{Float64, Float64}}:
@@ -607,12 +625,13 @@ Cashflow{Float64, Float64}(-1.0122722344290394, 10.0)
 ```
 
 """
-function InterestRateSwap(curve, tenor; model_key = "OIS")
+function InterestRateSwap(curve, tenor; frequency, model_key = "OIS")
+    frequency = Bond.__coerce_periodic(frequency)
     # the annualized par coupon for the tenor's schedule (true accrual on any
     # front stub), so the swap prices to zero at inception for any tenor —
     # `par`'s yield quote is not the coupon on stub schedules
-    fixed_rate = Bond.__par_coupon(curve, tenor, 4)
-    fixed_leg = Bond.Fixed(fixed_rate, Periodic(4), tenor)
-    float_leg = Bond.Floating(0.0, Periodic(4), tenor, model_key) |> Map(-)
+    fixed_rate = Bond.__par_coupon(curve, tenor, frequency.frequency)
+    fixed_leg = Bond.Fixed(fixed_rate, frequency, tenor)
+    float_leg = Bond.Floating(0.0, frequency, tenor, model_key) |> Map(-)
     return Composite(fixed_leg, float_leg)
 end
