@@ -29,6 +29,28 @@ Every optimizer-backed `fit` now checks the solver's return code and throws a
 `FitConvergenceError` (with the solver's `retcode`) instead of returning the
 unfitted starting model.
 
+### Flat-forward extrapolation beyond the last knot (changed numbers)
+
+DataInterpolations-backed curves (`Spline.Linear()`, `Quadratic()`, `Cubic()`,
+`PCHIP()`, `Akima()`, `BSpline(d)`) no longer continue their final interpolation
+piece beyond the last knot. By default they now hold the last discrete forward,
+`(zₙtₙ - zₙ₋₁tₙ₋₁)/(tₙ - tₙ₋₁)`, constant there, which keeps discount factors
+continuous at the last knot and stops the end polynomial from driving the tail
+(continuing it, or even holding its end slope's forward, can give extreme or
+negative long-end forwards).
+**Zero rates and present values beyond the last knot change** for every such
+curve and fit; values up to the last knot do not. For a linear bootstrap of
+`ZCBYield.([0.02, 0.025, 0.031, 0.036], [1, 2, 5, 10])` the 30-year continuous
+zero rate moves from 5.47% to 3.86% (−161 bp; the 30-year discount factor rises
+from 0.194 to 0.314). `Spline.MonotoneConvex()`, the `ZeroRateCurve` default,
+keeps its boundary forward and is unchanged.
+
+Pass `extrapolation = :extension` to `Yield.Spline`, `ZeroRateCurve`,
+`Yield.build_model` or `fit` to keep the previous values. The other policies are
+`:flat_zero`, `:linear` and `Yield.FlatForwardAt(rate)`, which takes a
+`FinanceCore.Rate` such as `Continuous(0.035)` (a bare number throws). See the
+migration guide.
+
 ## v6.4.0
 
 ### `Spline.BSpline` fitted values changed on non-uniform tenor grids

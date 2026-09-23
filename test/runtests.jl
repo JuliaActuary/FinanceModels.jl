@@ -30,6 +30,7 @@ include("NelsonSiegelSvensson.jl")
 include("CairnsPritchard.jl")
 include("MonotoneConvex.jl")
 include("ZeroRateCurve.jl")
+include("Extrapolation.jl")
 include("regressions.jl")
 include("bootstrap.jl")
 
