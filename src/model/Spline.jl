@@ -52,10 +52,18 @@ Orders 2 and 3 are global: bumping one knot moves every segment. All orders are 
 concurrently.
 
 The convenience constructors [`Spline.Linear`](@ref), [`Spline.Quadratic`](@ref), and [`Spline.Cubic`](@ref)
-return `PolynomialSpline(1/2/3)`.
+return `PolynomialSpline(1/2/3)`. Any other `order` throws an `ArgumentError`.
 """
 struct PolynomialSpline <: SplineCurve
     order::Int
+    function PolynomialSpline(order::Integer)
+        1 <= order <= 3 || throw(
+            ArgumentError(
+                "Spline.PolynomialSpline: order must be 1 (linear), 2 (quadratic) or 3 (cubic); got $order."
+            )
+        )
+        return new(order)
+    end
 end
 
 """
@@ -76,9 +84,20 @@ it still passes through the other given points).
 
 For interpolating an already-known curve, prefer the convenience constructors (`Spline.Cubic()` etc.):
 they build faster and are thread-safe.
+
+`d` must be at least 1: a degree-0 B-spline is a step function of the zero rate, so discount factors
+would jump at every knot.
 """
 struct BSpline <: SplineCurve
     order::Int
+    function BSpline(order::Integer)
+        order >= 1 || throw(
+            ArgumentError(
+                "Spline.BSpline: degree must be ≥ 1 (got $order); a degree-0 step curve makes discount factors jump at every knot."
+            )
+        )
+        return new(order)
+    end
 end
 
 """

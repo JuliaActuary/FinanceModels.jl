@@ -1,3 +1,15 @@
+# Test-only solver that deterministically exercises `fit`'s unsuccessful-retcode path.
+struct FailingFitOptimizer end
+function FinanceModels.Optimization.solve(
+        prob::FinanceModels.Optimization.OptimizationProblem,
+        ::FailingFitOptimizer
+    )
+    return (
+        u = prob.u0,
+        retcode = FinanceModels.Optimization.SciMLBase.ReturnCode.Failure,
+    )
+end
+
 # Regression tests from the 2026-06 ecosystem audit
 @testset "audit regressions" begin
     @testset "fit(spline, quotes, Fit.Loss) uses the supplied loss" begin
@@ -69,6 +81,50 @@
         end
     end
 
+    @testset "PCHIP and Akima loss fits do not stall at a flat seed" begin
+        tenors = [1 / 12, 2 / 12, 3 / 12, 0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0]
+        rates = [
+            0.0375, 0.0372, 0.0372, 0.0372, 0.0364,
+            0.0368, 0.0369, 0.038, 0.04, 0.0423,
+        ]
+
+        for quote_type in (CMTYield, ParYield), spline in (Spline.PCHIP(), Spline.Akima())
+            qs = quote_type.(rates, tenors)
+            curve = fit(spline, qs)
+            max_price_error = maximum(
+                abs,
+                present_value(curve, q.instrument) - q.price for q in qs
+            )
+            @test max_price_error < 1.0e-6
+        end
+    end
+
+    @testset "optimizer failures are never returned as fitted models" begin
+        qs = ZCBPrice.([0.97, 0.93, 0.88], [1.0, 2.0, 3.0])
+        fits = (
+            () -> fit(Yield.Constant(), qs; optimizer = FailingFitOptimizer()),
+            () -> fit(Yield.MonotoneConvex(), qs; optimizer = FailingFitOptimizer()),
+            () -> fit(Spline.Linear(), qs, Fit.Loss(abs2); optimizer = FailingFitOptimizer()),
+        )
+
+        for run_fit in fits
+            err = try
+                run_fit()
+                nothing
+            catch e
+                e
+            end
+            @test err isa FitConvergenceError
+            @test err isa Exception
+            if err isa FitConvergenceError
+                @test err.retcode == FinanceModels.Optimization.SciMLBase.ReturnCode.Failure
+                msg = sprint(showerror, err)
+                @test startswith(msg, "FitConvergenceError: ")
+                @test occursin("optimizer return code Failure", msg)
+            end
+        end
+    end
+
     @testset "ZeroRateCurve negative time" begin
         zrc = ZeroRateCurve([0.02, 0.03], [1.0, 2.0])
         @test discount(zrc, 0.0) == 1.0
@@ -113,5 +169,28 @@
         # MonotoneConvex (unbounded) path: Newton is the canonical second-order method.
         mc = @test_logs fit(Yield.MonotoneConvex(), qs; optimizer = FinanceModels.OptimizationOptimJL.Newton())
         @test reprice(mc) < 1.0e-10
+    end
+end
+
+@testset "batch knot-rate optic rebuilds once per candidate" begin
+    # One `@optic(_.rates[i])` per knot rebuilt the whole curve once per knot for every
+    # optimizer candidate, so allocation grew with the square of the knot count. The
+    # batch optic rebuilds once, so allocation should grow roughly linearly.
+    setall_bytes(c, vals) = @allocated Accessors.setall(c, FinanceModels.KnotRatesOptic(), vals)
+    builders = (
+        n -> Yield.MonotoneConvex(collect(range(0.02, 0.05; length = n)), collect(1.0:n)),
+        n -> ZeroRateCurve(collect(range(0.02, 0.05; length = n)), collect(1.0:n), Spline.Linear()),
+    )
+    for build in builders
+        bytes = map((5, 50, 500)) do n
+            c = build(n)
+            vals = collect(c.rates) .+ 0.001
+            setall_bytes(c, vals)   # compile
+            setall_bytes(c, vals)
+        end
+        # Linear growth gives ratios of at most about 10 per tenfold increase in knots;
+        # per-knot rebuilds gave ratios of about 30 (5 → 50) and 80 (50 → 500).
+        @test bytes[2] / bytes[1] < 20
+        @test bytes[3] / bytes[2] < 20
     end
 end

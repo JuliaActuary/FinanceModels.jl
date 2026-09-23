@@ -32,7 +32,7 @@ FinanceCore.present_value(model, c::PaysAfterMaturity) = FinanceCore.present_val
     end
 
     for spline in (
-            Spline.Quadratic(), Spline.Cubic(), Spline.PolynomialSpline(4),
+            Spline.Quadratic(), Spline.Cubic(),
             Spline.BSpline(2), Spline.BSpline(3), Spline.PCHIP(), Spline.Akima(),
         )
         @test_throws "Fit.Loss" fit(spline, qs, Fit.Bootstrap())

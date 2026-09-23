@@ -11,6 +11,24 @@ par). Fit smoother curves to all quotes at once with `Fit.Loss`. Bootstrap also
 validates its inputs and reprices every quote on the returned curve. See the
 migration guide.
 
+### Knot curves own and validate their data
+
+`ZeroRateCurve`, `Yield.Spline` and `Yield.MonotoneConvex` copy their knot rates and
+tenors and validate them through one shared construction, so mutating the input
+vectors can no longer leave a curve with stale cached coefficients. Unsorted,
+duplicate, negative or non-finite tenors, non-finite rates, and too few knots for
+the interpolant now throw an `ArgumentError`. The public knot vectors are
+read-only; use `Accessors.@set` to derive a modified curve. `Spline.PolynomialSpline`
+accepts only orders 1 to 3 and `Spline.BSpline` requires degree 1 or more. Fitting a
+`ZeroRateCurve` or `Yield.MonotoneConvex` rebuilds the curve once per optimizer
+candidate instead of once per knot.
+
+### Failed optimizer fits throw `FitConvergenceError`
+
+Every optimizer-backed `fit` now checks the solver's return code and throws a
+`FitConvergenceError` (with the solver's `retcode`) instead of returning the
+unfitted starting model.
+
 ## v6.4.0
 
 ### `Spline.BSpline` fitted values changed on non-uniform tenor grids
