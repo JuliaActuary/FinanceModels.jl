@@ -34,8 +34,8 @@ export Spline
 
 export NullModel, Yield, discount, accumulation, zero, forward
 
-using .Yield: ZeroRateCurve
-export ZeroRateCurve
+using .Yield: ZeroRateCurve, knot_rates, knot_tenors, reconstruct
+export ZeroRateCurve, knot_rates, knot_tenors, reconstruct
 
 using .Yield: par
 export par

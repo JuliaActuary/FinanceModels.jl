@@ -11,17 +11,30 @@ par). Fit smoother curves to all quotes at once with `Fit.Loss`. Bootstrap also
 validates its inputs and reprices every quote on the returned curve. See the
 migration guide.
 
-### Knot curves own and validate their data
+### `ZeroRateCurve` returns the curve it builds; one knot-curve interface
 
-`ZeroRateCurve`, `Yield.Spline` and `Yield.MonotoneConvex` copy their knot rates and
-tenors and validate them through one shared construction, so mutating the input
-vectors can no longer leave a curve with stale cached coefficients. Unsorted,
-duplicate, negative or non-finite tenors, non-finite rates, and too few knots for
-the interpolant now throw an `ArgumentError`. The public knot vectors are
-read-only; use `Accessors.@set` to derive a modified curve. `Spline.PolynomialSpline`
-accepts only orders 1 to 3 and `Spline.BSpline` requires degree 1 or more. Fitting a
-`ZeroRateCurve` or `Yield.MonotoneConvex` rebuilds the curve once per optimizer
-candidate instead of once per knot.
+`ZeroRateCurve` is now a function returning a `Yield.MonotoneConvex` (for the default
+`Spline.MonotoneConvex()`) or a `Yield.Spline`. Both subtype the new
+`Yield.AbstractInterpolatedZeroCurve`, as do spline `fit` and bootstrap results. Read knots with
+`knot_rates`/`knot_tenors` and build a changed curve with `reconstruct(curve; rates, tenors,
+spline, extrapolation)`, which also accepts dual numbers for knot-rate gradients. Knot curves copy
+and validate their inputs through one shared construction (unsorted, duplicate, negative or
+non-finite tenors, non-finite rates, and too few knots throw an `ArgumentError`), keep read-only
+knot vectors, compare structurally (`==`/`isequal`/`hash` on knots, method and extrapolation
+policy), throw a `DomainError` for negative times, and print as the `ZeroRateCurve(...)` call that
+rebuilds them. Fitting a knot curve rebuilds it once per optimizer candidate instead of once per
+knot. `Yield.build_model` and the `Yield.MonotoneConvex()` fit placeholder are removed:
+`Spline.MonotoneConvex()` is the one monotone convex selector (#272), fitted through the same path
+as every other interpolation method. `Spline.PolynomialSpline` accepts only orders 1 to 3 and
+`Spline.BSpline` requires degree 1 or more.
+
+### Flat zero rate before the first knot (changed numbers)
+
+DataInterpolations-backed curves now hold the first knot's zero rate between `t = 0` and the
+first knot instead of extending the first interpolation piece. **Zero rates before the first knot
+change**; values from the first knot on do not, and `Spline.MonotoneConvex()` does not change.
+Bootstrapped curves are numerically unchanged, but their knots are now exactly the quote
+maturities (the extra `t = 0` knot is gone), so a curve has one knot rate per quote.
 
 ### Failed optimizer fits throw `FitConvergenceError`
 
@@ -45,8 +58,8 @@ zero rate moves from 5.47% to 3.86% (−161 bp; the 30-year discount factor rise
 from 0.194 to 0.314). `Spline.MonotoneConvex()`, the `ZeroRateCurve` default,
 keeps its boundary forward and is unchanged.
 
-Pass `extrapolation = :extension` to `Yield.Spline`, `ZeroRateCurve`,
-`Yield.build_model` or `fit` to keep the previous values. The other policies are
+Pass `extrapolation = :extension` to `Yield.Spline`, `ZeroRateCurve` or `fit` to
+keep the previous values. The other policies are
 `:flat_zero`, `:linear` and `Yield.FlatForwardAt(rate)`, which takes a
 `FinanceCore.Rate` such as `Continuous(0.035)` (a bare number throws). See the
 migration guide.

@@ -10,14 +10,14 @@
 
     curves = [
         ("direct constructor", Yield.MonotoneConvex(rates, times)),
-        ("fit", fit(Yield.MonotoneConvex(), quotes)),
+        ("fit", fit(Spline.MonotoneConvex(), quotes)),
     ]
 
     f, fᵈ = Yield.__monotone_convex_fs(rates, times)
 
     @testset "$name" for (name, c) in curves
-        @test all(isapprox.(f, c.f; atol = 1.0e-8))
-        @test all(isapprox.(fᵈ, c.fᵈ; atol = 1.0e-8))
+        @test all(isapprox.(f, c._f; atol = 1.0e-8))
+        @test all(isapprox.(fᵈ, c._fᵈ; atol = 1.0e-8))
 
         @test fᵈ[1] ≈ 0.0202 atol = 0.0001
         @test fᵈ[2] ≈ 0.0258 atol = 0.0001
@@ -118,7 +118,7 @@
         times = [1, 2, 3, 4, 5]
         quotes = ZCBPrice.(prices, times)
 
-        c = fit(Yield.MonotoneConvex(), quotes)
+        c = fit(Spline.MonotoneConvex(), quotes)
 
         # Verify discount factors match prices
         @testset "discount at t=$t" for (i, t) in enumerate(times)
@@ -131,7 +131,7 @@
         times = [1, 2, 3, 4, 5]
         quotes = ParYield.(par_rates, times)
 
-        c = fit(Yield.MonotoneConvex(), quotes)
+        c = fit(Spline.MonotoneConvex(), quotes)
 
         # Verify par rates match
         @testset "par at t=$t" for (i, t) in enumerate(times)
@@ -147,22 +147,22 @@
 
         curves = [
             ("direct constructor", Yield.MonotoneConvex(rates, times)),
-            ("fit", fit(Yield.MonotoneConvex(), quotes)),
+            ("fit", fit(Spline.MonotoneConvex(), quotes)),
         ]
 
         @testset "$name" for (name, c) in curves
             # Forward at t=0 should equal instantaneous forward f[1]
-            @test Yield.instantaneous_forward(c, 0.0) ≈ c.f[1] atol = 1.0e-10
+            @test Yield.instantaneous_forward(c, 0.0) ≈ c._f[1] atol = 1.0e-10
 
             # Forward at internal knot points equals the instantaneous forward f[i+1]
             # (at x=1 of the interval ending at that knot)
             @testset "forward at knot t=$t" for (i, t) in enumerate(times[1:(end - 1)])
-                @test Yield.instantaneous_forward(c, t) ≈ c.f[i + 1] atol = 1.0e-10
+                @test Yield.instantaneous_forward(c, t) ≈ c._f[i + 1] atol = 1.0e-10
             end
 
             # Forward at/beyond the last knot equals the boundary instantaneous
             # forward f[end], keeping the forward curve continuous at t_n
-            @test Yield.instantaneous_forward(c, times[end]) ≈ c.f[end] atol = 1.0e-10
+            @test Yield.instantaneous_forward(c, times[end]) ≈ c._f[end] atol = 1.0e-10
 
             # Forward should be continuous and positive everywhere, including across the last knot
             @testset "forward positive and continuous" begin
@@ -177,8 +177,8 @@
             end
 
             # Extrapolation: flat at the boundary instantaneous forward
-            @test Yield.instantaneous_forward(c, 6.0) ≈ c.f[end] atol = 1.0e-10
-            @test Yield.instantaneous_forward(c, 10.0) ≈ c.f[end] atol = 1.0e-10
+            @test Yield.instantaneous_forward(c, 6.0) ≈ c._f[end] atol = 1.0e-10
+            @test Yield.instantaneous_forward(c, 10.0) ≈ c._f[end] atol = 1.0e-10
 
             # Continuity exactly at the last knot (this used to jump from f[end] to fᵈ[end])
             @testset "continuity at the last knot" begin
@@ -193,12 +193,12 @@
                 # First interval: t ∈ (0, 1)
                 f_mid = Yield.instantaneous_forward(c, 0.5)
                 @test f_mid > 0  # Must be positive
-                @test abs(f_mid - c.fᵈ[1]) < max(abs(c.f[1] - c.fᵈ[1]), abs(c.f[2] - c.fᵈ[1])) + 0.001
+                @test abs(f_mid - c._fᵈ[1]) < max(abs(c._f[1] - c._fᵈ[1]), abs(c._f[2] - c._fᵈ[1])) + 0.001
 
                 # Second interval: t ∈ (1, 2)
                 f_mid = Yield.instantaneous_forward(c, 1.5)
                 @test f_mid > 0  # Must be positive
-                @test abs(f_mid - c.fᵈ[2]) < max(abs(c.f[2] - c.fᵈ[2]), abs(c.f[3] - c.fᵈ[2])) + 0.001
+                @test abs(f_mid - c._fᵈ[2]) < max(abs(c._f[2] - c._fᵈ[2]), abs(c._f[3] - c._fᵈ[2])) + 0.001
             end
         end
     end
@@ -288,7 +288,7 @@
                 FinanceModels.OptimizationOptimJL.BFGS(),
                 FinanceModels.OptimizationOptimJL.Newton(),
             )
-            c = fit(Yield.MonotoneConvex(), qs; optimizer = opt)
+            c = fit(Spline.MonotoneConvex(), qs; optimizer = opt)
             @test reprice(c) < 1.0e-6   # finite (not NaN) and actually fits
         end
 
@@ -339,9 +339,9 @@
         # the updated rates (the struct caches derived fields but had no 4-arg ctor)
         c2 = Accessors.@set c.rates[2] = 0.05
         @test c2.rates[2] == 0.05
-        f, fᵈ = Yield.__monotone_convex_fs(c2.rates, c2.times)
-        @test c2.f == f
-        @test c2.fᵈ == fᵈ
+        f, fᵈ = Yield.__monotone_convex_fs(c2.rates, c2.tenors)
+        @test c2._f == f
+        @test c2._fᵈ == fᵈ
 
         # the generic, variables-driven `fit(model, quotes)` path now runs (it used
         # the broken optic and the non-reconstructable struct) and reprices
@@ -361,7 +361,7 @@
         reprice(c) = maximum(abs, present_value(c, q.instrument) - q.price for q in qs)
         N = FinanceModels.OptimizationOptimJL.Newton()
 
-        c = @test_logs fit(Yield.MonotoneConvex(), qs; optimizer = N)
+        c = @test_logs fit(Spline.MonotoneConvex(), qs; optimizer = N)
         @test reprice(c) < 1.0e-10
 
         # the `Spline.MonotoneConvex` tag routes through the same loss function
@@ -376,16 +376,16 @@
         @testset "caller-input isolation" begin
             r = copy(rates); t = copy(times)
             c = Yield.MonotoneConvex(r, t)
-            z3 = zero(c, 3.0); f0 = copy(c.f)
+            z3 = zero(c, 3.0); f0 = copy(c._f)
             r[1] = 0.2; t[1] = 0.5; push!(r, 1.0)
             @test zero(c, 3.0) == z3
-            @test c.f == f0
-            @test c.rates == rates && c.times == times
+            @test c._f == f0
+            @test c.rates == rates && c.tenors == times
         end
 
         @testset "read-only fields" begin
             c = Yield.MonotoneConvex(rates, times)
-            for v in (c.rates, c.times, c.f, c.fᵈ)
+            for v in (knot_rates(c), knot_tenors(c))
                 @test v isa AbstractVector{Float64}
                 @test_throws ArgumentError v[1] = 0.2
                 @test_throws ArgumentError v .= 0.0
@@ -394,11 +394,12 @@
             end
             @test zero(c, 3.0) == zero(Yield.MonotoneConvex(rates, times), 3.0)
             # reads used by tests/internals still work
-            @test searchsortedlast(c.times, 3.0) == 2
-            @test Yield.__monotone_convex_fs(c.rates, c.times)[1] == c.f
+            @test searchsortedlast(c.tenors, 3.0) == 2
+            @test Yield.__monotone_convex_fs(c.rates, c.tenors)[1] == c._f
             # the cached forwards are internal: hidden from the public listing, readable as fields
-            @test propertynames(c) == (:rates, :times, :extrapolation)
-            @test propertynames(c, true) == (:f, :fᵈ, :rates, :times, :extrapolation)
+            @test propertynames(c) == (:spline, :rates, :tenors, :extrapolation)
+            @test propertynames(c, true) == (:spline, :rates, :tenors, :extrapolation, :_f, :_fᵈ, :_tail)
+            @test c.spline == Spline.MonotoneConvex()
         end
 
         @testset "validation and promotion (shared knot grid)" begin
@@ -413,41 +414,42 @@
             # any iterable of reals; promoted per-vector to one concrete float type
             ci = Yield.MonotoneConvex([2, 3, 4, 5] ./ 100, 1:4)
             @test ci isa Yield.MonotoneConvex{Float64, Float64}
-            @test ci.times == [1.0, 2.0, 3.0, 4.0]
+            @test ci.tenors == [1.0, 2.0, 3.0, 4.0]
             cb = Yield.MonotoneConvex((0.02, 0.03), (1.0f0, big"2.0"))
-            @test eltype(cb.times) == BigFloat && eltype(cb.rates) == Float64
+            @test eltype(cb.tenors) == BigFloat && eltype(cb.rates) == Float64
             @test isfinite(discount(cb, 1.5))
             # a single knot is a flat curve
             c1 = Yield.MonotoneConvex([0.03], [1.0])
             @test rate(zero(c1, 0.5)) ≈ 0.03 && rate(zero(c1, 7.0)) ≈ 0.03
-            # `build_model` routes through the same path
-            @test Yield.build_model(Spline.MonotoneConvex(), 1:4, [2, 3, 4, 5] ./ 100) isa Yield.MonotoneConvex{Float64, Float64}
-            @test_throws ArgumentError Yield.build_model(Spline.MonotoneConvex(), [2.0, 1.0], [0.1, 0.2])
+            # `ZeroRateCurve` routes through the same path
+            @test ZeroRateCurve([2, 3, 4, 5] ./ 100, 1:4) isa Yield.MonotoneConvex{Float64, Float64}
+            @test ZeroRateCurve([2, 3, 4, 5] ./ 100, 1:4) == ci
+            @test_throws ArgumentError ZeroRateCurve([0.1, 0.2], [2.0, 1.0])
         end
 
         @testset "Accessors rebuild the forwards; cache is not settable" begin
             c = Yield.MonotoneConvex(rates, times)
             c2 = @set c.rates[2] = 0.05
             @test c2.rates == [0.02, 0.05, 0.035, 0.04]
-            @test c2.f == Yield.__monotone_convex_fs(c2.rates, c2.times)[1]
+            @test c2._f == Yield.__monotone_convex_fs(c2.rates, c2.tenors)[1]
             @test rate(zero(c2, 2.0)) ≈ 0.05
             @test c.rates == rates                               # original untouched
-            c3 = @set c.times = [1.0, 3.0, 6.0, 12.0]
-            @test c3.times == [1.0, 3.0, 6.0, 12.0] && c3.f == Yield.__monotone_convex_fs(c3.rates, c3.times)[1]
-            @test_throws ArgumentError (@set c.times[2] = 0.5)   # breaks ordering → re-validated
+            c3 = @set c.tenors = [1.0, 3.0, 6.0, 12.0]
+            @test c3.tenors == [1.0, 3.0, 6.0, 12.0] && c3._f == Yield.__monotone_convex_fs(c3.rates, c3.tenors)[1]
+            @test_throws ArgumentError (@set c.tenors[2] = 0.5)   # breaks ordering → re-validated
             @test_throws ArgumentError (@set c.rates = [NaN, 0.0, 0.0, 0.0])
-            @test_throws ArgumentError (@set c.f = [0.0])
-            @test_throws ArgumentError (@set c.fᵈ[1] = 0.0)
-            @test_throws ArgumentError CB.setproperties(c, (f = c.f,))
+            @test_throws ArgumentError (@set c._f = [0.0])
+            @test_throws ArgumentError (@set c._fᵈ[1] = 0.0)
+            @test_throws ArgumentError CB.setproperties(c, (_f = c._f,))
             @test_throws ArgumentError CB.setproperties(c, (foo = 1,))
             # ConstructionBase laws over the public properties
-            @test keys(CB.getproperties(c)) == (:rates, :times, :extrapolation)
+            @test keys(CB.getproperties(c)) == (:spline, :rates, :tenors, :extrapolation)
             rt = CB.setproperties(c, CB.getproperties(c))
-            @test rt.rates == c.rates && rt.times == c.times && rt.f == c.f
+            @test rt.rates == c.rates && rt.tenors == c.tenors && rt._f == c._f
             raw = CB.constructorof(typeof(c))(CB.getfields(c)...)
-            @test raw.rates == c.rates && raw.f == c.f
-            @test Accessors.mapproperties(identity, c).f == c.f
-            @test_throws MethodError Yield.MonotoneConvex(c.f, c.fᵈ, c.rates, c.times)   # no 4-arg ctor
+            @test raw.rates == c.rates && raw._f == c._f
+            @test Accessors.mapproperties(identity, c)._f == c._f
+            @test_throws MethodError Yield.MonotoneConvex(c._f, c._fᵈ, c.rates, c.tenors)   # no 4-arg ctor
         end
 
         @testset "batch knot-rate optic" begin
@@ -459,8 +461,8 @@
             @test Accessors.getall(c, o) === Tuple(c.rates)
             new = [0.03, 0.03, 0.03, 0.03]
             cb = Accessors.setall(c, o, new)
-            @test cb.rates == new && cb.times == times
-            @test cb.f == Yield.__monotone_convex_fs(new, times)[1]
+            @test cb.rates == new && cb.tenors == times
+            @test cb._f == Yield.__monotone_convex_fs(new, times)[1]
             @test Accessors.modify(x -> x + 0.01, c, o).rates ≈ rates .+ 0.01
             # fitting varies all knots through the single optic and reprices
             target = [0.02, 0.025, 0.03, 0.032]
@@ -468,12 +470,12 @@
             fitted = fit(c, qs)
             @test fitted isa Yield.MonotoneConvex
             @test collect(fitted.rates) ≈ target atol = 1.0e-6
-            @test fitted.f == Yield.__monotone_convex_fs(fitted.rates, fitted.times)[1]
+            @test fitted._f == Yield.__monotone_convex_fs(fitted.rates, fitted.tenors)[1]
         end
 
         @testset "fit validates the knot grid up front" begin
             qs = CMTYield.([0.04, 0.045], [1.0, 1.0])                    # duplicate maturities
-            @test_throws ArgumentError fit(Yield.MonotoneConvex(), qs)
+            @test_throws ArgumentError fit(Spline.MonotoneConvex(), qs)
             @test_throws ArgumentError fit(Spline.MonotoneConvex(), qs, Fit.Loss(x -> x^2))
         end
     end
