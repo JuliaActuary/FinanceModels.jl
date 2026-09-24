@@ -1,5 +1,16 @@
 # FinanceModels.jl release notes
 
+## v7.0.0 (unreleased)
+
+### Bootstrap requires linear interpolation
+
+`Fit.Bootstrap()` now accepts only `Spline.Linear()` and throws an `ArgumentError`
+for other strategies. Smoother interpolants let later knots reshape earlier segments,
+so bootstrapped coupon quotes silently stopped repricing (residuals up to 0.40% of
+par). Fit smoother curves to all quotes at once with `Fit.Loss`. Bootstrap also
+validates its inputs and reprices every quote on the returned curve. See the
+migration guide.
+
 ## v6.4.0
 
 ### `Spline.BSpline` fitted values changed on non-uniform tenor grids

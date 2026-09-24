@@ -138,7 +138,7 @@
         @test_throws ArgumentError FX.__implied_foreign_quote(m_true, bad)
 
         @testset "bootstrap fit round-trip" begin
-            m_fit = fit(FX.Forwards(eurusd, S, usd_boot, Spline.Cubic()), quotes, Fit.Bootstrap())
+            m_fit = fit(FX.Forwards(eurusd, S, usd_boot, Spline.Linear()), quotes, Fit.Bootstrap())
             @test all(abs(pv(m_fit, q.instrument)) < 1.0e-10 for q in quotes)
             @test all(isapprox(forward(m_fit, t), forward(m_true, t)) for t in ts)
             # flat foreign truth → the interpolated curve is exact between knots too
@@ -539,7 +539,7 @@
         @testset "guards" begin
             gbpusd = FX.Pair(:GBP, :USD)
             q_gbp = FX.ParBasisSwap(gbpusd, -0.001, 2.0; reference = estr)
-            m0 = FX.Forwards(eurusd, S, sofr, Spline.Cubic())
+            m0 = FX.Forwards(eurusd, S, sofr, Spline.Linear())
             @test_throws ArgumentError fit(m0, [q_gbp], Fit.Bootstrap())
             m_e = FX.Forwards(eurusd, S, sofr, estr)
             @test_throws ArgumentError pv(m_e, q_gbp.instrument)
@@ -547,7 +547,7 @@
             # an outright and a basis swap at the same maturity are refused by the
             # bootstrap's distinct-maturities check rather than silently blended
             clash = [FX.Outright(eurusd, 1.12, 2.0), FX.ParBasisSwap(eurusd, -0.001, 2.0; reference = estr)]
-            @test_throws ArgumentError fit(m0, clash, Fit.Bootstrap())
+            @test_throws "distinct maturities" fit(m0, clash, Fit.Bootstrap())
         end
     end
 end

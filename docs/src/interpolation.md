@@ -13,7 +13,9 @@
 | `Spline.Cubic()` | C2 (smoothest) | Global | Natural cubic spline. Smoothest, but bumping one rate affects the whole curve. Thread-safe. |
 | `Spline.BSpline(n)` | Varies | Global | nth-order B-spline. Opt-in basis for least-squares *fitting*; **not thread-safe** for concurrent evaluation on a shared curve (shared internal buffer). |
 
-Since v6.0, `Spline.Linear()`, `Spline.Quadratic()`, and `Spline.Cubic()` return **local** interpolants (`PolynomialSpline`) — fast, with good key-rate locality, and safe to evaluate concurrently across threads. For a *global* B-spline (e.g. as a least-squares fitting basis) request `Spline.BSpline(d)` explicitly; it is **not** thread-safe for concurrent evaluation on a shared curve.
+Since v6.0, `Spline.Linear()`, `Spline.Quadratic()`, and `Spline.Cubic()` return `PolynomialSpline` interpolants, which are fast and safe to evaluate concurrently across threads. Only `Spline.Linear()` is local; the quadratic and natural cubic splines are global. For a B-spline (e.g. as a least-squares fitting basis) request `Spline.BSpline(d)` explicitly; it is **not** thread-safe for concurrent evaluation on a shared curve.
+
+`Fit.Bootstrap()` supports only `Spline.Linear()`: bootstrapping requires that each new knot leaves earlier segments unchanged. Fit other methods across the whole quote set with `Fit.Loss`.
 
 ```julia
 using FinanceModels
