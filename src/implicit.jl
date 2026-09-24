@@ -14,7 +14,7 @@ __primal(x) = x
 __primal(x::ForwardDiff.Dual) = __primal(ForwardDiff.value(x))
 
 """
-    __implicit_root(g, g_primal, x0; bracket = (-1.0, 1.0), who = "root", slope = nothing)
+    __implicit_root(g, g_primal, x0; bracket = (-1.0, 1.0), who = "root", slope = nothing, scale = Returns(1))
 
 Solve `g_primal(x) = 0` from `x0`, falling back to a bracketed solve on `bracket`,
 and return the root with first-order ForwardDiff partials of `g` propagated by the
@@ -23,11 +23,13 @@ implicit function theorem: `dx = -(∂g/∂θ) / (∂g/∂x)`.
 `g_primal` must be `g` evaluated without dual numbers, or `g` with its dual numbers
 stripped from the result. `slope(x)`, when given, is `∂g/∂x` on primal values in closed
 form; otherwise it is `ForwardDiff.derivative(g_primal, x)`, which requires `g_primal`
-to involve no dual numbers at all. The value of the result is the primal root exactly;
+to involve no dual numbers at all. `scale(x)` is the magnitude of the terms that make up `g` at
+the solution: the slope must exceed `sqrt(eps)` times it, so the check does not depend on units
+such as a notional. The value of the result is the primal root exactly;
 its partials come from one dual correction step. Nested dual numbers and a vanishing
 slope throw an `ArgumentError` naming `who`.
 """
-function __implicit_root(g::G, g_primal::P, x0; bracket = (-1.0, 1.0), who = "root", slope::S = nothing) where {G, P, S}
+function __implicit_root(g::G, g_primal::P, x0; bracket = (-1.0, 1.0), who = "root", slope::S = nothing, scale::C = Returns(1)) where {G, P, S, C}
     x = try
         Roots.find_zero(g_primal, float(x0), Roots.Order1())
     catch e
@@ -41,7 +43,7 @@ function __implicit_root(g::G, g_primal::P, x0; bracket = (-1.0, 1.0), who = "ro
     depth == 0 && return x
     depth == 1 || throw(ArgumentError("$who supports first-order ForwardDiff derivatives only; nested dual numbers are not supported"))
     s = slope === nothing ? ForwardDiff.derivative(g_primal, x) : slope(x)
-    (isfinite(s) && abs(s) > sqrt(eps(typeof(s)))) ||
+    (isfinite(s) && abs(s) > sqrt(eps(typeof(s))) * scale(x)) ||
         throw(ArgumentError("$who has a vanishing or non-finite derivative at the solution ($s); its sensitivity is undefined"))
     # `gx` has a primal value of zero at the root, so this step keeps the root's
     # value and carries only the implicit-function partials.

@@ -503,7 +503,7 @@ function fit(
     ) where {T <: Spline.SplineCurve, F <: Fit.Loss}
     # The solve runs on primal quotes; dual numbers in the quotes or the extrapolation policy
     # are propagated afterwards by the implicit function theorem (see `__implicit_knot_curve`).
-    quotes, primal_quotes, _ = __calibration_quotes(quotes)
+    quotes, primal_quotes, has_ad = __calibration_quotes(quotes)
     primal_extrapolation = __primal_extrapolation(extrapolation)
     # Validate the policy and the knot grid once, up front (duplicate maturities, too few
     # knots for the interpolant, `:extension` with MonotoneConvex, …) with the same errors as
@@ -514,7 +514,7 @@ function fit(
     prob = Optimization.OptimizationProblem(optf, grid0.rates)
     sol = __successful_fit_solution(Optimization.solve(prob, optimizer))
     curve = Yield.ZeroRateCurve(sol.u, grid0.tenors, mod0; extrapolation = primal_extrapolation)   # public result: validated (finite rates)
-    return __implicit_knot_curve(curve, quotes, primal_quotes, extrapolation)
+    return __implicit_knot_curve(curve, quotes, primal_quotes, extrapolation, has_ad)
 end
 
 # FX.Forwards with a spline placeholder as the foreign curve: given spot, the domestic
@@ -555,7 +555,7 @@ function fit(
     extrapolation = Yield.__extrapolation_method(extrapolation)
     # The solve runs on primal quotes; dual numbers in the quotes or the extrapolation policy
     # are propagated afterwards by the implicit function theorem (see `__implicit_knot_curve`).
-    dual_quotes, quotes, _ = __calibration_quotes(quotes)
+    dual_quotes, quotes, has_ad = __calibration_quotes(quotes)
     dual_extrapolation, extrapolation = extrapolation, __primal_extrapolation(extrapolation)
     order = sortperm(quotes; by = maturity)
     dual_quotes, quotes = dual_quotes[order], quotes[order]
@@ -572,6 +572,7 @@ function fit(
     grid0 = Yield.KnotGrid(zeros(n), times, mod0; who = "fit($(mod0), Bootstrap)")
     __check_primal_quotes(Yield.__build(mod0, grid0; extrapolation), quotes)
     zs = zeros(n)
+    scales = zeros(n)
 
     for i in eachindex(quotes)
         q = quotes[i]
@@ -589,30 +590,35 @@ function fit(
             return present_value(c, q.instrument) - q.price
         end
         seed = i == 1 ? 0.0 : zs[i - 1] # seed with the previous zero rate
+        # Solve the residual relative to the quote's size (its price, or its value at the seed
+        # for a zero-price quote), so the root's precision does not depend on its notional.
+        s = max(abs(q.price), abs(f(seed) + q.price))
+        scales[i] = iszero(s) ? one(s) : s
+        g(z) = f(z) / scales[i]
         zs[i] = try
-            Roots.find_zero(f, seed, Roots.Order1())
+            Roots.find_zero(g, seed, Roots.Order1())
         catch e
             # only a convergence failure falls back to a bracketed solve over a
             # generous continuous-zero-rate range; genuine errors raised while
             # pricing the quote must surface, not be retried
             e isa Roots.ConvergenceFailed || rethrow()
-            Roots.find_zero(f, (-1.0, 1.0), Roots.A42())
+            Roots.find_zero(g, (-1.0, 1.0), Roots.A42())
         end
     end
     curve = Yield.ZeroRateCurve(zs, times, mod0; extrapolation)
     # Every quote's cashflows must end at its maturity for later knots to leave
     # it priced. Check the returned curve so a contract that pays beyond its
     # maturity cannot drift silently.
-    for q in quotes
+    for (q, scale) in zip(quotes, scales)
         residual = present_value(curve, q.instrument) - q.price
-        abs(residual) <= 1.0e-8 * max(one(q.price), abs(q.price)) || throw(
+        abs(residual) <= 1.0e-8 * scale || throw(
             ArgumentError(
                 "bootstrap could not reprice the quote maturing at $(maturity(q)) " *
                     "(residual $residual); its cashflows may extend beyond its maturity"
             )
         )
     end
-    return __implicit_knot_curve(curve, dual_quotes, quotes, dual_extrapolation)
+    return __implicit_knot_curve(curve, dual_quotes, quotes, dual_extrapolation, has_ad)
 end
 
 function fit(mod0::Yield.SmithWilson, quotes)

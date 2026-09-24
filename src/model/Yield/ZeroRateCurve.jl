@@ -89,7 +89,7 @@ policy keeps the instantaneous forward continuous for `Spline.MonotoneConvex()`;
 interpolants, and under the other policies, the forward can jump there.
 """
 ZeroRateCurve(rates, tenors, spline::Sp.SplineCurve; extrapolation = :flat_forward) =
-    __build(spline, KnotGrid(rates, tenors, spline; who = "ZeroRateCurve"); extrapolation)
+    __build_public(spline, KnotGrid(rates, tenors, spline; who = "ZeroRateCurve"); extrapolation)
 
 ZeroRateCurve(rates, tenors; spline::Sp.SplineCurve = Sp.MonotoneConvex(), extrapolation = :flat_forward) =
     ZeroRateCurve(rates, tenors, spline; extrapolation)

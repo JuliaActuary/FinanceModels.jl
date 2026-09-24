@@ -344,6 +344,20 @@ spline_zero_curve_with_policy(d, r, t, policy::Symbol) = ZeroRateCurve(r, t, d; 
                 d == Spline.Linear() && @test rate(zero(c, Inf)) == Inf
             end
         end
+        # `discount` at t = Inf is the tail's limit: 0 for a positive tail forward, Inf for a
+        # negative one, and the discount factor at the last knot for a zero one (previously
+        # exp(-0 * Inf) = NaN).
+        for d in (Spline.Linear(), Spline.Cubic(), Spline.MonotoneConvex())
+            c3(e) = ZeroRateCurve([0.02, 0.025, 0.03], [1.0, 2.0, 3.0], d; extrapolation = e)
+            @test discount(c3(Yield.FlatForwardAt(Continuous(0.0))), Inf) == discount(c3(:flat_zero), 3.0)
+            @test discount(c3(Yield.FlatForwardAt(Continuous(0.01))), Inf) == 0.0
+            @test discount(c3(Yield.FlatForwardAt(Continuous(-0.01))), Inf) == Inf
+            @test discount(c3(:flat_forward), Inf) == 0.0
+            @test discount(c3(:flat_zero), Inf) == 0.0
+        end
+        @test discount(ZeroRateCurve([0.02, 0.0], [1.0, 2.0], Spline.Linear(); extrapolation = :flat_zero), Inf) == 1.0
+        @test_throws DomainError discount(ZeroRateCurve([0.02, 0.03], [1.0, 2.0]), -Inf)
+
         falling = Yield.Spline(Spline.Linear(), times, reverse(rates); extrapolation = :linear)
         @test rate(zero(falling, Inf)) == -Inf
         no_boundary = () -> error("must not inspect boundary")

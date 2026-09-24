@@ -32,7 +32,8 @@ The gradient is the change in value per unit change in each quoted rate, with ev
 held fixed and the curve refitted. The same works for a loss fit with any interpolation method
 (`fit(Spline.MonotoneConvex(), quotes)`, `fit(Spline.Cubic(), quotes)`, …), for pipelines that
 build several curves, and for `FX.Forwards` fitted with a spline foreign curve (spot, the
-domestic curve, and the quotes may all carry dual numbers).
+domestic curve, and the quotes may all carry dual numbers). The shape-preserving interpolations
+have kinks where no derivative exists; see [Kinks](@ref calibration-kinks) below.
 
 ### How it works
 
@@ -68,9 +69,10 @@ in a `Yield.FlatForwardAt` extrapolation forward.
 
 The derivative is exact for the exactly repricing curve. Bootstrap reprices to root-finder
 precision. A loss fit stops at its optimizer's tolerance, and `fit` refuses to differentiate one
-whose largest relative repricing residual exceeds `1e-6`. Refitting with bumped quotes and
-taking finite differences is a much noisier check: optimizer noise of `1e-11` in the fitted rates
-becomes an error of order `1e-4` in a difference quotient.
+whose repricing residuals exceed `1e-6` when measured as the knot-rate change that would remove
+them. That measure, like the conditioning check, does not depend on the quotes' notionals.
+Refitting with bumped quotes and taking finite differences is a much noisier check: optimizer
+noise of `1e-11` in the fitted rates becomes an error of order `1e-4` in a difference quotient.
 
 ### Errors
 
@@ -85,10 +87,51 @@ when:
 - a loss fit does not reprice its quotes (for example with a loss function whose minimum is not
   at zero residual);
 - the quote prices do not determine the knot rates (a singular or ill-conditioned repricing
-  Jacobian); or
+  Jacobian);
+- the fitted curve lies on, or within the fit's precision of, a kink of its interpolation (for
+  example, flat quotes fitted with `Spline.MonotoneConvex()`, `Spline.PCHIP()`, or
+  `Spline.Akima()`); or
 - the model is not a spline fit (see the table).
 
-Reverse-mode AD is not supported.
+Reverse-mode AD is not supported. Derivatives are first order only: second derivatives through
+a fit (convexity with respect to the quotes) throw the nested-dual error above.
+
+## [Kinks in shape-preserving interpolations](@id calibration-kinks)
+
+`Spline.Linear()`, `Spline.Cubic()`, `Spline.Quadratic()`, and `Spline.BSpline(n)` are linear in
+their knot rates, so their derivatives exist everywhere. `Spline.MonotoneConvex()`,
+`Spline.PCHIP()`, and `Spline.Akima()` preserve shape by switching formula as the knots change,
+so they are only piecewise smooth in their knot rates. The switches are special configurations
+of the knot *values*, not of the tenors:
+
+| Interpolation | Kinks |
+|:--------------|:------|
+| `Spline.MonotoneConvex()` | two adjacent discrete forwards equal (every flat stretch of the curve); a node forward exactly at its positivity bound |
+| `Spline.PCHIP()` | two adjacent knot rates equal (a flat segment) |
+| `Spline.Akima()` | three or more knots on a straight line |
+
+A curve fitted to market quotes essentially never sits on one; flat test curves always do.
+Away from a kink, every derivative on this page is exact. Close to one it is still exact, but a
+bump of one basis point may cross the kink and move the value differently.
+
+At a kink, the derivative depends on the direction of the bump:
+
+- **`Spline.MonotoneConvex()`** reports, for each partial, the limit of a centered bump in that
+  partial's direction (the average of the up and down derivatives). Where two adjacent forwards
+  are equal on an otherwise sloped curve, this limit is linear in the direction, so single-knot
+  sensitivities add up to the parallel one. On a flat stretch it is not: for a flat curve, the
+  sensitivities to each knot need not sum to the sensitivity to a parallel shift. A parallel
+  shift of a flat curve keeps it flat, and its derivative is exact. Second derivatives do not
+  exist at a kink and throw, as does a node forward at its bound when a discrete forward is
+  exactly zero (a 0% curve).
+- **`Spline.PCHIP()`** and **`Spline.Akima()`** throw an `ArgumentError` when dual knot rates move
+  a kink, since their implementation returns a one-sided value, `NaN`, or the derivative of a
+  fallback formula there. A parallel shift of a flat PCHIP or Akima curve is fine.
+- **`fit`** throws when the fitted curve lies on a kink, or within the fit's precision of one:
+  the refitted curve has no derivative with respect to the quotes there.
+
+For key-rate risk on any of these curves, shifts added on top of the curve (such as
+ActuaryUtilities' `KeyRates`) are smooth: they do not re-interpolate the knots.
 
 ## Implied quotes
 
@@ -117,7 +160,8 @@ ForwardDiff.derivative(s -> implied_quote(bumped(s), OISYield, 7.0), 0.0)
 ## Knot-rate sensitivities without refitting
 
 To differentiate with respect to a fitted curve's own knot rates, rather than the quotes behind
-them, rebuild the curve with dual rates using [`reconstruct`](@ref FinanceModels.Yield.reconstruct):
+them, rebuild the curve with dual rates using [`reconstruct`](@ref FinanceModels.Yield.reconstruct)
+(see [Kinks](@ref calibration-kinks) for the shape-preserving interpolations):
 
 ```julia
 z = collect(knot_rates(curve))

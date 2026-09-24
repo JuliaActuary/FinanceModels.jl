@@ -97,6 +97,19 @@ FinanceCore.present_value(m, c::WrappedContract, t = 0.0) = FinanceCore.present_
         @test ForwardDiff.gradient(mixed, x0) ≈ fd rtol = 1.0e-6
     end
 
+    @testset "notionals do not matter" begin
+        # Mixed notionals (every other quote scaled by n) give the same knot rates and the same
+        # derivatives with respect to the unit prices; conditioning and the repricing check are
+        # in knot-rate units.
+        p = exp.(-rates .* tenors)
+        value(qs) = pv(fit(Spline.Linear(), qs, Fit.Bootstrap()), cfs)
+        g = ForwardDiff.gradient(x -> value(ZCBPrice.(x, tenors)), p)
+        for n in (1.0e-10, 1.0e8)
+            scaled(x) = value([Quote(n^(i % 2) * x[i], Cashflow(n^(i % 2), tenors[i])) for i in eachindex(x)])
+            @test ForwardDiff.gradient(scaled, p) ≈ g rtol = 1.0e-10
+        end
+    end
+
     @testset "a dual extrapolation forward" begin
         value(f) = pv(
             fit(

@@ -128,6 +128,15 @@ function __tail_forward(e::CurveTail, t)
     return e(t) + e.γ * t
 end
 
+# `discount` at t = Inf: the limit of exp(-z(t)·t) under the tail. The tail's forward tends to a
+# constant f∞ (±Inf under a sloped `:linear` tail), so the limit is 0 for f∞ > 0 and Inf for
+# f∞ < 0. For f∞ = 0 it is finite, exp(-β·tₙ), which z(Inf)·Inf = 0·Inf would lose as NaN.
+function __discount_at_infinity(e::CurveTail)
+    f = __primal(__tail_forward(e, Inf))
+    d = exp(-(e.linear ? zero(e.β) : e.β * e.last_tenor))
+    return f > 0 ? zero(d) : f < 0 ? oftype(d, Inf) : d
+end
+
 # `forward()` and `slope()` supply the curve's boundary anchor for `:flat_forward` and its
 # left-hand zero-rate slope for `:linear`. Keeping them lazy avoids computing quantities
 # a policy does not use (e.g. an interpolant derivative for `:flat_forward`).
