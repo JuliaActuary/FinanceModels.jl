@@ -1,0 +1,49 @@
+name: Downstream
+on:
+  push:
+    branches: [master]
+    tags: ['*']
+  pull_request:
+concurrency:
+  # Skip intermediate builds: always.
+  # Cancel intermediate builds: only if it is a pull request build.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+jobs:
+  actuaryutilities:
+    # FinanceModels' integration tests with ActuaryUtilities. ActuaryUtilities depends on
+    # FinanceModels, so it cannot be a test dependency of a FinanceModels version it does
+    # not support yet. Until ActuaryUtilities 6 (for FinanceModels 7) is registered, this
+    # tests its development branch with its FinanceModels compat bound removed; afterwards,
+    # add the registered package instead.
+    name: ActuaryUtilities
+    runs-on: ubuntu-latest
+    env:
+      ACTUARYUTILITIES_REF: refactor/shared-sensitivity-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: JuliaActuary/ActuaryUtilities.jl
+          ref: ${{ env.ACTUARYUTILITIES_REF }}
+          path: downstream/ActuaryUtilities.jl
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v2
+      - name: Integration tests
+        shell: julia --color=yes {0}
+        run: |
+          # The step runs from a temporary script file, so `include` needs absolute paths.
+          using Pkg, TOML
+          root = pwd()
+          au = joinpath(root, "downstream", "ActuaryUtilities.jl")
+          toml = joinpath(au, "Project.toml")
+          project = TOML.parsefile(toml)
+          delete!(project["compat"], "FinanceModels")
+          open(io -> TOML.print(io, project), toml, "w")
+          Pkg.activate(joinpath(root, "downstream", "env"))
+          Pkg.develop([PackageSpec(path = root), PackageSpec(path = au)])
+          Pkg.add(["FinanceCore", "Test"])
+          using Test, FinanceCore, FinanceModels
+          include(joinpath(root, "test", "downstream", "ActuaryUtilities.jl"))
