@@ -46,7 +46,7 @@ FinanceCore.present_value(model, c::PaysAfterMaturity) = FinanceCore.present_val
     # A contract paying after its stated maturity is priced off the curve beyond
     # its knot, so later knots move it. The returned curve must not silently
     # misprice it.
-    late = Quote(0.90, PaysAfterMaturity(Cashflow(1.0, 3.0), 1.5))
+    late = Quote(0.9, PaysAfterMaturity(Cashflow(1.0, 3.0), 1.5))
     @test_throws "could not reprice" fit(Spline.Linear(), [ZCBPrice(0.97, 1.0), late, ZCBPrice(0.93, 2.0)], Fit.Bootstrap())
 
     # The documented full-grid alternative must actually fit the quote set.
