@@ -1031,6 +1031,33 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             end
         end
 
+        @testset "CIR zero-coupon prices against high precision" begin
+            # the textbook formula, evaluated in BigFloat where exp(γτ) neither overflows nor
+            # underflows
+            function reference(a, b, σ, r, τ)
+                a, b, σ, r, τ = big.((a, b, σ, r, τ))
+                γ = sqrt(a^2 + 2σ^2)
+                denom = (γ + a) * (exp(γ * τ) - 1) + 2γ
+                A = (2γ * exp((a + γ) * τ / 2) / denom)^(2a * b / σ^2)
+                return Float64(A * exp(-2(exp(γ * τ) - 1) / denom * r))
+            end
+            setprecision(BigFloat, 2048) do
+                # long maturities, slow and fast mean reversion, small to large volatility, on
+                # both sides of the Feller condition 2ab ≥ σ²
+                # (the constructor warns about the Feller condition, which is beside the point here)
+                quiet(f) = Base.CoreLogging.with_logger(f, Base.CoreLogging.NullLogger())
+                for a in (1.0e-3, 0.1, 1.0), σ in (1.0e-4, 0.01, 0.1, 1.0), τ in (0.5, 10.0, 100.0, 1.0e3, 1.0e4)
+                    cir = quiet(() -> ShortRate.CoxIngersollRoss(a, 0.05, σ, 0.03))
+                    p, ref = discount(cir, τ), reference(a, 0.05, σ, 0.03, τ)
+                    @test p ≈ ref rtol = 1.0e-10 atol = 1.0e-300
+                end
+                # the inner exponential underflows here: the direct formula returned 0.0
+                cir = quiet(() -> ShortRate.CoxIngersollRoss(0.001, 0.001, 1.0, 0.03))
+                @test discount(cir, 1.0e4) ≈ 0.9450408057277 rtol = 1.0e-10
+                @test discount(cir, 1.0e4) ≈ reference(0.001, 0.001, 1.0, 0.03, 1.0e4) rtol = 1.0e-10
+            end
+        end
+
         @testset "Tenor validation: non-integer periods" begin
             hw = ShortRate.HullWhite(0.1, 0.01, Yield.Constant(Continuous(0.05)))
             # Cap maturity 1.3 with quarterly freq → 1.3 * 4 = 5.2, not integer

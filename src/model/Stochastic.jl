@@ -168,11 +168,19 @@ function _cir_zcb(a, b, σ, r, τ)
         end
     end
     γ = sqrt(a^2 + 2σ^2)
-    expγτ = exp(γ * τ)
-    denom = (γ + a) * (expγτ - 1) + 2γ
-    B = 2(expγτ - 1) / denom
-    A = (2γ * exp((a + γ) * τ / 2) / denom)^(2a * b / σ^2)
-    return A * exp(-B * r)
+    # Divide the standard formula through by exp(γτ). This avoids forming
+    # exp(γτ) directly, which overflows for valid long maturities.
+    one_minus_exp_neg = -expm1(-γ * τ)
+    exp_neg = exp(-γ * τ)
+    scaled_denom = (γ + a) * one_minus_exp_neg + 2γ * exp_neg
+    B = 2one_minus_exp_neg / scaled_denom
+    # A = (2γ·exp((a - γ)τ/2) / scaled_denom)^(2ab/σ²), in log space: the inner exponential
+    # underflows at long maturities before the small power would bring it back, and
+    # 2γ/scaled_denom → 1 as σ → 0 while the power diverges. With γ - a = 2σ²/(γ + a),
+    # 2γ/scaled_denom = 1/(1 - σ²(1 - exp(-γτ))/(γ(γ + a))), so
+    # log A = -(2ab/σ²)·log1p(-σ²(1 - exp(-γτ))/(γ(γ + a))) - 2abτ/(γ + a).
+    logA = -(2a * b / σ^2) * log1p(-σ^2 * one_minus_exp_neg / (γ * (γ + a))) - 2a * b * τ / (γ + a)
+    return exp(logA - B * r)
 end
 
 function FinanceCore.discount(m::ShortRate.CoxIngersollRoss, T)
