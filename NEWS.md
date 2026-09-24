@@ -11,6 +11,16 @@ ForwardDiff derivatives with respect to curve parameters are exact: they come
 from the implicit function theorem at the solution rather than from solver
 iterations. FinanceModels now depends on ForwardDiff directly.
 
+### Differentiable spline fits
+
+Spline `fit`s (`Fit.Loss` with any interpolation method, `Fit.Bootstrap()` with
+`Spline.Linear()`, and `FX.Forwards` with a spline foreign curve) now propagate ForwardDiff
+dual numbers in quote prices, rates, and cashflow amounts, and in a `Yield.FlatForwardAt`
+extrapolation forward. The fitted knot rates carry the exact first-order derivatives of the
+calibration from the implicit function theorem; their values are the primal fit, bitwise.
+Dual maturities, nested dual numbers, dual numbers from two differentiations, loss fits that
+do not reprice their quotes, and other models' fits throw an `ArgumentError` (#290).
+
 ### Bootstrap requires linear interpolation
 
 `Fit.Bootstrap()` now accepts only `Spline.Linear()` and throws an `ArgumentError`
