@@ -89,53 +89,70 @@ using ForwardDiff
         @test ForwardDiff.value(d) == f(fill(0.03, 3))
     end
 
-    @testset "PCHIP and Akima throw at kinks" begin
-        a = 1 / 64
-        cases = (
-            (Spline.PCHIP(), fill(0.03, 3)),            # flat: zero secant slopes
-            (Spline.PCHIP(), [0.02, 0.03, 0.03]),       # one flat segment
-            (Spline.Akima(), fill(0.03, 3)),
-            (Spline.Akima(), [a, 2a, 3a]),              # a straight run: equal secant slopes
-        )
-        for (sp, z) in cases
-            f = x -> discount(ZeroRateCurve(x, ts, sp), 1.5)
-            @test_throws "switches formula" ForwardDiff.gradient(f, z)
-            # a direction that keeps the configuration (here a parallel shift) is smooth
-            @test ForwardDiff.derivative(s -> f(z .+ s), 0.0) ≈ centred(f, z, ones(3)) rtol = 1.0e-6
+    # These tests tie the copies of DataInterpolations' branch rules (`src/model/Yield/Kinks.jl`)
+    # to the installed version. Revisit both together when its compat bound changes.
+    @testset "DataInterpolations branch rules (PCHIP and Akima)" begin
+        @testset "PCHIP and Akima throw at kinks" begin
+            a = 1 / 64
+            cases = (
+                (Spline.PCHIP(), fill(0.03, 3)),            # flat: zero secant slopes
+                (Spline.PCHIP(), [0.02, 0.03, 0.03]),       # one flat segment
+                (Spline.Akima(), fill(0.03, 3)),
+                (Spline.Akima(), [a, 2a, 3a]),              # a straight run: equal secant slopes
+            )
+            for (sp, z) in cases
+                f = x -> discount(ZeroRateCurve(x, ts, sp), 1.5)
+                @test_throws "switches formula" ForwardDiff.gradient(f, z)
+                # a direction that keeps the configuration (here a parallel shift) is smooth
+                @test ForwardDiff.derivative(s -> f(z .+ s), 0.0) ≈ centred(f, z, ones(3)) rtol = 1.0e-6
+            end
+            # away from kinks, exact
+            for sp in (Spline.PCHIP(), Spline.Akima())
+                z = [0.02, 0.026, 0.029, 0.037, 0.038]
+                f = x -> discount(ZeroRateCurve(x, [1.0, 2.0, 3.0, 4.0, 5.0], sp), 2.5)
+                @test ForwardDiff.gradient(f, z) ≈ centred(f, z) rtol = 1.0e-6
+            end
         end
-        # away from kinks, exact
-        for sp in (Spline.PCHIP(), Spline.Akima())
-            z = [0.02, 0.026, 0.029, 0.037, 0.038]
-            f = x -> discount(ZeroRateCurve(x, [1.0, 2.0, 3.0, 4.0, 5.0], sp), 2.5)
-            @test ForwardDiff.gradient(f, z) ≈ centred(f, z) rtol = 1.0e-6
-        end
-    end
 
-    @testset "Akima: the fallback-slope cutoff" begin
-        # Knot 3's slope weight is 3e and the largest weight about 0.019, so DataInterpolations
-        # switches knot 3 to its fallback slope near e = 0.019e-9/3, and the curve's value jumps.
-        t7 = collect(1.0:7.0)
-        knots(e) = [0.02; 0.02 .+ cumsum([0.001, 0.001 + e, 0.01, 0.01 + 2e, 0.02, 0.022])]
-        cutoff(e) = FinanceModels.Yield.__kink_quantities(Spline.Akima(), knots(e), t7)[9 + 3]
-        lo, hi = 0.0, 1.0e-10
-        for _ in 1:200
-            mid = (lo + hi) / 2
-            (mid == lo || mid == hi) && break
-            cutoff(mid) > 0 ? (hi = mid) : (lo = mid)
+        @testset "PCHIP: the end-slope limit" begin
+            # Secant slopes (a, -3a): the first node's slope d = 3a is exactly DataInterpolations'
+            # limit 3|δ₁|, where the end slope switches from d to 3δ₁.
+            a = 1 / 64
+            z = [4a, 5a, 2a]
+            f = x -> discount(ZeroRateCurve(x, ts, Spline.PCHIP()), 1.5)
+            @test_throws "switches formula" ForwardDiff.gradient(f, z)
+            # The installed DataInterpolations switches here: the one-sided derivatives differ.
+            h = 1.0e-7
+            up, down = (f(z .+ h .* E(3, 1)) - f(z)) / h, (f(z) - f(z .- h .* E(3, 1))) / h
+            @test abs(up - down) > 1.0e-3
         end
-        f = x -> discount(ZeroRateCurve(x, t7, Spline.Akima()), 2.5)
-        # The guard's quantity changes sign exactly where the installed DataInterpolations switches
-        # formula: the value jumps between adjacent floating-point e. If this fails,
-        # DataInterpolations changed the rule `__kink_quantities(::Sp.Akima, ...)` mirrors.
-        @test abs(f(knots(hi)) - f(knots(lo))) > 1.0e-4
-        @test_throws "switches formula" ForwardDiff.gradient(f, knots(lo))
-        @test_throws "switches formula" ForwardDiff.gradient(f, knots(hi))
-        # Either side, clear of the cutoff (and of knot 1's, at 1.5 times it), the derivative is
-        # the local one: compare with a centered difference in high precision.
-        for e in (0.8lo, 1.2hi)
-            z = knots(e)
-            ref = Float64.(centred(f, big.(z); h = big(1.0e-30)))
-            @test ForwardDiff.gradient(f, z) ≈ ref rtol = 1.0e-5
+
+        @testset "Akima: the fallback-slope cutoff" begin
+            # Knot 3's slope weight is 3e and the largest weight about 0.019, so DataInterpolations
+            # switches knot 3 to its fallback slope near e = 0.019e-9/3, and the curve's value jumps.
+            t7 = collect(1.0:7.0)
+            knots(e) = [0.02; 0.02 .+ cumsum([0.001, 0.001 + e, 0.01, 0.01 + 2e, 0.02, 0.022])]
+            cutoff(e) = FinanceModels.Yield.__kink_quantities(Spline.Akima(), knots(e), t7)[9 + 3]
+            lo, hi = 0.0, 1.0e-10
+            for _ in 1:200
+                mid = (lo + hi) / 2
+                (mid == lo || mid == hi) && break
+                cutoff(mid) > 0 ? (hi = mid) : (lo = mid)
+            end
+            f = x -> discount(ZeroRateCurve(x, t7, Spline.Akima()), 2.5)
+            # The guard's quantity changes sign exactly where the installed DataInterpolations switches
+            # formula: the value jumps between adjacent floating-point e. If this fails,
+            # DataInterpolations changed the rule `__kink_quantities(::Sp.Akima, ...)` mirrors.
+            @test abs(f(knots(hi)) - f(knots(lo))) > 1.0e-4
+            @test_throws "switches formula" ForwardDiff.gradient(f, knots(lo))
+            @test_throws "switches formula" ForwardDiff.gradient(f, knots(hi))
+            # Either side, clear of the cutoff (and of knot 1's, at 1.5 times it), the derivative is
+            # the local one: compare with a centered difference in high precision.
+            for e in (0.8lo, 1.2hi)
+                z = knots(e)
+                ref = Float64.(centred(f, big.(z); h = big(1.0e-30)))
+                @test ForwardDiff.gradient(f, z) ≈ ref rtol = 1.0e-5
+            end
         end
     end
 

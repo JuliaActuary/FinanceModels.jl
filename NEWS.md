@@ -40,7 +40,8 @@ could be off by a factor of two, flat PCHIP gave `NaN`, and a flat MonotoneConve
 dense grid gave derivatives driven by rounding noise.
 
 - MonotoneConvex now reports, for each partial, the limit of a centered bump in its direction.
-  Primal values are unchanged.
+  On a flat stretch of the curve these partials need not sum to the parallel-shift derivative,
+  so they do not aggregate like a gradient. Primal values are unchanged.
 - PCHIP and Akima throw an `ArgumentError` when dual knot rates move a kink, including the point
   where Akima switches to its fallback slope and its value jumps.
 - A differentiated `fit` throws when the fitted curve lies on a kink or within the fit's

@@ -232,6 +232,11 @@ dual numbers, so this is how to differentiate a valuation with respect to a curv
 curve = ZeroRateCurve([0.03, 0.035, 0.04], [1.0, 5.0, 10.0])
 ForwardDiff.gradient(z -> pv(reconstruct(curve; rates = z), cfs), collect(knot_rates(curve)))
 ```
+
+The derivatives are first order. At a kink of `Spline.MonotoneConvex()` (for example a flat
+stretch of the curve), each partial is the centered response to a bump of that knot, and on a
+flat stretch these need not add up to the parallel-shift derivative. `Spline.PCHIP()` and
+`Spline.Akima()` throw at their kinks. See [Sensitivities Through Calibration](@ref).
 """
 reconstruct(
     c::AbstractInterpolatedZeroCurve;
@@ -378,80 +383,7 @@ __interpolant(::Sp.PCHIP, g::KnotGrid, extrapolation_kwargs) =
 __interpolant(::Sp.Akima, g::KnotGrid, extrapolation_kwargs) =
     DataInterpolations.AkimaInterpolation(g.rates, g.tenors; extrapolation_kwargs...)
 
-# ── Kinks in the knot rates ────────────────────────────────────────────────────────────
-# PCHIP, Akima, and MonotoneConvex are only piecewise smooth in their knot rates: their shape
-# switches formula where a knot slope or forward crosses a threshold. `__kink_quantities(spline,
-# z, tenors)` returns the scalar functions of the knot rates `z` whose zeros are those switches
-# (none for interpolants that are linear in the knot rates). MonotoneConvex has derivatives
-# defined at its kinks (see `MonotoneConvex.jl`); the DataInterpolations-backed PCHIP and Akima
-# return a one-sided value, NaN, or the derivative of a fallback formula there (and Akima's value
-# can jump), so dual knot rates that move a kink quantity away from zero throw. The quantities
-# mirror DataInterpolations' branch conditions; `test/kinks.jl` checks them against it.
-__kink_quantities(::Sp.SplineCurve, z, tenors) = eltype(z)[]
-__kink_quantities(c::AbstractInterpolatedZeroCurve, z) = __kink_quantities(c.spline, z, c.tenors)
-
-# DataInterpolations 9.2 to 10 `du_PCHIP`: node slopes branch on the signs of the secant slopes δ, and
-# each end slope on the sign of `d` and on `|d| > 3|δ₁|` when δ₁ and δ₂ differ in sign.
-function __kink_quantities(::Sp.PCHIP, z, tenors)
-    h = diff(tenors)
-    δ = diff(z) ./ h
-    q = collect(δ)
-    for (h₁, h₂, δ₁, δ₂) in ((h[1], h[2], δ[1], δ[2]), (h[end], h[end - 1], δ[end], δ[end - 1]))
-        d = ((2 * h₁ + h₂) * δ₁ - h₁ * δ₂) / (h₁ + h₂)
-        push!(q, d, sign(δ₁) != sign(δ₂) ? abs(d) - 3 * abs(δ₁) : one(d))
-    end
-    return q
-end
-
-# DataInterpolations 9.2 to 10 Akima: node slopes weight the secant slopes (padded by linear
-# extrapolation at each end) by `abs` of their differences, and a node whose total weight is at
-# most 1e-9 of the largest takes a fallback slope instead: the curve's value jumps there.
-function __kink_quantities(::Sp.Akima, z, tenors)
-    m = diff(z) ./ diff(tenors)
-    n = length(m)
-    m2 = 2 * m[1] - m[2]
-    mn = 2 * m[n] - m[n - 1]
-    Δ = diff([2 * m2 - m[1]; m2; m; mn; 2 * mn - m[n]])
-    w = [abs(Δ[i]) + abs(Δ[i + 2]) for i in 1:(n + 1)]
-    return [Δ; w .- 1.0e-9 * maximum(w)]
-end
-
-# The rounding scale of forwards and slopes derived from knots `(z, tenors)`: differences of t·z
-# over the shortest interval (from 0 to the first knot, or between knots; a first knot at t = 0
-# leaves no interval before it). Kink quantities within 16 times this count as zero, since
-# rounding alone can move a flat or straight run of knots that far off its kink.
-function __knot_noise(z, tenors)
-    zmax = float(maximum(x -> abs(__primal(x)), z))
-    dt = minimum(filter(>(0), diff([zero(first(tenors)); tenors])))
-    return eps(zmax) * max(one(zmax), last(tenors)) / dt
-end
-
-# The public constructors (`ZeroRateCurve`, `Yield.Spline`, `reconstruct`) check the caller's dual
-# knot rates. FinanceModels' own trial curves (optimizer candidates, bootstrap steps, the
-# calibration Jacobian) do not: an optimizer only needs some slope at a kink, and a
-# differentiated fit checks its fitted knots itself before its Jacobian.
-function __build_public(s::Sp.SplineCurve, g::KnotGrid; extrapolation = :flat_forward)
-    __check_dual_kinks(s, g)
-    return __build(s, g; extrapolation)
-end
-
-__check_dual_kinks(::Sp.SplineCurve, g::KnotGrid) = nothing   # smooth, or MonotoneConvex's own semantics
-function __check_dual_kinks(s::Union{Sp.PCHIP, Sp.Akima}, g::KnotGrid)
-    eltype(g.rates) <: ForwardDiff.Dual || return nothing
-    tol = 16 * __knot_noise(g.rates, g.tenors)
-    for q in __kink_quantities(s, g.rates, g.tenors)
-        (abs(ForwardDiff.value(q)) <= tol && !iszero(ForwardDiff.partials(q))) && throw(
-            ArgumentError(
-                "$(nameof(typeof(s))) interpolation cannot differentiate with respect to its knot rates at " *
-                    "these knots: its shape switches formula here (for example, at a flat segment or a " *
-                    "straight run of knots), so the derivative depends on the bump direction. Use " *
-                    "Spline.Linear(), Spline.Cubic(), or Spline.MonotoneConvex(), key-rate shifts added to " *
-                    "the curve (ActuaryUtilities `KeyRates`), or finite bumps."
-            )
-        )
-    end
-    return nothing
-end
+include("Yield/Kinks.jl")
 
 function __interpolant(b::Sp.PolynomialSpline, g::KnotGrid, extrapolation_kwargs)
     xs, ys = g.tenors, g.rates

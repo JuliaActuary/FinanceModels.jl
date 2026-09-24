@@ -356,10 +356,17 @@ value(rates) = pv(fit(Spline.Linear(), OISYield.(rates, tenors), Fit.Bootstrap()
 ForwardDiff.gradient(value, [0.03, 0.032, 0.035, 0.037])   # ∂value/∂quoted rates
 ```
 
-Maturities and cashflow times cannot carry dual numbers, nested (higher-order) dual numbers
-are not supported, and a loss fit must reprice its quotes (relative residual at most 1e-6) to
-be differentiated. Other models' `fit`s throw an `ArgumentError` when given dual quotes. See
-[Sensitivities Through Calibration](@ref) for details.
+- The derivatives are first order, with respect to the quotes passed to `fit`. Nested
+  (higher-order) dual numbers, and dual maturities or cashflow times, throw.
+- The fit must reprice its quotes. Bootstrap does; a loss fit is differentiated only if the
+  largest absolute component of one Newton correction of its knot rates towards the exact fit
+  is at most `1e-6`. That correction is a local estimate of the fit's error, not a guaranteed
+  distance to the exact solution.
+- A fitted `Spline.MonotoneConvex()`, `Spline.PCHIP()`, or `Spline.Akima()` curve that lies on a
+  kink of its interpolation (flat quotes, for example) has no derivative there and throws.
+- Other models' `fit`s throw an `ArgumentError` when given dual quotes.
+
+See [Sensitivities Through Calibration](@ref) for details.
 
 # Examples
 ```julia-repl
