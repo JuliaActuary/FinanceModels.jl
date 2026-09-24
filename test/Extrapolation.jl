@@ -357,6 +357,20 @@ spline_zero_curve_with_policy(d, r, t, policy::Symbol) = ZeroRateCurve(r, t, d; 
         end
         @test discount(ZeroRateCurve([0.02, 0.0], [1.0, 2.0], Spline.Linear(); extrapolation = :flat_zero), Inf) == 1.0
         @test_throws DomainError discount(ZeroRateCurve([0.02, 0.03], [1.0, 2.0]), -Inf)
+        # Under AD the limit is classified by primal values. Where the deciding coefficient (the
+        # `:linear` slope, then the tail forward) is zero but carries partials, any bump moves the
+        # limit to 0 or Inf: no derivative.
+        lin_inf = x -> discount(ZeroRateCurve(x, [1.0, 2.0, 3.0], Spline.Linear(); extrapolation = :linear), Inf)
+        zflat = fill(0.03, 3)
+        @test lin_inf(zflat) == 0.0
+        @test_throws "no derivative" lin_inf(ForwardDiff.Dual.(zflat, [0.0, 0.0, 1.0]))
+        @test ForwardDiff.derivative(s -> lin_inf(zflat .+ s), 0.0) == 0.0   # the tail stays flat
+        @test ForwardDiff.gradient(lin_inf, [0.02, 0.025, 0.03]) == zeros(3)   # and rising stays rising
+        flat_inf = f -> discount(
+            ZeroRateCurve([0.02, 0.025, 0.03], [1.0, 2.0, 3.0], Spline.Linear(); extrapolation = Yield.FlatForwardAt(Continuous(f))), Inf
+        )
+        @test_throws "no derivative" ForwardDiff.derivative(flat_inf, 0.0)
+        @test ForwardDiff.derivative(flat_inf, 0.01) == 0.0
 
         falling = Yield.Spline(Spline.Linear(), times, reverse(rates); extrapolation = :linear)
         @test rate(zero(falling, Inf)) == -Inf

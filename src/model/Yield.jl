@@ -384,12 +384,13 @@ __interpolant(::Sp.Akima, g::KnotGrid, extrapolation_kwargs) =
 # z, tenors)` returns the scalar functions of the knot rates `z` whose zeros are those switches
 # (none for interpolants that are linear in the knot rates). MonotoneConvex has derivatives
 # defined at its kinks (see `MonotoneConvex.jl`); the DataInterpolations-backed PCHIP and Akima
-# return a one-sided value, NaN, or the derivative of a fallback formula there, so dual knot
-# rates that move a kink quantity away from zero throw.
+# return a one-sided value, NaN, or the derivative of a fallback formula there (and Akima's value
+# can jump), so dual knot rates that move a kink quantity away from zero throw. The quantities
+# mirror DataInterpolations' branch conditions; `test/kinks.jl` checks them against it.
 __kink_quantities(::Sp.SplineCurve, z, tenors) = eltype(z)[]
 __kink_quantities(c::AbstractInterpolatedZeroCurve, z) = __kink_quantities(c.spline, z, c.tenors)
 
-# DataInterpolations 10 `du_PCHIP`: node slopes branch on the signs of the secant slopes δ, and
+# DataInterpolations 9.2 to 10 `du_PCHIP`: node slopes branch on the signs of the secant slopes δ, and
 # each end slope on the sign of `d` and on `|d| > 3|δ₁|` when δ₁ and δ₂ differ in sign.
 function __kink_quantities(::Sp.PCHIP, z, tenors)
     h = diff(tenors)
@@ -402,23 +403,26 @@ function __kink_quantities(::Sp.PCHIP, z, tenors)
     return q
 end
 
-# DataInterpolations 10 Akima: node slopes weight the secant slopes (padded by linear
-# extrapolation at each end) by `abs` of their differences.
+# DataInterpolations 9.2 to 10 Akima: node slopes weight the secant slopes (padded by linear
+# extrapolation at each end) by `abs` of their differences, and a node whose total weight is at
+# most 1e-9 of the largest takes a fallback slope instead: the curve's value jumps there.
 function __kink_quantities(::Sp.Akima, z, tenors)
     m = diff(z) ./ diff(tenors)
     n = length(m)
     m2 = 2 * m[1] - m[2]
     mn = 2 * m[n] - m[n - 1]
-    padded = [2 * m2 - m[1]; m2; m; mn; 2 * mn - m[n]]
-    return diff(padded)
+    Δ = diff([2 * m2 - m[1]; m2; m; mn; 2 * mn - m[n]])
+    w = [abs(Δ[i]) + abs(Δ[i + 2]) for i in 1:(n + 1)]
+    return [Δ; w .- 1.0e-9 * maximum(w)]
 end
 
 # The rounding scale of forwards and slopes derived from knots `(z, tenors)`: differences of t·z
-# over the shortest interval. Kink quantities within 16 times this count as zero, since rounding
-# alone can move a flat or straight run of knots that far off its kink.
+# over the shortest interval (from 0 to the first knot, or between knots; a first knot at t = 0
+# leaves no interval before it). Kink quantities within 16 times this count as zero, since
+# rounding alone can move a flat or straight run of knots that far off its kink.
 function __knot_noise(z, tenors)
     zmax = float(maximum(x -> abs(__primal(x)), z))
-    dt = minimum(i -> tenors[i] - (i == 1 ? zero(tenors[i]) : tenors[i - 1]), eachindex(tenors))
+    dt = minimum(filter(>(0), diff([zero(first(tenors)); tenors])))
     return eps(zmax) * max(one(zmax), last(tenors)) / dt
 end
 

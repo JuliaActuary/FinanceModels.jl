@@ -41,7 +41,8 @@ dense grid gave derivatives driven by rounding noise.
 
 - MonotoneConvex now reports, for each partial, the limit of a centered bump in its direction.
   Primal values are unchanged.
-- PCHIP and Akima throw an `ArgumentError` when dual knot rates move a kink.
+- PCHIP and Akima throw an `ArgumentError` when dual knot rates move a kink, including the point
+  where Akima switches to its fallback slope and its value jumps.
 - A differentiated `fit` throws when the fitted curve lies on a kink or within the fit's
   precision of one.
 
@@ -60,7 +61,8 @@ now relative to the size of the quote.
 With a tail forward of zero (for example `Yield.FlatForwardAt(Continuous(0.0))`),
 `discount(curve, Inf)` returned `NaN` from `exp(-0 * Inf)`. It now returns the limit: the
 discount factor at the last knot. It returns 0 for a positive tail forward and `Inf` for a
-negative one.
+negative one. Differentiating it where the long-run forward is zero throws, since any bump moves
+the limit to 0 or `Inf`.
 
 ### Bootstrap requires linear interpolation
 

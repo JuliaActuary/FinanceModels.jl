@@ -69,8 +69,8 @@ in a `Yield.FlatForwardAt` extrapolation forward.
 
 The derivative is exact for the exactly repricing curve. Bootstrap reprices to root-finder
 precision. A loss fit stops at its optimizer's tolerance, and `fit` refuses to differentiate one
-whose repricing residuals exceed `1e-6` when measured as the knot-rate change that would remove
-them. That measure, like the conditioning check, does not depend on the quotes' notionals.
+whose knot rates are more than `1e-6` from the exact fit, measured by one Newton step towards it.
+That measure, like the conditioning check, does not depend on the quotes' notionals.
 Refitting with bumped quotes and taking finite differences is a much noisier check: optimizer
 noise of `1e-11` in the fitted rates becomes an error of order `1e-4` in a difference quotient.
 
@@ -108,9 +108,9 @@ of the knot *values*, not of the tenors:
 |:--------------|:------|
 | `Spline.MonotoneConvex()` | two adjacent discrete forwards equal (every flat stretch of the curve); a node forward exactly at its positivity bound |
 | `Spline.PCHIP()` | two adjacent knot rates equal (a flat segment) |
-| `Spline.Akima()` | three or more knots on a straight line |
+| `Spline.Akima()` | three or more knots on a straight line; a knot whose slope weight is exactly `1e-9` of the largest, where the curve's value jumps |
 
-A curve fitted to market quotes essentially never sits on one; flat test curves always do.
+Flat curves sit on a kink, and repeated or rounded quotes can put a fitted curve on one.
 Away from a kink, every derivative on this page is exact. Close to one it is still exact, but a
 bump of one basis point may cross the kink and move the value differently.
 
@@ -126,7 +126,7 @@ At a kink, the derivative depends on the direction of the bump:
   exactly zero (a 0% curve).
 - **`Spline.PCHIP()`** and **`Spline.Akima()`** throw an `ArgumentError` when dual knot rates move
   a kink, since their implementation returns a one-sided value, `NaN`, or the derivative of a
-  fallback formula there. A parallel shift of a flat PCHIP or Akima curve is fine.
+  fallback formula there, and Akima's value can jump. A parallel shift of a flat PCHIP or Akima curve is fine.
 - **`fit`** throws when the fitted curve lies on a kink, or within the fit's precision of one:
   the refitted curve has no derivative with respect to the quotes there.
 

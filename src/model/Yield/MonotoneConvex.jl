@@ -214,11 +214,13 @@ __mc_tangent(k, x, d0, d1) = iszero(d0) && iszero(d1) ? zero(d0 * x) : __mc_sect
 # Rounding in the discrete forwards (differences of t·z over short intervals) can leave the
 # deviations of a flat interval slightly nonzero, and the sector formulas then differentiate
 # rounding noise. With dual knot rates, deviations of interval `i` within this bound count as
-# zero. It covers the intervals that the node forwards at either end of `i` average over.
+# zero. It covers the intervals that the node forwards at either end of `i` average over (the
+# first, from 0 to a first knot at t = 0, has no width and no rounding).
 function __mc_kink_tol(rates, times, i)
     s = zero(float(__primal(first(rates))))
     for j in max(1, i - 1):min(lastindex(times), i + 1)
         tp, zp = j == 1 ? (zero(first(times)), zero(s)) : (times[j - 1], __primal(rates[j - 1]))
+        times[j] > tp || continue
         s = max(s, (abs(times[j] * __primal(rates[j])) + abs(tp * zp)) / (times[j] - tp))
     end
     return 16 * eps(s)

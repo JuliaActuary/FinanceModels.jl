@@ -169,6 +169,18 @@ FinanceCore.present_value(m, c::WrappedContract, t = 0.0) = FinanceCore.present_
         offset = Fit.Loss(x -> (x - 0.01)^2)
         @test_throws "does not reprice" ForwardDiff.gradient(x -> pv(fit(Spline.Linear(), CMTYield.(x, tenors), offset), cfs), rates)
         @test fit(Spline.Linear(), CMTYield.(rates, tenors), offset) isa Yield.Spline    # the primal fit is fine
+        # The check bounds the knots' distance from the exact fit (one Newton step), not the scaled
+        # residual: this ill-conditioned pair reprices to about 2e-9 with its second knot 1e-5 off.
+        ε = 1.0e-4
+        pair(p1, p2) = [ZCBPrice(p1, 1.0), Quote(p2, FinanceCore.Composite(Cashflow(1.0, 1.0), Cashflow(ε, 2.0)))]
+        zx = [0.03, 0.04]
+        px = [exp(-zx[1]), exp(-zx[1]) + ε * exp(-2 * zx[2])]
+        dual_pair = pair(ForwardDiff.Dual{ImplicitFitTestTag}(px[1], 1.0, 0.0), ForwardDiff.Dual{ImplicitFitTestTag}(px[2], 0.0, 1.0))
+        off_curve = ZeroRateCurve(zx .+ [0.0, 1.0e-5], [1.0, 2.0], Spline.Linear())
+        @test maximum(q -> abs(pv(off_curve, q.instrument) - q.price), pair(px...)) < 1.0e-8
+        @test_throws "from the exact fit" FinanceModels.__implicit_knot_curve(off_curve, dual_pair, pair(px...), off_curve.extrapolation, true)
+        exact_curve = ZeroRateCurve(zx, [1.0, 2.0], Spline.Linear())
+        @test Yield.knot_rates(FinanceModels.__implicit_knot_curve(exact_curve, dual_pair, pair(px...), exact_curve.extrapolation, true)) isa AbstractVector{<:ForwardDiff.Dual}
         # quote prices that do not determine a knot
         free = [ZCBPrice(ForwardDiff.Dual{ImplicitFitTestTag}(0.97, 1.0), 1.0), Quote(0.0, Cashflow(0.0, 2.0))]
         @test_throws "singular" fit(Spline.Linear(), free, Fit.Bootstrap())

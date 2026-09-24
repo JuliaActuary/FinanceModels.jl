@@ -117,7 +117,8 @@ end
 
 # A fit is differentiated only when it reprices its quotes: the conditions `R = 0` then hold
 # at the fitted rates. Bootstrap and exact loss fits reprice to solver precision. Residuals are
-# measured as the knot-rate change that would remove them, which does not depend on notionals.
+# measured as the knot-rate change (one Newton step) that would remove them, which does not
+# depend on notionals.
 const __IMPLICIT_FIT_RTOL = 1.0e-6
 
 """
@@ -152,8 +153,8 @@ function __implicit_knot_curve(curve, quotes, primal_quotes, extrapolation, has_
     s, e = curve.spline, curve.extrapolation
     build(z) = Yield.__build(s, Yield.KnotGrid(Yield.Unchecked(), z, tenors); extrapolation = e)
     A = ForwardDiff.jacobian(z -> residuals(build(z), primal_quotes), z0)
-    # Equilibrate each residual by its sensitivity to the knot rates, so that conditioning and
-    # the repricing check are in knot-rate units whatever the instruments' notionals.
+    # Equilibrate each residual by its sensitivity to the knot rates, so that the conditioning
+    # check does not depend on the instruments' notionals.
     w = [maximum(abs, view(A, i, :)) for i in axes(A, 1)]
     singular(κ) = ArgumentError(
         "fit cannot differentiate this calibration: the quote prices do not determine the knot rates " *
@@ -165,19 +166,20 @@ function __implicit_knot_curve(curve, quotes, primal_quotes, extrapolation, has_
     F = lu(As; check = false)
     (issuccess(F) && cond(As) <= 1.0e10) || throw(singular(cond(As)))
     r0 = residuals(curve, primal_quotes)
-    ε = abs.(r0) ./ w
-    worst = argmax(ε)
-    ε[worst] <= __IMPLICIT_FIT_RTOL || throw(
+    # One Newton step from the fitted knots to the exact fit: the fit's error in knot rates.
+    δ = F \ (r0 ./ w)
+    worst = argmax(abs.(δ))
+    abs(δ[worst]) <= __IMPLICIT_FIT_RTOL || throw(
         ArgumentError(
-            "fit cannot differentiate a curve that does not reprice its quotes: the quote maturing at " *
-                "$(FinanceCore.maturity(primal_quotes[worst])) has residual $(r0[worst]) (a knot-rate error of " *
-                "about $(ε[worst])). Its derivatives assume an exact fit; tighten the optimizer, or use " *
+            "fit cannot differentiate a curve that does not reprice its quotes: its knot rate at " *
+                "$(tenors[worst]) is about $(abs(δ[worst])) from the exact fit (largest quote residual " *
+                "$(maximum(abs, r0))). Its derivatives assume an exact fit; tighten the optimizer, or use " *
                 "Fit.Bootstrap() with Spline.Linear()."
         )
     )
     # The fitted knots must resolve which side of each kink the exact fit lies on: compare the
-    # kink quantities with their change under one Newton step towards the exact fit.
-    q1 = Yield.__kink_quantities(curve, z0 .- (F \ (r0 ./ w)))
+    # kink quantities with their change under that Newton step.
+    q1 = Yield.__kink_quantities(curve, z0 .- δ)
     any(i -> abs(q1[i]) <= abs(q0[i] - q1[i]) + tolq, eachindex(q0, q1)) && throw(__fit_kink_error(curve))
 
     K = ForwardDiff.npartials(D)

@@ -128,13 +128,26 @@ function __tail_forward(e::CurveTail, t)
     return e(t) + e.γ * t
 end
 
-# `discount` at t = Inf: the limit of exp(-z(t)·t) under the tail. The tail's forward tends to a
-# constant f∞ (±Inf under a sloped `:linear` tail), so the limit is 0 for f∞ > 0 and Inf for
-# f∞ < 0. For f∞ = 0 it is finite, exp(-β·tₙ), which z(Inf)·Inf = 0·Inf would lose as NaN.
+# `discount` at t = Inf: the limit of exp(-z(t)·t) = exp(-(α·t + β·tₙ + γ·(t - tₙ)·t)). The sign of
+# γ under a `:linear` tail, and then of α, decides it: 0 when positive, Inf when negative. When both
+# are zero it is finite, exp(-β·tₙ), which z(Inf)·Inf = 0·Inf would lose as NaN. The signs are
+# those of the primal values. A deciding coefficient that is zero there but carries partials has
+# no derivative: a bump that moves it can move the limit to 0 or Inf.
 function __discount_at_infinity(e::CurveTail)
-    f = __primal(__tail_forward(e, Inf))
     d = exp(-(e.linear ? zero(e.β) : e.β * e.last_tenor))
-    return f > 0 ? zero(d) : f < 0 ? oftype(d, Inf) : d
+    for (c, name) in (e.linear ? ((e.γ, "slope"), (e.α, "forward")) : ((e.α, "forward"),))
+        v = __primal(c)
+        v > 0 && return zero(d)
+        v < 0 && return oftype(d, Inf)
+        iszero(c) || throw(
+            ArgumentError(
+                "discount(curve, Inf) has no derivative here: the tail's $name is zero, so a bump " *
+                    "that moves it can send the discount factor at infinity to 0 or Inf. " *
+                    "Differentiate at a finite time."
+            )
+        )
+    end
+    return d
 end
 
 # `forward()` and `slope()` supply the curve's boundary anchor for `:flat_forward` and its
