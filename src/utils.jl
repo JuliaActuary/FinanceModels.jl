@@ -94,8 +94,8 @@ Internal read-only view over an owned `Vector`. Indexed assignment — and there
 `AbstractVector` (indexing, iteration, `searchsortedlast`, broadcasting, `==`/`isequal`/`hash`
 identical to the equivalent `Vector`). `copy`/`collect` return a mutable `Vector`.
 
-Used by models that cache state derived from their vector fields (`ZeroRateCurve`,
-`Yield.MonotoneConvex`) so that ordinary array operations on the public fields cannot
+Used by the knot curves (`Yield.Spline`, `Yield.MonotoneConvex`), which cache state derived
+from their knot vectors, so that ordinary array operations on the public fields cannot
 desynchronise the cache. This is Julia's conventional privacy, not literal immutability: the
 backing `Vector` is the private field `_data`, and code that reaches it with `getfield` can
 still mutate it (unsupported).

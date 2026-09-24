@@ -56,7 +56,7 @@ credit_spread = 0.012   # 120bps
 zrc_credit = ZeroRateCurve(fill(credit_spread, length(tenors)), tenors)
 
 println("── Base Curve (continuously compounded zero rates) ──")
-for (t, r) in zip(zrc_base.tenors, zrc_base.rates)
+for (t, r) in zip(knot_tenors(zrc_base), knot_rates(zrc_base))
     @printf(
         "  %5.1fy: %.4f%%  (tsy) + %.0fbps (spread) = %.4f%%\n",
         t, r * 100, credit_spread * 10_000, (r + credit_spread) * 100
@@ -269,7 +269,7 @@ println("\n  Base (Treasury) Key Rate Durations:")
 println("  ─────────────────────────────────────────────────────")
 @printf("  %8s  %12s  %12s  %12s\n", "Tenor", "Dynamic", "Static", "Δ")
 println("  ─────────────────────────────────────────────────────")
-for (i, t) in enumerate(zrc_base.tenors)
+for (i, t) in enumerate(knot_tenors(zrc_base))
     d = dynamic.base_durations[i]
     s = static.base_durations[i]
     @printf("  %6.1fy    %10.4f    %10.4f    %10.4f\n", t, d, s, d - s)
@@ -289,7 +289,7 @@ println("\n  Credit (Spread) Key Rate Durations:")
 println("  ─────────────────────────────────────────────────────")
 @printf("  %8s  %12s  %12s  %12s\n", "Tenor", "Dynamic", "Static", "Δ")
 println("  ─────────────────────────────────────────────────────")
-for (i, t) in enumerate(zrc_base.tenors)
+for (i, t) in enumerate(knot_tenors(zrc_base))
     d = dynamic.credit_durations[i]
     s = static.credit_durations[i]
     @printf("  %6.1fy    %10.4f    %10.4f    %10.4f\n", t, d, s, d - s)

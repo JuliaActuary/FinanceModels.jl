@@ -2,6 +2,8 @@
 
 `ZeroRateCurve` accepts an optional third argument specifying the interpolation method. The choice of interpolation affects **forward curve smoothness**, **key rate duration locality**, and **performance** when used with automatic differentiation (e.g. via `sensitivities()` in ActuaryUtilities.jl).
 
+`ZeroRateCurve` returns a `Yield.MonotoneConvex` for `Spline.MonotoneConvex()` and a `Yield.Spline` for the other methods. Both are [`Yield.AbstractInterpolatedZeroCurve`](@ref FinanceModels.Yield.AbstractInterpolatedZeroCurve)s, as are the curves that spline [`fit`](@ref FinanceModels.fit)s return: read their knots with [`knot_rates`](@ref FinanceModels.Yield.knot_rates) and [`knot_tenors`](@ref FinanceModels.Yield.knot_tenors), and build a changed curve (other rates, tenors, method, or extrapolation) with [`reconstruct`](@ref FinanceModels.Yield.reconstruct).
+
 ## Available Methods
 
 | Method | Interior smoothness | Locality | Description |
@@ -30,7 +32,19 @@ zrc_cub = ZeroRateCurve(rates, tenors, Spline.Cubic())           # natural cubic
 zrc_aki = ZeroRateCurve(rates, tenors, Spline.Akima())           # Akima
 zrc_flat_zero = ZeroRateCurve(rates, tenors, Spline.Cubic();
     extrapolation=:flat_zero)
+
+knot_rates(zrc_lin)                                 # read-only view of the rates
+zrc_up = reconstruct(zrc_lin; rates = rates .+ 0.001)   # every knot 10bp higher
+zrc_mc = reconstruct(zrc_lin; spline = Spline.MonotoneConvex())
 ```
+
+## Before the First Knot
+
+The DataInterpolations-backed methods hold the zero rate flat at the first knot's rate between
+`t = 0` and the first knot. `Spline.MonotoneConvex()` instead interpolates from `t = 0`: the
+Hagan-West construction treats the origin as a node, with the instantaneous forward there set by
+its boundary condition. A bootstrapped curve's knots are exactly its quote maturities, and the
+flat short end prices the first quote's interval.
 
 ## Extrapolation Beyond the Last Knot
 
@@ -68,16 +82,14 @@ For example, zero rates `[0.02, 0.025, 0.03, 0.035, 0.04]` at `[1, 2, 5, 10, 30]
 last discrete forward of 4.25%, which is the tail forward of every DataInterpolations-backed
 curve. Anchoring on the endpoint derivative instead would give about 2.95% with
 `Spline.Quadratic()`, 3.58% with `Spline.Cubic()`, and −6.81% with `Spline.BSpline(3)`.
-A callable-only `Yield.Spline(fn)` has no knots and therefore does not apply an
-extrapolation policy.
 
 These are general curve-extension choices, not implementations of an accounting basis
 or prescribed regulatory extrapolation. For convergence to an independently chosen
 ultimate forward rate, see [`Yield.SmithWilson`](@ref), which accepts `ufr` and a
 convergence-speed parameter `α`; model selection and calibration remain explicit choices.
 
-Pass the `extrapolation` keyword to `ZeroRateCurve`, `Yield.Spline`, or a spline `fit` call
-to select the long-end behavior:
+Pass the `extrapolation` keyword to `ZeroRateCurve`, `Yield.Spline`, `reconstruct`, or a spline
+`fit` call to select the long-end behavior:
 
 | Value | Long-end zero rate | Notes |
 |-------|--------------------|-------|
@@ -94,11 +106,10 @@ quotes = ZCBYield.(Continuous.(rates), tenors)
 fitted = fit(Spline.Linear(), quotes, Fit.Bootstrap(); extrapolation=:extension)
 ```
 
-The selected value is available as `curve.extrapolation` on `ZeroRateCurve` and native
-`Yield.MonotoneConvex` curves. It is preserved by fitting and `Accessors.@set`; derived
-boundary quantities are recomputed when knots change. Loss-fitting `Spline.MonotoneConvex()`
-returns a native `Yield.MonotoneConvex` with `.rates`, `.times`, and
-`Yield.instantaneous_forward` for every supported policy.
+The selected value is available as `curve.extrapolation` on every knot curve. It is preserved by
+fitting, `reconstruct`, and `Accessors.@set`; derived boundary quantities are recomputed when
+knots change. Loss-fitting `Spline.MonotoneConvex()` returns a native `Yield.MonotoneConvex`,
+with `Yield.instantaneous_forward`, for every supported policy.
 
 `Yield.FlatForwardAt` takes a rate with an explicit compounding convention:
 
@@ -145,7 +156,7 @@ for (name, descriptor) in [
     ("Akima", Spline.Akima()),
     ("CubicSpline", Spline.Cubic()),
 ]
-    model = Yield.build_model(descriptor, tenors, rates)
+    model = ZeroRateCurve(rates, tenors, descriptor)
     fwd(t) = fwd_from_zero(model, t)
     println("\n--- $name: forward rate f(t) ---")
     for t in eval_points
@@ -187,7 +198,7 @@ for (name, descriptor) in [
     ("Akima", Spline.Akima()),
     ("CubicSpline", Spline.Cubic()),
 ]
-    rate_at(r, t, pt) = rate(zero(Yield.build_model(descriptor, t, r), pt))
+    rate_at(r, t, pt) = rate(zero(ZeroRateCurve(r, t, descriptor), pt))
     println("\n--- $name: ∂rate(t)/∂r₃  (bump at 5yr) ---")
     for pt in eval_points
         g = ForwardDiff.gradient(r -> rate_at(r, tenors, pt), rates)
@@ -250,11 +261,11 @@ for (name, spline) in [
     ("Cubic", Spline.Cubic()),
 ]
     zrc = ZeroRateCurve(rates5, tenors5, spline)
-    sensitivities(zrc, cfs5, tenors5)  # warmup
+    sensitivities(KeyRates(tenors5), zrc, cfs5, tenors5)  # warmup
 
     N = 5_000
     t0 = time_ns()
-    for _ in 1:N; sensitivities(zrc, cfs5, tenors5); end
+    for _ in 1:N; sensitivities(KeyRates(tenors5), zrc, cfs5, tenors5); end
     elapsed = (time_ns() - t0) / 1e3 / N
     @printf("  %-20s  %7.1f μs\n", name, elapsed)
 end

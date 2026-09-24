@@ -102,7 +102,7 @@ Yield models include:
 - `Yield.NelsonSiegelSvensson`
 - `Yield.CairnsPritchard` (and `Yield.CairnsPritchardExtended`)
 - `Yield.MonotoneConvex` (Hagan-West)
-- `ZeroRateCurve` (direct construction from zero rates and tenors)
+- `ZeroRateCurve` (direct construction from zero rates and tenors; returns a `Yield.MonotoneConvex` or `Yield.Spline`)
 
 Stochastic models include:
 
@@ -132,6 +132,9 @@ rates = [0.02, 0.025, 0.03, 0.035, 0.04]
 tenors = [1.0, 2.0, 3.0, 5.0, 10.0]
 zrc = ZeroRateCurve(rates, tenors)                          # default: MonotoneConvex
 zrc = ZeroRateCurve(rates, tenors, Spline.Linear())          # or Linear, PCHIP, Cubic, Akima
+
+knot_rates(zrc), knot_tenors(zrc)                            # read-only views of the knots
+zrc_up = reconstruct(zrc; rates = rates .+ 0.001)            # a new curve, 10bp higher at every knot
 ```
 
 You can also construct a `ZeroRateCurve` from any existing yield model (e.g. `Yield.Constant`, `Yield.NelsonSiegel`, a fitted spline curve) by sampling zero rates at specified tenors:
@@ -141,7 +144,7 @@ ns = Yield.NelsonSiegel(1.0, 0.04, -0.02, 0.01)
 zrc = ZeroRateCurve(ns, [1.0, 2.0, 5.0, 10.0, 20.0])
 ```
 
-`ZeroRateCurve` is compatible with ForwardDiff dual numbers, making it the primary interface for automatic differentiation-based sensitivities in [ActuaryUtilities.jl](https://github.com/JuliaActuary/ActuaryUtilities.jl).
+Knot rates may be ForwardDiff dual numbers, so `reconstruct(zrc; rates = dual_rates)` differentiates a valuation with respect to the curve's knot rates. [ActuaryUtilities.jl](https://github.com/JuliaActuary/ActuaryUtilities.jl) builds its sensitivities on this.
 
 #### Stochastic short-rate models
 
