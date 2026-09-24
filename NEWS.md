@@ -11,6 +11,15 @@ ForwardDiff derivatives with respect to curve parameters are exact: they come
 from the implicit function theorem at the solution rather than from solver
 iterations. FinanceModels now depends on ForwardDiff directly.
 
+### Correct swaption Greeks under automatic differentiation
+
+Jamshidian's decomposition prices a swaption as bond options struck at `P(T₀,Tᵢ;r*)`,
+where the critical rate `r*` depends on the model parameters. `r*` was found by a
+bisection that returned a plain `Float64`, so ForwardDiff Greeks of Vasicek and
+Hull-White swaptions silently dropped every `∂Kᵢ/∂r*·dr*/dθ` term: on a 1×5 payer
+swaption, Vasicek's `∂/∂a` had the wrong sign and vega was 9% too high. `r*` now carries
+its implicit-function derivatives; prices are unchanged up to root-finder precision (#290).
+
 ### Differentiable spline fits
 
 Spline `fit`s (`Fit.Loss` with any interpolation method, `Fit.Bootstrap()` with
