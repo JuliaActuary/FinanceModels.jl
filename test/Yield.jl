@@ -201,7 +201,7 @@ end
             @test internal_rate_of_return(ParYield(y, 2.3)) ≈ y atol = 1.0e-6
             # CMT and OIS par quotes share the convention
             @test pv(Yield.Constant(Periodic(0.045, 2)), CMTYield(0.045, 2.3).instrument) ≈ 1.0 atol = 1.0e-14
-            @test pv(Yield.Constant(Periodic(0.045, 4)), Bond.OISYield(0.045, 2.3).instrument) ≈ 1.0 atol = 1.0e-14
+            @test pv(Yield.Constant(Periodic(0.045, 1)), Bond.OISYield(0.045, 2.3).instrument) ≈ 1.0 atol = 1.0e-14
 
             # bootstrap through a stub-tenor quote alongside whole tenors
             qs = ParYield.(y, [1.0, 2.3, 4.0])
@@ -225,8 +225,8 @@ end
             @test pv(c, Bond.Fixed(cpn, Periodic(4), 0.6)) ≈ 1.0 atol = 1.0e-14
 
             m = fit(Spline.Linear(), ZCBYield.([0.03, 0.041, 0.045], [0.5, 2.0, 5.0]), Fit.Bootstrap())
-            for T in [0.6, 2.3, 10]
-                swap = InterestRateSwap(m, T)
+            for T in [0.6, 2.3, 10], frequency in (1, 4)
+                swap = InterestRateSwap(m, T; frequency)
                 @test abs(pv(m, Projection(swap, Dict("OIS" => m), CashflowProjection()))) < 1.0e-12
             end
         end
