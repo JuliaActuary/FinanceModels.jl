@@ -18,6 +18,7 @@ makedocs(;
             "Models, Valuation, and Fitting" => "models.md",
             "Stochastic Models" => "stochastic.md",
             "Interpolation Methods" => "interpolation.md",
+            "Sensitivities Through Calibration" => "calibration_sensitivities.md",
             "Contracts" => "contracts.md",
             "Rates" => "Rates.md",
             "Yield Curve Arithmetic" => "yield_arithmetic.md",
