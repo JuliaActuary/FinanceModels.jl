@@ -1261,3 +1261,29 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
         end
     end
 end
+
+@testset "swaption Greeks through the critical rate r* (#290)" begin
+    # Jamshidian's decomposition strikes each bond option at P(T₀,Tᵢ;r*), and r* moves
+    # with the model parameters. A root found on Float64 values dropped ∂Kᵢ/∂r*·dr*/dθ
+    # from every Greek (Vasicek ∂/∂a even had the wrong sign).
+    h = 1.0e-6
+    central(f, x) = [(f(x .+ h .* (eachindex(x) .== i)) - f(x .- h .* (eachindex(x) .== i))) / 2h for i in eachindex(x)]
+    curve = ZeroRateCurve([0.03, 0.032, 0.035, 0.037, 0.04], [1.0, 2.0, 3.0, 5.0, 10.0])
+    for sw in (Option.Swaption(1.0, 6.0, 0.035, 1), Option.Swaption(2.0, 7.0, 0.03, 2; payer = false))
+        vasicek(p) = pv(ShortRate.Vasicek(p[1], p[2], p[3], Continuous(p[4])), sw)
+        p0 = [0.15, 0.04, 0.01, 0.03]
+        @test ForwardDiff.gradient(vasicek, p0) ≈ central(vasicek, p0) rtol = 1.0e-7
+        hull_white(p) = pv(ShortRate.HullWhite(p[1], p[2], curve), sw)
+        q0 = [0.1, 0.01]
+        @test ForwardDiff.gradient(hull_white, q0) ≈ central(hull_white, q0) rtol = 1.0e-7
+        knots(z) = pv(ShortRate.HullWhite(0.1, 0.01, reconstruct(curve; rates = z)), sw)
+        z0 = collect(knot_rates(curve))
+        @test ForwardDiff.gradient(knots, z0) ≈ central(knots, z0) atol = 1.0e-7
+        # the value is the primal price exactly
+        d = pv(ShortRate.Vasicek(ForwardDiff.Dual(0.15, 1.0), 0.04, 0.01, Continuous(0.03)), sw)
+        @test ForwardDiff.value(d) == vasicek(p0)
+    end
+    # a small mean reversion uses Vasicek's Taylor-expanded B in both price and slope
+    small(a) = pv(ShortRate.Vasicek(a, 0.04, 0.01, Continuous(0.03)), Option.Swaption(1.0, 6.0, 0.035, 1))
+    @test ForwardDiff.derivative(small, 1.0e-3) ≈ (small(1.0e-3 + 1.0e-7) - small(1.0e-3 - 1.0e-7)) / 2.0e-7 rtol = 1.0e-5
+end
