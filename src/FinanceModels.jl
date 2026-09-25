@@ -16,9 +16,11 @@ import DataInterpolations
 using Transducers: @next, complete, __foldl__, asfoldable
 import SpecialFunctions
 import Roots
+import ForwardDiff
 using Random
 
 include("utils.jl")
+include("implicit.jl")
 include("Contract.jl")
 include("model/Model.jl")
 include("Projection.jl")
@@ -37,8 +39,8 @@ export NullModel, Yield, discount, accumulation, zero, forward
 using .Yield: ZeroRateCurve, knot_rates, knot_tenors, reconstruct
 export ZeroRateCurve, knot_rates, knot_tenors, reconstruct
 
-using .Yield: par
-export par
+using .Yield: par, implied_quote
+export par, implied_quote
 
 export Equity, Volatility
 export FX
