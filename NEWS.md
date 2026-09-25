@@ -54,8 +54,25 @@ Away from kinks, derivatives are unchanged. See "Sensitivities Through Calibrati
 `implied_quote`, the swaption critical rate, and differentiated fits judged a vanishing slope or
 an ill-conditioned calibration on an absolute scale, so a quote family with a tiny notional was
 refused. A bootstrap likewise solved each quote to an absolute tolerance, so a quote with a
-notional of `1e-10` was fitted only to about `1e-5` in its zero rate. Every check and solve is
-now relative to the size of the quote.
+notional of `1e-10` was fitted only to about `1e-5` in its zero rate, and `implied_quote`
+accepted a root on an absolute residual (a zero-coupon quote with a notional of `1e-10` was off
+by about `1e-5`; at `1e-14` it returned the starting guess). Every check and solve is now
+relative to the size of the quote, and `implied_quote` and the swaption critical rate verify the
+root they accept.
+
+### Solver settings for `fit`
+
+Optimizer-backed `fit`s accept `solve_kwargs`, passed to `Optimization.solve` (for example
+`solve_kwargs = (; maxiters = 10_000, g_tol = 1e-12)`). A differentiated loss fit that stops
+too far from an exact fit now has a way to tighten it.
+
+### PCHIP and Akima fits on evenly spaced maturities
+
+`Spline.PCHIP()` and `Spline.Akima()` loss fits started from knot rates that were linear in the
+knot number. On evenly spaced maturities those are collinear, where Akima switches formula and
+its derivatives are `NaN`, so a coupon-bearing Akima fit on maturities `1:8` failed to converge.
+Both now start from a curve that is strictly increasing and concave in the maturities, away
+from every formula switch.
 
 ### `discount(curve, Inf)` under a zero tail forward
 

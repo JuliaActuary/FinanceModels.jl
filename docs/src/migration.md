@@ -87,7 +87,11 @@ curves returned by spline `fit`s and `Fit.Bootstrap()`. All of them share one in
   returning a curve of `NaN`s.
 - **Unsuccessful optimizer fits throw `FitConvergenceError`** carrying the solver's `retcode`,
   instead of returning the unfitted starting model. Catch it to retry with a different seed model
-  or optimizer.
+  or optimizer, or with tighter or longer solver settings through the new `solve_kwargs` keyword
+  (passed to `Optimization.solve`).
+- **PCHIP and Akima loss fits start from a different seed**: a curve that is strictly increasing
+  and concave in the maturities, away from the interpolants' formula switches. Fits that
+  converged before reach the same curve up to the optimizer's tolerance.
 
 ### Flat short end
 

@@ -172,7 +172,8 @@ function __implicit_knot_curve(curve, quotes, primal_quotes, extrapolation, has_
             "fit cannot differentiate a curve that does not reprice its quotes: a Newton correction " *
                 "towards the exact fit moves its knot rate at $(tenors[worst]) by $(abs(δ[worst])) " *
                 "(largest quote residual $(maximum(abs, r0))), more than 1e-6. Its derivatives assume " *
-                "an exact fit; tighten the optimizer, or use Fit.Bootstrap() with Spline.Linear()."
+                "an exact fit; tighten the optimizer with `solve_kwargs` (for example " *
+                "`solve_kwargs = (; g_tol = 1e-12)`), or use Fit.Bootstrap() with Spline.Linear()."
         )
     )
     # The fitted knots must resolve which side of each kink the exact fit lies on.

@@ -179,6 +179,8 @@ FinanceCore.present_value(m, c::WrappedContract, t = 0.0) = FinanceCore.present_
         off_curve = ZeroRateCurve(zx .+ [0.0, 1.0e-5], [1.0, 2.0], Spline.Linear())
         @test maximum(q -> abs(pv(off_curve, q.instrument) - q.price), pair(px...)) < 1.0e-8
         @test_throws "Newton correction" FinanceModels.__implicit_knot_curve(off_curve, dual_pair, pair(px...), off_curve.extrapolation, true)
+        # and it says how to tighten the fit
+        @test_throws "solve_kwargs" FinanceModels.__implicit_knot_curve(off_curve, dual_pair, pair(px...), off_curve.extrapolation, true)
         exact_curve = ZeroRateCurve(zx, [1.0, 2.0], Spline.Linear())
         @test Yield.knot_rates(FinanceModels.__implicit_knot_curve(exact_curve, dual_pair, pair(px...), exact_curve.extrapolation, true)) isa AbstractVector{<:ForwardDiff.Dual}
         # quote prices that do not determine a knot

@@ -24,9 +24,11 @@ implicit function theorem: `dx = -(∂g/∂θ) / (∂g/∂x)`.
 stripped from the result. `slope(x)`, when given, is `∂g/∂x` on primal values in closed
 form; otherwise it is `ForwardDiff.derivative(g_primal, x)`, which requires `g_primal`
 to involve no dual numbers at all. `scale(x)` is the magnitude of the terms that make up `g` at
-the solution: the slope must exceed `sqrt(eps)` times it, so the check does not depend on units
-such as a notional. The value of the result is the primal root exactly;
-its partials come from one dual correction step. Nested dual numbers and a vanishing
+the solution: the residual at an accepted root must be at most `sqrt(eps)` times it, and the
+slope must exceed `sqrt(eps)` times it, so neither check depends on units such as a notional.
+The solvers stop on absolute tolerances, so `g` should already be expressed relative to such a
+scale. The value of the result is the primal root exactly; its partials come from one dual
+correction step. Nested dual numbers, a root that does not solve `g_primal`, and a vanishing
 slope throw an `ArgumentError` naming `who`.
 """
 function __implicit_root(g::G, g_primal::P, x0; bracket = (-1.0, 1.0), who = "root", slope::S = nothing, scale::C = Returns(1)) where {G, P, S, C}
@@ -38,6 +40,11 @@ function __implicit_root(g::G, g_primal::P, x0; bracket = (-1.0, 1.0), who = "ro
         e isa Roots.ConvergenceFailed || rethrow()
         Roots.find_zero(g_primal, bracket, Roots.A42())
     end
+    # A solver can accept a point whose residual is small in absolute terms only.
+    tol = sqrt(eps(float(typeof(x)))) * scale(x)
+    abs(g_primal(x)) <= tol || throw(
+        ArgumentError("$who did not converge: the residual at $x is $(g_primal(x)), more than $tol")
+    )
     gx = g(x)
     depth = __ad_depth(gx)
     depth == 0 && return x
