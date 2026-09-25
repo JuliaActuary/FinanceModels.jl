@@ -6,6 +6,7 @@ import ..ReadOnlyVector
 import ..DataInterpolations
 import ..Bond: coupon_times, __regular_schedule, __par_coupon
 import ..__implicit_root, ..__primal, ..__ad_depth
+import ..ForwardDiff
 
 using ..FinanceCore: Continuous, Periodic, discount, accumulation, forward, pv, AbstractContract
 
@@ -231,6 +232,11 @@ dual numbers, so this is how to differentiate a valuation with respect to a curv
 curve = ZeroRateCurve([0.03, 0.035, 0.04], [1.0, 5.0, 10.0])
 ForwardDiff.gradient(z -> pv(reconstruct(curve; rates = z), cfs), collect(knot_rates(curve)))
 ```
+
+The derivatives are first order. At a kink of `Spline.MonotoneConvex()` (for example a flat
+stretch of the curve), each partial is the centered response to a bump of that knot, and on a
+flat stretch these need not add up to the parallel-shift derivative. `Spline.PCHIP()` and
+`Spline.Akima()` throw at their kinks. See [Sensitivities Through Calibration](@ref).
 """
 reconstruct(
     c::AbstractInterpolatedZeroCurve;
@@ -322,6 +328,7 @@ end
 
 function FinanceCore.discount(c::Spline, t)
     __check_time(t, "discount")
+    isinf(t) && !c._fn.extend && return __discount_at_infinity(c._fn.tail)
     return exp(-c._fn(t) * t)
 end
 
@@ -336,7 +343,7 @@ include("Yield/Extrapolation.jl")
 
 # Public, validating form: every direct construction copies and checks its inputs.
 Spline(spline::Sp.SplineCurve, tenors, rates; extrapolation = :flat_forward) =
-    __build(spline, KnotGrid(rates, tenors, spline; who = "Yield.Spline"); extrapolation)
+    __build_public(spline, KnotGrid(rates, tenors, spline; who = "Yield.Spline"); extrapolation)
 Spline(::Sp.MonotoneConvex, tenors, rates; extrapolation = :flat_forward) = throw(
     ArgumentError(
         "Yield.Spline implements the DataInterpolations methods only. Build a monotone convex " *
@@ -375,6 +382,8 @@ __interpolant(::Sp.PCHIP, g::KnotGrid, extrapolation_kwargs) =
 
 __interpolant(::Sp.Akima, g::KnotGrid, extrapolation_kwargs) =
     DataInterpolations.AkimaInterpolation(g.rates, g.tenors; extrapolation_kwargs...)
+
+include("Yield/Kinks.jl")
 
 function __interpolant(b::Sp.PolynomialSpline, g::KnotGrid, extrapolation_kwargs)
     xs, ys = g.tenors, g.rates
