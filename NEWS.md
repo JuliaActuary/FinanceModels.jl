@@ -54,8 +54,11 @@ Away from kinks, derivatives are unchanged. See "Sensitivities Through Calibrati
 `implied_quote`, the swaption critical rate, and differentiated fits judged a vanishing slope or
 an ill-conditioned calibration on an absolute scale, so a quote family with a tiny notional was
 refused. A bootstrap likewise solved each quote to an absolute tolerance, so a quote with a
-notional of `1e-10` was fitted only to about `1e-5` in its zero rate. Every check and solve is
-now relative to the size of the quote.
+notional of `1e-10` was fitted only to about `1e-5` in its zero rate, and `implied_quote`
+accepted a root on an absolute residual (a zero-coupon quote with a notional of `1e-10` was off
+by about `1e-5`; at `1e-14` it returned the starting guess). Every check and solve is now
+relative to the size of the quote, and `implied_quote` and the swaption critical rate verify the
+root they accept.
 
 ### `discount(curve, Inf)` under a zero tail forward
 
