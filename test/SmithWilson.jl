@@ -85,6 +85,15 @@ using ForwardDiff
     dual_amount = ForwardDiff.Dual(1.0, 1.0)
     dual_payments, _ = FinanceModels.cashflows_timepoints([Cashflow(dual_amount, 1.0)])
     @test dual_payments[1] == dual_amount
+    # amounts at the same time are summed in floating point, keeping their numeric type
+    int_payments, _ = FinanceModels.cashflows_timepoints([[Cashflow(Int8(100), 1.0), Cashflow(Int8(100), 1.0)]])
+    @test eltype(int_payments) == Float64
+    @test int_payments == fill(200.0, 1, 1)
+    big_sum, _ = FinanceModels.cashflows_timepoints([[Cashflow(big"0.1", 1.0), Cashflow(big"0.2", 1.0)]])
+    @test eltype(big_sum) == BigFloat
+    @test big_sum[1] == big"0.1" + big"0.2"
+    dual_sum, _ = FinanceModels.cashflows_timepoints([[Cashflow(dual_amount, 1.0), Cashflow(dual_amount, 1.0)]])
+    @test dual_sum[1] == 2 * dual_amount
     @testset "SwapQuotes round-trip" for swapIdx in 1:length(coupon)
         @test sum(discount.(sw_swq, swq_times) .* swq_payments[:, swapIdx]) ≈ 1.0
     end
