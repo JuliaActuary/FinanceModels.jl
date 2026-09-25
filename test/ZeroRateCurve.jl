@@ -404,6 +404,13 @@ using ForwardDiff
             @test_throws ArgumentError ZeroRateCurve([0.02, 0.03, 0.04], [1.0, 1.0, 2.0], spl)
             @test_throws ArgumentError ZeroRateCurve([0.02, 0.03, 0.04], [2.0, 1.0, 3.0], spl)
         end
+        # equal tenors are duplicates even as dual numbers with different partials, which
+        # ForwardDiff orders by their partials
+        dual_tenors = [ForwardDiff.Dual(1.0, 0.0), ForwardDiff.Dual(1.0, 1.0), ForwardDiff.Dual(2.0, 0.0)]
+        for spl in (Spline.Linear(), Spline.Cubic(), Spline.MonotoneConvex())
+            @test_throws "strictly increasing" ZeroRateCurve([0.02, 0.03, 0.04], dual_tenors, spl)
+        end
+        @test_throws "distinct" ZeroRateCurve(Yield.Constant(0.05), dual_tenors)
         # negative rates are valid
         zneg = ZeroRateCurve([-0.005, 0.01], [1.0, 5.0], Spline.Linear())
         @test discount(zneg, 1.0) ≈ exp(0.005)

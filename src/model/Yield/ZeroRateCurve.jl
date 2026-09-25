@@ -109,10 +109,10 @@ function ZeroRateCurve(
             "All tenors must be positive (t > 0). The zero rate is undefined at t = 0."
         )
     )
-    # same adjacent strict comparison as `KnotGrid` (`allunique` would treat Duals with equal
-    # primals but different partials as distinct)
+    # same adjacent strict comparison of primal values as `KnotGrid` (`allunique` and `>` would
+    # treat Duals with equal values but different partials as distinct)
     for i in 2:length(t)
-        t[i] > t[i - 1] || throw(ArgumentError("ZeroRateCurve: tenors must be distinct (got $(t))."))
+        __primal(t[i]) > __primal(t[i - 1]) || throw(ArgumentError("ZeroRateCurve: tenors must be distinct (got $(t))."))
     end
     __check_min_knots(spline, length(t), "ZeroRateCurve")
     # Sample through the zero-rate interface rather than `-log(discount)/t`: that round-trip
