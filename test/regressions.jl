@@ -134,6 +134,41 @@ end
         end
     end
 
+    @testset "PCHIP and Akima loss fits on evenly spaced maturities" begin
+        # A seed linear in the knot number is collinear on an evenly spaced grid, where Akima
+        # switches formula and the loss derivatives are NaN; this fit used to fail to converge.
+        t = collect(1.0:8.0)
+        qs = CMTYield.(0.02 .+ 0.001 .* t .^ 2, t)
+        for spline in (Spline.PCHIP(), Spline.Akima())
+            curve = fit(spline, qs)
+            @test maximum(abs(present_value(curve, q.instrument) - q.price) for q in qs) < 1.0e-9
+        end
+        # The seed is away from every formula switch, and the loss has finite first and second
+        # derivatives there (coupon quotes also value the curve between its knots).
+        grids = (
+            collect(1.0:8.0), collect(1.0:30.0), [0.25, 0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0, 20.0, 30.0],
+            [0.0, 1.0, 2.0, 5.0], [0.1, 0.35, 1.2, 4.0, 4.5, 17.0],
+        )
+        for spline in (Spline.PCHIP(), Spline.Akima()), tenors in grids
+            seed = FinanceModels.__knot_fit_seed(spline, tenors)
+            @test !Yield.__near_kink(ZeroRateCurve(seed, tenors, spline), seed)
+            quotes = CMTYield.(0.03, filter(>(0), tenors))
+            loss(z) = sum(q -> (present_value(ZeroRateCurve(z, tenors, spline), q.instrument) - q.price)^2, quotes)
+            @test all(isfinite, ForwardDiff.gradient(loss, seed))
+            @test all(isfinite, ForwardDiff.hessian(loss, seed))
+        end
+    end
+
+    @testset "fit passes solve_kwargs to the optimizer" begin
+        qs = CMTYield.([0.03, 0.032, 0.035, 0.037], [1.0, 2.0, 3.0, 5.0])
+        @test_throws FitConvergenceError fit(Spline.MonotoneConvex(), qs; solve_kwargs = (; maxiters = 1))
+        @test_throws FitConvergenceError fit(Spline.Cubic(), qs, Fit.Loss(abs2); solve_kwargs = (; maxiters = 1))
+        @test_throws FitConvergenceError fit(Yield.NelsonSiegel(), qs; solve_kwargs = (; maxiters = 1))
+        # a solver-specific setting reaches Optim
+        tight = fit(Spline.MonotoneConvex(), qs; solve_kwargs = (; g_tol = 1.0e-14))
+        @test maximum(abs(present_value(tight, q.instrument) - q.price) for q in qs) < 1.0e-10
+    end
+
     @testset "optimizer failures are never returned as fitted models" begin
         qs = ZCBPrice.([0.97, 0.93, 0.88], [1.0, 2.0, 3.0])
         fits = (

@@ -60,6 +60,20 @@ by about `1e-5`; at `1e-14` it returned the starting guess). Every check and sol
 relative to the size of the quote, and `implied_quote` and the swaption critical rate verify the
 root they accept.
 
+### Solver settings for `fit`
+
+Optimizer-backed `fit`s accept `solve_kwargs`, passed to `Optimization.solve` (for example
+`solve_kwargs = (; maxiters = 10_000, g_tol = 1e-12)`). A differentiated loss fit that stops
+too far from an exact fit now has a way to tighten it.
+
+### PCHIP and Akima fits on evenly spaced maturities
+
+`Spline.PCHIP()` and `Spline.Akima()` loss fits started from knot rates that were linear in the
+knot number. On evenly spaced maturities those are collinear, where Akima switches formula and
+its derivatives are `NaN`, so a coupon-bearing Akima fit on maturities `1:8` failed to converge.
+Both now start from a curve that is strictly increasing and concave in the maturities, away
+from every formula switch.
+
 ### `discount(curve, Inf)` under a zero tail forward
 
 With a tail forward of zero (for example `Yield.FlatForwardAt(Continuous(0.0))`),
