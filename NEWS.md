@@ -80,7 +80,9 @@ With a tail forward of zero (for example `Yield.FlatForwardAt(Continuous(0.0))`)
 `discount(curve, Inf)` returned `NaN` from `exp(-0 * Inf)`. It now returns the limit: the
 discount factor at the last knot. It returns 0 for a positive tail forward and `Inf` for a
 negative one. Differentiating it where the long-run forward is zero throws, since any bump moves
-the limit to 0 or `Inf`.
+the limit to 0 or `Inf`. Under `extrapolation = :extension`, `discount(curve, Inf)` throws a
+`DomainError`: that policy's polynomial continuation is evaluated at finite times only, and
+returned `NaN` at `Inf` even for a flat extension.
 
 ### Bootstrap requires linear interpolation
 

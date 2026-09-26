@@ -320,7 +320,16 @@ end
 
 function FinanceCore.discount(c::Spline, t)
     __check_time(t, "discount")
-    isinf(t) && !c._fn.extend && return __discount_at_infinity(c._fn.tail)
+    if isinf(t)
+        c._fn.extend && throw(
+            DomainError(
+                t, "discount(curve, Inf) is unsupported with extrapolation = :extension, whose " *
+                    "polynomial continuation of the last piece is evaluated at finite times only. Use a " *
+                    "finite time, or a policy with a tail limit (:flat_forward, :flat_zero, :linear, FlatForwardAt)."
+            )
+        )
+        return __discount_at_infinity(c._fn.tail)
+    end
     return exp(-c._fn(t) * t)
 end
 

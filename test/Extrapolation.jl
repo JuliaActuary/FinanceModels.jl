@@ -334,6 +334,12 @@ spline_zero_curve_with_policy(d, r, t, policy::Symbol) = ZeroRateCurve(r, t, d; 
                 end
                 @test isequal(rate(zero(c, Inf)), legacy(Inf))
                 d == Spline.Linear() && @test rate(zero(c, Inf)) == Inf
+                # `discount` at t = Inf is unsupported for `:extension` rather than NaN (even a
+                # flat extension, whose limit is 0, evaluates 0 * Inf inside the interpolant)
+                @test_throws "unsupported" discount(c, Inf)
+                flat_ext = ZeroRateCurve(fill(0.03, length(times)), times, d; extrapolation = :extension)
+                @test_throws DomainError discount(flat_ext, Inf)
+                @test discount(flat_ext, 1000.0) ≈ exp(-0.03 * 1000.0)
             end
         end
         # `discount` at t = Inf is the tail's limit: 0 for a positive tail forward, Inf for a
