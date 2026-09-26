@@ -540,19 +540,26 @@ end
 
 ## Curve Manipulations
 """
-    CompositeYield(curve1,curve2,operation)
+    CompositeYield(curve1, curve2, op)
 
-Combines two yield curves by applying `operation` to their continuous zero rates.
+Combines two yield curves by adding (`op = +`) or subtracting (`op = -`) their continuous zero
+rates. Created via `+` and `-` on `AbstractYieldModel` objects; for scalar multiplication or
+division, see [`ScaledYield`](@ref).
 
-Given discount factors `DF₁(t)` and `DF₂(t)`, the continuous zero rates are
-`z₁ = -log(DF₁)/t` and `z₂ = -log(DF₂)/t`, and the composite discount factor is
-`exp(-op(z₁, z₂) * t)`.
+Given discount factors `DF₁(t)` and `DF₂(t)` with continuous zero rates `z₁` and `z₂`, the
+composite discount factor is `exp(-(z₁ ± z₂) t)`:
 
-For addition (`+`), this gives `DF(t) = DF₁(t) × DF₂(t)` (the no-arbitrage spread relationship).
-For subtraction (`-`), this gives `DF(t) = DF₁(t) / DF₂(t)`.
+- `+` gives `DF(t) = DF₁(t) × DF₂(t)`, the product of the two discount factors (for example a
+  base curve and a spread);
+- `-` gives `DF(t) = DF₁(t) / DF₂(t)`, their quotient.
 
-Created via `+` and `-` on `AbstractYieldModel` objects. For scalar multiplication/division,
-see [`ScaledYield`](@ref).
+These are the operations that compose the curves' factors: every interval factor of the result
+is the product (or quotient) of the components' interval factors, so, for example,
+`ForwardStarting(a + b, τ)` prices like `ForwardStarting(a, τ) + ForwardStarting(b, τ)`. Other
+operations on the zero rates (`max`, `*`, …) are not accepted: they would build a new curve from
+zero rates measured from time 0, not a composition of the two curves. For a pointwise
+transformation of a curve's zero rates, use a [`TenorShift`](@ref), `curve + ((z, t) -> ...)`,
+or define a curve type with its own `zero`.
 
 Composition is performed in continuous-zero-rate space: a `+`/`-` composite reads each
 component's zero rate, combines them, and applies a single `exp` to form the discount
@@ -602,15 +609,15 @@ c_y = fit(Spline.Linear(),q_y,Fit.Bootstrap())
 @test !(discount(c_rf+c_s,20) ≈ discount(c_y,20))
 ```
 """
-struct CompositeYield{T, U, V} <: AbstractYieldModel
+struct CompositeYield{T, U, V <: Union{typeof(+), typeof(-)}} <: AbstractYieldModel
     r1::T
     r2::U
     op::V
 end
 
 
-# Composition happens in continuous-zero-rate space: combine the components' zero
-# rates with `op`, then form the discount factor with a single `exp`. This avoids
+# Composition happens in continuous-zero-rate space: add or subtract the components' zero
+# rates, then form the discount factor with a single `exp`. This avoids
 # the previous round-trip (discount → log → recompose → exp), collapsing the common
 # Spline/Constant case from 3 `exp` + 2 `log` to a single `exp`.
 function Base.zero(rc::CompositeYield, time)

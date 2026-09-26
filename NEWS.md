@@ -156,6 +156,16 @@ migration guide.
 
 See the migration guide for upgrade steps.
 
+### `CompositeYield` accepts only `+` and `-`
+
+`curve1 + curve2` and `curve1 - curve2` multiply and divide the curves' discount factors, so
+every interval factor of the result is the product or quotient of the components' and the
+composition commutes with `ForwardStarting`. `Yield.CompositeYield(a, b, op)` with any other
+`op` (for example `max`, or `*` of two zero rates) now throws a `MethodError`: such an operation
+builds a new curve from zero rates measured from time 0 rather than composing the two curves.
+For a pointwise transformation of one curve's zero rates, use a `TenorShift`
+(`curve + ((z, t) -> ...)`).
+
 ## v6.4.0
 
 ### `Spline.BSpline` fitted values changed on non-uniform tenor grids

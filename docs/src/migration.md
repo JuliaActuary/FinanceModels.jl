@@ -155,6 +155,17 @@ curves returned by spline `fit`s and `Fit.Bootstrap()`. All of them share one in
   frequency; passing a different `frequency` now throws an `ArgumentError` instead
   of being silently ignored. Convert the rate first, e.g. `Periodic(1)(r)`.
 
+### `CompositeYield` accepts only `+` and `-`
+
+`Yield.CompositeYield(a, b, op)` now requires `op` to be `+` or `-`, the operations behind
+`a + b` and `a - b`. Those compose the curves' factors: `+` multiplies the discount factors and
+`-` divides them, so interval factors and forward-starting curves compose as well. Another
+operation on the two zero rates throws a `MethodError`.
+
+**Migration:** for a pointwise transformation of one curve's zero rates, use a `TenorShift`,
+for example `a + ((z, t) -> max(z, Continuous(0.0)))` to floor the zero rate. To combine two
+curves' zero rates in some other way, define a small curve type with its own `zero` method.
+
 ### Derivatives through fits and knot curves
 
 Spline `fit`s are now differentiable with ForwardDiff; see

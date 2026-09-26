@@ -105,4 +105,25 @@
             @test_throws MethodError 0.5 / rf_curve
         end
     end
+
+    @testset "CompositeYield composes factors: + and - only" begin
+        a = Yield.NelsonSiegel(1.0, 0.04, -0.02, 0.01)
+        b = Yield.NelsonSiegel(1.5, 0.02, 0.03, 0.0)
+        # interval factors multiply (+) and divide (-), for any interval
+        for (s, t) in ((0.0, 1.0), (1.0, 4.0), (2.5, 30.0))
+            @test discount(a + b, s, t) ≈ discount(a, s, t) * discount(b, s, t) rtol = 1.0e-14
+            @test discount(a - b, s, t) ≈ discount(a, s, t) / discount(b, s, t) rtol = 1.0e-14
+        end
+        # so the composition commutes with re-anchoring the curves at a later time
+        FS(c) = Yield.ForwardStarting(c, 1.0)
+        @test discount(FS(a + b), 3.0) ≈ discount(FS(a) + FS(b), 3.0) rtol = 1.0e-14
+        @test discount(FS(a - b), 3.0) ≈ discount(FS(a) - FS(b), 3.0) rtol = 1.0e-14
+        # any other operation on zero rates is a curve construction, not a composition
+        @test_throws MethodError Yield.CompositeYield(a, b, max)
+        @test_throws MethodError Yield.CompositeYield(a, b, *)
+        # a pointwise zero-rate transformation is a TenorShift
+        floored = a + ((z, t) -> max(z, Continuous(0.03)))
+        @test rate(zero(floored, 0.5)) ≈ 0.03
+        @test rate(zero(floored, 10.0)) ≈ rate(zero(a, 10.0))
+    end
 end
