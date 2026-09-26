@@ -166,6 +166,16 @@ operation on the two zero rates throws a `MethodError`.
 for example `a + ((z, t) -> max(z, Continuous(0.0)))` to floor the zero rate. To combine two
 curves' zero rates in some other way, define a small curve type with its own `zero` method.
 
+### Interval factors that don't underflow
+
+For the built-in curves, `discount(curve, from, to)`, `accumulation(curve, from, to)` and
+`forward(curve, from, to)` are computed from the log-discount at each endpoint rather than as a
+ratio of discount factors. `discount(curve, 0, t)` is unchanged bit for bit, and so is every
+`present_value` of a contract. Intervals that start later can move by a few units in the last
+place, and intervals far in the tail are finite where they were `NaN`. Tests that compare such
+intervals exactly should allow for rounding. A custom curve that defines only `discount` keeps the
+ratio D(to)/D(from).
+
 ### Derivatives through fits and knot curves
 
 Spline `fit`s are now differentiable with ForwardDiff; see

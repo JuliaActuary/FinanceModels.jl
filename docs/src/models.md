@@ -224,6 +224,7 @@ There is no `+` operator sugar for `ProjectedShift` — fixing `τ` at compositi
 See the [FinanceModels.jl Guide](@ref) for an example of creating a model from scratch. Some additional aspects to note:
 
 - The only method that must be defined to calculate the [`FinanceCore.present_value`](@ref) of something is [`FinanceCore.discount`](@ref). Other methods will be inferred.
+- For a curve that defines only `discount`, the interval factor `discount(curve, from, to)` is the ratio `discount(curve, to) / discount(curve, from)`. The built-in curves instead compute interval factors from their cumulative log-discount (for example z(t)·t from a zero rate), so their far-tail intervals stay finite where both discount factors underflow.
 - Other methods that are imputed by default, but can be extended include: [`FinanceCore.accumulation`](@ref), [`FinanceModels.forward`](@ref), [`FinanceModels.par`](@ref), [`FinanceModels.zero`](@ref), and [`FinanceModels.rate`](@ref).
 
 ## Equity and Volatility Models
