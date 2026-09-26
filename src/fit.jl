@@ -543,13 +543,14 @@ end
 # reduces to fitting the spline through those quotes; no optimizer runs over the FX
 # model itself, and one quote set may mix both instrument types. The two dispatch
 # methods are deliberately separate (not a `Union`) so neither is ambiguous against the
-# generic optic-based `fit(mod0, quotes, ::Fit.Loss)`.
-function __fit_fx_via_implied(mod0, quotes, method)
+# generic optic-based `fit(mod0, quotes, ::Fit.Loss)`. Keywords (`optimizer`, `solve_kwargs`,
+# `extrapolation`) go to the foreign-curve fit unchanged.
+function __fit_fx_via_implied(mod0, quotes, method; kwargs...)
     implied = map(q -> FX.__implied_foreign_quote(mod0, q), quotes)
-    return @set mod0.foreign = fit(mod0.foreign, implied, method)
+    return @set mod0.foreign = fit(mod0.foreign, implied, method; kwargs...)
 end
-fit(mod0::FX.Forwards{P, S, D, F}, quotes, method::Fit.Bootstrap) where {P, S, D, F <: Spline.SplineCurve} = __fit_fx_via_implied(mod0, quotes, method)
-fit(mod0::FX.Forwards{P, S, D, F}, quotes, method::Fit.Loss) where {P, S, D, F <: Spline.SplineCurve} = __fit_fx_via_implied(mod0, quotes, method)
+fit(mod0::FX.Forwards{P, S, D, F}, quotes, method::Fit.Bootstrap; kwargs...) where {P, S, D, F <: Spline.SplineCurve} = __fit_fx_via_implied(mod0, quotes, method; kwargs...)
+fit(mod0::FX.Forwards{P, S, D, F}, quotes, method::Fit.Loss; kwargs...) where {P, S, D, F <: Spline.SplineCurve} = __fit_fx_via_implied(mod0, quotes, method; kwargs...)
 
 # Appending a knot must preserve every earlier segment, not merely the earlier
 # knot values. In particular, "local" smooth splines need not have this property.

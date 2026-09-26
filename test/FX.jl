@@ -149,6 +149,19 @@
             m_fit = fit(FX.Forwards(eurusd, S, usd_boot, Spline.Cubic()), quotes)
             @test all(abs(pv(m_fit, q.instrument)) < 1.0e-6 for q in quotes)
         end
+
+        @testset "fit keywords reach the foreign-curve fit" begin
+            m0 = FX.Forwards(eurusd, S, usd_boot, Spline.Cubic())
+            m_tight = fit(m0, quotes, Fit.Loss(abs2); solve_kwargs = (; g_tol = 1.0e-12))
+            @test all(abs(pv(m_tight, q.instrument)) < 1.0e-6 for q in quotes)
+            m_tight2 = fit(m0, quotes; solve_kwargs = (; g_tol = 1.0e-12))   # default loss
+            @test all(abs(pv(m_tight2, q.instrument)) < 1.0e-6 for q in quotes)
+            @test_throws FinanceModels.FitConvergenceError fit(m0, quotes; solve_kwargs = (; maxiters = 1))
+            m_lin = FX.Forwards(eurusd, S, usd_boot, Spline.Linear())
+            m_flat = fit(m_lin, quotes, Fit.Bootstrap(); extrapolation = :flat_zero)
+            @test m_flat.foreign.extrapolation === :flat_zero
+            @test forward(m_flat, 3.3) ≈ forward(fit(m_lin, quotes, Fit.Bootstrap()), 3.3)
+        end
     end
 
     @testset "explicit cross-currency basis composition" begin
