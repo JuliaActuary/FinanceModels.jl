@@ -363,7 +363,8 @@ end
 
 function __interpolant(b::Sp.BSpline, g::KnotGrid, extrapolation_kwargs)
     xs, ys = g.tenors, g.rates
-    order = min(length(xs) - 1, b.order) # in case the length of xs is less than the spline order
+    # documented short-grid rule (`Spline.BSpline`): the degree reduces to `k - 1` on `k` knots
+    order = min(length(xs) - 1, b.order)
     knot_type = length(xs) < 3 ? :Uniform : :Average
     return DataInterpolations.BSplineInterpolation(ys, xs, order, knot_type; extrapolation_kwargs...)
 end
@@ -378,7 +379,8 @@ include("Yield/Kinks.jl")
 
 function __interpolant(b::Sp.PolynomialSpline, g::KnotGrid, extrapolation_kwargs)
     xs, ys = g.tenors, g.rates
-    order = min(length(xs) - 1, b.order) # in case the length of xs is less than the spline order
+    # documented short-grid rule (`Spline.PolynomialSpline`): the order reduces to `k - 1` on `k` knots
+    order = min(length(xs) - 1, b.order)
     # `cache_parameters = true` precomputes per-segment parameters at construction so that evaluation is
     # read-only and therefore thread-safe — notably for `QuadraticSpline`, which is B-spline-based and
     # otherwise overwrites a shared internal coefficient buffer on every call. It also avoids recomputing

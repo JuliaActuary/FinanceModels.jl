@@ -76,6 +76,9 @@ and tuples are accepted. Construction throws an `ArgumentError` when:
 - there are fewer knots than the interpolant needs: `Spline.PCHIP()` and `Spline.Akima()`
   need 3; the other methods accept a single knot, which gives a flat curve.
 
+Polynomial and B-spline orders reduce on short grids: with `k` knots, an order-`n` spline
+interpolates at order `min(n, k - 1)`, so `Spline.Cubic()` through two knots is linear.
+
 A tenor of `0` is allowed in the direct form (you supply the instantaneous rate `r(0)`
 explicitly); negative rates are allowed.
 

@@ -61,6 +61,11 @@ concurrently.
 
 The convenience constructors [`Spline.Linear`](@ref), [`Spline.Quadratic`](@ref), and [`Spline.Cubic`](@ref)
 return `PolynomialSpline(1/2/3)`. Any other `order` throws an `ArgumentError`.
+
+On a short grid the order is reduced: with `k` knots, an order-`n` spline interpolates at order
+`min(n, k - 1)`, so a cubic spline through two knots is linear and one knot gives a flat curve.
+A [`fit`](@ref FinanceModels.fit) places one knot per quote, so `fit(Spline.Cubic(), quotes)` with
+two quotes returns a linear curve.
 """
 struct PolynomialSpline <: SplineCurve
     order::Int
@@ -95,6 +100,10 @@ they build faster and are thread-safe.
 
 `d` must be at least 1: a degree-0 B-spline is a step function of the zero rate, so discount factors
 would jump at every knot.
+
+On a short grid the degree is reduced: with `k` knots, a degree-`d` B-spline interpolates at degree
+`min(d, k - 1)`, and with fewer than three knots its knot vector is uniform rather than averaged.
+One knot gives a flat curve.
 """
 struct BSpline <: SplineCurve
     order::Int
@@ -184,7 +193,8 @@ within [`fit`](@ref FinanceModels.fit),
 or when passed to `ZeroRateCurve`.
 
 Differs numerically from `BSpline(2)` (a global quadratic B-spline); use `Spline.BSpline(2)` to recover the
-previous behavior. This piecewise polynomial form is thread-safe.
+previous behavior. This piecewise polynomial form is thread-safe. With two knots it is linear, and with
+one it is flat (see [`Spline.PolynomialSpline`](@ref)).
 
 # Returns
 - A `PolynomialSpline` object representing a quadratic spline.
@@ -207,7 +217,8 @@ or when passed to `ZeroRateCurve`.
 
 Differs numerically from `BSpline(3)` (a global cubic B-spline); use `Spline.BSpline(3)` to recover the
 previous behavior. This form builds faster and is thread-safe. Its coefficients depend on the whole
-knot grid, so bumping one knot can affect other intervals.
+knot grid, so bumping one knot can affect other intervals. With three knots it is quadratic, with two
+linear, and with one flat (see [`Spline.PolynomialSpline`](@ref)).
 
 # Returns
 - A `PolynomialSpline` object representing a cubic spline.

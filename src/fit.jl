@@ -261,19 +261,10 @@ the solver's `SciMLBase.ReturnCode` (for example `ReturnCode.MaxIters` or
 `ReturnCode.Failure`) and `msg` describes the failed fit.
 
 A failed solve can leave the parameters at the starting guess, so `fit` throws rather than
-return an unfitted model. To recover, catch the error and retry with a different starting
-model, a different `optimizer` or `solve_kwargs`, or quotes that the model can fit.
-
-# Examples
-
-```julia
-try
-    fit(Spline.Cubic(), quotes)
-catch e
-    e isa FitConvergenceError || rethrow()
-    fit(Spline.Linear(), quotes)
-end
-```
+return an unfitted model. Address the cause and fit again: a different starting model, a
+different `optimizer`, tighter or longer `solve_kwargs` (for example
+`solve_kwargs = (; maxiters = 10_000)`), or quotes that the model can fit. Choose the model
+deliberately; switching to another interpolation method on failure changes the curve.
 """
 struct FitConvergenceError{R} <: Exception
     retcode::R
@@ -330,7 +321,10 @@ Fitting a `Spline.SplineCurve` places one knot at each quote maturity and return
 curve type as [`ZeroRateCurve`](@ref): a `Yield.MonotoneConvex` for `Spline.MonotoneConvex()`
 (whose default optimizer is `LBFGS()`) and a `Yield.Spline` otherwise (default `Newton()`).
 `Fit.Bootstrap()` accepts `Spline.Linear()` only. Fitting an existing knot curve varies its knot
-rates and preserves its tenors, method and `extrapolation`.
+rates and preserves its tenors, method and `extrapolation`. With fewer quotes than a polynomial or
+B-spline needs for its order, the order is reduced to one less than the number of knots (see
+[`Spline.PolynomialSpline`](@ref FinanceModels.Spline.PolynomialSpline)): `fit(Spline.Cubic(), quotes)`
+with two quotes returns a linear curve.
 
 The optimization routine will then attempt to modify parameters of `model` to best fit the quoted prices of the contracts underlying the `quotes` by calling `present_value(model,contract)`. The optimization will minimize the loss function specified within `Fit.Loss(...)`. 
 
