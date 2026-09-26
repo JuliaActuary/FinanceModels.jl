@@ -174,7 +174,7 @@ spline_zero_curve_with_policy(d, r, t, policy::Symbol) = ZeroRateCurve(r, t, d; 
                 end
                 moved = @set c.tenors = times .* 2
                 @test moved.extrapolation == policy && knot_tenors(moved) == times .* 2
-                @test_throws ArgumentError CB.setproperties(c, (_tail = nothing,))
+                @test_throws MethodError CB.setproperties(c, (_tail = nothing,))
                 @test_throws ArgumentError (@set c.extrapolation = :unknown)
             end
         end
@@ -218,17 +218,9 @@ spline_zero_curve_with_policy(d, r, t, policy::Symbol) = ZeroRateCurve(r, t, d; 
             @test_throws ArgumentError Yield.FlatForwardAt(r)
         end
         # A bare number has no stated convention (`Yield.Constant(0.035)` reads it as
-        # annual effective), so it must be wrapped in a rate.
+        # annual effective), so there is no method for it: it must be wrapped in a rate.
         for x in (0.035, 1, big"0.035", -0.01)
-            err = try
-                Yield.FlatForwardAt(x)
-                nothing
-            catch e
-                e
-            end
-            @test err isa ArgumentError
-            @test occursin("Continuous(", sprint(showerror, err))
-            @test occursin("Periodic(", sprint(showerror, err))
+            @test_throws MethodError Yield.FlatForwardAt(x)
         end
         # the stored field is continuously compounded, and Accessors rebuilds it that way
         @test (@set fixed.forward = 0.04) == Yield.FlatForwardAt(Continuous(0.04))

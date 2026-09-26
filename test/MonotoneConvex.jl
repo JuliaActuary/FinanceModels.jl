@@ -387,9 +387,9 @@
             c = Yield.MonotoneConvex(rates, times)
             for v in (knot_rates(c), knot_tenors(c))
                 @test v isa AbstractVector{Float64}
-                @test_throws ArgumentError v[1] = 0.2
-                @test_throws ArgumentError v .= 0.0
-                @test_throws ArgumentError sort!(v; rev = true)
+                @test_throws Base.CanonicalIndexError v[1] = 0.2
+                @test_throws Base.CanonicalIndexError v .= 0.0
+                @test_throws Base.CanonicalIndexError sort!(v; rev = true)
                 @test copy(v) isa Vector{Float64}
             end
             @test zero(c, 3.0) == zero(Yield.MonotoneConvex(rates, times), 3.0)
@@ -438,10 +438,11 @@
             @test c3.tenors == [1.0, 3.0, 6.0, 12.0] && c3._f == Yield.__monotone_convex_fs(c3.rates, c3.tenors)[1]
             @test_throws ArgumentError (@set c.tenors[2] = 0.5)   # breaks ordering → re-validated
             @test_throws ArgumentError (@set c.rates = [NaN, 0.0, 0.0, 0.0])
-            @test_throws ArgumentError (@set c._f = [0.0])
-            @test_throws ArgumentError (@set c._fᵈ[1] = 0.0)
-            @test_throws ArgumentError CB.setproperties(c, (_f = c._f,))
-            @test_throws ArgumentError CB.setproperties(c, (foo = 1,))
+            # derived caches and unknown keys are not `reconstruct` keywords
+            @test_throws MethodError (@set c._f = [0.0])
+            @test_throws MethodError (@set c._fᵈ[1] = 0.0)
+            @test_throws MethodError CB.setproperties(c, (_f = c._f,))
+            @test_throws MethodError CB.setproperties(c, (foo = 1,))
             # ConstructionBase laws over the public properties
             @test keys(CB.getproperties(c)) == (:spline, :rates, :tenors, :extrapolation)
             rt = CB.setproperties(c, CB.getproperties(c))

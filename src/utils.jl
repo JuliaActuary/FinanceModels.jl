@@ -89,16 +89,17 @@ end
 """
     ReadOnlyVector(v::Vector)
 
-Internal read-only view over an owned `Vector`. Indexed assignment — and therefore `.=`, `fill!`,
-`sort!`, `reverse!`, and writes through `view` — throws an `ArgumentError`; reads behave as a normal
-`AbstractVector` (indexing, iteration, `searchsortedlast`, broadcasting, `==`/`isequal`/`hash`
-identical to the equivalent `Vector`). `copy`/`collect` return a mutable `Vector`.
+Internal read-only view over an owned `Vector`. It defines no `setindex!`, so indexed assignment
+— and therefore `.=`, `fill!`, `sort!`, `reverse!`, and writes through `view` — throws Base's
+`CanonicalIndexError`; reads behave as a normal `AbstractVector` (indexing, iteration,
+`searchsortedlast`, broadcasting, `==`/`isequal`/`hash` identical to the equivalent `Vector`).
+`copy`/`collect` return a mutable `Vector`. To change a curve's knots, use
+`Accessors.@set curve.rates[i] = x` or `reconstruct`, which rebuild it.
 
 Used by the knot curves (`Yield.Spline`, `Yield.MonotoneConvex`), which cache state derived
 from their knot vectors, so that ordinary array operations on the public fields cannot
 desynchronise the cache. This is Julia's conventional privacy, not literal immutability: the
-backing `Vector` is the private field `_data`, and code that reaches it with `getfield` can
-still mutate it (unsupported).
+backing `Vector` is the internal field `_data`, and code that mutates it is unsupported.
 """
 struct ReadOnlyVector{T} <: AbstractVector{T}
     _data::Vector{T}
@@ -107,16 +108,3 @@ end
 Base.size(v::ReadOnlyVector) = size(getfield(v, :_data))
 Base.IndexStyle(::Type{<:ReadOnlyVector}) = IndexLinear()
 Base.@propagate_inbounds Base.getindex(v::ReadOnlyVector, i::Int) = getfield(v, :_data)[i]
-Base.setindex!(::ReadOnlyVector, _, i...) = throw(
-    ArgumentError(
-        "this vector is read-only: it belongs to a model that caches derived state. " *
-            "Use `Accessors.@set model.field[i] = x` (rebuilds the model) or `copy(v)` for a mutable copy."
-    )
-)
-# Keep the backing storage out of ordinary property access (both public and "private" listings).
-Base.propertynames(::ReadOnlyVector, ::Bool = false) = ()
-Base.getproperty(::ReadOnlyVector, s::Symbol) = throw(
-    ArgumentError(
-        "ReadOnlyVector exposes no properties (tried `.$s`); use indexing, `copy`, or `collect`."
-    )
-)

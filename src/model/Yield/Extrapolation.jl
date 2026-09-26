@@ -7,9 +7,8 @@ spline `fit` call.
 
 `forward` must be a `FinanceCore.Rate`, such as `Continuous(0.035)` or `Periodic(0.035, 1)`,
 so that its compounding convention is explicit; it is converted to and stored as a
-continuously compounded rate in the `forward` field. A bare number throws an
-`ArgumentError`, because packages read bare numbers differently (`Yield.Constant(0.035)`
-is annual effective).
+continuously compounded rate in the `forward` field. There is no method for a bare number,
+because packages read bare numbers differently (`Yield.Constant(0.035)` is annual effective).
 
 The last-knot discount factor and all interpolation through that knot are preserved.
 The forward usually jumps at the boundary. Unlike `:flat_forward`, the supplied
@@ -30,14 +29,6 @@ struct FlatForwardAt{F <: Real}
         return new{typeof(f)}(f)
     end
 end
-
-FlatForwardAt(forward::Real) = throw(
-    ArgumentError(
-        "FlatForwardAt needs a rate with an explicit compounding convention; got the bare number $forward. " *
-            "Pass Continuous($forward) for a continuously compounded forward or Periodic($forward, m) " *
-            "for one compounded m times per year."
-    )
-)
 
 Base.:(==)(a::FlatForwardAt, b::FlatForwardAt) = a.forward == b.forward
 Base.isequal(a::FlatForwardAt, b::FlatForwardAt) = isequal(a.forward, b.forward)

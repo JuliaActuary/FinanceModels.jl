@@ -232,24 +232,21 @@ using ForwardDiff
             df1, h1 = discount(zrc, 1.0), hash(zrc)
             @test zrc.rates isa AbstractVector{Float64}
             @test zrc.tenors isa AbstractVector{Float64}
-            # every mutation path must throw
-            @test_throws ArgumentError zrc.rates[1] = 0.2
-            @test_throws ArgumentError zrc.rates .= 0.0
-            @test_throws ArgumentError fill!(zrc.tenors, 1.0)
-            @test_throws ArgumentError reverse!(zrc.tenors)
-            @test_throws ArgumentError sort!(zrc.rates; rev = true)
-            @test_throws ArgumentError view(zrc.rates, 1:2)[1] = 0.2
-            @test_throws ArgumentError view(zrc.rates, :) .= 0.0
-            # hidden backing storage; derived caches are listed only as private properties
-            @test_throws ArgumentError zrc.rates._data
-            @test propertynames(zrc.rates) == ()
-            @test propertynames(zrc.rates, true) == ()
+            # every mutation path throws: the vectors have no setindex!
+            @test_throws Base.CanonicalIndexError zrc.rates[1] = 0.2
+            @test_throws Base.CanonicalIndexError zrc.rates .= 0.0
+            @test_throws Base.CanonicalIndexError fill!(zrc.tenors, 1.0)
+            @test_throws Base.CanonicalIndexError reverse!(zrc.tenors)
+            @test_throws Base.CanonicalIndexError sort!(zrc.rates; rev = true)
+            @test_throws Base.CanonicalIndexError view(zrc.rates, 1:2)[1] = 0.2
+            @test_throws Base.CanonicalIndexError view(zrc.rates, :) .= 0.0
+            # derived caches are listed only as private properties
             @test propertynames(zrc) == (:spline, :rates, :tenors, :extrapolation)
             @test propertynames(zrc, true) == fieldnames(typeof(zrc))
             @test all(p -> startswith(String(p), "_"), setdiff(propertynames(zrc, true), propertynames(zrc)))
             @test knot_rates(zrc) === zrc.rates && knot_tenors(zrc) === zrc.tenors
-            @test_throws ArgumentError knot_rates(zrc)[1] = 0.2
-            @test_throws ArgumentError knot_tenors(zrc)[1] = 0.2
+            @test_throws Base.CanonicalIndexError knot_rates(zrc)[1] = 0.2
+            @test_throws Base.CanonicalIndexError knot_tenors(zrc)[1] = 0.2
             # nothing above changed the curve
             @test discount(zrc, 1.0) == df1
             @test hash(zrc) == h1
@@ -359,11 +356,11 @@ using ForwardDiff
         @test_throws ArgumentError Accessors.@set zrc.tenors[1] = -1.0    # negative
         @test_throws ArgumentError Accessors.@set zrc.rates = [NaN, 0.03, 0.04]
         @test_throws ArgumentError Accessors.@set zrc.rates = [0.02, 0.03]  # length mismatch
-        # the derived caches cannot be patched
-        @test_throws ArgumentError (Accessors.@set zrc._f = Float64[])
-        @test_throws ArgumentError CB.setproperties(zrc, (_tail = nothing,))
-        @test_throws ArgumentError CB.setproperties(lin, (_fn = nothing,))
-        @test_throws ArgumentError CB.setproperties(zrc, (foo = 1,))
+        # the derived caches cannot be patched: they are not `reconstruct` keywords
+        @test_throws MethodError (Accessors.@set zrc._f = Float64[])
+        @test_throws MethodError CB.setproperties(zrc, (_tail = nothing,))
+        @test_throws MethodError CB.setproperties(lin, (_fn = nothing,))
+        @test_throws MethodError CB.setproperties(zrc, (foo = 1,))
         # ConstructionBase reconstruction preserves the public policy and rebuilds the cache.
         sp = CB.setproperties(zrc, (rates = [0.03, 0.04, 0.05],))
         @test sp == ZeroRateCurve([0.03, 0.04, 0.05], t, Spline.MonotoneConvex())
@@ -611,8 +608,8 @@ using ForwardDiff
         local tenors = [1.0, 2.0, 5.0, 10.0]
         for spline in (Spline.Linear(), Spline.MonotoneConvex())
             c = ZeroRateCurve(rates, tenors, spline)
-            @test_throws ArgumentError knot_rates(c) .= 0.0
-            @test_throws ArgumentError sort!(knot_tenors(c); rev = true)
+            @test_throws Base.CanonicalIndexError knot_rates(c) .= 0.0
+            @test_throws Base.CanonicalIndexError sort!(knot_tenors(c); rev = true)
             v = copy(knot_rates(c))
             @test v isa Vector{Float64}
             v[1] = 0.5
