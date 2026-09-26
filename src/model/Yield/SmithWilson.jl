@@ -77,16 +77,32 @@ function SmithWilson(times::AbstractVector, cashflows::AbstractMatrix, prices::A
     return SmithWilson(times, Qb; ufr = ufr, α = α)
 end
 
-# accumulate H(α, uᵢ, t)·qbᵢ in a fused loop — the vector form `H(α, u, t) ⋅ qb`
-# allocated a fresh length(u) array on every discount call
-function FinanceCore.discount(sw::SmithWilson, t)
-    isempty(sw.u) && return exp(-sw.ufr * t)
+# D(t) = exp(-ufr·t)·(1 + s(t)) with s(t) = Σ H(α, uᵢ, t)·qbᵢ (0 at t = 0), accumulated in a fused
+# loop: the vector form `H(α, u, t) ⋅ qb` allocated a fresh length(u) array on every call. Fitted to
+# arbitrary prices, 1 + s can be negative, and so can the discount factor.
+function __smith_wilson_s(sw::SmithWilson, t)
     s = H(sw.α, sw.u[1], t) * sw.qb[1]
     @inbounds for i in 2:length(sw.u)
         s += H(sw.α, sw.u[i], t) * sw.qb[i]
     end
-    return exp(-sw.ufr * t) * (1 + s)
+    return s
 end
+
+function FinanceCore.discount(sw::SmithWilson, t)
+    isempty(sw.u) && return exp(-sw.ufr * t)
+    return exp(-sw.ufr * t) * (1 + __smith_wilson_s(sw, t))
+end
+
+# The interval factor exp(-ufr·(to − from))·(1 + s(to))/(1 + s(from)) is exact for either sign of
+# 1 + s and stays finite where both discount factors underflow; from 0 it is `discount(sw, to)`.
+function FinanceCore.discount(sw::SmithWilson, from, to)
+    d = exp(-sw.ufr * (to - from))
+    isempty(sw.u) || (d *= (1 + __smith_wilson_s(sw, to)) / (1 + __smith_wilson_s(sw, from)))
+    return from == to ? one(d) : d
+end
+
+# L(t) = ufr·t − log1p(s(t)), for `zero` and `forward`; it is undefined where 1 + s ≤ 0 (a DomainError).
+__log_discount(sw::SmithWilson, t) = isempty(sw.u) ? sw.ufr * t : sw.ufr * t - log1p(__smith_wilson_s(sw, t))
 
 
 """

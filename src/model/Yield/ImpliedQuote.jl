@@ -4,6 +4,8 @@ struct __PrimalCurve{C} <: AbstractYieldModel
     curve::C
 end
 FinanceCore.discount(c::__PrimalCurve, t) = __primal(FinanceCore.discount(c.curve, t))
+__log_discount(c::__PrimalCurve, t) = __primal(__log_discount(c.curve, t))
+__log_native(c::__PrimalCurve) = __log_native(c.curve)
 function Base.zero(c::__PrimalCurve, t)
     z = convert(Continuous(), Base.zero(c.curve, t))
     return Continuous(__primal(FinanceCore.rate(z)))

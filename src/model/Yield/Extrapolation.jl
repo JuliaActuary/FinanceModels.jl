@@ -103,11 +103,28 @@ end
 # those of the primal values. A deciding coefficient that is zero there but carries partials has
 # no derivative: a bump that moves it can move the limit to 0 or Inf.
 function __discount_at_infinity(e::CurveTail)
-    d = exp(-(e.linear ? zero(e.β) : e.β * e.last_tenor))
+    d = exp(-__finite_log_discount_at_infinity(e))
+    limit = __tail_limit_sign(e)
+    return limit > 0 ? zero(d) : limit < 0 ? oftype(d, Inf) : d
+end
+
+# The same limit as a cumulative log-discount: +Inf where the discount factor tends to 0, -Inf
+# where it tends to Inf, and β·tₙ (0 under a `:linear` tail) where it is finite. It is not formed as
+# `-log(__discount_at_infinity(e))`, so each result keeps its own numeric type and partials.
+function __log_discount_at_infinity(e::CurveTail)
+    L = __finite_log_discount_at_infinity(e)
+    limit = __tail_limit_sign(e)
+    return limit > 0 ? oftype(L, Inf) : limit < 0 ? oftype(L, -Inf) : L
+end
+
+__finite_log_discount_at_infinity(e::CurveTail) = e.linear ? zero(e.β) : e.β * e.last_tenor
+
+# +1 if the discount factor at infinity is 0, -1 if it is Inf, 0 if it is finite.
+function __tail_limit_sign(e::CurveTail)
     for (c, name) in (e.linear ? ((e.γ, "slope"), (e.α, "forward")) : ((e.α, "forward"),))
         v = __primal(c)
-        v > 0 && return zero(d)
-        v < 0 && return oftype(d, Inf)
+        v > 0 && return 1
+        v < 0 && return -1
         iszero(c) || throw(
             ArgumentError(
                 "discount(curve, Inf) has no derivative here: the tail's $name is zero, so a bump " *
@@ -116,7 +133,7 @@ function __discount_at_infinity(e::CurveTail)
             )
         )
     end
-    return d
+    return 0
 end
 
 # `forward()` and `slope()` supply the curve's boundary anchor for `:flat_forward` and its

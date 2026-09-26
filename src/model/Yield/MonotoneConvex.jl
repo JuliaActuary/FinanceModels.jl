@@ -466,3 +466,8 @@ function FinanceCore.discount(mc::MonotoneConvex, t)
     __check_time(t, "discount")
     return isinf(t) ? __discount_at_infinity(mc._tail) : _discount_from_zero(mc, t)
 end
+function __log_discount(mc::MonotoneConvex, t)
+    __check_time(t, "discount")
+    return isinf(t) ? __log_discount_at_infinity(mc._tail) : __zero_log_discount(mc, t)
+end
+__log_native(::MonotoneConvex) = true

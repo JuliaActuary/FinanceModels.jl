@@ -65,6 +65,8 @@ function Base.zero(ns::NelsonSiegel, t)
     return Continuous(ns.β₀ + ns.β₁ * (1.0 - e) / q + ns.β₂ * ((1.0 - e) / q - e))
 end
 FinanceCore.discount(ns::NelsonSiegel, t) = _discount_from_zero(ns, t)
+__log_discount(ns::NelsonSiegel, t) = __zero_log_discount(ns, t)
+__log_native(::NelsonSiegel) = true
 Base.zero(ns::NelsonSiegel, ts::AbstractArray) = zero.(Ref(ns), ts)
 FinanceCore.discount(ns::NelsonSiegel, ts::AbstractArray) = discount.(Ref(ns), ts)
 
@@ -142,5 +144,7 @@ function Base.zero(nss::NelsonSiegelSvensson, t)
     return Continuous(nss.β₀ + nss.β₁ * (1.0 - e₁) / q₁ + nss.β₂ * ((1.0 - e₁) / q₁ - e₁) + nss.β₃ * ((1.0 - e₂) / q₂ - e₂))
 end
 FinanceCore.discount(nss::NelsonSiegelSvensson, t) = _discount_from_zero(nss, t)
+__log_discount(nss::NelsonSiegelSvensson, t) = __zero_log_discount(nss, t)
+__log_native(::NelsonSiegelSvensson) = true
 Base.zero(nss::NelsonSiegelSvensson, ts::AbstractArray) = zero.(Ref(nss), ts)
 FinanceCore.discount(nss::NelsonSiegelSvensson, ts::AbstractArray) = discount.(Ref(nss), ts)
