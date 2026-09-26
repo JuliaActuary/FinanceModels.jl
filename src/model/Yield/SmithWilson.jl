@@ -94,10 +94,14 @@ function FinanceCore.discount(sw::SmithWilson, t)
 end
 
 # The interval factor exp(-ufr·(to − from))·(1 + s(to))/(1 + s(from)) is exact for either sign of
-# 1 + s and stays finite where both discount factors underflow; from 0 it is `discount(sw, to)`.
+# 1 + s and stays finite where both discount factors underflow. s(0) = 0, so from an exact 0 (every
+# present value) it is `discount(sw, to)` and needs one sum; a time dual at 0 still takes the ratio.
 function FinanceCore.discount(sw::SmithWilson, from, to)
     d = exp(-sw.ufr * (to - from))
-    isempty(sw.u) || (d *= (1 + __smith_wilson_s(sw, to)) / (1 + __smith_wilson_s(sw, from)))
+    if !isempty(sw.u)
+        g = 1 + __smith_wilson_s(sw, to)
+        d *= iszero(from) ? g : g / (1 + __smith_wilson_s(sw, from))
+    end
     return from == to ? one(d) : d
 end
 
