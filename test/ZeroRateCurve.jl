@@ -411,6 +411,11 @@ using ForwardDiff
             @test_throws "strictly increasing" ZeroRateCurve([0.02, 0.03, 0.04], dual_tenors, spl)
         end
         @test_throws "distinct" ZeroRateCurve(Yield.Constant(0.05), dual_tenors)
+        # the first tenor is also compared by its primal value: a zero tenor carrying a negative
+        # partial is a valid knot at t = 0, not a negative tenor
+        t0 = [ForwardDiff.Dual(0.0, -1.0), ForwardDiff.Dual(1.0, 0.0), ForwardDiff.Dual(2.0, 0.0)]
+        zt0 = ZeroRateCurve([0.02, 0.03, 0.04], t0, Spline.Linear())
+        @test ForwardDiff.value(discount(zt0, 1.5)) ≈ discount(ZeroRateCurve([0.02, 0.03, 0.04], [0.0, 1.0, 2.0], Spline.Linear()), 1.5) rtol = 1.0e-15
         # negative rates are valid
         zneg = ZeroRateCurve([-0.005, 0.01], [1.0, 5.0], Spline.Linear())
         @test discount(zneg, 1.0) ≈ exp(0.005)

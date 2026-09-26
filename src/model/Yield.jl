@@ -153,9 +153,10 @@ function KnotGrid(rates, tenors, spline::Union{Nothing, Sp.SplineCurve} = nothin
     )
     all(isfinite, r) || throw(ArgumentError("$who: all rates must be finite (got $(r))."))
     all(isfinite, t) || throw(ArgumentError("$who: all tenors must be finite (got $(t))."))
-    first(t) >= zero(eltype(t)) || throw(ArgumentError("$who: tenors must be ≥ 0 (got $(t))."))
-    # finiteness is checked first so NaN cannot defeat the ordering comparison; primal values,
-    # because ForwardDiff orders Duals with equal values by their partials
+    # primal values throughout: ForwardDiff orders Duals with equal values by their partials, so
+    # `Dual(0, -1) >= 0` is false and `Dual(1, 1) > Dual(1, 0)` is true
+    __primal(first(t)) >= 0 || throw(ArgumentError("$who: tenors must be ≥ 0 (got $(t))."))
+    # finiteness is checked first so NaN cannot defeat the ordering comparison
     for i in 2:length(t)
         __primal(t[i]) > __primal(t[i - 1]) || throw(
             ArgumentError(
