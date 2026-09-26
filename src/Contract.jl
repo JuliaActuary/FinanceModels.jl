@@ -562,7 +562,16 @@ function cashflows_timepoints(qs)
     # Keep the amounts' numeric type (BigFloat, dual numbers), but sum in floating point:
     # amounts at the same time accumulate, and a small integer type would wrap.
     amounts = [cf.amount for contract_cashflows in cfs for cf in contract_cashflows]
-    amount_type = isempty(amounts) ? Float64 : float(mapreduce(typeof, promote_type, amounts))
+    A = eltype(amounts)
+    amount_type = if isconcretetype(A) && A <: Real
+        float(A)
+    elseif !isempty(amounts)
+        float(mapreduce(typeof, promote_type, amounts))
+    else
+        # An empty, untyped quote set carries no amount type, and there is no curve here to
+        # type the zero matrix by (unlike an empty present value), so it stays Float64.
+        Float64
+    end
     m = zeros(amount_type, length(times), length(qs))
 
     for t in 1:length(times)

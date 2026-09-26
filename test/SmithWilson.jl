@@ -94,6 +94,10 @@ using ForwardDiff
     @test big_sum[1] == big"0.1" + big"0.2"
     dual_sum, _ = FinanceModels.cashflows_timepoints([[Cashflow(dual_amount, 1.0), Cashflow(dual_amount, 1.0)]])
     @test dual_sum[1] == 2 * dual_amount
+    # an empty quote set keeps a concrete amount type; an untyped one has none and gives Float64
+    @test eltype(first(FinanceModels.cashflows_timepoints(Cashflow{Float32, Float64}[]))) == Float32
+    @test eltype(first(FinanceModels.cashflows_timepoints(Cashflow{BigFloat, Float64}[]))) == BigFloat
+    @test eltype(first(FinanceModels.cashflows_timepoints(Any[]))) == Float64
     @testset "SwapQuotes round-trip" for swapIdx in 1:length(coupon)
         @test sum(discount.(sw_swq, swq_times) .* swq_payments[:, swapIdx]) ≈ 1.0
     end
