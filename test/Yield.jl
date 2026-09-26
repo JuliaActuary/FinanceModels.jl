@@ -807,7 +807,7 @@ end
         @test discount(c, 2.5) ≈ discount(Yield.Spline(d, [1.0, 2.0, 3.0, 4.0], [0.02, 0.03, 0.04, 0.05]), 2.5)
         ct = Yield.Spline(d, (1, 2, 3, 4), (0.02, 0.03, 0.04, 0.05))  # tuples
         @test discount(ct, 2.5) ≈ discount(c, 2.5)
-        @test_throws ArgumentError Yield.Spline(d, [1.0, 2.0, 3.0], ["a", "b", "c"])
+        @test_throws MethodError Yield.Spline(d, [1.0, 2.0, 3.0], ["a", "b", "c"])   # non-numeric: float(String)
     end
 
     @testset "fit paths: grid validated up front, results validated" begin

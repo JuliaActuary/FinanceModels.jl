@@ -45,34 +45,12 @@ Base.hash(p::FlatForwardAt, h::UInt) = hash(p.forward, hash(:FlatForwardAt, h))
 Base.show(io::IO, p::FlatForwardAt) = print(io, "Yield.FlatForwardAt(Continuous(", p.forward, "))")
 
 # Policy is public configuration. The tail objects below are derived boundary data,
-# rebuilt from the policy and knots on construction, fitting, and Accessors updates.
-const __EXTRAPOLATION_METHODS = (:flat_forward, :flat_zero, :linear, :extension)
-function __extrapolation_method(method)
-    method isa FlatForwardAt && return method
-    method isa Symbol && method in __EXTRAPOLATION_METHODS || throw(
-        ArgumentError(
-            "extrapolation must be one of $(join(__EXTRAPOLATION_METHODS, ", ")) or " *
-                "Yield.FlatForwardAt(forward); got $(repr(method))."
-        )
-    )
-    return method
-end
-
-function __monotone_extrapolation_method(method)
-    method = __extrapolation_method(method)
-    method === :extension && throw(
-        ArgumentError(
-            "extrapolation=:extension is only available for DataInterpolations-backed curves; " *
-                "use :flat_forward, :flat_zero, :linear, or Yield.FlatForwardAt(forward) with MonotoneConvex."
-        )
-    )
-    return method
-end
+# rebuilt from the policy and knots on construction, fitting, and Accessors updates. The policy
+# is validated where it is used, in `__build_tail`.
 
 # DataInterpolations handles the short end (a flat zero rate before the first knot) and, only
 # for `:extension`, the long end; every other long-end policy is a `CurveTail` below.
 function __interpolation_extrapolation(method)
-    method = __extrapolation_method(method)
     E = DataInterpolations.ExtrapolationType
     return method === :extension ? (; extrapolation_left = E.Constant, extrapolation_right = E.Extension) :
         (; extrapolation_left = E.Constant)
@@ -158,8 +136,9 @@ function __build_tail(method::Symbol, t, z, forward, slope)
     method === :linear && return __curve_tail(t, z, zero(z), slope(), true)
     method === :flat_forward || throw(
         ArgumentError(
-            "cannot build a financial tail for extrapolation=$(repr(method)); " *
-                ":extension must delegate to the interpolant."
+            "extrapolation must be :flat_forward, :flat_zero, :linear, or Yield.FlatForwardAt(forward), " *
+                "or :extension for a DataInterpolations-backed curve (not Spline.MonotoneConvex()); " *
+                "got $(repr(method))."
         )
     )
     f = forward()
@@ -181,7 +160,6 @@ end
 
 # The zero-rate function of a `Yield.Spline`: the interpolant through the last knot, then the tail.
 function __extrapolate(interpolant, g::KnotGrid, method)
-    method = __extrapolation_method(method)
     t, z = last(g.tenors), last(g.rates)
     if method === :extension
         # Same tail type as `:flat_zero`, but never evaluated.

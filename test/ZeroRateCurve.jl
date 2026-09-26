@@ -138,9 +138,14 @@ using ForwardDiff
             end
         end
 
-        @testset "error on non-positive tenors" begin
+        @testset "tenors at and below zero" begin
             c = Yield.Constant(0.05)
-            @test_throws ArgumentError ZeroRateCurve(c, [0.0, 1.0, 2.0])
+            # a knot at t = 0 takes the source curve's zero-rate limit there
+            z0 = ZeroRateCurve(c, [0.0, 1.0, 2.0])
+            @test knot_tenors(z0) == [0.0, 1.0, 2.0] && all(r -> r ≈ log(1.05), knot_rates(z0))
+            # a source with no zero-rate limit at 0 (its generic zero rate is 0/0) gives a
+            # non-finite rate, which the knot grid rejects
+            @test_throws "rates must be finite" ZeroRateCurve(Yield.SmithWilson(ufr = 0.03, α = 0.1), [0.0, 1.0])
             @test_throws ArgumentError ZeroRateCurve(c, [-1.0, 1.0, 2.0])
         end
     end
@@ -380,11 +385,12 @@ using ForwardDiff
             [0.02, 0.03], [1.0, 2.0];
             extrapolation = :unknown
         )
-        @test_throws ArgumentError ZeroRateCurve(
+        # a policy that is not a Symbol or FlatForwardAt has no tail method
+        @test_throws MethodError ZeroRateCurve(
             [0.02, 0.03], [1.0, 2.0];
             extrapolation = "flat_forward"
         )
-        @test_throws ArgumentError ZeroRateCurve(
+        @test_throws "not Spline.MonotoneConvex()" ZeroRateCurve(
             [0.02, 0.03], [1.0, 2.0];
             extrapolation = :extension
         )  # MonotoneConvex has no polynomial extension
@@ -396,8 +402,8 @@ using ForwardDiff
         @test_throws ArgumentError ZeroRateCurve([NaN, 0.03], [1.0, 2.0])              # NaN rate
         @test_throws ArgumentError ZeroRateCurve([Inf, 0.03], [1.0, 2.0])              # Inf rate
         @test_throws ArgumentError ZeroRateCurve([0.02, -Inf], [1.0, 2.0])             # -Inf rate
-        @test_throws ArgumentError ZeroRateCurve(["a"], [1.0])                         # non-numeric
-        @test_throws ArgumentError ZeroRateCurve([0.02], ["1"])                        # non-numeric
+        @test_throws MethodError ZeroRateCurve(["a"], [1.0])                           # non-numeric
+        @test_throws MethodError ZeroRateCurve([0.02], ["1"])                          # non-numeric
         # duplicate / unsorted tenors are rejected for every interpolant (Linear/PCHIP/Akima
         # used to accept duplicates silently and produce NaN; MonotoneConvex accepted unsorted)
         for spl in (Spline.Linear(), Spline.Cubic(), Spline.PCHIP(), Spline.Akima(), Spline.MonotoneConvex())
@@ -410,7 +416,7 @@ using ForwardDiff
         for spl in (Spline.Linear(), Spline.Cubic(), Spline.MonotoneConvex())
             @test_throws "strictly increasing" ZeroRateCurve([0.02, 0.03, 0.04], dual_tenors, spl)
         end
-        @test_throws "distinct" ZeroRateCurve(Yield.Constant(0.05), dual_tenors)
+        @test_throws "strictly increasing" ZeroRateCurve(Yield.Constant(0.05), dual_tenors)
         # the first tenor is also compared by its primal value: a zero tenor carrying a negative
         # partial is a valid knot at t = 0, not a negative tenor
         t0 = [ForwardDiff.Dual(0.0, -1.0), ForwardDiff.Dual(1.0, 0.0), ForwardDiff.Dual(2.0, 0.0)]
@@ -519,17 +525,12 @@ using ForwardDiff
         # (`-log(discount)/t` gave -0.0 at 1e-20 and Inf at 2e4)
         ze = ZeroRateCurve(c, [1.0e-20, 1.0, 2.0e4])
         @test all(r -> r ≈ log(1.05), ze.rates)
-        @test_throws ArgumentError ZeroRateCurve(c, [1.0, 1.0])
-        @test_throws ArgumentError ZeroRateCurve(c, Float64[])
-        @test_throws ArgumentError ZeroRateCurve(c, [0.0, 1.0])
-        @test_throws ArgumentError ZeroRateCurve(c, [-1.0, 1.0])
-        # non-finite tenors are rejected before the source curve is ever evaluated
-        touched = Float64[]
-        spy = c + (z, t) -> (push!(touched, t); z)
-        @test_throws ArgumentError ZeroRateCurve(spy, [1.0, Inf])
-        @test isempty(touched)
-        @test_throws ArgumentError ZeroRateCurve(spy, [NaN, 1.0])
-        @test isempty(touched)
+        @test_throws "strictly increasing" ZeroRateCurve(c, [1.0, 1.0])
+        @test_throws "at least 1 knots" ZeroRateCurve(c, Float64[])
+        @test_throws "≥ 0" ZeroRateCurve(c, [-1.0, 1.0])
+        # the sampled grid is validated like any other: non-finite tenors are rejected
+        @test_throws "tenors must be finite" ZeroRateCurve(c, [1.0, Inf])
+        @test_throws "tenors must be finite" ZeroRateCurve(c, [NaN, 1.0])
     end
 
     @testset "generic fit via __default_optic" begin

@@ -571,7 +571,6 @@ function fit(
                 __bootstrap_alternative(mod0) * "."
         )
     )
-    extrapolation = Yield.__extrapolation_method(extrapolation)
     # The solve runs on primal quotes; dual numbers in the quotes or the extrapolation policy
     # are propagated afterwards by the implicit function theorem (see `__implicit_knot_curve`).
     dual_quotes, quotes, has_ad = __calibration_quotes(quotes)
@@ -579,15 +578,12 @@ function fit(
     order = sortperm(quotes; by = maturity)
     dual_quotes, quotes = dual_quotes[order], quotes[order]
     n = length(quotes)
-    n > 0 || throw(ArgumentError("bootstrap requires at least one quote"))
     times = [float(maturity(q)) for q in quotes]
-    all(t -> isfinite(t) && t > zero(t), times) ||
-        throw(ArgumentError("bootstrap quote maturities must be finite and positive; got $times"))
-    # duplicate knots make the interpolant degenerate and would otherwise
-    # surface as a cryptic root-bracketing failure deep in the solve
-    allunique(times) || throw(ArgumentError("bootstrap quotes must have distinct maturities; got duplicates among $times"))
-    # the returned curve's knots are exactly the quote maturities: validate that grid once, up
-    # front, with the same errors as direct construction
+    # A quote maturing at t = 0 does not depend on the knot rate there, so the solve would
+    # return its seed. The other grid rules (a quote at all, finite and distinct maturities)
+    # are `KnotGrid`'s: the returned curve's knots are exactly the quote maturities, validated
+    # once, up front, with the same errors as direct construction.
+    all(>(0), times) || throw(ArgumentError("bootstrap quote maturities must be positive; got $times"))
     grid0 = Yield.KnotGrid(zeros(n), times, mod0; who = "fit($(mod0), Bootstrap)")
     __check_primal_quotes(Yield.__build(mod0, grid0; extrapolation), quotes)
     zs = zeros(n)

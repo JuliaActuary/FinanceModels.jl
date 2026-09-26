@@ -73,7 +73,7 @@ __min_knots(::Sp.SplineCurve) = 1
 __min_knots(::Sp.PCHIP) = 3
 __min_knots(::Sp.Akima) = 3
 
-__check_min_knots(::Nothing, n, who) = nothing
+__check_min_knots(::Nothing, n, who) = n >= 1 || throw(ArgumentError("$who: at least one knot is required (got $n)."))
 function __check_min_knots(spline::Sp.SplineCurve, n, who)
     k = __min_knots(spline)
     n >= k || throw(ArgumentError("$who: $(spline) requires at least $k knots (got $n)."))
@@ -83,26 +83,12 @@ end
 
 # Owned, concretely-typed float `Vector` from any iterable of reals. Always copies (even
 # when handed a `Vector`), so the curve never aliases caller-owned memory; never narrows
-# AD types (`float(::Dual)` is a `Dual`).
-function __owned_float_vector(x, what, who)
+# AD types (`float(::Dual)` is a `Dual`). Inputs that are not real numbers fail where they are
+# converted (`float(String)`, `Float64(::Dual)` for mixed dual tags, …).
+function __owned_float_vector(x)
     v = x isa AbstractVector ? x : collect(x)
-    isempty(v) && throw(ArgumentError("$who: `$what` must not be empty."))
     T = isconcretetype(eltype(v)) ? eltype(v) : mapreduce(typeof, promote_type, v)
-    T <: Real || throw(ArgumentError("$who: `$what` must be real numbers (got element type $T)."))
-    # e.g. ForwardDiff duals with different tags promote to the abstract `Real`
-    isconcretetype(T) || throw(ArgumentError("$who: `$what` must promote to one concrete real type (got $T)."))
-    F = try
-        float(T)
-    catch e
-        e isa MethodError || rethrow()
-        throw(ArgumentError("$who: `$what` has element type $T, which has no floating-point type (`float($T)`)."))
-    end
-    return try
-        Vector{F}(v)   # Array-from-AbstractArray always allocates a fresh copy
-    catch e
-        (e isa MethodError || e isa InexactError) || rethrow()
-        throw(ArgumentError("$who: could not convert `$what` to Vector{$F}: $(sprint(showerror, e))"))
-    end
+    return Vector{float(T)}(v)   # Array-from-AbstractArray always allocates a fresh copy
 end
 
 # Marker for the internal, unvalidated `KnotGrid` construction used by optimizer trial curves.
@@ -126,6 +112,9 @@ Throws an `ArgumentError` (prefixed with `who`, the public constructor's name) w
 - there are fewer knots than `spline` needs (`__min_knots`). Without `spline`, one knot is
   enough; the curve constructors that accept a grid check their own minimum.
 
+Inputs that are not real numbers fail where they are converted to floats (a `MethodError` such as
+`float(::Type{String})`).
+
 A curve built from a grid takes ownership of the grid's vectors. The grid is a construction
 input, not a container to keep and modify.
 
@@ -144,14 +133,16 @@ KnotGrid(u::Unchecked, rates::AbstractVector, tenors::AbstractVector) =
     KnotGrid(u, convert(Vector, rates), convert(Vector, tenors))
 
 function KnotGrid(rates, tenors, spline::Union{Nothing, Sp.SplineCurve} = nothing; who = "KnotGrid")
-    r = __owned_float_vector(rates, "rates", who)
-    t = __owned_float_vector(tenors, "tenors", who)
+    r = __owned_float_vector(rates)
+    t = __owned_float_vector(tenors)
     length(r) == length(t) || throw(
         ArgumentError(
             "$who: `rates` and `tenors` must have the same length (got $(length(r)) and $(length(t)))."
         )
     )
-    all(isfinite, r) || throw(ArgumentError("$who: all rates must be finite (got $(r))."))
+    # the knot count first, so an empty grid reports it; then the tenors, which the rates of a
+    # sampled grid depend on
+    __check_min_knots(spline, length(t), who)
     all(isfinite, t) || throw(ArgumentError("$who: all tenors must be finite (got $(t))."))
     # primal values throughout: ForwardDiff orders Duals with equal values by their partials, so
     # `Dual(0, -1) >= 0` is false and `Dual(1, 1) > Dual(1, 0)` is true
@@ -165,7 +156,7 @@ function KnotGrid(rates, tenors, spline::Union{Nothing, Sp.SplineCurve} = nothin
             )
         )
     end
-    __check_min_knots(spline, length(t), who)
+    all(isfinite, r) || throw(ArgumentError("$who: all rates must be finite (got $(r))."))
     return KnotGrid(Unchecked(), r, t)
 end
 
@@ -356,7 +347,6 @@ Spline(::Sp.MonotoneConvex, tenors, rates; extrapolation = :flat_forward) = thro
 # optimizer trial grid. `ZeroRateCurve`, `Yield.Spline`, `reconstruct`, and `fit` all end here,
 # so the descriptor → curve-type mapping lives in one place.
 function __build(s::Sp.SplineCurve, g::KnotGrid; extrapolation = :flat_forward)
-    extrapolation = __extrapolation_method(extrapolation)
     __check_min_knots(s, length(g.tenors), "Yield.Spline")
     interpolant = __interpolant(s, __interpolation_grid(g), __interpolation_extrapolation(extrapolation))
     return Spline(Unchecked(), s, g, extrapolation, __extrapolate(interpolant, g, extrapolation))

@@ -410,7 +410,7 @@
             @test_throws ArgumentError Yield.MonotoneConvex([0.1, 0.2], [1.0, Inf])      # non-finite tenor
             @test_throws ArgumentError Yield.MonotoneConvex([0.1, 0.2, 0.3], [1.0, 2.0]) # length
             @test_throws ArgumentError Yield.MonotoneConvex(Float64[], Float64[])        # empty
-            @test_throws ArgumentError Yield.MonotoneConvex(["a"], [1.0])                # non-numeric
+            @test_throws MethodError Yield.MonotoneConvex(["a"], [1.0])                  # non-numeric
             # any iterable of reals; promoted per-vector to one concrete float type
             ci = Yield.MonotoneConvex([2, 3, 4, 5] ./ 100, 1:4)
             @test ci isa Yield.MonotoneConvex{Float64, Float64}

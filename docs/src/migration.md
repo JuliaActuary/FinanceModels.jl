@@ -72,9 +72,10 @@ curves returned by spline `fit`s and `Fit.Bootstrap()`. All of them share one in
   orders 1, 2 and 3 (previously any order above 3 silently built a cubic spline), and
   `Spline.BSpline(d)` requires `d ≥ 1`.
 - **The sampling form** `ZeroRateCurve(curve::AbstractYieldModel, tenors)` still sorts its tenor
-  grid and requires `t > 0`. It now checks the method's minimum knot count before evaluating the
-  source curve, and samples through `zero(curve, t)` instead of `-log(discount(curve, t))/t`,
-  which is numerically stable at very small and very large tenors.
+  grid, and samples through `zero(curve, t)` instead of `-log(discount(curve, t))/t`, which is
+  numerically stable at very small and very large tenors. The sampled grid is validated like any
+  other knot grid. A tenor of `0` (previously rejected) takes the source curve's zero-rate limit
+  there; a source curve without one gives a non-finite rate, which throws.
 - **Fitting a knot curve is one rebuild per optimizer candidate.** `fit(curve, quotes)` works for
   any knot curve and varies all knot rates through a single batch `FinanceModels.KnotRatesOptic()`
   (previously one `@optic(_.rates[i])` per knot rebuilt the curve once per knot per candidate,
