@@ -164,7 +164,8 @@ composition commutes with `ForwardStarting`. `Yield.CompositeYield(a, b, op)` wi
 `op` (for example `max`, or `*` of two zero rates) now throws a `MethodError`: such an operation
 builds a new curve from zero rates measured from time 0 rather than composing the two curves.
 For a pointwise transformation of one curve's zero rates, use a `TenorShift`
-(`curve + ((z, t) -> ...)`).
+(`curve + ((z, t) -> ...)`), such as `curve + ((z, t) -> max(z, Continuous(0.0)))` to floor the
+zero rate. Ordering rates with `max` needs FinanceCore 2.6, which FinanceModels now requires.
 
 ## v6.4.0
 
