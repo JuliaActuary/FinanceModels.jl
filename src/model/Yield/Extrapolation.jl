@@ -206,7 +206,7 @@ struct Extrapolated{I, E}
     tail::E
     extend::Bool
 end
-(e::Extrapolated)(t) = (e.extend || t <= e.tail.last_tenor) ? e.interpolant(t) : e.tail(t)
+@inline (e::Extrapolated)(t) = (e.extend || t <= e.tail.last_tenor) ? e.interpolant(t) : e.tail(t)
 
 # The zero-rate function of a `Yield.Spline`: the interpolant through the last knot, then the tail.
 function __extrapolate(interpolant, g::KnotGrid, method)

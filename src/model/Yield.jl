@@ -308,9 +308,11 @@ reconstruct(
 ) = ZeroRateCurve(rates, tenors, spline; extrapolation)
 
 function __check_time(t, who)
-    t < zero(t) && throw(DomainError(t, "$who is only defined for t ≥ 0"))
+    t < zero(t) && __throw_negative_time(t, who)
     return nothing
 end
+# Out of line: building the message inline makes every discount body too large to inline.
+@noinline __throw_negative_time(t, who) = throw(DomainError(t, "$who is only defined for t ≥ 0"))
 
 # Structural equality on the construction inputs. Every derived cache is rebuilt from these
 # by the only constructors, and the stored knots are read-only. `isequal` is fieldwise (not via
@@ -403,20 +405,23 @@ end
 
 function FinanceCore.discount(c::Spline, t)
     __check_time(t, "discount")
-    if isinf(t)
-        __check_extension_at_infinity(c, t)
-        return __discount_at_infinity(c._fn.tail)
-    end
+    isinf(t) && return __spline_discount_at_infinity(c, t)
     return exp(-c._fn(t) * t)
 end
 
 function __log_discount(c::Spline, t)
     __check_time(t, "discount")
-    if isinf(t)
-        __check_extension_at_infinity(c, t)
-        return __log_discount_at_infinity(c._fn.tail)
-    end
+    isinf(t) && return __spline_log_discount_at_infinity(c, t)
     return c._fn(t) * t
+end
+# The limits are out of line so the finite-time path stays small enough to inline.
+@noinline function __spline_discount_at_infinity(c::Spline, t)
+    __check_extension_at_infinity(c, t)
+    return __discount_at_infinity(c._fn.tail)
+end
+@noinline function __spline_log_discount_at_infinity(c::Spline, t)
+    __check_extension_at_infinity(c, t)
+    return __log_discount_at_infinity(c._fn.tail)
 end
 __log_native(::Spline) = true
 function __log_tail(c::Spline)
@@ -514,8 +519,15 @@ include("Yield/ImpliedQuote.jl")
 The discount factor for the yield curve `yc` for times `from` through `to`.
 """
 function FinanceCore.discount(yc::T, from, to) where {T <: AbstractYieldModel}
-    d = __log_native(yc) ? exp(__log_discount(yc, from) - __log_discount(yc, to)) :
+    d = if __log_native(yc)
+        L_to = __log_discount(yc, to)
+        # L(0) = 0 for a log-native curve, so an interval from 0 (every present value) skips it and is
+        # `discount(yc, to)` exactly. Under ForwardDiff 1.x `iszero` also requires zero partials, so
+        # a time derivative at 0 still evaluates L(from).
+        exp((iszero(from) ? zero(L_to) : __log_discount(yc, from)) - L_to)
+    else
         FinanceCore.discount(yc, to) / FinanceCore.discount(yc, from)
+    end
     # The empty interval is the identity, also where L is infinite at both ends (from = to = Inf).
     # Under ForwardDiff 1.x `==` also compares partials, so this fires only where the
     # derivative is zero anyway.

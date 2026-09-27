@@ -52,6 +52,37 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
         @test discount(cir, 0.0, 7.0) ≈ discount(cir, 7.0) rtol = 1.0e-14
     end
 
+    @testset "L(0) = 0 for every log-native curve" begin
+        # An interval from an exact 0 skips L(from), which relies on this.
+        path = RatePath(
+            FinanceModels.DataInterpolations.LinearInterpolation(
+                [0.0, 0.03, 0.065], [0.0, 1.0, 2.0];
+                extrapolation = FinanceModels.DataInterpolations.ExtrapolationType.Extension
+            )
+        )
+        curves = Any[
+            Yield.Constant(0.04), Yield.Constant(Continuous(-0.01)),
+            [
+                ZeroRateCurve(rates, tenors, s; extrapolation = e)
+                    for s in (Spline.Linear(), Spline.Cubic(), Spline.PCHIP())
+                    for e in (:flat_forward, :flat_zero, :linear, :extension, Yield.FlatForwardAt(Continuous(0.05)))
+            ]...,
+            [ZeroRateCurve(rates, tenors; extrapolation = e) for e in (:flat_forward, :flat_zero, :linear)]...,
+            ZeroRateCurve([-0.01, 0.0, 0.01, 0.02], tenors, Spline.Linear()),
+            ns, Yield.NelsonSiegelSvensson(2.5, 3.0, 0.04, -0.02, 0.01, -0.005),
+            Yield.CairnsPritchard(0.5, 1.5, 0.04, -0.02, -0.01),
+            Yield.CairnsPritchardExtended(0.5, 1.5, 3.0, 0.04, -0.02, -0.01, 0.005),
+            zrc_lin + ns, ns - Yield.Constant(Continuous(0.01)), 2 * zrc_lin,
+            Yield.TenorShift(zrc_lin, (z, t) -> z + Continuous(0.01)),
+            Yield.ProjectedShift(ns, (τ, z, t) -> z + Continuous(0.001 * τ), 2.0),
+            FinanceModels.ShortRate.Vasicek(0.1, 0.05, 0.01, Continuous(0.03)), path,
+        ]
+        for c in curves
+            @test Yield.__log_native(c)
+            @test iszero(Yield.__log_discount(c, 0.0))
+        end
+    end
+
     @testset "interval algebra" begin
         a, b = zrc_lin, ns
         for (s, t) in ((0.5, 3.0), (1.0, 7.5), (2.5, 12.0))
@@ -206,5 +237,10 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
         mc = ZeroRateCurve(rates, tenors)
         @test ForwardDiff.derivative(h -> discount(mc, 3.0, 3.0 + h), 0.0) ≈
             -Yield.instantaneous_forward(mc, 3.0) rtol = 1.0e-12
+        # A dual start at an exact 0 still carries its derivative: the instantaneous forward at 0
+        # (the linear curve's flat short end, 2%) times the factor.
+        @test ForwardDiff.derivative(x -> discount(zrc_lin, x, 7.0), 0.0) ≈ 0.02 * discount(zrc_lin, 7.0) rtol = 1.0e-12
+        @test ForwardDiff.derivative(x -> discount(Yield.Constant(Continuous(0.03)), x, 7.0), 0.0) ≈
+            0.03 * exp(-0.21) rtol = 1.0e-12
     end
 end
