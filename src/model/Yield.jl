@@ -26,6 +26,27 @@ __log_discount(c, t) = -log(FinanceCore.discount(c, t))
 # its interval factors stay the ratio D(to)/D(from). The answer depends only on the curve's type.
 __log_native(c) = false
 
+# L(to) − L(from), the log-discount accumulated over an interval; `ForwardStarting` rebases a curve
+# with it. A curve that isn't log-native takes the log of its own interval factor, which is real
+# wherever that factor is positive (for a signed Smith-Wilson fit, also where both discount factors
+# are negative).
+__log_interval(c, from, to) = __log_native(c) ? __log_discount(c, to) - __log_discount(c, from) :
+    -log(FinanceCore.discount(c, from, to))
+
+# The tail of L (see `__LogTail`) for a curve without a closed form: the leading slope is its zero
+# rate at infinity and the intercept is not known. A composite of such curves has the same limit
+# as the sum of their zero rates, and an exact cancellation of those slopes is NaN (0·Inf).
+function __log_tail(c)
+    z = FinanceCore.rate(Base.zero(c, Inf))
+    return __LogTail(zero(z), z, oftype(z, NaN))
+end
+
+# Wrappers evaluate L at t = +Inf from their combined tail; a negative time still reaches the
+# components, which reject it. The limits are out of line so the finite-time path stays small.
+__at_infinity(t) = isinf(t) && t > 0
+@noinline __discount_at_infinity(c::AbstractYieldModel) = __discount_at_infinity(__log_tail(c))
+@noinline __log_discount_at_infinity(c::AbstractYieldModel) = __log_discount_at_infinity(__log_tail(c))
+
 # L of a zero-native curve: z(t)·t with z the continuous zero rate, which is exactly the exponent
 # `discount(zero(c, t), t)` uses. At an exact zero time L is 0 whatever the zero rate there: a
 # wrapper over a discount-native curve has a removable 0/0 zero rate at t = 0. Under ForwardDiff
@@ -74,6 +95,10 @@ FinanceCore.discount(c::Constant, t) = FinanceCore.discount(c.rate, t)
 Base.zero(c::Constant, t) = convert(Continuous(), c.rate)
 __log_discount(c::Constant, t) = __zero_log_discount(c, t)
 __log_native(::Constant) = true
+function __log_tail(c::Constant)
+    z = FinanceCore.rate(Base.zero(c, Inf))
+    return __LogTail(zero(z), z, zero(z))
+end
 
 # ── Shared knot-grid construction ──────────────────────────────────────────────────────
 #
@@ -365,6 +390,10 @@ function __log_discount(c::Spline, t)
     return c._fn(t) * t
 end
 __log_native(::Spline) = true
+function __log_tail(c::Spline)
+    __check_extension_at_infinity(c, Inf)
+    return __log_tail(c._fn.tail)
+end
 
 # `_fn(t)` is the continuous zero rate, so `zero` is a direct read of the interpolant. This
 # avoids the generic `-log(discount)/t` round-trip (and its `0/0 → NaN` at t=0).
@@ -656,9 +685,17 @@ function Base.zero(rc::CompositeYield, time)
     z2 = FinanceCore.rate(Base.zero(rc.r2, time))
     return Continuous(rc.op(z1, z2))
 end
-__log_discount(rc::CompositeYield, time) = rc.op(__log_discount(rc.r1, time), __log_discount(rc.r2, time))
-FinanceCore.discount(rc::CompositeYield, time) = exp(-__log_discount(rc, time))
+# At t = Inf the components' tails are combined before the limit is taken.
+function __log_discount(rc::CompositeYield, time)
+    __at_infinity(time) && return __log_discount_at_infinity(rc)
+    return rc.op(__log_discount(rc.r1, time), __log_discount(rc.r2, time))
+end
+function FinanceCore.discount(rc::CompositeYield, time)
+    __at_infinity(time) && return __discount_at_infinity(rc)
+    return exp(-__log_discount(rc, time))
+end
 __log_native(::CompositeYield) = true
+__log_tail(rc::CompositeYield) = __combine_tails(rc.op, __log_tail(rc.r1), __log_tail(rc.r2))
 
 # ─── Yield shifts (TenorShift, ProjectedShift) ────────────────────────────
 
@@ -827,9 +864,16 @@ function Base.zero(sy::ScaledYield, time)
     z = FinanceCore.rate(Base.zero(sy.curve, time))
     return Continuous(z * sy.factor)
 end
-__log_discount(sy::ScaledYield, time) = sy.factor * __log_discount(sy.curve, time)
-FinanceCore.discount(sy::ScaledYield, time) = exp(-__log_discount(sy, time))
+function __log_discount(sy::ScaledYield, time)
+    __at_infinity(time) && return __log_discount_at_infinity(sy)
+    return sy.factor * __log_discount(sy.curve, time)
+end
+function FinanceCore.discount(sy::ScaledYield, time)
+    __at_infinity(time) && return __discount_at_infinity(sy)
+    return exp(-__log_discount(sy, time))
+end
 __log_native(::ScaledYield) = true
+__log_tail(sy::ScaledYield) = __scale_tail(sy.factor, __log_tail(sy.curve))
 
 """
     ForwardStarting(curve,forwardstart)
@@ -867,7 +911,15 @@ end
 FinanceCore.discount(c::ForwardStarting, to) = FinanceCore.discount(c.curve, c.forwardstart, to + c.forwardstart)
 FinanceCore.discount(c::ForwardStarting, from, to) =
     FinanceCore.discount(c.curve, from + c.forwardstart, to + c.forwardstart)
-__log_discount(c::ForwardStarting, t) = __log_discount(c.curve, t + c.forwardstart) - __log_discount(c.curve, c.forwardstart)
+# L of the rebased curve is the base curve's log-discount over [forwardstart, forwardstart + t], so it
+# is real wherever the rebased discount factor is positive, even where the base curve's own discount
+# factors are negative.
+function __log_discount(c::ForwardStarting, t)
+    __at_infinity(t) && return __log_discount_at_infinity(c)
+    return __log_interval(c.curve, c.forwardstart, t + c.forwardstart)
+end
+__log_interval(c::ForwardStarting, from, to) = __log_interval(c.curve, from + c.forwardstart, to + c.forwardstart)
+__log_tail(c::ForwardStarting) = __shift_tail(__log_tail(c.curve), c.forwardstart, __log_discount(c.curve, c.forwardstart))
 
 """
     Yield.AbstractYieldModel + Yield.AbstractYieldModel

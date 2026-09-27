@@ -100,6 +100,62 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
         end
         @test discount(Yield.ForwardStarting(neg, 0.5), t_neg - 0.5) ≈ discount(neg, t_neg) / discount(neg, 0.5) rtol = 1.0e-13
         @test_throws DomainError zero(neg, t_neg)
+
+        # Rebased where both absolute discount factors are negative, the relative factor is positive
+        # and has a real log-discount; rebased across the sign change, it has none.
+        f = Yield.ForwardStarting(neg, 5.0)
+        @test discount(neg, 5.0) < 0 && discount(neg, 6.0) < 0 && discount(neg, 7.0) < 0
+        d1, d2 = discount(neg, 6.0) / discount(neg, 5.0), discount(neg, 7.0) / discount(neg, 5.0)
+        @test rate(zero(f, 1.0)) ≈ -log(d1) rtol = 1.0e-13
+        @test rate(forward(f, 1.0, 2.0)) ≈ -log(d2 / d1) rtol = 1.0e-12
+        @test discount(2 * f, 1.0) ≈ d1^2 rtol = 1.0e-13
+        @test discount(2 * f, 0.0) == 1.0
+        @test discount(f + Yield.Constant(Continuous(0.01)), 1.0) ≈ d1 * exp(-0.01) rtol = 1.0e-13
+        @test_throws DomainError zero(Yield.ForwardStarting(neg, 0.5), t_neg - 0.5)
+    end
+
+    @testset "limits at infinity combine the components' tails" begin
+        # Flat forwards of 4% and -2%: L is Inf and -Inf separately, and the sum tends to +Inf.
+        a = ZeroRateCurve([0.04, 0.04], [1.0, 2.0], Spline.Linear())
+        b = ZeroRateCurve([-0.02, -0.02], [1.0, 2.0], Spline.Linear())
+        for c in (a + b, b + a, a - a / 2)
+            @test discount(c, Inf) === 0.0
+            @test discount(c, 1.0, Inf) === 0.0
+        end
+        @test discount(b - a, Inf) == Inf
+        # Slopes that cancel leave the intercept. With knot rates 1/32 and 3/64 at 1 and 2 (exact in
+        # binary), the flat-forward tail is L(t) = 0.0625·t − 0.03125, so subtracting a flat 6.25%
+        # leaves exp(0.03125) at infinity.
+        c = ZeroRateCurve([0.03125, 0.046875], [1.0, 2.0], Spline.Linear())
+        flat = Yield.Constant(Continuous(0.0625))
+        @test discount(c - flat, Inf) == exp(0.03125)
+        @test discount(c - flat, 1.0, Inf) == 1.0   # L(1) = 0.03125 − 0.0625 as well
+        @test discount(flat - c, Inf) == exp(-0.03125)
+        # A rebased curve's tail is shifted: L(t + 3) − L(3) − L(t) → 0.0625·3 − L(3) = 0.03125.
+        @test discount(Yield.ForwardStarting(c, 3.0) - c, Inf) ≈ exp(-0.03125) rtol = 1.0e-15
+        # `:linear` tails grow as γ·t²; equal slopes γ = 1/4 cancel, leaving (z₁ − z₂)·t = t/8.
+        l1 = ZeroRateCurve([0.25, 0.5], [1.0, 2.0], Spline.Linear(); extrapolation = :linear)
+        l2 = ZeroRateCurve([0.125, 0.375], [1.0, 2.0], Spline.Linear(); extrapolation = :linear)
+        @test discount(l1 - l2, Inf) == 0.0
+        @test discount(l2 - l1, Inf) == Inf
+        @test discount(l1 - l1, Inf) == 1.0
+        # a zero multiple has L = 0 everywhere (0·Inf would be NaN)
+        @test discount(0 * a, Inf) == 1.0
+        # The combined deciding coefficient is classified like a single tail's: zero with partials
+        # has no derivative, and a derivative is zero where the limit is 0.
+        net = r -> discount(ZeroRateCurve([r, r], [1.0, 2.0], Spline.Linear()) - flat, Inf)
+        @test net(0.0625) == 1.0
+        @test_throws "no derivative" ForwardDiff.derivative(net, 0.0625)
+        @test ForwardDiff.derivative(net, 0.07) == 0.0
+        # A negative time still reaches the components, which reject it.
+        @test_throws DomainError discount(a + b, -Inf)
+        # Curves without a closed-form tail contribute their zero rate at infinity as the slope, as
+        # FinanceModels 6 combined zero rates; an exact cancellation of such slopes is still 0·Inf.
+        ns = Yield.NelsonSiegel(1.0, 0.05, -0.02, 0.01)
+        @test discount(ns + b, Inf) == 0.0 == exp(-rate(zero(ns + b, Inf)) * Inf)
+        ts = Yield.TenorShift(b, (z, t) -> z - Continuous(0.03))
+        @test discount(ts + a, Inf) == Inf == exp(-rate(zero(ts + a, Inf)) * Inf)
+        @test isnan(discount(ns - ns, Inf))
     end
 
     @testset "endpoint derivatives" begin

@@ -180,6 +180,12 @@ the two endpoints, rather than as a ratio of discount factors. The main effects:
   in the last place, and `zero`/`forward` of `SmithWilson`, `ForwardStarting` and the short-rate
   models by a few more (they no longer round-trip through the discount factor).
 - **Empty intervals.** `discount(curve, t, t)` is exactly 1, also at `t = Inf`.
+- **Composite curves at infinity.** `discount(a + b, Inf)` (and `-`, scaling and `ForwardStarting`)
+  combines the components' long-run behavior before taking the limit, so long-run forwards that
+  cancel leave their finite intercept: a flat-forward `ZeroRateCurve` minus a `Constant` at its
+  tail forward tends to a finite factor rather than `NaN`. Components with a closed-form tail are
+  `ZeroRateCurve`/`Yield.Spline`, `MonotoneConvex` and `Constant`; any other curve contributes its
+  zero rate at infinity, as the sum of zero rates did before.
 - **Smith-Wilson** intervals are exp(−ufr·(to − from))·(1 + s(to))/(1 + s(from)). That is exact for either sign
   of the discount factor (a fit to arbitrary prices can make it negative) and finite in the far
   tail; `discount(sw, t)` is unchanged.

@@ -192,6 +192,8 @@ function FinanceCore.discount(m::ShortRate.HullWhite, T)
     return FinanceCore.discount(m.curve, T)
 end
 Yield.__log_discount(m::ShortRate.HullWhite, T) = Yield.__log_discount(m.curve, T)
+Yield.__log_interval(m::ShortRate.HullWhite, from, to) = Yield.__log_interval(m.curve, from, to)
+Yield.__log_tail(m::ShortRate.HullWhite) = Yield.__log_tail(m.curve)
 FinanceCore.discount(m::ShortRate.HullWhite, from, to) = FinanceCore.discount(m.curve, from, to)
 
 # ─── Conditional discount P(t,T|r(t)) ────────────────────────────────────────
