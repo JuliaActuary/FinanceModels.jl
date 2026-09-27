@@ -160,7 +160,7 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
         # doesn't state. Here u has zero rate t/32 (L = t²/32) and q the `:linear` tail t/64
         # (L = t²/64), both exact in binary, so L(u − q) = t²/64 → +Inf; but the fallback can't
         # tell t²/32 from t^1.5, which t²/64 would outgrow. Against a known quadratic term of the
-        # other sign the limit is unknown, not the opposite answer.
+        # other sign the limit is unsupported: NaN, not the opposite answer.
         u = Yield.TenorShift(Yield.Constant(Continuous(0.0)), (z, t) -> z + Continuous(t / 32))
         u2 = Yield.TenorShift(Yield.Constant(Continuous(0.0)), (z, t) -> z + Continuous(t / 16))
         q = ZeroRateCurve([1 / 64, 2 / 64], [1.0, 2.0], Spline.Linear(); extrapolation = :linear)
@@ -178,6 +178,15 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
         @test discount(-1 * u, Inf) == Inf
         @test discount(Yield.ForwardStarting(u, 5.0), Inf) == 0.0
         @test isnan(discount(Yield.ForwardStarting(u - q, 5.0), Inf))
+        # With L = t^1.5 + k·t²/64 the limit is 0 at k = 0 but Inf for every k < 0 (NaN here,
+        # unsupported), so it has no derivative at k = 0; a zero quadratic term carrying partials
+        # throws, as it does for a known tail. Away from 0 the limit is locally constant.
+        v = Yield.TenorShift(Yield.Constant(Continuous(0.0)), (z, t) -> z + Continuous(sqrt(t)))
+        lim(k) = discount(v + k * q, Inf)
+        @test lim(0.0) == 0.0
+        @test isnan(lim(-1.0))
+        @test_throws "no derivative" ForwardDiff.derivative(lim, 0.0)
+        @test ForwardDiff.derivative(lim, 1.0) == 0.0
     end
 
     @testset "endpoint derivatives" begin

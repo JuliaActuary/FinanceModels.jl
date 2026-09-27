@@ -152,23 +152,31 @@ function __tail_limit_sign(tail::__LogTail)
     if isinf(a1)
         s = a1 > 0 ? 1.0 : -1.0
         a2 = __primal(tail.a2)
-        return a2 == 0 || a2 * s > 0 ? s : NaN
+        a2 * s > 0 && return s
+        a2 == 0 || return NaN
+        # a2 = 0 decides too: a bump to the other sign could outgrow the unknown growth
+        __check_limit_derivative(tail.a2, "slope")
+        return s
     end
     for (c, name) in ((tail.a2, "slope"), (tail.a1, "forward"))
         v = __primal(c)
         v > 0 && return 1.0
         v < 0 && return -1.0
         isnan(v) && return NaN
-        iszero(c) || throw(
-            ArgumentError(
-                "discount(curve, Inf) has no derivative here: the tail's $name is zero, so a bump " *
-                    "that moves it can send the discount factor at infinity to 0 or Inf. " *
-                    "Differentiate at a finite time."
-            )
-        )
+        __check_limit_derivative(c, name)
     end
     return 0.0
 end
+
+# A deciding coefficient whose primal value is zero has no derivative of the limit unless its partials
+# are zero too (ForwardDiff 1.x `iszero` checks both): a bump that moves it can move the limit.
+__check_limit_derivative(c, name) = iszero(c) || throw(
+    ArgumentError(
+        "discount(curve, Inf) has no derivative here: the tail's $name is zero, so a bump " *
+            "that moves it can send the discount factor at infinity to 0 or Inf. " *
+            "Differentiate at a finite time."
+    )
+)
 
 # `forward()` and `slope()` supply the curve's boundary anchor for `:flat_forward` and its
 # left-hand zero-rate slope for `:linear`. Keeping them lazy avoids computing quantities

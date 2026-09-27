@@ -187,7 +187,7 @@ the two endpoints, rather than as a ratio of discount factors. The main effects:
   `ZeroRateCurve`/`Yield.Spline`, `MonotoneConvex` and `Constant`; any other curve contributes its
   zero rate at infinity, as the sum of zero rates did before. A zero rate that tends to ±Inf says
   the log-discount grows faster than linearly but not how fast, so against a `:linear` tail of the
-  other sign the limit is `NaN` rather than a guess.
+  other sign the limit is unsupported and returns `NaN` rather than a guess.
 - **Smith-Wilson** intervals are exp(−ufr·(to − from))·(1 + s(to))/(1 + s(from)). That is exact for either sign
   of the discount factor (a fit to arbitrary prices can make it negative) and finite in the far
   tail; `discount(sw, t)` is unchanged.
