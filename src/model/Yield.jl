@@ -14,6 +14,33 @@ export discount, zero, forward, par, implied_quote, pv, instantaneous_forward, k
 
 abstract type AbstractYieldModel <: AbstractModel end
 
+# ── Internal curve capabilities ────────────────────────────────────────────────────────
+#
+# A curve needs only `discount(c, t)`. Each method below has a default that is safe for any such
+# curve; a type adds its own where it knows more.
+#
+# | method                     | meaning                                        | default                        |
+# |----------------------------|------------------------------------------------|--------------------------------|
+# | `__log_discount(c, t)`     | L(t) = −log D(t)                               | `-log(discount(c, t))`         |
+# | `__log_native(c)`          | interval factors may be formed as exp(L(a) − L(b)) | `false`: the ratio D(b)/D(a)   |
+# | `__log_interval(c, a, b)`  | L(b) − L(a), real where the interval factor is positive | from `__log_native`   |
+# | `__log_tail(c)`            | the coefficients of L as t → ∞ (`__LogTail`)   | from `zero(c, Inf)`, below     |
+#
+# `__log_native` says that the log-difference route is valid for intervals: the curve's L is
+# computed directly and its discount factor is exp(-L), so positive. It doesn't just mean that a
+# type defines `__log_discount`: Smith–Wilson, `ForwardStarting` and Hull–White define L but take
+# their intervals from `__log_interval` or the ratio of factors.
+#
+# - `__log_discount` + `__log_native`: `Constant`, `Spline`, `MonotoneConvex`, the zero-native curves
+#   (`NelsonSiegel(Svensson)`, `CairnsPritchard(Extended)`, the yield shifts), `CompositeYield`,
+#   `ScaledYield`, `Vasicek`, `RatePath`.
+# - `__log_discount` + `__log_interval`: `SmithWilson` (signed factors: from its interval ratio),
+#   `ForwardStarting` (from the base curve's interval), `HullWhite` (its initial curve's).
+# - `__log_tail`, exact: `Constant`, `Spline`, `MonotoneConvex`, and the wrappers `CompositeYield`,
+#   `ScaledYield`, `ForwardStarting`, `HullWhite`, which combine their components' tails. Every other
+#   curve uses the fallback, which knows only the growth rate its zero rate at infinity implies.
+# - `__PrimalCurve` forwards all four without partials.
+
 # Cumulative log-discount L(t) = −log D(t): the continuously compounded force accumulated from
 # valuation time 0 to `t`. `forward` and the generic `zero` are built from it. The fallback needs
 # only `discount(c, t)`; built-in curves compute L directly.
@@ -34,8 +61,10 @@ __log_interval(c, from, to) = __log_native(c) ? __log_discount(c, to) - __log_di
     -log(FinanceCore.discount(c, from, to))
 
 # The tail of L (see `__LogTail`) for a curve without a closed form: the leading slope is its zero
-# rate at infinity and the intercept is not known. A composite of such curves has the same limit
-# as the sum of their zero rates, and an exact cancellation of those slopes is NaN (0·Inf).
+# rate at infinity and the intercept is not known. When those rates are finite, a composite of such
+# curves has the same limit as the sum of their zero rates, and an exact cancellation of the slopes
+# is NaN (0·Inf). An infinite zero rate means L grows faster than t, at an order the curve doesn't
+# say; the forward slot then holds ±Inf, which the limit reads as that unknown growth.
 function __log_tail(c)
     z = FinanceCore.rate(Base.zero(c, Inf))
     return __LogTail(zero(z), z, oftype(z, NaN))

@@ -100,7 +100,10 @@ end
 # The long-run behavior of a cumulative log-discount: L(t) = a2·t² + a1·t + a0 + o(1) as t → ∞.
 # A composite curve combines its components' tails before taking the limit, since the limits
 # alone lose it: flat forwards of 4% and −2% have L = Inf and −Inf, but their sum tends to +Inf.
-# A NaN coefficient is one the curve doesn't determine (see the fallback in Yield.jl).
+# A NaN coefficient is one the curve doesn't determine (see the fallback in Yield.jl). A known
+# forward a1 is finite, so ±a1 = Inf marks growth faster than t of unknown order and that sign: it
+# survives addition, scaling and rebasing (and Inf − Inf is NaN, unknown), but a known quadratic
+# term of the other sign could outgrow it.
 struct __LogTail{T}
     a2::T
     a1::T
@@ -140,8 +143,17 @@ function __log_discount_at_infinity(tail::__LogTail)
 end
 
 # +1 if the discount factor at infinity is 0, -1 if it is Inf, 0 if it is finite, NaN if the tail
-# doesn't decide it.
+# doesn't decide it. An unknown forward (NaN) or growth of unknown order (±Inf) is read first, since
+# either could outgrow the quadratic term: the unknown growth decides the limit unless a2 has the
+# other sign.
 function __tail_limit_sign(tail::__LogTail)
+    a1 = __primal(tail.a1)
+    isnan(a1) && return NaN
+    if isinf(a1)
+        s = a1 > 0 ? 1.0 : -1.0
+        a2 = __primal(tail.a2)
+        return a2 == 0 || a2 * s > 0 ? s : NaN
+    end
     for (c, name) in ((tail.a2, "slope"), (tail.a1, "forward"))
         v = __primal(c)
         v > 0 && return 1.0

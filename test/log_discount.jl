@@ -156,6 +156,28 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
         ts = Yield.TenorShift(b, (z, t) -> z - Continuous(0.03))
         @test discount(ts + a, Inf) == Inf == exp(-rate(zero(ts + a, Inf)) * Inf)
         @test isnan(discount(ns - ns, Inf))
+        # A fallback curve whose zero rate tends to ±Inf has L growing faster than t, at an order it
+        # doesn't state. Here u has zero rate t/32 (L = t²/32) and q the `:linear` tail t/64
+        # (L = t²/64), both exact in binary, so L(u − q) = t²/64 → +Inf; but the fallback can't
+        # tell t²/32 from t^1.5, which t²/64 would outgrow. Against a known quadratic term of the
+        # other sign the limit is unknown, not the opposite answer.
+        u = Yield.TenorShift(Yield.Constant(Continuous(0.0)), (z, t) -> z + Continuous(t / 32))
+        u2 = Yield.TenorShift(Yield.Constant(Continuous(0.0)), (z, t) -> z + Continuous(t / 16))
+        q = ZeroRateCurve([1 / 64, 2 / 64], [1.0, 2.0], Spline.Linear(); extrapolation = :linear)
+        @test discount(u - q, 32.0) == exp(-16.0)   # finite times are exact
+        @test isnan(discount(u - q, Inf))
+        @test isnan(discount(q - u, Inf))
+        @test isnan(discount(u - u2, Inf))   # two unknown growths of opposite sign
+        # The unknown growth decides against linear or flat tails and same-sign quadratic ones,
+        # and survives scaling and rebasing.
+        @test discount(u + Yield.Constant(0.03), Inf) == 0.0
+        @test discount(u - a, Inf) == 0.0
+        @test discount(u + q, Inf) == 0.0
+        @test discount(u + u2, Inf) == 0.0
+        @test discount(2 * u, Inf) == 0.0
+        @test discount(-1 * u, Inf) == Inf
+        @test discount(Yield.ForwardStarting(u, 5.0), Inf) == 0.0
+        @test isnan(discount(Yield.ForwardStarting(u - q, 5.0), Inf))
     end
 
     @testset "endpoint derivatives" begin
