@@ -861,6 +861,12 @@ end
         @test g2.rates !== r && g2.rates == r && g2.tenors == [1.0, 2.0]
         @test_throws ArgumentError KG([NaN, 0.0], [1.0, 2.0])
         @test_throws ArgumentError KG([0.02, 0.03], [2.0, 1.0])
+        # untyped inputs promote from their values; empty ones reach the grid's own length check
+        # (on every Julia version, rather than a native empty-reduction error)
+        ga = KG(Any[0.02, 0.03f0], Any[1, 2.0])
+        @test eltype(ga.rates) == Float64 && eltype(ga.tenors) == Float64
+        @test_throws "at least one knot is required (got 0)" KG([], [])
+        @test_throws "requires at least 1 knots (got 0)" KG(Any[], (), Spline.Linear())
         # only the internal unchecked form skips copying and validation (optimizer trial curves)
         raw = KG(FinanceModels.Yield.Unchecked(), [NaN, 0.0], [2.0, 1.0])
         @test isnan(raw.rates[1]) && raw.tenors == [2.0, 1.0]
