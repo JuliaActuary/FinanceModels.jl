@@ -462,18 +462,7 @@ function Base.zero(mc::MonotoneConvex, t)
         return Continuous((t_prev * rates[i_time - 1] + (t - t_prev) * fᵈ[i_time] + (t_curr - t_prev) * G) / t)
     end
 end
-function FinanceCore.discount(mc::MonotoneConvex, t)
-    __check_time(t, "discount")
-    return isinf(t) ? __mc_discount_at_infinity(mc) : _discount_from_zero(mc, t)
-end
-function __log_discount(mc::MonotoneConvex, t)
-    __check_time(t, "discount")
-    return isinf(t) ? __mc_log_discount_at_infinity(mc) : __zero_log_discount(mc, t)
-end
-# The limits are out of line so the finite-time path stays small enough to inline.
-@noinline __mc_discount_at_infinity(mc::MonotoneConvex) = __discount_at_infinity(mc._tail)
-@noinline __mc_log_discount_at_infinity(mc::MonotoneConvex) = __log_discount_at_infinity(mc._tail)
-__log_native(::MonotoneConvex) = true
+__knot_log_discount(mc::MonotoneConvex, t) = __zero_log_discount(mc, t)
 __log_tail(mc::MonotoneConvex) = __log_tail(mc._tail)
 
 __build(::Sp.MonotoneConvex, g::KnotGrid; extrapolation = :flat_forward) = MonotoneConvex(g; extrapolation)

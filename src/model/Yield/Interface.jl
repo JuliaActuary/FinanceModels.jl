@@ -64,8 +64,9 @@ function __log_tail(c)
     return __LogTail(zero(z), z, oftype(z, NaN))
 end
 
-# Wrappers evaluate L at t = +Inf from their combined tail; a negative time still reaches the
-# components, which reject it. The limits are out of line so the finite-time path stays small.
+# Knot curves and wrappers evaluate L at t = +Inf from their tail (a wrapper's combines its
+# components'); a negative time still reaches the components, which reject it. The limits are out
+# of line so the finite-time path stays small.
 __at_infinity(t) = isinf(t) && t > 0
 @noinline __discount_at_infinity(c::AbstractYieldModel) = __discount_at_infinity(__log_tail(c))
 @noinline __log_discount_at_infinity(c::AbstractYieldModel) = __log_discount_at_infinity(__log_tail(c))

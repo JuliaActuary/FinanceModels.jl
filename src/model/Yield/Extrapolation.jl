@@ -86,8 +86,6 @@ end
 # α·t + β·tₙ under a flat one.
 __log_tail(e::CurveTail) = e.linear ? __LogTail(e.γ, e.α - e.γ * e.last_tenor, zero(e.β)) :
     __LogTail(zero(e.α), e.α, e.β * e.last_tenor)
-__discount_at_infinity(e::CurveTail) = __discount_at_infinity(__log_tail(e))
-__log_discount_at_infinity(e::CurveTail) = __log_discount_at_infinity(__log_tail(e))
 
 # `forward()` and `slope()` supply the curve's boundary anchor for `:flat_forward` and its
 # left-hand zero-rate slope for `:linear`. Keeping them lazy avoids computing quantities

@@ -80,6 +80,21 @@ end
 # Out of line: building the message inline makes every discount body too large to inline.
 @noinline __throw_negative_time(t, who) = throw(DomainError(t, "$who is only defined for t ≥ 0"))
 
+# Every knot curve evaluates alike: a negative time throws, t = Inf is the limit of the curve's tail
+# (`__log_tail`, out of line so that the finite path stays small enough to inline), and a finite
+# time is the curve's own L, `__knot_log_discount(c, t)`.
+function FinanceCore.discount(c::AbstractInterpolatedZeroCurve, t)
+    __check_time(t, "discount")
+    isinf(t) && return __discount_at_infinity(c)
+    return exp(-__knot_log_discount(c, t))
+end
+function __log_discount(c::AbstractInterpolatedZeroCurve, t)
+    __check_time(t, "discount")
+    isinf(t) && return __log_discount_at_infinity(c)
+    return __knot_log_discount(c, t)
+end
+__log_native(::AbstractInterpolatedZeroCurve) = true
+
 # Structural equality on the construction inputs. Every derived cache is rebuilt from these
 # by the only constructors, and the stored knots are read-only. `isequal` is fieldwise (not via
 # `==`) so that `isequal(a, b)` implies `hash(a) == hash(b)` with Julia's own array semantics

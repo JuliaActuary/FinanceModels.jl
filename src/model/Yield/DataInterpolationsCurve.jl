@@ -46,40 +46,16 @@ struct Spline{S <: Sp.SplineCurve, R, T, E, F} <: AbstractInterpolatedZeroCurve
         new{S, R, T, E, F}(spline, ReadOnlyVector(g.rates), ReadOnlyVector(g.tenors), extrapolation, fn)
 end
 
-function __check_extension_at_infinity(c::Spline, t)
+# L = z(t)·t from the zero-rate function; `discount` and `__log_discount` are the knot curves'.
+__knot_log_discount(c::Spline, t) = c._fn(t) * t
+function __log_tail(c::Spline)
     c._fn.extend && throw(
         DomainError(
-            t, "discount(curve, Inf) is unsupported with extrapolation = :extension, whose " *
+            Inf, "discount(curve, Inf) is unsupported with extrapolation = :extension, whose " *
                 "polynomial continuation of the last piece is evaluated at finite times only. Use a " *
                 "finite time, or a policy with a tail limit (:flat_forward, :flat_zero, :linear, FlatForwardAt)."
         )
     )
-    return nothing
-end
-
-function FinanceCore.discount(c::Spline, t)
-    __check_time(t, "discount")
-    isinf(t) && return __spline_discount_at_infinity(c, t)
-    return exp(-c._fn(t) * t)
-end
-
-function __log_discount(c::Spline, t)
-    __check_time(t, "discount")
-    isinf(t) && return __spline_log_discount_at_infinity(c, t)
-    return c._fn(t) * t
-end
-# The limits are out of line so the finite-time path stays small enough to inline.
-@noinline function __spline_discount_at_infinity(c::Spline, t)
-    __check_extension_at_infinity(c, t)
-    return __discount_at_infinity(c._fn.tail)
-end
-@noinline function __spline_log_discount_at_infinity(c::Spline, t)
-    __check_extension_at_infinity(c, t)
-    return __log_discount_at_infinity(c._fn.tail)
-end
-__log_native(::Spline) = true
-function __log_tail(c::Spline)
-    __check_extension_at_infinity(c, Inf)
     return __log_tail(c._fn.tail)
 end
 
