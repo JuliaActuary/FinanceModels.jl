@@ -447,14 +447,8 @@ __knot_fit_seed(::Spline.SplineCurve, tenors) = __curve_fit_seed(length(tenors),
 __knot_fit_seed(::Spline.MonotoneConvex, tenors) = __curve_fit_seed(length(tenors), 0.01, 0.05)
 __knot_fit_seed(::Union{Spline.PCHIP, Spline.Akima}, tenors) = 0.05 .- 0.01 .* exp.(-tenors ./ (1 + maximum(tenors; init = 0)))
 
-function fit(
-        mod0::T, quotes; optimizer = __default_optim(mod0), solve_kwargs = (;),
-        extrapolation = :flat_forward
-    ) where {T <: Spline.SplineCurve}
-    return fit(mod0, quotes, __default_loss(mod0); optimizer, solve_kwargs, extrapolation)
-end
-
-# A spline fit places its knots at the sorted quote maturities.
+# A spline fit places its knots at the sorted quote maturities. (`fit(spline, quotes; kwargs...)`
+# reaches it through the generic method's default loss, which passes the keywords on.)
 function fit(
         mod0::T, quotes, method::F; optimizer = __default_optim(mod0), solve_kwargs = (;),
         extrapolation = :flat_forward
