@@ -592,15 +592,8 @@ function fit(
         s = max(abs(q.price), abs(f(seed) + q.price))
         scales[i] = iszero(s) ? one(s) : s
         g(z) = f(z) / scales[i]
-        zs[i] = try
-            Roots.find_zero(g, seed, Roots.Order1())
-        catch e
-            # only a convergence failure falls back to a bracketed solve over a
-            # generous continuous-zero-rate range; genuine errors raised while
-            # pricing the quote must surface, not be retried
-            e isa Roots.ConvergenceFailed || rethrow()
-            Roots.find_zero(g, (-1.0, 1.0), Roots.A42())
-        end
+        # a generous continuous-zero-rate range for the bracketed fallback
+        zs[i] = __solve_primal_root(g, seed, (-1.0, 1.0))
     end
     curve = Yield.ZeroRateCurve(zs, times, mod0; extrapolation)
     # Every quote's cashflows must end at its maturity for later knots to leave

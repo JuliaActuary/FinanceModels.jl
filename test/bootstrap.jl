@@ -74,3 +74,19 @@ FinanceCore.present_value(model, c::PaysAfterMaturity) = FinanceCore.present_val
         @test maximum(abs(present_value(curve, q.instrument) - q.price) for q in quotes) < 1.0e-7
     end
 end
+
+@testset "primal root search" begin
+    # shared by each bootstrap step and `__implicit_root`
+    solve = FinanceModels.__solve_primal_root
+    # the secant method finds the root from the start
+    @test solve(x -> x^3 - 8, 1.0, (-1.0, 3.0)) ≈ 2.0
+    # a secant that diverges (as on a cube root) falls back to the bracketed search
+    @test_throws FinanceModels.Roots.ConvergenceFailed FinanceModels.Roots.find_zero(x -> cbrt(x - 0.3), 0.9, FinanceModels.Roots.Order1())
+    @test solve(x -> cbrt(x - 0.3), 0.9, (-1.0, 1.0)) ≈ 0.3
+    # an error raised while evaluating the function surfaces, and is not retried
+    calls = Ref(0)
+    @test_throws DomainError solve(x -> (calls[] += 1; x < 0 ? throw(DomainError(x)) : x - 2), -1.0, (0.0, 3.0))
+    @test calls[] == 1
+    # when both searches fail, the bracketed search's error surfaces
+    @test_throws ArgumentError solve(x -> x^2 + 1, 1.0, (-1.0, 1.0))
+end
