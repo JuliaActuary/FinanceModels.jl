@@ -197,6 +197,11 @@ the two endpoints, rather than as a ratio of discount factors. The main effects:
 - **Composite and scaled curves** take their components' intervals, combined: each component keeps
   its own form (a custom curve's ratio, Smith-Wilson's far-tail-stable ratio), and an infinite
   endpoint comes from the combined tail.
+- **`forward(curve, from, to)`** is the interval's log-discount per unit time, taken by the same
+  rule as `discount(curve, from, to)`. On a Smith-Wilson curve, or a custom curve with negative
+  discount factors, it therefore exists where both factors are negative (it was a `DomainError`),
+  and on composite, scaled and
+  `ForwardStarting` curves it can move by a few units in the last place.
 
 ### Time derivatives at `t = 0`
 

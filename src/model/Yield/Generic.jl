@@ -21,9 +21,9 @@ end
 The forward `Rate` implied by the yield curve `yc` between times `from` and `to`.
 """
 function FinanceCore.forward(yc::T, from, to = from + 1) where {T <: AbstractYieldModel}
-    # forward = log(DF(from)/DF(to)) / (to-from) = (L(to) − L(from))/(to−from), with L the
-    # cumulative log-discount (z(t)·t for a zero-native curve), which is 0 at t = 0.
-    return Continuous((__log_discount(yc, to) - __log_discount(yc, from)) / (to - from))
+    # forward = log(DF(from)/DF(to)) / (to-from): the interval's log-discount L(to) − L(from), by
+    # the curve's own interval rule, per unit time.
+    return Continuous(__log_interval(yc, from, to) / (to - from))
 end
 
 """

@@ -5,7 +5,8 @@ struct __HalfFlatCurve <: Yield.AbstractYieldModel end
 FinanceCore.discount(::__HalfFlatCurve, t) = 0.5 * exp(-0.03 * t)
 
 # A curve with negative discount factors (as a Smith-Wilson fit to arbitrary prices can have): its
-# interval factors are still the exact ratio, but it has no log-discount.
+# interval factors are still the exact ratio, but it has no log-discount at a single time, only over
+# an interval whose factor is positive.
 struct __NegativeDiscountCurve <: Yield.AbstractYieldModel end
 FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
 
@@ -140,7 +141,8 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
             @test discount(w, 1.0e-12, 1.0) ≈ discount(w, 0.0, 1.0) rtol = 1.0e-10
         end
         @test discount(__NegativeDiscountCurve(), 1.0, 2.0) ≈ exp(-0.03) rtol = 1.0e-14
-        @test_throws DomainError forward(__NegativeDiscountCurve(), 1.0, 2.0)
+        @test rate(forward(__NegativeDiscountCurve(), 1.0, 2.0)) ≈ 0.03 rtol = 1.0e-12
+        @test_throws DomainError zero(__NegativeDiscountCurve(), 1.0)
     end
 
     @testset "wrappers keep their components' far-tail intervals" begin
@@ -184,6 +186,12 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
         d1, d2 = discount(neg, 6.0) / discount(neg, 5.0), discount(neg, 7.0) / discount(neg, 5.0)
         @test rate(zero(f, 1.0)) ≈ -log(d1) rtol = 1.0e-13
         @test rate(forward(f, 1.0, 2.0)) ≈ -log(d2 / d1) rtol = 1.0e-12
+        # `forward` takes the curve's own interval, so it exists where both factors are negative (the
+        # difference of the two log-discounts was a DomainError there), for the curve and in a
+        # composite
+        @test rate(forward(neg, 5.0, 7.0)) ≈ -log(discount(neg, 7.0) / discount(neg, 5.0)) / 2 rtol = 1.0e-12
+        @test rate(forward(neg + Yield.Constant(Continuous(0.01)), 5.0, 7.0)) ≈ rate(forward(neg, 5.0, 7.0)) + 0.01 rtol = 1.0e-12
+        @test_throws DomainError forward(neg, 0.5, t_neg)   # across the sign change there is no rate
         @test discount(2 * f, 1.0) ≈ d1^2 rtol = 1.0e-13
         @test discount(2 * f, 0.0) == 1.0
         @test discount(f + Yield.Constant(Continuous(0.01)), 1.0) ≈ d1 * exp(-0.01) rtol = 1.0e-13
