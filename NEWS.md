@@ -198,6 +198,27 @@ the two endpoints, rather than as a ratio of discount factors. The main effects:
   its own form (a custom curve's ratio, Smith-Wilson's far-tail-stable ratio), and an infinite
   endpoint comes from the combined tail.
 
+### Time derivatives at `t = 0`
+
+`ForwardDiff` derivatives with respect to time at exactly `t = 0`, such as
+`ForwardDiff.derivative(t -> discount(curve, t), 0.0)` or a derivative in the start of
+`discount(curve, from, to)`, were `NaN` for `Yield.MonotoneConvex` (the `ZeroRateCurve` default),
+`NelsonSiegel` and `NelsonSiegelSvensson`, and for composites, scaled curves and yield shifts over
+them. Their zero rates had a removable 0/0 at 0, which a dual time skips past. They are now exact:
+
+- `MonotoneConvex` computes its cumulative log-discount directly instead of multiplying its zero
+  rate back by `t`, which moves some discount factors in the last bit. Over its first interval its
+  zero rate uses a divided form of the Hagan-West integral, which is also more accurate for very
+  short maturities (the previous form lost digits as `t → 0`).
+- `NelsonSiegel` and `NelsonSiegelSvensson` use the Taylor series of their decay factor at `t = 0`.
+  Values at every other time are unchanged.
+
+A curve without its own `zero` (Smith-Wilson, the short-rate models, `ForwardStarting`, custom
+curves) has only L(t)/t, so its zero rate still has no derivative at 0. Its discount factor does,
+but its zero rate and a yield shift over it now throw a `DomainError` for a time derivative at 0
+instead of returning `NaN`. Its zero rate at an exact `0` is still the non-finite 0/0 that
+`ZeroRateCurve(curve, tenors)` rejects.
+
 ## v6.4.0
 
 ### `Spline.BSpline` fitted values changed on non-uniform tenor grids

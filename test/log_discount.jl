@@ -288,4 +288,43 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
         @test ForwardDiff.derivative(x -> discount(Yield.Constant(Continuous(0.03)), x, 7.0), 0.0) ≈
             0.03 * exp(-0.21) rtol = 1.0e-12
     end
+
+    @testset "time derivatives at t = 0" begin
+        # A dual time whose value is 0 skips the exact-zero shortcuts, so each curve's L and zero rate
+        # must have no removable 0/0 there (MonotoneConvex and Nelson-Siegel(-Svensson) were NaN).
+        # dD/dt at 0 is minus the zero rate at 0, which is the instantaneous forward there.
+        mc = ZeroRateCurve(rates, tenors)
+        # The Hagan-West boundary condition makes the forward flat at 0, unless the positivity
+        # collar binds there, as it does on this steep curve.
+        mc_steep = ZeroRateCurve([0.01, 0.05, 0.05, 0.05], tenors)
+        mc_origin = ZeroRateCurve([0.02, 0.025, 0.03], [0.0, 1.0, 5.0])   # a knot at t = 0
+        nss = Yield.NelsonSiegelSvensson(2.5, 3.0, 0.04, -0.02, 0.01, -0.005)
+        f0 = Yield.instantaneous_forward(mc, 0.0)
+        curves = (
+            mc => f0, mc_steep => 0.0, mc_origin => 0.02,
+            ns => 0.03, nss => 0.02, mc + ns => f0 + 0.03, 2 * mc => 2 * f0,
+            Yield.TenorShift(mc, (z, t) -> z + Continuous(0.01)) => f0 + 0.01,
+            Yield.ProjectedShift(mc, (τ, z, t) -> z + Continuous(0.001 * τ), 2.0) => f0 + 0.002,
+            Yield.TenorShift(nss, (z, t) -> z + Continuous(0.01)) => 0.03,
+        )
+        # a second-order one-sided difference: times below 0 throw
+        fd(f, h = 1.0e-4) = (-3 * f(0.0) + 4 * f(h) - f(2h)) / (2h)
+        for (c, z0) in curves
+            @test rate(zero(c, 0.0)) ≈ z0 rtol = 1.0e-12
+            @test ForwardDiff.derivative(t -> discount(c, t), 0.0) ≈ -z0 rtol = 1.0e-12
+            @test ForwardDiff.derivative(x -> discount(c, x, 7.0), 0.0) ≈ z0 * discount(c, 7.0) rtol = 1.0e-12
+            # the second derivative and the zero rate's slope at 0 match finite differences
+            d1(t) = ForwardDiff.derivative(u -> discount(c, u), t)
+            @test ForwardDiff.derivative(d1, 0.0) ≈ fd(d1) rtol = 1.0e-6
+            zr(t) = rate(zero(c, t))
+            @test ForwardDiff.derivative(zr, 0.0) ≈ fd(zr) atol = 1.0e-9
+        end
+        @test ForwardDiff.derivative(t -> rate(zero(mc_steep, t)), 0.0) > 1.0e-3   # a slope is exercised
+        # A curve without its own `zero` has only L(t)/t, 0/0 at 0: its discount has a derivative
+        # there, but a zero-rate transformation of it throws rather than returning NaN.
+        @test ForwardDiff.derivative(t -> discount(sw, t), 0.0) ≈ -rate(zero(sw, 1.0e-9)) rtol = 1.0e-6
+        @test_throws DomainError ForwardDiff.derivative(t -> discount(Yield.TenorShift(sw, (z, t) -> z), t), 0.0)
+        @test_throws DomainError ForwardDiff.derivative(t -> rate(zero(sw, t)), 0.0)
+        @test isnan(rate(zero(sw, 0.0)))   # an exact 0 stays the non-finite 0/0 the sampling form rejects
+    end
 end

@@ -74,14 +74,16 @@ __at_infinity(t) = isinf(t) && t > 0
 # L of a zero-native curve: z(t)·t with z the continuous zero rate, which is exactly the exponent
 # `discount(zero(c, t), t)` uses. At an exact zero time L is 0 whatever the zero rate there: a
 # wrapper over a discount-native curve has a removable 0/0 zero rate at t = 0. Under ForwardDiff
-# 1.x `iszero` also requires zero partials, so a time derivative at 0 still flows through z(t)·t.
+# 1.x `iszero` also requires zero partials, so a time derivative at 0 flows through z(t)·t, which
+# needs the zero rate's limit at 0 and its derivatives: the built-in curves' own `zero` is exact
+# there, and the generic `zero` of a curve that defines only its discount factor or L throws.
 function __zero_log_discount(c, t)
     L = FinanceCore.rate(Base.zero(c, t)) * t
     return iszero(t) ? zero(L) : L
 end
 
 # Discount factor of the curves defined by their zero rate (NelsonSiegel(Svensson),
-# CairnsPritchard, MonotoneConvex, the yield shifts), shared through the one-line `discount`
+# CairnsPritchard, the yield shifts), shared through the one-line `discount`
 # stubs at each curve definition. `exp(-L)` gives DF(0) = 1 exactly and keeps the promoted
 # curve/time numeric type.
 _discount_from_zero(c, t) = exp(-__zero_log_discount(c, t))
