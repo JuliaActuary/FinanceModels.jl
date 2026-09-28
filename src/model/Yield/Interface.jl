@@ -71,6 +71,12 @@ __at_infinity(t) = isinf(t) && t > 0
 @noinline __discount_at_infinity(c::AbstractYieldModel) = __discount_at_infinity(__log_tail(c))
 @noinline __log_discount_at_infinity(c::AbstractYieldModel) = __log_discount_at_infinity(__log_tail(c))
 
+# A time whose value is 0 but that carries partials: a time derivative taken at t = 0, where a zero
+# rate L(t)/t is 0/0. It is `false` for a plain number, so the check compiles away (and keeps the
+# zero rates small enough to inline) outside differentiation.
+__dual_at_origin(t) = false
+__dual_at_origin(t::ForwardDiff.Dual) = iszero(__primal(t)) && !iszero(t)
+
 # L of a zero-native curve: z(t)·t with z the continuous zero rate, which is exactly the exponent
 # `discount(zero(c, t), t)` uses. At an exact zero time L is 0 whatever the zero rate there: a
 # wrapper over a discount-native curve has a removable 0/0 zero rate at t = 0. Under ForwardDiff

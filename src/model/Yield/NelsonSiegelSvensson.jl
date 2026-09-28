@@ -55,28 +55,29 @@ function NelsonSiegel(τ₁ = 1.0)
     return NelsonSiegel(τ₁, 1.0, 0.0, 0.0)
 end
 
-# The decay (1 - e^{-q})/q of the Nelson-Siegel factors, from its Taylor series, for a time whose
-# value is 0: a time derivative there (a dual t with value 0) finds the closed form's 0/0, and the
-# series is exact at 0 through the eighth derivative. The zero rates that use it are out of line, so
-# that `zero` stays small enough to inline.
+# The zero rates for a time derivative at t = 0 (see `__dual_at_origin`), where the closed form's
+# decay (1 - e^{-q})/q is 0/0: the decay comes from its Taylor series, exact at 0 through the eighth
+# derivative. They are out of line, so that `zero` stays small enough to inline.
 __ns_decay_at_origin(q) = evalpoly(-q, (1, 1 / 2, 1 / 6, 1 / 24, 1 / 120, 1 / 720, 1 / 5040, 1 / 40320, 1 / 362880))
-@noinline function __ns_zero_at_origin(ns, q, e)
+@noinline function __ns_zero_at_origin(ns, t)
+    q = t / ns.τ₁
     d = __ns_decay_at_origin(q)
-    return Continuous(ns.β₀ + ns.β₁ * d + ns.β₂ * (d - e))
+    return Continuous(ns.β₀ + ns.β₁ * d + ns.β₂ * (d - exp(-q)))
 end
-@noinline function __nss_zero_at_origin(nss, q₁, q₂, e₁, e₂)
+@noinline function __nss_zero_at_origin(nss, t)
+    q₁, q₂ = t / nss.τ₁, t / nss.τ₂
     d₁, d₂ = __ns_decay_at_origin(q₁), __ns_decay_at_origin(q₂)
-    return Continuous(nss.β₀ + nss.β₁ * d₁ + nss.β₂ * (d₁ - e₁) + nss.β₃ * (d₂ - e₂))
+    return Continuous(nss.β₀ + nss.β₁ * d₁ + nss.β₂ * (d₁ - exp(-q₁)) + nss.β₃ * (d₂ - exp(-q₂)))
 end
 
 function Base.zero(ns::NelsonSiegel, t)
     iszero(t) && return Continuous(ns.β₀ + ns.β₁)  # lim_{t→0}: decay → 1, hump → 0
+    __dual_at_origin(t) && return __ns_zero_at_origin(ns, t)
     # Bind leaf subexpressions (q, e) only — do NOT combine into `decay = (1-e)/q` and
     # write `β·decay`: that reassociates `(β·(1-e))/q → β·((1-e)/q)`, and the sub-ULP
     # gradient shift tips the (documented, highly sensitive) NSS calibration into NaN.
     q = t / ns.τ₁
     e = exp(-q)
-    iszero(__primal(t)) && return __ns_zero_at_origin(ns, q, e)
     return Continuous(ns.β₀ + ns.β₁ * (1.0 - e) / q + ns.β₂ * ((1.0 - e) / q - e))
 end
 FinanceCore.discount(ns::NelsonSiegel, t) = _discount_from_zero(ns, t)
@@ -149,6 +150,7 @@ NelsonSiegelSvensson(τ₁ = 1.0, τ₂ = 1.0) = NelsonSiegelSvensson(τ₁, τ�
 
 function Base.zero(nss::NelsonSiegelSvensson, t)
     iszero(t) && return Continuous(nss.β₀ + nss.β₁)  # lim_{t→0}: same as NelsonSiegel; β₂, β₃ vanish
+    __dual_at_origin(t) && return __nss_zero_at_origin(nss, t)
     # Bind leaf subexpressions (q, e) only — see the NelsonSiegel `zero` above. Do NOT
     # combine into shared `decay = (1-e)/q` intermediates: reassociating the `β·(1-e)/q`
     # products shifts ForwardDiff gradients enough to tip the sensitive NSS fit into NaN.
@@ -156,7 +158,6 @@ function Base.zero(nss::NelsonSiegelSvensson, t)
     q₂ = t / nss.τ₂
     e₁ = exp(-q₁)
     e₂ = exp(-q₂)
-    iszero(__primal(t)) && return __nss_zero_at_origin(nss, q₁, q₂, e₁, e₂)   # as for NelsonSiegel
     return Continuous(nss.β₀ + nss.β₁ * (1.0 - e₁) / q₁ + nss.β₂ * ((1.0 - e₁) / q₁ - e₁) + nss.β₃ * ((1.0 - e₂) / q₂ - e₂))
 end
 FinanceCore.discount(nss::NelsonSiegelSvensson, t) = _discount_from_zero(nss, t)

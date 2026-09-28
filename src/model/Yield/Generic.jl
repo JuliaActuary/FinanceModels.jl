@@ -108,7 +108,7 @@ function Base.zero(c::YC, time) where {YC <: AbstractYieldModel}
     # L/t; for a curve that defines only `discount`, L is -log(discount(c, time)). At t = 0 this is
     # 0/0, which only a curve's own `zero` resolves: NaN at an exact 0 (the sampling form of
     # `ZeroRateCurve` rejects it), and a throw for a time derivative there, which would be NaN too.
-    (iszero(__primal(time)) && !iszero(time)) && __throw_zero_rate_derivative_at_origin(time)
+    __dual_at_origin(time) && __throw_zero_rate_derivative_at_origin(time)
     return Continuous(__log_discount(c, time) / time)
 end
 @noinline __throw_zero_rate_derivative_at_origin(t) = throw(
