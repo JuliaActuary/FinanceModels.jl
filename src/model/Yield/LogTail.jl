@@ -12,8 +12,10 @@ struct __LogTail{T}
 end
 __LogTail(a2, a1, a0) = __LogTail(promote(a2, a1, a0)...)
 
-__combine_tails(op, x::__LogTail, y::__LogTail) = __LogTail(op(x.a2, y.a2), op(x.a1, y.a1), op(x.a0, y.a0))
-__scale_tail(k, x::__LogTail) = __LogTail(k * x.a2, k * x.a1, k * x.a0)
+# Tails add, subtract and scale coefficientwise, as their log-discounts do.
+Base.:+(x::__LogTail, y::__LogTail) = __LogTail(x.a2 + y.a2, x.a1 + y.a1, x.a0 + y.a0)
+Base.:-(x::__LogTail, y::__LogTail) = __LogTail(x.a2 - y.a2, x.a1 - y.a1, x.a0 - y.a0)
+Base.:*(k::Real, x::__LogTail) = __LogTail(k * x.a2, k * x.a1, k * x.a0)
 # L(τ + t) − L(τ), given L(τ): the tail of a curve rebased to start at τ.
 __shift_tail(x::__LogTail, τ, L_τ) = __LogTail(x.a2, x.a1 + 2 * x.a2 * τ, x.a0 + (x.a1 + x.a2 * τ) * τ - L_τ)
 

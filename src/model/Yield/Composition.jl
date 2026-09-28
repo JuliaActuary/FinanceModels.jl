@@ -76,40 +76,6 @@ struct CompositeYield{T, U, V <: Union{typeof(+), typeof(-)}} <: AbstractYieldMo
 end
 
 
-# Composition happens in log-discount space: `+` adds the components' cumulative log-discounts
-# (multiplying their discount factors) and `-` subtracts them (dividing), then a single `exp`
-# forms the discount factor. The zero rate is the same combination of the components' zero rates.
-function Base.zero(rc::CompositeYield, time)
-    z1 = FinanceCore.rate(Base.zero(rc.r1, time))
-    z2 = FinanceCore.rate(Base.zero(rc.r2, time))
-    return Continuous(rc.op(z1, z2))
-end
-# At t = Inf the components' tails are combined before the limit is taken. The components' L is
-# inlined at these calls: a composite inlined into a loop (`pv`'s `map`) otherwise copies each
-# component onto the stack for every call. Inlining a Spline's L into every caller instead makes
-# the generic interval too large to inline into bond pricing.
-function __log_discount(rc::CompositeYield, time)
-    __at_infinity(time) && return __log_discount_at_infinity(rc)
-    return rc.op((@inline __log_discount(rc.r1, time)), (@inline __log_discount(rc.r2, time)))
-end
-function FinanceCore.discount(rc::CompositeYield, time)
-    __at_infinity(time) && return __discount_at_infinity(rc)
-    return exp(-__log_discount(rc, time))
-end
-__log_tail(rc::CompositeYield) = __combine_tails(rc.op, __log_tail(rc.r1), __log_tail(rc.r2))
-
-# A wrapper's interval combines its components' intervals, so each keeps its own form: a log-native
-# curve's difference of log-discounts (L(to) alone from 0), Smith–Wilson's signed ratio, a rebased
-# curve's base interval, the ratio D(to)/D(from) of a curve that defines only `discount` (whose D(0)
-# need not be 1). Those stay finite where both of a wrapper's discount factors underflow. At an
-# infinite endpoint the components' limits alone lose information (flat forwards of 4% and −2% have
-# L = Inf and −Inf), so the wrapper's own L there comes from its combined tail.
-__at_infinity_either(from, to) = isinf(from) || isinf(to)
-function __log_interval(rc::CompositeYield, from, to)
-    __at_infinity_either(from, to) && return __log_discount(rc, to) - __log_discount(rc, from)
-    return rc.op(__log_interval(rc.r1, from, to), __log_interval(rc.r2, from, to))
-end
-
 """
     ScaledYield(curve, factor)
 
@@ -123,27 +89,41 @@ struct ScaledYield{T <: AbstractYieldModel, S <: Real} <: AbstractYieldModel
     factor::S
 end
 
-# Scaling multiplies the zero rate, and so the cumulative log-discount, by `factor` (it raises
-# the discount factor to that power); the discount factor is a single `exp` of it.
-function Base.zero(sy::ScaledYield, time)
-    z = FinanceCore.rate(Base.zero(sy.curve, time))
-    return Continuous(z * sy.factor)
+# Both wrappers work in log-discount space: a composite's `+` adds its components' cumulative
+# log-discounts (multiplying their discount factors) and `-` subtracts them (dividing), and scaling
+# multiplies the curve's by `factor` (raising its discount factor to that power); a single `exp` then
+# forms the discount factor. Zero rates, log-discounts, intervals and tails all combine this one
+# way, `__combine(w, f)` of the components' `f`.
+const __CombinedYield = Union{CompositeYield, ScaledYield}
+@inline __combine(rc::CompositeYield, f::F) where {F} = rc.op(f(rc.r1), f(rc.r2))
+@inline __combine(sy::ScaledYield, f::F) where {F} = sy.factor * f(sy.curve)
+
+Base.zero(w::__CombinedYield, time) = Continuous(__combine(w, @inline(c -> FinanceCore.rate(Base.zero(c, time)))))
+# At t = Inf the components' tails are combined before the limit is taken. The components' L is
+# inlined at these calls: a wrapper inlined into a loop (`pv`'s `map`) otherwise copies each
+# component onto the stack for every call. Inlining a Spline's L into every caller instead makes
+# the generic interval too large to inline into bond pricing.
+function __log_discount(w::__CombinedYield, time)
+    __at_infinity(time) && return __log_discount_at_infinity(w)
+    return __combine(w, @inline(c -> @inline(__log_discount(c, time))))
 end
-# The curve's L is inlined at this call, as for `CompositeYield`.
-function __log_discount(sy::ScaledYield, time)
-    __at_infinity(time) && return __log_discount_at_infinity(sy)
-    return sy.factor * @inline(__log_discount(sy.curve, time))
+function FinanceCore.discount(w::__CombinedYield, time)
+    __at_infinity(time) && return __discount_at_infinity(w)
+    return exp(-__log_discount(w, time))
 end
-function FinanceCore.discount(sy::ScaledYield, time)
-    __at_infinity(time) && return __discount_at_infinity(sy)
-    return exp(-__log_discount(sy, time))
+__log_tail(w::__CombinedYield) = __combine(w, __log_tail)
+
+# A wrapper's interval combines its components' intervals, so each keeps its own form: a log-native
+# curve's difference of log-discounts (L(to) alone from 0), Smith–Wilson's signed ratio, a rebased
+# curve's base interval, the ratio D(to)/D(from) of a curve that defines only `discount` (whose D(0)
+# need not be 1). Those stay finite where both of a wrapper's discount factors underflow. At an
+# infinite endpoint the components' limits alone lose information (flat forwards of 4% and −2% have
+# L = Inf and −Inf), so the wrapper's own L there comes from its combined tail.
+function __log_interval(w::__CombinedYield, from, to)
+    (isinf(from) || isinf(to)) && return __log_discount(w, to) - __log_discount(w, from)
+    return __combine(w, @inline(c -> __log_interval(c, from, to)))
 end
-__log_tail(sy::ScaledYield) = __scale_tail(sy.factor, __log_tail(sy.curve))
-function __log_interval(sy::ScaledYield, from, to)
-    __at_infinity_either(from, to) && return __log_discount(sy, to) - __log_discount(sy, from)
-    return sy.factor * __log_interval(sy.curve, from, to)
-end
-function FinanceCore.discount(w::Union{CompositeYield, ScaledYield}, from, to)
+function FinanceCore.discount(w::__CombinedYield, from, to)
     d = exp(-__log_interval(w, from, to))
     return from == to ? one(d) : d
 end
