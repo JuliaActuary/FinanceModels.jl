@@ -240,16 +240,16 @@ __default_loss(m) = Fit.Loss(x -> x^2)
 # so declaring it costs them nothing.
 const __FIT_ADTYPE = DifferentiationInterface.SecondOrder(AutoForwardDiff(), AutoForwardDiff())
 
+# The fitting loss: `loss_method.fn` summed over the price residuals of `quotes` under `model`.
+__quote_loss(model, loss_method, quotes) = mapreduce(+, quotes) do q
+    loss_method.fn(present_value(model, q.instrument) - q.price)
+end
+
 # Build an `OptimizationFunction` whose loss reprices `quotes` under the model returned
-# by `build(u)` (parameters → model), summing `loss_method.fn` over the price residuals.
-# `build(u)` runs once per loss evaluation, then the model is reused across quotes.
+# by `build(u)` (parameters → model). `build(u)` runs once per loss evaluation, then the model
+# is reused across quotes.
 function __reprice_loss(build, loss_method, quotes)
-    function loss(u, _p)
-        m = build(u)
-        return mapreduce(+, quotes) do q
-            loss_method.fn(present_value(m, q.instrument) - q.price)
-        end
-    end
+    loss(u, _p) = __quote_loss(build(u), loss_method, quotes)
     return Optimization.OptimizationFunction(loss, __FIT_ADTYPE)
 end
 
@@ -447,23 +447,17 @@ function fit(
                 "respect to a fitted curve's knot rates, use reconstruct(curve; rates = dual_rates)."
         )
     )
-    # find the rate that minimizes the loss function w.r.t. the calculated price vs the quotes
-    # AccessibleModels uses maximization internally, so we negate the loss to minimize it
-    function neg_loss_fn(m, qs)
-        loss = mapreduce(+, qs) do q
-            p = present_value(m, q.instrument)
-            method.fn(p - q.price)
-        end
-        return -loss
-    end
-    amodel = AccessibleModel(Base.Fix2(neg_loss_fn, quotes), mod0, variables)
-    tf = AccessibleModels.transformed_func(amodel)
+    # AccessibleModels parameterizes the model: the transformed vector the optimizer moves, its
+    # bounds, and the model rebuilt from a candidate. The loss is the quotes' repricing loss, with
+    # the quotes passed as the problem's data (capturing them in the closure made the solve slower).
+    params = AccessibleModel(mod0, variables)
+    build(x) = AccessibleModels.from_transformed(x, params)
     # `__FIT_ADTYPE` is SecondOrder so a bounds-compatible second-order optimizer
     # (e.g. `IPNewton()`) finds a Hessian; the default `Fminbox(LBFGS())` uses only the
     # gradient (via the inner `AutoForwardDiff`) and is unaffected.
-    optf = Optimization.OptimizationFunction((x, p) -> convert(eltype(x), -tf(x, p)), __FIT_ADTYPE)
-    x0 = collect(AccessibleModels.transformed_vec(amodel))
-    bounds = AccessibleModels.transformed_bounds(amodel)
+    optf = Optimization.OptimizationFunction((x, qs) -> convert(eltype(x), __quote_loss(build(x), method, qs)), __FIT_ADTYPE)
+    x0 = collect(AccessibleModels.transformed_vec(params))
+    bounds = AccessibleModels.transformed_bounds(params)
     lb = haskey(bounds, :lb) ? collect(bounds.lb) : nothing
     ub = haskey(bounds, :ub) ? collect(bounds.ub) : nothing
     # Ensure x0 is strictly interior to avoid Fminbox boundary warnings
@@ -475,9 +469,9 @@ function fit(
             end
         end
     end
-    prob = Optimization.OptimizationProblem(optf, x0, AccessibleModels.rawdata(amodel); lb, ub)
+    prob = Optimization.OptimizationProblem(optf, x0, quotes; lb, ub)
     sol = __successful_fit_solution(Optimization.solve(prob, optimizer; solve_kwargs...))
-    return AccessibleModels.from_transformed(sol.u, amodel)
+    return build(sol.u)
 
 end
 
