@@ -475,3 +475,5 @@ end
 @noinline __mc_log_discount_at_infinity(mc::MonotoneConvex) = __log_discount_at_infinity(mc._tail)
 __log_native(::MonotoneConvex) = true
 __log_tail(mc::MonotoneConvex) = __log_tail(mc._tail)
+
+__build(::Sp.MonotoneConvex, g::KnotGrid; extrapolation = :flat_forward) = MonotoneConvex(g; extrapolation)

@@ -1,0 +1,102 @@
+# ── Shared knot-grid construction ──────────────────────────────────────────────────────
+#
+# Every curve that interpolates zero rates over a knot grid (`Yield.Spline` and
+# `Yield.MonotoneConvex`, however built: `ZeroRateCurve`, `reconstruct`, `fit`) obtains its
+# knot data through `KnotGrid`, so all of them copy their inputs, promote to one concrete float
+# type, and raise the same `ArgumentError`s for the same invalid grids.
+
+# Minimum knot counts. Polynomial and B-spline orders reduce to `n - 1` on short grids, so one
+# knot is a flat curve; PCHIP and Akima need three (two reach an UndefRefError inside
+# DataInterpolations); a one-knot MonotoneConvex curve is flat.
+__min_knots(::Sp.SplineCurve) = 1
+__min_knots(::Sp.PCHIP) = 3
+__min_knots(::Sp.Akima) = 3
+
+__check_min_knots(::Nothing, n, who) = n >= 1 || throw(ArgumentError("$who: at least one knot is required (got $n)."))
+function __check_min_knots(spline::Sp.SplineCurve, n, who)
+    k = __min_knots(spline)
+    n >= k || throw(ArgumentError("$who: $(spline) requires at least $k knots (got $n)."))
+    return nothing
+end
+
+
+# Owned, concretely-typed float `Vector` from any iterable of reals. Always copies (even
+# when handed a `Vector`), so the curve never aliases caller-owned memory; never narrows
+# AD types (`float(::Dual)` is a `Dual`). Inputs that are not real numbers fail where they are
+# converted (`float(String)`, `Float64(::Dual)` for mixed dual tags, …). An untyped empty input
+# has no values to promote: `Bool`, which every real type absorbs, makes it `Float64[]`, so the
+# grid's own length check reports it.
+function __owned_float_vector(x)
+    v = x isa AbstractVector ? x : collect(x)
+    T = isconcretetype(eltype(v)) ? eltype(v) : mapreduce(typeof, promote_type, v; init = Bool)
+    return Vector{float(T)}(v)   # Array-from-AbstractArray always allocates a fresh copy
+end
+
+# Marker for the internal, unvalidated `KnotGrid` construction used by optimizer trial curves.
+struct Unchecked end
+
+"""
+    KnotGrid(rates, tenors[, spline::Spline.SplineCurve]; who = "KnotGrid")
+
+Internal. The owned, validated knot data behind every `AbstractInterpolatedZeroCurve`
+(`Yield.Spline`, `Yield.MonotoneConvex`). `rates` and `tenors` are each
+copied from any iterable of reals (a `Vector` is copied too, so no curve aliases caller-owned
+memory) and promoted **independently** to one concrete floating-point element type
+(`Int` → `Float64`, `Float32` + `BigFloat` → `BigFloat`, `Float64` + `ForwardDiff.Dual` →
+`Dual`, never narrowed).
+
+Throws an `ArgumentError` (prefixed with `who`, the public constructor's name) when:
+
+- `rates` and `tenors` differ in length, or either is empty;
+- any rate or tenor is not finite (`NaN`, `±Inf`);
+- any tenor is negative, or the tenors are not strictly increasing (unsorted or duplicated);
+- there are fewer knots than `spline` needs (`__min_knots`). Without `spline`, one knot is
+  enough; the curve constructors that accept a grid check their own minimum.
+
+Inputs that are not real numbers fail where they are converted to floats (a `MethodError` such as
+`float(::Type{String})`).
+
+A curve built from a grid takes ownership of the grid's vectors. The grid is a construction
+input, not a container to keep and modify.
+
+`KnotGrid(Yield.Unchecked(), rates, tenors)` is internal: it neither copies nor validates. It
+exists only for optimizer trial curves (`fit`, bootstrap) whose grid was validated up front
+and whose candidate rates may be non-finite mid-search. Fitted results are always rebuilt
+through the validating form.
+"""
+struct KnotGrid{R, T}
+    rates::Vector{R}   # continuously-compounded zero rates (finite)
+    tenors::Vector{T}  # finite, ≥ 0, strictly increasing
+    KnotGrid(::Unchecked, rates::Vector{R}, tenors::Vector{T}) where {R, T} = new{R, T}(rates, tenors)
+end
+# unchecked trial form over non-`Vector` buffers (an optimizer may hand over a view or similar)
+KnotGrid(u::Unchecked, rates::AbstractVector, tenors::AbstractVector) =
+    KnotGrid(u, convert(Vector, rates), convert(Vector, tenors))
+
+function KnotGrid(rates, tenors, spline::Union{Nothing, Sp.SplineCurve} = nothing; who = "KnotGrid")
+    r = __owned_float_vector(rates)
+    t = __owned_float_vector(tenors)
+    length(r) == length(t) || throw(
+        ArgumentError(
+            "$who: `rates` and `tenors` must have the same length (got $(length(r)) and $(length(t)))."
+        )
+    )
+    # the knot count first, so an empty grid reports it; then the tenors, which the rates of a
+    # sampled grid depend on
+    __check_min_knots(spline, length(t), who)
+    all(isfinite, t) || throw(ArgumentError("$who: all tenors must be finite (got $(t))."))
+    # primal values throughout: ForwardDiff orders Duals with equal values by their partials, so
+    # `Dual(0, -1) >= 0` is false and `Dual(1, 1) > Dual(1, 0)` is true
+    __primal(first(t)) >= 0 || throw(ArgumentError("$who: tenors must be ≥ 0 (got $(t))."))
+    # finiteness is checked first so NaN cannot defeat the ordering comparison
+    for i in 2:length(t)
+        __primal(t[i]) > __primal(t[i - 1]) || throw(
+            ArgumentError(
+                "$who: tenors must be strictly increasing (sorted, no duplicates); got $(t). " *
+                    "Sort the (rate, tenor) pairs before constructing."
+            )
+        )
+    end
+    all(isfinite, r) || throw(ArgumentError("$who: all rates must be finite (got $(r))."))
+    return KnotGrid(Unchecked(), r, t)
+end
