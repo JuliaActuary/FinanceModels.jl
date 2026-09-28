@@ -23,7 +23,9 @@
 # - `__log_tail`, exact: `Constant`, `Spline`, `MonotoneConvex`, and the wrappers `CompositeYield`,
 #   `ScaledYield`, `ForwardStarting`, `HullWhite`, which combine their components' tails. Every other
 #   curve uses the fallback, which knows only the growth rate its zero rate at infinity implies.
-# - `__PrimalCurve` forwards all four without partials.
+# - A curve that forwards to another (`HullWhite`, `__PrimalCurve`) forwards `discount(c, t)`,
+#   `discount(c, from, to)`, `__log_discount`, `__log_interval` and `__log_tail`, so the wrapped
+#   curve's own interval rule applies. `__log_native` is for leaf curves only.
 
 # Cumulative log-discount L(t) = −log D(t): the continuously compounded force accumulated from
 # valuation time 0 to `t`. `forward` and the generic `zero` are built from it. The fallback needs

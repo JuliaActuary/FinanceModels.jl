@@ -155,6 +155,13 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
             )
             @test discount(w, 30000.0, 30001.0) ≈ exp(-f) rtol = 1.0e-12
         end
+        # the primal view that `implied_quote` solves on keeps each curve's own interval (it took the
+        # ratio of the underflowed factors, NaN, and was one ulp off for Smith–Wilson)
+        for w in (zrc_lin + ns, sw0 + k, 2 * sw, fs + k, Yield.ForwardStarting(zrc_lin, 1.0), sw)
+            for (a, b) in ((29000.0, 30000.0), (2.0, 7.0))
+                @test discount(Yield.__PrimalCurve(w), a, b) === discount(w, a, b)
+            end
+        end
     end
 
     @testset "Smith-Wilson intervals are exact for either sign of the discount factor" begin

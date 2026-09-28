@@ -1,11 +1,13 @@
 # A curve view that evaluates without dual numbers, so internal derivatives never
-# mix a caller's ForwardDiff tag with an internal one.
+# mix a caller's ForwardDiff tag with an internal one. Like every curve that forwards to another,
+# it forwards both interval methods, `discount(c, from, to)` and `__log_interval`, so the wrapped
+# curve's own interval rule applies; `__log_native` only selects a leaf curve's default intervals.
 struct __PrimalCurve{C} <: AbstractYieldModel
     curve::C
 end
 FinanceCore.discount(c::__PrimalCurve, t) = __primal(FinanceCore.discount(c.curve, t))
+FinanceCore.discount(c::__PrimalCurve, from, to) = __primal(FinanceCore.discount(c.curve, from, to))
 __log_discount(c::__PrimalCurve, t) = __primal(__log_discount(c.curve, t))
-__log_native(c::__PrimalCurve) = __log_native(c.curve)
 __log_interval(c::__PrimalCurve, from, to) = __primal(__log_interval(c.curve, from, to))
 function __log_tail(c::__PrimalCurve)
     t = __log_tail(c.curve)
