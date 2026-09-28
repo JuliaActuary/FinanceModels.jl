@@ -81,10 +81,16 @@ curves returned by spline `fit`s and `Fit.Bootstrap()`. All of them share one in
   numerically stable at very small and very large tenors. The sampled grid is validated like any
   other knot grid. A tenor of `0` (previously rejected) takes the source curve's zero-rate limit
   there; a source curve without one gives a non-finite rate, which throws.
-- **Fitting a knot curve is one rebuild per optimizer candidate.** `fit(curve, quotes)` works for
-  any knot curve and varies all knot rates through a single batch `FinanceModels.KnotRatesOptic()`
-  (previously one `@optic(_.rates[i])` per knot rebuilt the curve once per knot per candidate,
-  O(n²) in the number of knots). Custom `variables` still work.
+- **Refitting a knot curve is the spline fit on its knots.** `fit(curve, quotes)` works for any
+  knot curve: it fits new knot rates at the curve's tenors with its interpolation method and
+  extrapolation policy, by the same solve as `fit(spline, quotes)`. It starts from the same rates
+  (not the curve's own), builds one unchecked trial curve per optimizer candidate, uses the
+  spline's default optimizer (`Newton()`, or `LBFGS()` for `Spline.MonotoneConvex()`), and
+  differentiates through dual quotes when there is one knot per quote. It no longer accepts
+  `variables` (a `MethodError`): that keyword never had a documented use for knot curves and was
+  inherited from the generic optic-based fit, whose candidates went through the public
+  constructor and made a flat PCHIP or Akima starting curve throw. An `FX.Forwards` whose foreign
+  curve is a knot curve refits it through the implied foreign quotes, like a spline placeholder.
 - **`fit` validates the knot grid before optimising**: loss fits and `Fit.Bootstrap()` throw the
   construction `ArgumentError` for duplicate or non-positive maturities, too few quotes for the
   interpolant, or `extrapolation = :extension` with `Spline.MonotoneConvex()`, before any solver

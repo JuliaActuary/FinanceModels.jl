@@ -130,24 +130,6 @@ __default_optic(m::MyModel) = (
 
 """
 __default_optic(m::Yield.Constant) = ((@optic(_.rate.continuous_value) => -1.0 .. 1.0),)
-"""
-    KnotRatesOptic()
-
-Batch optic over every knot rate of a `Yield.AbstractInterpolatedZeroCurve`. `getall` returns the
-rates as a tuple; `setall` replaces them all with **one** [`reconstruct`](@ref) of the curve (one
-interpolant build per optimizer candidate). This is the default fitting variable for those
-curves: a tuple of per-knot optics would rebuild the curve once per knot per candidate, i.e.
-O(n²) work and allocation in the number of knots.
-"""
-struct KnotRatesOptic end
-Accessors.OpticStyle(::Type{KnotRatesOptic}) = Accessors.ModifyBased()
-Accessors.getall(m::Yield.AbstractInterpolatedZeroCurve, ::KnotRatesOptic) = Tuple(Yield.knot_rates(m))
-Accessors.setall(m::Yield.AbstractInterpolatedZeroCurve, ::KnotRatesOptic, vals) = Yield.reconstruct(m; rates = vals)
-Accessors.modify(f, m::Yield.AbstractInterpolatedZeroCurve, o::KnotRatesOptic) =
-    Accessors.setall(m, o, map(f, Accessors.getall(m, o)))
-
-__default_optic(m::Yield.AbstractInterpolatedZeroCurve) = ((KnotRatesOptic() => -1.0 .. 1.0),)
-
 __default_optic(m::Yield.NelsonSiegel) = (
     @optic(_.τ₁) => 0.0 .. 100.0,
     @optic(_.β₀) => -10.0 .. 10.0,
@@ -282,7 +264,7 @@ Fit a model to a collection of quotes using a loss function and optimization met
 - `quotes`: A collection of quotes to fit the model to.
 - `method::F=Fit.Loss(x -> x^2)`: The loss function to use for fitting the model. Defaults to the squared loss function. 
   - `method` can also be `Bootstrap()` with `Spline.Linear()`. Other interpolation strategies require a full-curve `Fit.Loss`.
-- `variables=__default_optic(model)`: The variables to optimize over. This is a tuple of optic => interval pairs specifying which parameters of the model can vary. See extended help for more.
+- `variables=__default_optic(model)`: The variables to optimize over. This is a tuple of optic => interval pairs specifying which parameters of the model can vary. See extended help for more. Spline and knot-curve fits vary the knot rates and do not take `variables`.
 - `optimizer=__default_optim(model)`: The optimization algorithm to use. The default optimization for a given model is `LBFGS()` from Optim.jl (via OptimizationOptimJL), a quasi-Newton method with automatic differentiation via ForwardDiff. See extended help for more on customizing the solver.
 - `solve_kwargs=(;)`: Keyword arguments passed to `Optimization.solve` with the optimizer, such as
   `(; maxiters = 10_000, abstol = 1e-12)` or Optim.jl's `g_tol`. Use them to tighten a loss fit.
@@ -294,9 +276,12 @@ Fit a model to a collection of quotes using a loss function and optimization met
 Fitting a `Spline.SplineCurve` places one knot at each quote maturity and returns the same
 curve type as [`ZeroRateCurve`](@ref): a `Yield.MonotoneConvex` for `Spline.MonotoneConvex()`
 (whose default optimizer is `LBFGS()`) and a `Yield.Spline` otherwise (default `Newton()`).
-`Fit.Bootstrap()` accepts `Spline.Linear()` only. Fitting an existing knot curve varies its knot
-rates and preserves its tenors, method and `extrapolation`. With fewer quotes than a polynomial or
-B-spline needs for its order, the order is reduced to one less than the number of knots (see
+`Fit.Bootstrap()` accepts `Spline.Linear()` only. Fitting an existing knot curve
+(`fit(curve, quotes)`, a [`Yield.AbstractInterpolatedZeroCurve`](@ref)) fits new knot rates at
+its tenors with its interpolation method and `extrapolation`, by the same solve as a spline fit
+and from the same starting rates (not the curve's own); its default optimizer is the spline's.
+With fewer quotes than a polynomial or B-spline needs for its order, the order is reduced to one
+less than the number of knots (see
 [`Spline.PolynomialSpline`](@ref FinanceModels.Spline.PolynomialSpline)): `fit(Spline.Cubic(), quotes)`
 with two quotes returns a linear curve.
 
@@ -310,7 +295,8 @@ Different types of quotes are appropriate for different kinds of models. For exa
 ## Differentiating through a fit
 
 Spline fits (`fit(spline, quotes)` and `fit(Spline.Linear(), quotes, Fit.Bootstrap())`,
-including `FX.Forwards` with a spline foreign curve) are differentiable with ForwardDiff: when
+including `FX.Forwards` with a spline foreign curve) and fits of an existing knot curve with one
+knot per quote are differentiable with ForwardDiff: when
 quote prices, rates, or cashflow amounts are dual numbers, the fitted knot rates carry the exact
 first-order derivatives of the calibration. They come from the implicit function theorem at
 the fitted curve, not from the solver's iterations, and their values are the primal fit exactly.
@@ -323,6 +309,8 @@ ForwardDiff.gradient(value, [0.03, 0.032, 0.035, 0.037])   # ∂value/∂quoted 
 
 - The derivatives are first order, with respect to the quotes passed to `fit`. Nested
   (higher-order) dual numbers, and dual maturities or cashflow times, throw.
+- A refitted knot curve needs one knot per quote; with another number of knots the implicit
+  solve is not square and throws a `DimensionMismatch`.
 - The fit must reprice its quotes. Bootstrap does; a loss fit is differentiated only if the
   largest absolute component of one Newton correction of its knot rates towards the exact fit
   is at most `1e-6`. That correction is a local estimate of the fit's error, not a guaranteed
@@ -466,13 +454,27 @@ function fit(
     return fit(mod0, quotes, __default_loss(mod0); optimizer, solve_kwargs, extrapolation)
 end
 
-# Every interpolation method, including `Spline.MonotoneConvex()`, fits through this one
-# method: knots at the sorted quote maturities, one trial curve per candidate built by the same
-# `Yield.__build` as `ZeroRateCurve`, and a validated `ZeroRateCurve` as the result.
+# A spline fit places its knots at the sorted quote maturities.
 function fit(
         mod0::T, quotes, method::F; optimizer = __default_optim(mod0), solve_kwargs = (;),
         extrapolation = :flat_forward
     ) where {T <: Spline.SplineCurve, F <: Fit.Loss}
+    tenors = sort!([maturity(q) for q in quotes])
+    return __fit_knot_rates(mod0, tenors, quotes, method, extrapolation; optimizer, solve_kwargs)
+end
+
+# Refitting a knot curve keeps its knot tenors, interpolation method and extrapolation policy.
+function fit(
+        c::Yield.AbstractInterpolatedZeroCurve, quotes, method::Fit.Loss;
+        optimizer = __default_optim(c.spline), solve_kwargs = (;)
+    )
+    return __fit_knot_rates(c.spline, Yield.knot_tenors(c), quotes, method, c.extrapolation; optimizer, solve_kwargs)
+end
+
+# Every loss fit of knot rates, for every interpolation method including
+# `Spline.MonotoneConvex()`: one trial curve per candidate built by the same `Yield.__build` as
+# `ZeroRateCurve`, and a validated `ZeroRateCurve` as the result.
+function __fit_knot_rates(spline, tenors, quotes, method, extrapolation; optimizer, solve_kwargs)
     # The solve runs on primal quotes; dual numbers in the quotes or the extrapolation policy
     # are propagated afterwards by the implicit function theorem (see `__implicit_knot_curve`).
     quotes, primal_quotes = __calibration_quotes(quotes)
@@ -480,17 +482,16 @@ function fit(
     # Validate the policy and the knot grid once, up front (duplicate maturities, too few
     # knots for the interpolant, `:extension` with MonotoneConvex, …) with the same errors as
     # direct construction; trial curves reuse them.
-    tenors = sort!(maturity.(primal_quotes))
-    grid0 = Yield.KnotGrid(__knot_fit_seed(mod0, tenors), tenors, mod0; who = "fit($(mod0))")
-    __check_primal_quotes(Yield.__build(mod0, grid0; extrapolation = primal_extrapolation), primal_quotes)
-    loss(u, qs) = __quote_loss(__trial_curve(mod0, u, grid0.tenors, primal_extrapolation), method, qs)
+    grid0 = Yield.KnotGrid(__knot_fit_seed(spline, tenors), tenors, spline; who = "fit($(spline))")
+    __check_primal_quotes(Yield.__build(spline, grid0; extrapolation = primal_extrapolation), primal_quotes)
+    loss(u, qs) = __quote_loss(__trial_curve(spline, u, grid0.tenors, primal_extrapolation), method, qs)
     rates = __minimize(loss, grid0.rates, primal_quotes, optimizer, solve_kwargs)
-    curve = Yield.ZeroRateCurve(rates, grid0.tenors, mod0; extrapolation = primal_extrapolation)   # public result: validated (finite rates)
+    curve = Yield.ZeroRateCurve(rates, grid0.tenors, spline; extrapolation = primal_extrapolation)   # public result: validated (finite rates)
     return __implicit_knot_curve(curve, quotes, primal_quotes, extrapolation)
 end
 
-# FX.Forwards with a spline placeholder as the foreign curve: given spot, the domestic
-# curve, and market quotes, each quote reduces to an equivalent quote on the
+# FX.Forwards with a spline placeholder or a knot curve as the foreign curve: given spot, the
+# domestic curve, and market quotes, each quote reduces to an equivalent quote on the
 # base-currency discount curve — closed-form implied zero-coupon quotes for outright
 # forwards (DF_f(t) = (K·DF_d(t) + price)/spot, see `FX.implied_zcb_quotes`) and par
 # cashflow strips for basis swaps (see `FX.ParBasisSwap`) — so curve construction
@@ -504,7 +505,8 @@ function __fit_fx_via_implied(mod0, quotes, method; kwargs...)
     return @set mod0.foreign = fit(mod0.foreign, implied, method; kwargs...)
 end
 fit(mod0::FX.Forwards{P, S, D, F}, quotes, method::Fit.Bootstrap; kwargs...) where {P, S, D, F <: Spline.SplineCurve} = __fit_fx_via_implied(mod0, quotes, method; kwargs...)
-fit(mod0::FX.Forwards{P, S, D, F}, quotes, method::Fit.Loss; kwargs...) where {P, S, D, F <: Spline.SplineCurve} = __fit_fx_via_implied(mod0, quotes, method; kwargs...)
+fit(mod0::FX.Forwards{P, S, D, F}, quotes, method::Fit.Loss; kwargs...) where {P, S, D, F <: Union{Spline.SplineCurve, Yield.AbstractInterpolatedZeroCurve}} =
+    __fit_fx_via_implied(mod0, quotes, method; kwargs...)
 
 # Appending a knot must preserve every earlier segment, not merely the earlier
 # knot values. In particular, "local" smooth splines need not have this property.

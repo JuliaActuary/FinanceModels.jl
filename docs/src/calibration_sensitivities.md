@@ -77,8 +77,9 @@ internal derivatives never mix with yours.
 | `fit(spline, quotes)` (`Fit.Loss`), every interpolation method | yes | the fit must reprice its quotes; see below |
 | `fit(Spline.Linear(), quotes, Fit.Bootstrap())` | yes | exact to root-finder precision |
 | `fit(FX.Forwards(pair, spot, domestic, spline), quotes, …)` | yes | through the implied foreign quotes |
+| `fit(curve, quotes)`, refitting an existing knot curve | with one knot per quote | the spline fit on the curve's knots; another number of knots throws a `DimensionMismatch` |
 | `fit(Yield.SmithWilson(…), quotes)` | quote prices only | closed form; dual coupon amounts are not yet supported |
-| other models (`Yield.NelsonSiegel`, `Yield.Constant`, short-rate models, refitting an existing curve) | no | `fit` throws an `ArgumentError` |
+| other models (`Yield.NelsonSiegel`, `Yield.Constant`, short-rate models) | no | `fit` throws an `ArgumentError` |
 
 Dual numbers may appear in quote prices, in the rates of `Bond.Fixed` and `Bond.Floating`, in
 the amounts of `Cashflow`, `Composite`, and `FX.BasisSwapLeg` instruments (which covers

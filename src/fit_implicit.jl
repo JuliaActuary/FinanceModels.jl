@@ -139,7 +139,9 @@ function __implicit_knot_curve(curve, quotes, primal_quotes, extrapolation)
     D = __common_dual_type((Rd..., __extrapolation_dual(extrapolation)...))
     D === nothing && return curve
 
-    # the knots are the quote maturities (duplicates rejected), so there is one knot per quote
+    # One knot per quote: a spline fit's knots are the quote maturities (duplicates rejected). A
+    # refitted knot curve with another number of knots makes the solve below non-square, which
+    # `\` rejects (`DimensionMismatch`): the quotes then do not determine the knot rates' derivatives.
     z0 = collect(Yield.knot_rates(curve))
     tenors = collect(Yield.knot_tenors(curve))
     # A kink of the interpolant at the fitted knots (flat quotes make adjacent forwards equal,

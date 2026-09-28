@@ -66,6 +66,17 @@ Optimizer-backed `fit`s accept `solve_kwargs`, passed to `Optimization.solve` (f
 `solve_kwargs = (; maxiters = 10_000, g_tol = 1e-12)`). A differentiated loss fit that stops
 too far from an exact fit now has a way to tighten it.
 
+### Refitting a knot curve
+
+`fit(curve, quotes)` for a knot curve (`Yield.AbstractInterpolatedZeroCurve`) is now the spline
+fit on the curve's knots: it keeps the curve's tenors, interpolation method and extrapolation
+policy, starts from the same knot rates as `fit(spline, quotes)` (not the curve's own), uses the
+spline's default optimizer, and carries implicit-function derivatives of dual quotes when there
+is one knot per quote. It previously ran the generic optic fit, whose candidates went through the
+public constructor, so a flat PCHIP or Akima starting curve threw. It no longer accepts
+`variables`, and `FinanceModels.KnotRatesOptic` is removed. An `FX.Forwards` with a knot-curve
+foreign curve refits it through the implied foreign quotes.
+
 ### PCHIP and Akima fits on evenly spaced maturities
 
 `Spline.PCHIP()` and `Spline.Akima()` loss fits started from knot rates that were linear in the

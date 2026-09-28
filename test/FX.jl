@@ -148,6 +148,9 @@
         @testset "all-at-once spline fit (Fit.Loss) via implied quotes" begin
             m_fit = fit(FX.Forwards(eurusd, S, usd_boot, Spline.Cubic()), quotes)
             @test all(abs(pv(m_fit, q.instrument)) < 1.0e-6 for q in quotes)
+            # a knot-curve foreign curve refits on its own knots through the same quotes
+            m_knots = fit(FX.Forwards(eurusd, S, usd_boot, ZeroRateCurve(fill(0.03, length(ts)), ts, Spline.Cubic())), quotes)
+            @test isequal(m_knots.foreign, m_fit.foreign)
         end
 
         @testset "fit keywords reach the foreign-curve fit" begin

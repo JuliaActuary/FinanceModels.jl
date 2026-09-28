@@ -532,29 +532,32 @@ using ForwardDiff
         @test_throws "tenors must be finite" ZeroRateCurve(c, [NaN, 1.0])
     end
 
-    @testset "generic fit via __default_optic" begin
+    @testset "refitting a knot curve" begin
         t = [1.0, 2.0, 5.0, 10.0]
         target = [0.02, 0.025, 0.03, 0.035]
         qs = ZCBYield.(Continuous.(target), t)        # continuous quotes: fitted zero rates == target
-        zrc0 = ZeroRateCurve(fill(0.01, length(t)), t)
-        # one batch optic over all knot rates: a single rebuild per optimizer candidate
-        optics = FinanceModels.__default_optic(zrc0)
-        @test length(optics) == 1
-        o = first(optics).first
-        @test o isa FinanceModels.KnotRatesOptic
-        @test Accessors.getall(zrc0, o) === Tuple(zrc0.rates)
-        zb = Accessors.setall(zrc0, o, target)
-        @test zb isa Yield.MonotoneConvex && zb.rates == target && zb.tenors == t
-        @test discount(zb, 2.0) ≈ exp(-0.025 * 2.0)
-        @test zrc0.rates == fill(0.01, length(t))                  # original untouched
-        @test Accessors.modify(x -> 2x, zrc0, o).rates == fill(0.02, length(t))
-        @test_throws ArgumentError Accessors.setall(zrc0, o, [NaN, 0.0, 0.0, 0.0])   # still validated
-        fitted = fit(zrc0, qs)
-        @test fitted isa Yield.MonotoneConvex
-        @test fitted.tenors == t
-        @test maximum(abs, present_value(fitted, q.instrument) - q.price for q in qs) < 1.0e-6
+        # The refit keeps the curve's tenors, method and extrapolation policy, and is the spline
+        # fit on those knots (same solve, same starting rates), whatever the curve's own rates:
+        # flat PCHIP and Akima curves sit on a kink, where the earlier optic-based refit threw.
+        for spline in (Spline.MonotoneConvex(), Spline.Linear(), Spline.Cubic(), Spline.PCHIP(), Spline.Akima())
+            zrc0 = ZeroRateCurve(fill(0.01, length(t)), t, spline; extrapolation = :flat_zero)
+            fitted = fit(zrc0, qs)
+            @test fitted isa typeof(ZeroRateCurve(target, t, spline))
+            @test fitted.tenors == t && fitted.spline == spline && fitted.extrapolation === :flat_zero
+            @test maximum(abs, present_value(fitted, q.instrument) - q.price for q in qs) < 1.0e-6
+            @test isequal(fitted, fit(spline, qs; extrapolation = :flat_zero))
+            @test zrc0.rates == fill(0.01, length(t))                  # original untouched
+        end
         fl = fit(ZeroRateCurve(fill(0.01, length(t)), t, Spline.Linear()), qs)
         @test fl.rates ≈ target atol = 1.0e-5
+        # more quotes than knots: a least-squares fit at the curve's own tenors
+        over = fit(ZeroRateCurve(fill(0.01, 3), [1.0, 3.0, 10.0], Spline.Linear()), qs)
+        @test over.tenors == [1.0, 3.0, 10.0] && eltype(over.rates) === Float64
+        @test all(isfinite, over.rates)
+        # knot rates are the variables: a knot curve's fit takes no optics
+        zrc0 = ZeroRateCurve(fill(0.01, length(t)), t)
+        @test_throws MethodError fit(zrc0, qs; variables = ((@optic(_.rates[1]),),))
+        @test fit(zrc0, qs, Fit.Loss(x -> x^2); solve_kwargs = (; g_tol = 1.0e-12)) isa Yield.MonotoneConvex
     end
 
     # ─── Knot-curve interface ─────────────────────────────────────────────────

@@ -328,13 +328,6 @@
         rates = [0.03, 0.032, 0.034, 0.037, 0.039]
         c = Yield.MonotoneConvex(rates, times)
 
-        # one batch optic over every knot rate (previously a broadcast over a
-        # ClosedInterval that threw `iterate(::ClosedInterval)` the moment it was
-        # evaluated, then one optic per knot — an O(n²) rebuild per candidate)
-        optic = FinanceModels.__default_optic(c)
-        @test length(optic) == 1
-        @test length(Accessors.getall(c, first(optic).first)) == length(rates)
-
         # reconstructable via Accessors, and the cached f/fᵈ stay consistent with
         # the updated rates (the struct caches derived fields but had no 4-arg ctor)
         c2 = Accessors.@set c.rates[2] = 0.05
@@ -453,19 +446,9 @@
             @test_throws MethodError Yield.MonotoneConvex(c._f, c._fᵈ, c.rates, c.tenors)   # no 4-arg ctor
         end
 
-        @testset "batch knot-rate optic" begin
+        @testset "refit of a monotone convex curve" begin
             c = Yield.MonotoneConvex(rates, times)
-            optics = FinanceModels.__default_optic(c)
-            @test length(optics) == 1
-            o = first(optics).first
-            @test o isa FinanceModels.KnotRatesOptic
-            @test Accessors.getall(c, o) === Tuple(c.rates)
-            new = [0.03, 0.03, 0.03, 0.03]
-            cb = Accessors.setall(c, o, new)
-            @test cb.rates == new && cb.tenors == times
-            @test cb._f == Yield.__monotone_convex_fs(new, times)[1]
-            @test Accessors.modify(x -> x + 0.01, c, o).rates ≈ rates .+ 0.01
-            # fitting varies all knots through the single optic and reprices
+            # fitting varies all knots and reprices
             target = [0.02, 0.025, 0.03, 0.032]
             qs = ZCBYield.(Continuous.(target), times)
             fitted = fit(c, qs)
