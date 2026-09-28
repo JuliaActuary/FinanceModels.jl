@@ -113,3 +113,12 @@ function ZeroRateCurve(
     rates = [FinanceCore.rate(convert(Continuous(), Base.zero(curve, tᵢ))) for tᵢ in t]
     return ZeroRateCurve(rates, t, spline; extrapolation)
 end
+
+# The public constructors (`ZeroRateCurve`, `Yield.Spline`, `reconstruct`) check the caller's dual
+# knot rates. FinanceModels' own trial curves (optimizer candidates, bootstrap steps, the
+# calibration Jacobian) do not: spline fits start away from the switches (`__knot_fit_seed`),
+# and a differentiated fit checks its fitted knots itself before its Jacobian.
+function __build_public(s::Sp.SplineCurve, g::KnotGrid; extrapolation = :flat_forward)
+    __check_dual_kinks(s, g)
+    return __build(s, g; extrapolation)
+end

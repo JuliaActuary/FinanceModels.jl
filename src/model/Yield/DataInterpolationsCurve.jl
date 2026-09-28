@@ -90,8 +90,6 @@ function Base.zero(c::Spline, t)
     return Continuous(c._fn(t))
 end
 
-include("Extrapolation.jl")
-
 # Public, validating form: every direct construction copies and checks its inputs.
 Spline(spline::Sp.SplineCurve, tenors, rates; extrapolation = :flat_forward) =
     __build_public(spline, KnotGrid(rates, tenors, spline; who = "Yield.Spline"); extrapolation)
@@ -134,8 +132,6 @@ __interpolant(::Sp.PCHIP, g::KnotGrid, extrapolation_kwargs) =
 __interpolant(::Sp.Akima, g::KnotGrid, extrapolation_kwargs) =
     DataInterpolations.AkimaInterpolation(g.rates, g.tenors; extrapolation_kwargs...)
 
-include("Kinks.jl")
-
 function __interpolant(b::Sp.PolynomialSpline, g::KnotGrid, extrapolation_kwargs)
     xs, ys = g.tenors, g.rates
     # documented short-grid rule (`Spline.PolynomialSpline`): the order reduces to `k - 1` on `k` knots
@@ -152,4 +148,46 @@ function __interpolant(b::Sp.PolynomialSpline, g::KnotGrid, extrapolation_kwargs
     else
         DataInterpolations.CubicSpline(ys, xs; extrapolation_kwargs..., cache_parameters = true)
     end
+end
+
+# DataInterpolations handles the short end (a flat zero rate before the first knot) and, only
+# for `:extension`, the long end; every other long-end policy is a `CurveTail` (Extrapolation.jl).
+function __interpolation_extrapolation(method)
+    E = DataInterpolations.ExtrapolationType
+    return method === :extension ? (; extrapolation_left = E.Constant, extrapolation_right = E.Extension) :
+        (; extrapolation_left = E.Constant)
+end
+
+# The average (discrete) continuously compounded forward over the last knot interval,
+# `(zₙtₙ - zₙ₋₁tₙ₋₁) / (tₙ - tₙ₋₁)`: the `:flat_forward` anchor for DataInterpolations-backed
+# curves. With a single knot, the only forward the data imply is the zero rate itself.
+function __last_discrete_forward(rates, tenors)
+    n = length(tenors)
+    n == 1 && return only(rates)
+    zₙ, tₙ, zₘ, tₘ = rates[n], tenors[n], rates[n - 1], tenors[n - 1]
+    return (zₙ * tₙ - zₘ * tₘ) / (tₙ - tₘ)
+end
+
+# A single callable adapter combines a DataInterpolations zero-rate interpolant with its
+# tail. Every policy, including `:extension`, uses this one type, so a runtime policy
+# Symbol does not change the constructed curve's type. With `extend = true`
+# (`:extension`) the interpolant also evaluates beyond the last knot and the tail is unused.
+struct Extrapolated{I, E}
+    interpolant::I
+    tail::E
+    extend::Bool
+end
+@inline (e::Extrapolated)(t) = (e.extend || t <= e.tail.last_tenor) ? e.interpolant(t) : e.tail(t)
+
+# The zero-rate function of a `Yield.Spline`: the interpolant through the last knot, then the tail.
+function __extrapolate(interpolant, g::KnotGrid, method)
+    t, z = last(g.tenors), last(g.rates)
+    if method === :extension
+        # Same tail type as `:flat_zero`, but never evaluated.
+        tail = __curve_tail(t, z, zero(z), zero(z), false)
+        return Extrapolated(interpolant, tail, true)
+    end
+    forward = () -> __last_discrete_forward(g.rates, g.tenors)
+    slope = () -> DataInterpolations.derivative(interpolant, t)
+    return Extrapolated(interpolant, __build_tail(method, t, z, forward, slope), false)
 end
