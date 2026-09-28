@@ -133,16 +133,25 @@ function _initial_rate(m::ShortRate.CoxIngersollRoss)
     return rate(Continuous(m.initial))
 end
 
+# The affine short-rate models' factor ∫₀^τ e^{-as} ds = (1 - e^{-aτ})/a: the bond sensitivity
+# B(τ) = -∂log P/∂r of Vasicek and Hull-White, and (at 2a) their variance factors. It is τ at a = 0.
+# The closed form is accurate for every other a, but its ForwardDiff derivative in `a` cancels as
+# aτ → 0, so |aτ| < 0.2 uses the Taylor polynomial of φ₂(x) = (e^{-x} - 1 + x)/x² (the factor is
+# τ(1 - xφ₂(x))), whose omitted terms are below Float64 rounding there.
+const _AFFINE_SERIES_X = 0.2
+const _φ2_COEFFS = ntuple(k -> (-1)^(k - 1) / factorial(k + 1), 11)
+_φ2(x) = evalpoly(x, _φ2_COEFFS)
+@inline function _decay_integral(a, τ)
+    x = a * τ
+    return abs(x) < _AFFINE_SERIES_X ? τ * (1 - x * _φ2(x)) : -expm1(-x) / a
+end
+
 # Vasicek ZCB price: P = A(τ) exp(-B(τ) r)
 # For small |a|, the general formula suffers from catastrophic cancellation
 # (two O(σ²τ²/a) terms nearly cancel). Use a Taylor expansion instead.
-# Vasicek's B(τ) = (1 - e^{-aτ})/a, the sensitivity -∂log P/∂r of a zero-coupon bond.
-# Taylor expansion in a for small aτ, avoiding cancellation: B = τ - aτ²/2 + a²τ³/6 - a³τ⁴/24
-_vasicek_B(a, τ) = abs(a * τ) < 0.02 ? τ * (1 - a * τ / 2 + (a * τ)^2 / 6 - (a * τ)^3 / 24) : (1 - exp(-a * τ)) / a
-
 # −log P(τ) = B·r − lnA; the price is its exp.
 function _vasicek_log_zcb(a, b, σ, r, τ)
-    B = _vasicek_B(a, τ)
+    B = _decay_integral(a, τ)
     if abs(a * τ) < 0.02
         # Taylor expansion in a, avoiding cancellation:
         # lnA = σ²τ³/6 - a(bτ²/2 + σ²τ⁴/8) + a²(bτ³/6 + 7σ²τ⁵/120)
@@ -167,11 +176,7 @@ function _cir_zcb(a, b, σ, r, τ)
     if abs(σ) < 1.0e-15
         # Deterministic limit: dr = a(b-r)dt → r(t) = b + (r0-b)exp(-at)
         # P(0,τ) = exp(-∫₀ᵗ r(s)ds) = exp(-(bτ + (r-b)(1-exp(-aτ))/a))
-        if abs(a) < 1.0e-12
-            return exp(-r * τ)
-        else
-            return exp(-(b * τ + (r - b) * (1 - exp(-a * τ)) / a))
-        end
+        return exp(-(b * τ + (r - b) * _decay_integral(a, τ)))
     end
     γ = sqrt(a^2 + 2σ^2)
     expγτ = exp(γ * τ)
@@ -230,13 +235,10 @@ function FinanceCore.discount(m::ShortRate.HullWhite, t, T, r_t)
     a, σ = m.a, m.σ
     P0t = FinanceCore.discount(m.curve, t)
     P0T = FinanceCore.discount(m.curve, T)
-    B_tT = _hw_B(a, t, T)
+    B_tT = _decay_integral(a, T - t)
     f0t = _hw_forward_rate(m.curve, t)
-    if abs(a) < 1.0e-12
-        lnA = log(P0T / P0t) + B_tT * f0t - 0.5 * σ^2 * t * B_tT^2
-    else
-        lnA = log(P0T / P0t) + B_tT * f0t - σ^2 / (4a) * B_tT^2 * (1 - exp(-2a * t))
-    end
+    # σ²/(4a)·(1 - e^{-2at}) = σ²/2 · ∫₀ᵗ e^{-2as} ds
+    lnA = log(P0T / P0t) + B_tT * f0t - σ^2 / 2 * B_tT^2 * _decay_integral(2a, t)
     return exp(lnA - B_tT * r_t)
 end
 
@@ -352,7 +354,7 @@ _sim_eltype(m::ShortRate.HullWhite, r0) =
 #   x_{t+dt} | x_t ~ Normal(x_t·ϕ, sd²),  ϕ = exp(-a·dt),  sd² = σ²(1-ϕ²)/(2a)
 function _ou_step_params(a, σ, dt)
     ϕ = exp(-a * dt)
-    var = abs(a) < 1.0e-12 ? σ^2 * dt : σ^2 * (-expm1(-2a * dt)) / (2a)
+    var = σ^2 * _decay_integral(2a, dt)
     return (ϕ = ϕ, sd = sqrt(var))
 end
 
@@ -391,11 +393,7 @@ end
 function _hw_alpha(m::ShortRate.HullWhite, t)
     a, σ = m.a, m.σ
     f0t = _hw_forward_rate(m.curve, t)
-    if abs(a) < 1.0e-12
-        return f0t + σ^2 * t^2 / 2
-    else
-        return f0t + σ^2 / (2a^2) * (1 - exp(-a * t))^2
-    end
+    return f0t + σ^2 / 2 * _decay_integral(a, t)^2
 end
 
 # Per-simulation cache: OU transition parameters for the Gaussian models
@@ -446,20 +444,6 @@ end
 #            Hull (2018) "Options, Futures, and Other Derivatives", Ch. 32
 #            Jamshidian (1989) "An Exact Bond Option Formula"
 
-# -∂log P(t,T|r)/∂r for the affine Gaussian models
-_affine_B(m::ShortRate.Vasicek, t, T) = _vasicek_B(m.a, T - t)
-_affine_B(m::ShortRate.HullWhite, t, T) = _hw_B(m.a, t, T)
-
-# Hull-White B(t,T) function
-function _hw_B(a, t, T)
-    τ = T - t
-    if abs(a) < 1.0e-12
-        return τ
-    else
-        return (1 - exp(-a * τ)) / a
-    end
-end
-
 # Instantaneous forward rate f(0,t) = -d/dt ln P(0,t) via automatic differentiation
 function _hw_forward_rate(curve, t)
     t_eval = max(t, 1.0e-10)  # avoid exactly zero for AD stability
@@ -494,13 +478,8 @@ function _zcb_option_price(m::_GaussianModel, T, S, K)
     P0T = FinanceCore.discount(m, T)
     P0S = FinanceCore.discount(m, S)
 
-    # σ_P: volatility of the ZCB price at expiry
-    B_TS = _hw_B(a, T, S)
-    if abs(a) < 1.0e-12
-        σ_P = σ * B_TS * sqrt(T)
-    else
-        σ_P = σ * B_TS * sqrt((1 - exp(-2a * T)) / (2a))
-    end
+    # σ_P: volatility of the ZCB price at expiry, σ·B(T,S)·sqrt((1 - e^{-2aT})/(2a))
+    σ_P = σ * _decay_integral(a, S - T) * sqrt(_decay_integral(2a, T))
 
     if σ_P < 1.0e-15
         # Degenerate case: no vol → intrinsic value
@@ -616,7 +595,7 @@ function FinanceCore.present_value(m::_GaussianModel, c::Option.Swaption)
         return total
     end
     slope_terms(r) = (
-        weight(i) * __primal(_affine_B(m, T0, Ti)) * __primal(FinanceCore.discount(m, T0, Ti, r))
+        weight(i) * __primal(_decay_integral(m.a, Ti - T0)) * __primal(FinanceCore.discount(m, T0, Ti, r))
             for (i, Ti) in enumerate(payment_times)
     )
 

@@ -1283,7 +1283,28 @@ end
         d = pv(ShortRate.Vasicek(ForwardDiff.Dual(0.15, 1.0), 0.04, 0.01, Continuous(0.03)), sw)
         @test ForwardDiff.value(d) == vasicek(p0)
     end
-    # a small mean reversion uses Vasicek's Taylor-expanded B in both price and slope
+    # a small mean reversion uses the series form of B in both price and slope
     small(a) = pv(ShortRate.Vasicek(a, 0.04, 0.01, Continuous(0.03)), Option.Swaption(1.0, 6.0, 0.035, 1))
     @test ForwardDiff.derivative(small, 1.0e-3) ≈ (small(1.0e-3 + 1.0e-7) - small(1.0e-3 - 1.0e-7)) / 2.0e-7 rtol = 1.0e-5
+end
+
+@testset "affine decay factor (1 - e^{-aτ})/a near a = 0" begin
+    # Vasicek's and Hull-White's B(τ) and variance factors share `_decay_integral`. Hull-White's
+    # closed forms returned τ for |a| < 1e-12, with no derivative in `a`, and lost digits as
+    # a → 0 (relative error 8e-8 at a = 1e-10); Vasicek's four-term Taylor branch was off by
+    # 1e-9 near aτ = 0.02.
+    setprecision(BigFloat, 256) do
+        ref(a, τ) = (x = a * τ; abs(x) < 0.01 ? τ * sum((-x)^k / factorial(big(k + 1)) for k in 0:60) : -expm1(-x) / a)
+        for a in (0.0, 1.0e-300, 1.0e-12, 1.0e-10, 1.0e-6, 1.0e-3, 0.019, 0.021, 0.19, 0.21, 0.5, 2.0), s in (1, -1),
+                τ in (0.25, 1.0, 10.0, 30.0)
+            @test FinanceModels._decay_integral(s * a, τ) ≈ ref(big(s * a), big(τ)) rtol = 4eps()
+            @test ForwardDiff.derivative(x -> FinanceModels._decay_integral(x, τ), s * a) ≈
+                ForwardDiff.derivative(x -> ref(x, big(τ)), big(s * a)) rtol = 1.0e-13
+        end
+    end
+    # Hull-White's swaption Greek in `a` was 0 at a = 0 and 3.6e-7 off at a = 1e-6
+    hw(a) = pv(ShortRate.HullWhite(a, 0.01, Yield.Constant(Continuous(0.03))), Option.Swaption(1.0, 6.0, 0.035, 1))
+    for a in (0.0, 1.0e-6)
+        @test ForwardDiff.derivative(hw, a) ≈ (hw(a + 1.0e-5) - hw(a - 1.0e-5)) / 2.0e-5 rtol = 1.0e-8
+    end
 end
