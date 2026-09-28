@@ -1308,3 +1308,41 @@ end
         @test ForwardDiff.derivative(hw, a) ≈ (hw(a + 1.0e-5) - hw(a - 1.0e-5)) / 2.0e-5 rtol = 1.0e-8
     end
 end
+
+@testset "Vasicek log bond price near a = 0" begin
+    # -log P = B·r + b·(τ - B) - σ²/(2a³)·g(aτ). The closed form of A cancels for small aτ, and
+    # the former two-term Taylor branch below |aτ| = 0.02 was off by up to 4.5e-7 in -log P
+    # (a = 0.001, τ = 19.9). Errors are measured against a 256-bit reference, relative to the
+    # size of the terms.
+    setprecision(BigFloat, 256) do
+        function ref(a, b, σ, r, τ)
+            x = a * τ
+            if abs(x) < 0.01
+                φ2 = sum((-x)^k / factorial(big(k + 2)) for k in 0:60)
+                h = sum((-x)^k * (big(2)^(k + 2) - 2) / factorial(big(k + 3)) for k in 0:60)
+                return (τ - τ * x * φ2) * r + b * τ * x * φ2 - σ^2 * τ^3 / 2 * h
+            end
+            m = expm1(-x)
+            return -m / a * r + b * (x + m) / a - σ^2 / (2a^3) * (x + m - m^2 / 2)
+        end
+        logP = FinanceModels._vasicek_log_zcb
+        for a in (0.0, 1.0e-300, 1.0e-10, 1.0e-6, 1.0e-3, 0.01, 0.019, 0.021, 0.1, 0.19, 0.21, 0.5, 1.0, 2.0),
+                s in (1, -1), τ in (0.25, 1.0, 5.0, 19.9, 30.0), (b, σ, r) in ((0.05, 0.01, 0.03), (0.03, 0.2, 0.05), (-0.01, 0.1, 0.0))
+            x = s * a
+            abs(x * τ) > 40 && continue
+            R = ref(big(x), big(b), big(σ), big(r), big(τ))
+            scale = max((abs(r) + abs(b)) * τ + σ^2 * τ^3, abs(Float64(R)))
+            @test abs(logP(x, b, σ, r, τ) - R) <= 8eps() * scale
+            da = ForwardDiff.derivative(y -> logP(y, b, σ, r, τ), x)
+            dA = ForwardDiff.derivative(y -> ref(y, big(b), big(σ), big(r), big(τ)), big(x))
+            @test abs(da - dA) <= 1.0e-13 * max((abs(r) + abs(b)) * τ^2 + σ^2 * τ^4, abs(Float64(dA)))
+            dτ = ForwardDiff.derivative(t -> logP(x, b, σ, r, t), τ)
+            dT = ForwardDiff.derivative(t -> ref(big(x), big(b), big(σ), big(r), t), big(τ))
+            @test abs(dτ - dT) <= 1.0e-13 * max(abs(r) + abs(b) + σ^2 * τ^2, abs(Float64(dT)))
+        end
+        @test logP(0.001, 0.05, 0.01, 0.03, 19.9) ≈ ref(big(0.001), big(0.05), big(0.01), big(0.03), big(19.9)) rtol = 4eps()
+    end
+    # the long rate b - σ²/(2a²) decides the limit at infinity
+    @test discount(ShortRate.Vasicek(0.1, 0.05, 0.01, Continuous(0.03)), Inf) == 0.0
+    @test discount(ShortRate.Vasicek(0.1, 0.001, 0.05, Continuous(0.03)), Inf) == Inf
+end

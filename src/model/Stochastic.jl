@@ -146,22 +146,21 @@ _φ2(x) = evalpoly(x, _φ2_COEFFS)
     return abs(x) < _AFFINE_SERIES_X ? τ * (1 - x * _φ2(x)) : -expm1(-x) / a
 end
 
-# Vasicek ZCB price: P = A(τ) exp(-B(τ) r)
-# For small |a|, the general formula suffers from catastrophic cancellation
-# (two O(σ²τ²/a) terms nearly cancel). Use a Taylor expansion instead.
-# −log P(τ) = B·r − lnA; the price is its exp.
+# Vasicek ZCB price P = A(τ) exp(-B(τ) r):
+#     -log P(τ) = B·r + (τ - B)·(b - σ²/(2a²)) + σ²B²/(4a) = B·r + b·(τ - B) - σ²τ³/2·h(aτ),
+# with h(x) = (x - 3/2 + 2e^{-x} - e^{-2x}/2)/x³ = Σₖ (-x)ᵏ (2ᵏ⁺² - 2)/(k + 3)!. The first form, with
+# B = -m/a and τ - B = (x + m)/a for m = expm1(-x), keeps the terms linear in τ in one product, so
+# -log P follows the long rate b - σ²/(2a²) to ±∞; its σ² terms cancel as x = aτ → 0, so |x| < 0.2
+# uses the second form with the Taylor polynomials of φ₂ and h, exact to Float64 rounding there.
+const _VASICEK_H_COEFFS = ntuple(k -> (-1)^(k - 1) * (2^(k + 1) - 2) / factorial(k + 2), 13)
 function _vasicek_log_zcb(a, b, σ, r, τ)
-    B = _decay_integral(a, τ)
-    if abs(a * τ) < 0.02
-        # Taylor expansion in a, avoiding cancellation:
-        # lnA = σ²τ³/6 - a(bτ²/2 + σ²τ⁴/8) + a²(bτ³/6 + 7σ²τ⁵/120)
-        lnA = σ^2 * τ^3 / 6 -
-            a * (b * τ^2 / 2 + σ^2 * τ^4 / 8) +
-            a^2 * (b * τ^3 / 6 + 7 * σ^2 * τ^5 / 120)
-    else
-        lnA = (B - τ) * (a^2 * b - 0.5 * σ^2) / a^2 - σ^2 * B^2 / (4a)
+    x = a * τ
+    if abs(x) < _AFFINE_SERIES_X
+        p = x * _φ2(x)
+        return τ * (1 - p) * r + b * τ * p - σ^2 * τ^3 / 2 * evalpoly(x, _VASICEK_H_COEFFS)
     end
-    return B * r - lnA
+    m = expm1(-x)
+    return -m / a * r + (x + m) / a * (b - σ^2 / (2a^2)) + σ^2 * m^2 / (4a^3)
 end
 _vasicek_zcb(a, b, σ, r, τ) = exp(-_vasicek_log_zcb(a, b, σ, r, τ))
 

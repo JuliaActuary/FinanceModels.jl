@@ -20,6 +20,17 @@ Hull-White swaptions silently dropped every `∂Kᵢ/∂r*·dr*/dθ` term: on a 
 swaption, Vasicek's `∂/∂a` had the wrong sign and vega was 9% too high. `r*` now carries
 its implicit-function derivatives; prices are unchanged up to root-finder precision (#290).
 
+### Vasicek and Hull-White near zero mean reversion (changed numbers)
+
+Vasicek bond prices used a truncated Taylor expansion below |aτ| = 0.02 and, above it, a closed
+form whose variance terms cancel: `-log P` was off by up to 4.5e-7 (a = 0.001, τ = 19.9), a
+Vasicek swaption by up to 8e-8, and the bond price's derivative in `a` by 6e-5 relative at
+a = 0.001. Hull-White's closed forms switched to their a = 0 limits below |a| = 1e-12, so their
+derivatives in `a` vanished there (a swaption's `∂/∂a` at a = 0 was 0) and they lost digits just
+above the switch. Both models now evaluate these factors to within a few units of Float64
+rounding for every mean reversion, zero and negative included, with exact ForwardDiff
+derivatives. Prices change by the former errors; away from small aτ, only in the last bits.
+
 ### Differentiable spline fits
 
 Spline `fit`s (`Fit.Loss` with any interpolation method, `Fit.Bootstrap()` with
