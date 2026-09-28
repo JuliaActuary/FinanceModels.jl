@@ -104,7 +104,6 @@ Spline(::Sp.MonotoneConvex, tenors, rates; extrapolation = :flat_forward) = thro
 # optimizer trial grid. `ZeroRateCurve`, `Yield.Spline`, `reconstruct`, and `fit` all end here,
 # so the descriptor → curve-type mapping lives in one place.
 function __build(s::Sp.SplineCurve, g::KnotGrid; extrapolation = :flat_forward)
-    __check_min_knots(s, length(g.tenors), "Yield.Spline")
     interpolant = __interpolant(s, __interpolation_grid(g), __interpolation_extrapolation(extrapolation))
     return Spline(Unchecked(), s, g, extrapolation, __extrapolate(interpolant, g, extrapolation))
 end

@@ -12,13 +12,6 @@ __min_knots(::Sp.SplineCurve) = 1
 __min_knots(::Sp.PCHIP) = 3
 __min_knots(::Sp.Akima) = 3
 
-__check_min_knots(::Nothing, n, who) = n >= 1 || throw(ArgumentError("$who: at least one knot is required (got $n)."))
-function __check_min_knots(spline::Sp.SplineCurve, n, who)
-    k = __min_knots(spline)
-    n >= k || throw(ArgumentError("$who: $(spline) requires at least $k knots (got $n)."))
-    return nothing
-end
-
 
 # Owned, concretely-typed float `Vector` from any iterable of reals. Always copies (even
 # when handed a `Vector`), so the curve never aliases caller-owned memory; never narrows
@@ -36,7 +29,7 @@ end
 struct Unchecked end
 
 """
-    KnotGrid(rates, tenors[, spline::Spline.SplineCurve]; who = "KnotGrid")
+    KnotGrid(rates, tenors, spline::Spline.SplineCurve; who = "KnotGrid")
 
 Internal. The owned, validated knot data behind every `AbstractInterpolatedZeroCurve`
 (`Yield.Spline`, `Yield.MonotoneConvex`). `rates` and `tenors` are each
@@ -50,8 +43,7 @@ Throws an `ArgumentError` (prefixed with `who`, the public constructor's name) w
 - `rates` and `tenors` differ in length, or either is empty;
 - any rate or tenor is not finite (`NaN`, `±Inf`);
 - any tenor is negative, or the tenors are not strictly increasing (unsorted or duplicated);
-- there are fewer knots than `spline` needs (`__min_knots`). Without `spline`, one knot is
-  enough; the curve constructors that accept a grid check their own minimum.
+- there are fewer knots than `spline` needs (`__min_knots`).
 
 Inputs that are not real numbers fail where they are converted to floats (a `MethodError` such as
 `float(::Type{String})`).
@@ -73,7 +65,7 @@ end
 KnotGrid(u::Unchecked, rates::AbstractVector, tenors::AbstractVector) =
     KnotGrid(u, convert(Vector, rates), convert(Vector, tenors))
 
-function KnotGrid(rates, tenors, spline::Union{Nothing, Sp.SplineCurve} = nothing; who = "KnotGrid")
+function KnotGrid(rates, tenors, spline::Sp.SplineCurve; who = "KnotGrid")
     r = __owned_float_vector(rates)
     t = __owned_float_vector(tenors)
     length(r) == length(t) || throw(
@@ -83,7 +75,8 @@ function KnotGrid(rates, tenors, spline::Union{Nothing, Sp.SplineCurve} = nothin
     )
     # the knot count first, so an empty grid reports it; then the tenors, which the rates of a
     # sampled grid depend on
-    __check_min_knots(spline, length(t), who)
+    k = __min_knots(spline)
+    length(t) >= k || throw(ArgumentError("$who: $(spline) requires at least $k knots (got $(length(t)))."))
     all(isfinite, t) || throw(ArgumentError("$who: all tenors must be finite (got $(t))."))
     # primal values throughout: ForwardDiff orders Duals with equal values by their partials, so
     # `Dual(0, -1) >= 0` is false and `Dual(1, 1) > Dual(1, 0)` is true

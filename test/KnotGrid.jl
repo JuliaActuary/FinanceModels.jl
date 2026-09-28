@@ -84,16 +84,12 @@
         @test eltype(gb.rates) == Float32 && eltype(gb.tenors) == BigFloat   # promoted independently
         @test_throws ArgumentError KG([0.02, 0.03], [2.0, 1.0], Spline.Linear())
         @test_throws ArgumentError KG([0.02, 0.03], [1.0, 2.0], Spline.PCHIP())   # min knots
-        # without a spline the grid validates and copies, too
-        g2 = KG(r, t)
-        @test g2.rates !== r && g2.rates == r && g2.tenors == [1.0, 2.0]
-        @test_throws ArgumentError KG([NaN, 0.0], [1.0, 2.0])
-        @test_throws ArgumentError KG([0.02, 0.03], [2.0, 1.0])
+        @test_throws ArgumentError KG([NaN, 0.0], [1.0, 2.0], Spline.Linear())
         # untyped inputs promote from their values; empty ones reach the grid's own length check
         # (on every Julia version, rather than a native empty-reduction error)
-        ga = KG(Any[0.02, 0.03f0], Any[1, 2.0])
+        ga = KG(Any[0.02, 0.03f0], Any[1, 2.0], Spline.Linear())
         @test eltype(ga.rates) == Float64 && eltype(ga.tenors) == Float64
-        @test_throws "at least one knot is required (got 0)" KG([], [])
+        @test_throws "requires at least 1 knots (got 0)" KG([], [], Spline.MonotoneConvex())
         @test_throws "requires at least 1 knots (got 0)" KG(Any[], (), Spline.Linear())
         # only the internal unchecked form skips copying and validation (optimizer trial curves)
         raw = KG(FinanceModels.Yield.Unchecked(), [NaN, 0.0], [2.0, 1.0])
@@ -105,21 +101,19 @@
         # Regression: the two-argument grid used to keep the caller's vector without
         # validation, so mutating it changed `mc.rates` but not the cached forwards.
         rr = [0.02, 0.03, 0.035]
-        mc = Yield.MonotoneConvex(KG(rr, [1.0, 2, 5]))
+        mc = Yield.MonotoneConvex(KG(rr, [1.0, 2, 5], Spline.MonotoneConvex()))
         d3 = discount(mc, 3.0)
         rr[2] = 0.08
         @test mc.rates[2] == 0.03
         @test discount(mc, 3.0) == d3
         @test discount(mc, 3.0) == discount(Yield.MonotoneConvex([0.02, 0.03, 0.035], [1.0, 2.0, 5.0]), 3.0)
         rr = [0.02, 0.03, 0.035]
-        sp = FinanceModels.Yield.__build(Spline.Linear(), KG(rr, [1.0, 2, 5]))
+        sp = FinanceModels.Yield.__build(Spline.Linear(), KG(rr, [1.0, 2, 5], Spline.Linear()))
         d3 = discount(sp, 3.0)
         rr[2] = 0.08
         @test discount(sp, 3.0) == d3
-        # a curve built over a grid checks its own minimum knot count
-        @test_throws ArgumentError FinanceModels.Yield.__build(Spline.PCHIP(), KG([0.02, 0.03], [1.0, 2.0]))
         # one knot is a flat curve
-        @test rate(zero(FinanceModels.Yield.__build(Spline.Linear(), KG([0.02], [1.0])), 5.0)) == 0.02
+        @test rate(zero(FinanceModels.Yield.__build(Spline.Linear(), KG([0.02], [1.0], Spline.Linear())), 5.0)) == 0.02
     end
 
     @testset "flat-forward long-end extrapolation" begin
