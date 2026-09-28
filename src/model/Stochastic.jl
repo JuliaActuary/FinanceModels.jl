@@ -615,7 +615,7 @@ function FinanceCore.present_value(m::_GaussianModel, c::Option.Swaption)
         end
         return total
     end
-    slope(r) = sum(
+    slope_terms(r) = (
         weight(i) * __primal(_affine_B(m, T0, Ti)) * __primal(FinanceCore.discount(m, T0, Ti, r))
             for (i, Ti) in enumerate(payment_times)
     )
@@ -624,32 +624,18 @@ function FinanceCore.present_value(m::_GaussianModel, c::Option.Swaption)
     # derivatives come from the implicit function theorem (a Float64 root would silently
     # drop the ∂Kᵢ/∂r*·dr*/dθ terms of every Greek).
     # The slope's own terms measure cancellation (negative strikes give negative coupon weights).
-    scale(r) = sum(
-        abs(weight(i) * __primal(_affine_B(m, T0, Ti)) * __primal(FinanceCore.discount(m, T0, Ti, r)))
-            for (i, Ti) in enumerate(payment_times)
+    r_star = __implicit_root(
+        swap_value, r -> __primal(swap_value(r)), 0.0;
+        who = "Swaption critical rate r*", slope = r -> sum(slope_terms(r)), scale = r -> sum(abs, slope_terms(r))
     )
-    r_star = __implicit_root(swap_value, r -> __primal(swap_value(r)), 0.0; who = "Swaption critical rate r*", slope, scale)
 
     # Step 2: Compute strike prices Ki = P(T0, Ti; r*)
-    # Step 3: Sum ZCB options
+    # Step 3: Sum ZCB options, weighted like the swap's payments: a payer swaption is a
+    # portfolio of ZCB puts, a receiver swaption of ZCB calls
     price = 0.0
     for (i, Ti) in enumerate(payment_times)
-        Ki = FinanceCore.discount(m, T0, Ti, r_star)
-        if c.payer
-            # Payer swaption = sum of ZCB puts
-            _, put = _zcb_option_price(m, T0, Ti, Ki)
-            price += coupon * τ * put
-            if i == length(payment_times)
-                price += put  # principal
-            end
-        else
-            # Receiver swaption = sum of ZCB calls
-            call, _ = _zcb_option_price(m, T0, Ti, Ki)
-            price += coupon * τ * call
-            if i == length(payment_times)
-                price += call  # principal
-            end
-        end
+        call, put = _zcb_option_price(m, T0, Ti, FinanceCore.discount(m, T0, Ti, r_star))
+        price += weight(i) * (c.payer ? put : call)
     end
     return price
 end
