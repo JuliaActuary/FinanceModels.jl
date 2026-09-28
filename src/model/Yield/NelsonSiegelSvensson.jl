@@ -57,8 +57,17 @@ end
 
 # The decay (1 - e^{-q})/q of the Nelson-Siegel factors, from its Taylor series, for a time whose
 # value is 0: a time derivative there (a dual t with value 0) finds the closed form's 0/0, and the
-# series is exact at 0 through the eighth derivative.
+# series is exact at 0 through the eighth derivative. The zero rates that use it are out of line, so
+# that `zero` stays small enough to inline.
 __ns_decay_at_origin(q) = evalpoly(-q, (1, 1 / 2, 1 / 6, 1 / 24, 1 / 120, 1 / 720, 1 / 5040, 1 / 40320, 1 / 362880))
+@noinline function __ns_zero_at_origin(ns, q, e)
+    d = __ns_decay_at_origin(q)
+    return Continuous(ns.β₀ + ns.β₁ * d + ns.β₂ * (d - e))
+end
+@noinline function __nss_zero_at_origin(nss, q₁, q₂, e₁, e₂)
+    d₁, d₂ = __ns_decay_at_origin(q₁), __ns_decay_at_origin(q₂)
+    return Continuous(nss.β₀ + nss.β₁ * d₁ + nss.β₂ * (d₁ - e₁) + nss.β₃ * (d₂ - e₂))
+end
 
 function Base.zero(ns::NelsonSiegel, t)
     iszero(t) && return Continuous(ns.β₀ + ns.β₁)  # lim_{t→0}: decay → 1, hump → 0
@@ -67,10 +76,7 @@ function Base.zero(ns::NelsonSiegel, t)
     # gradient shift tips the (documented, highly sensitive) NSS calibration into NaN.
     q = t / ns.τ₁
     e = exp(-q)
-    if iszero(__primal(t))
-        d = __ns_decay_at_origin(q)
-        return Continuous(ns.β₀ + ns.β₁ * d + ns.β₂ * (d - e))
-    end
+    iszero(__primal(t)) && return __ns_zero_at_origin(ns, q, e)
     return Continuous(ns.β₀ + ns.β₁ * (1.0 - e) / q + ns.β₂ * ((1.0 - e) / q - e))
 end
 FinanceCore.discount(ns::NelsonSiegel, t) = _discount_from_zero(ns, t)
@@ -150,10 +156,7 @@ function Base.zero(nss::NelsonSiegelSvensson, t)
     q₂ = t / nss.τ₂
     e₁ = exp(-q₁)
     e₂ = exp(-q₂)
-    if iszero(__primal(t))   # a time derivative at 0, as for NelsonSiegel
-        d₁, d₂ = __ns_decay_at_origin(q₁), __ns_decay_at_origin(q₂)
-        return Continuous(nss.β₀ + nss.β₁ * d₁ + nss.β₂ * (d₁ - e₁) + nss.β₃ * (d₂ - e₂))
-    end
+    iszero(__primal(t)) && return __nss_zero_at_origin(nss, q₁, q₂, e₁, e₂)   # as for NelsonSiegel
     return Continuous(nss.β₀ + nss.β₁ * (1.0 - e₁) / q₁ + nss.β₂ * ((1.0 - e₁) / q₁ - e₁) + nss.β₃ * ((1.0 - e₂) / q₂ - e₂))
 end
 FinanceCore.discount(nss::NelsonSiegelSvensson, t) = _discount_from_zero(nss, t)

@@ -475,6 +475,7 @@ function Base.zero(mc::MonotoneConvex, t)
 end
 
 # L(t) = ∫₀ᵗ f, computed directly rather than as z(t)·t, which would divide by t and multiply back.
+# Its two interval forms below are inlined into it and into `zero`, so each evaluation is one call.
 function __knot_log_discount(mc::MonotoneConvex, t)
     times = mc.tenors
     t > last(times) && return mc._tail(t) * t
@@ -490,14 +491,14 @@ __mc_from_origin(times, i) = i == 1 || iszero(times[i - 1])
 # The zero rate over an interval from t = 0 is fᵈ + G(x)/x. The mean deviation's divided form is
 # accurate for small t (G(x)/x loses digits there) and has no removable 0/0 at t = 0, so a time
 # derivative there is exact.
-function __mc_origin_zero(mc::MonotoneConvex, t, i)
+@inline function __mc_origin_zero(mc::MonotoneConvex, t, i)
     f, fᵈ = mc._f, mc._fᵈ
     return fᵈ[i] + __mc_mean_deviation(t / mc.tenors[i], f[i], f[i + 1], fᵈ[i], __mc_kink_tol(mc, i))
 end
 
 # L over an interval after a knot: the knot's t·z, plus the discrete forward and the integrated
 # deviation accumulated since.
-function __mc_knot_log_discount(mc::MonotoneConvex, t, i)
+@inline function __mc_knot_log_discount(mc::MonotoneConvex, t, i)
     f, fᵈ, rates, times = mc._f, mc._fᵈ, mc.rates, mc.tenors
     t_prev = times[i - 1]
     x = (t - t_prev) / (times[i] - t_prev)
