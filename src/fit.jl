@@ -223,14 +223,6 @@ __quote_loss(model, loss_method, quotes) = mapreduce(+, quotes) do q
     loss_method.fn(present_value(model, q.instrument) - q.price)
 end
 
-# Build an `OptimizationFunction` whose loss reprices `quotes` under the model returned
-# by `build(u)` (parameters → model). `build(u)` runs once per loss evaluation, then the model
-# is reused across quotes.
-function __reprice_loss(build, loss_method, quotes)
-    loss(u, _p) = __quote_loss(build(u), loss_method, quotes)
-    return Optimization.OptimizationFunction(loss, __FIT_ADTYPE)
-end
-
 """
     FitConvergenceError(retcode, msg)
 
@@ -253,21 +245,19 @@ function Base.showerror(io::IO, e::FitConvergenceError)
     return print(io, "FitConvergenceError: ", e.msg, " (optimizer return code ", e.retcode, ")")
 end
 
-# Every optimizer-backed fit must either return a successful solution or throw. A
-# failed solve may leave `sol.u` equal to the initial guess, so constructing a model
-# from it would make optimizer failure look like a valid (but unfitted) result.
-function __successful_fit_solution(sol)
+# Minimize `loss(x, quotes)` from `x0` and return the solution. The quotes are the problem's data
+# (capturing them in `loss` made a Nelson-Siegel fit about 8% slower). Every optimizer-backed fit
+# either returns a successful solution or throws: a failed solve may leave the solution equal to
+# `x0`, and a model built from it would make optimizer failure look like a valid (but unfitted)
+# result.
+function __minimize(loss, x0, quotes, optimizer, solve_kwargs; lb = nothing, ub = nothing)
+    prob = Optimization.OptimizationProblem(Optimization.OptimizationFunction(loss, __FIT_ADTYPE), x0, quotes; lb, ub)
+    sol = Optimization.solve(prob, optimizer; solve_kwargs...)
     Optimization.SciMLBase.successful_retcode(sol.retcode) || throw(
         FitConvergenceError(sol.retcode, "model fitting did not converge")
     )
-    return sol
+    return sol.u
 end
-
-# Flat knot rates are singular under ForwardDiff for interpolants whose slope formula
-# contains divided differences (notably PCHIP and Akima). Start curve calibration from
-# a small slope; the one-knot case is used by MonotoneConvex only.
-__curve_fit_seed(n, lo = 0.01, hi = 0.05) =
-    n <= 1 ? fill((lo + hi) / 2, n) : collect(range(lo, hi; length = n))
 
 """
     fit(
@@ -426,14 +416,9 @@ function fit(
         )
     )
     # AccessibleModels parameterizes the model: the transformed vector the optimizer moves, its
-    # bounds, and the model rebuilt from a candidate. The loss is the quotes' repricing loss, with
-    # the quotes passed as the problem's data (capturing them in the closure made the solve slower).
+    # bounds, and the model rebuilt from a candidate.
     params = AccessibleModel(mod0, variables)
     build(x) = AccessibleModels.from_transformed(x, params)
-    # `__FIT_ADTYPE` is SecondOrder so a bounds-compatible second-order optimizer
-    # (e.g. `IPNewton()`) finds a Hessian; the default `Fminbox(LBFGS())` uses only the
-    # gradient (via the inner `AutoForwardDiff`) and is unaffected.
-    optf = Optimization.OptimizationFunction((x, qs) -> convert(eltype(x), __quote_loss(build(x), method, qs)), __FIT_ADTYPE)
     x0 = collect(AccessibleModels.transformed_vec(params))
     bounds = AccessibleModels.transformed_bounds(params)
     lb = haskey(bounds, :lb) ? collect(bounds.lb) : nothing
@@ -447,21 +432,25 @@ function fit(
             end
         end
     end
-    prob = Optimization.OptimizationProblem(optf, x0, quotes; lb, ub)
-    sol = __successful_fit_solution(Optimization.solve(prob, optimizer; solve_kwargs...))
-    return build(sol.u)
+    # `__FIT_ADTYPE` is SecondOrder so a bounds-compatible second-order optimizer
+    # (e.g. `IPNewton()`) finds a Hessian; the default `Fminbox(LBFGS())` uses only the
+    # gradient (via the inner `AutoForwardDiff`) and is unaffected.
+    loss(x, qs) = convert(eltype(x), __quote_loss(build(x), method, qs))
+    return build(__minimize(loss, x0, quotes, optimizer, solve_kwargs; lb, ub))
 
 end
 
 # Flat knot rates are singular under ForwardDiff for interpolants whose slope formula
 # contains divided differences (notably PCHIP and Akima), so each method starts from a
-# small slope: the DataInterpolations methods near a flat 5%, MonotoneConvex from 1% to 5%.
+# small slope: the DataInterpolations methods near a flat 5%, MonotoneConvex from 1% to 5%
+# (a single knot starts at the midpoint).
 # PCHIP and Akima also switch formulas where adjacent secant slopes are equal, which a seed
 # linear in the knot number gives on an evenly spaced grid, and where PCHIP's end slopes are 0
 # or three times the end secant. They start from a curve that is strictly increasing and
 # strictly concave in the tenors themselves, which stays away from every switch.
+__curve_fit_seed(n, lo, hi) = n <= 1 ? fill((lo + hi) / 2, n) : collect(range(lo, hi; length = n))
 __knot_fit_seed(::Spline.SplineCurve, tenors) = __curve_fit_seed(length(tenors), 0.049, 0.051)
-__knot_fit_seed(::Spline.MonotoneConvex, tenors) = __curve_fit_seed(length(tenors))
+__knot_fit_seed(::Spline.MonotoneConvex, tenors) = __curve_fit_seed(length(tenors), 0.01, 0.05)
 __knot_fit_seed(::Union{Spline.PCHIP, Spline.Akima}, tenors) = 0.05 .- 0.01 .* exp.(-tenors ./ (1 + maximum(tenors; init = 0)))
 
 function fit(
@@ -488,10 +477,12 @@ function fit(
     tenors = sort!(maturity.(primal_quotes))
     grid0 = Yield.KnotGrid(__knot_fit_seed(mod0, tenors), tenors, mod0; who = "fit($(mod0))")
     __check_primal_quotes(Yield.__build(mod0, grid0; extrapolation = primal_extrapolation), primal_quotes)
-    optf = __knot_loss_function(mod0, grid0.tenors, method, primal_quotes, primal_extrapolation)
-    prob = Optimization.OptimizationProblem(optf, grid0.rates)
-    sol = __successful_fit_solution(Optimization.solve(prob, optimizer; solve_kwargs...))
-    curve = Yield.ZeroRateCurve(sol.u, grid0.tenors, mod0; extrapolation = primal_extrapolation)   # public result: validated (finite rates)
+    # Trial curves over an unchecked, pre-validated grid: candidate rates may be non-finite
+    # mid-search, which the line search must see as a bad loss rather than an exception.
+    build(u) = Yield.__build(mod0, Yield.KnotGrid(Yield.Unchecked(), u, grid0.tenors); extrapolation = primal_extrapolation)
+    loss(u, qs) = __quote_loss(build(u), method, qs)
+    rates = __minimize(loss, grid0.rates, primal_quotes, optimizer, solve_kwargs)
+    curve = Yield.ZeroRateCurve(rates, grid0.tenors, mod0; extrapolation = primal_extrapolation)   # public result: validated (finite rates)
     return __implicit_knot_curve(curve, quotes, primal_quotes, extrapolation, has_ad)
 end
 
@@ -596,11 +587,3 @@ function fit(mod0::Yield.SmithWilson, quotes)
     return Yield.SmithWilson(ts, cm, prices; ufr = mod0.ufr, α = mod0.α)
 
 end
-
-# Trial curves over an unchecked, pre-validated grid: candidate rates may be non-finite
-# mid-search, which the line search must see as a bad loss rather than an exception.
-__knot_loss_function(mod0::Spline.SplineCurve, times, loss_method, quotes, extrapolation = :flat_forward) =
-    __reprice_loss(
-    u -> Yield.__build(mod0, Yield.KnotGrid(Yield.Unchecked(), u, times); extrapolation),
-    loss_method, quotes
-)
