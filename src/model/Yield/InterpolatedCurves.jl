@@ -97,6 +97,21 @@ Base.hash(c::AbstractInterpolatedZeroCurve, h::UInt) =
 Base.propertynames(c::AbstractInterpolatedZeroCurve, private::Bool = false) =
     private ? fieldnames(typeof(c)) : (:spline, :rates, :tenors, :extrapolation)
 
+# ConstructionBase protocol, whose derived caches must follow their inputs:
+#  * the properties are (spline, rates, tenors, extrapolation); `getproperties` excludes caches;
+#  * `setproperties` rebuilds through `reconstruct`, whose keywords are exactly those properties:
+#    a patch to a cache (or any unknown key) is a MethodError rather than silently ignored, and
+#    `setproperties(c, getproperties(c)) == c`;
+#  * `constructorof` discards the cache arguments and rebuilds, so
+#    `constructorof(typeof(c))(getfields(c)...) == c`.
+# Every `@set`/`setall`/`fit` reconstruction therefore revalidates and rebuilds the caches.
+Accessors.ConstructionBase.getproperties(c::AbstractInterpolatedZeroCurve) =
+    (spline = c.spline, rates = c.rates, tenors = c.tenors, extrapolation = c.extrapolation)
+Accessors.ConstructionBase.setproperties(c::AbstractInterpolatedZeroCurve, patch::NamedTuple) =
+    reconstruct(c; patch...)
+Accessors.ConstructionBase.constructorof(::Type{<:AbstractInterpolatedZeroCurve}) =
+    (spline, rates, tenors, extrapolation, _...) -> ZeroRateCurve(rates, tenors, spline; extrapolation)
+
 # Print the construction call, which rebuilds an equal curve.
 function Base.show(io::IO, c::AbstractInterpolatedZeroCurve)
     print(io, "ZeroRateCurve(")

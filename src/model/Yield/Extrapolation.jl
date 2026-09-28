@@ -34,6 +34,9 @@ Base.:(==)(a::FlatForwardAt, b::FlatForwardAt) = a.forward == b.forward
 Base.isequal(a::FlatForwardAt, b::FlatForwardAt) = isequal(a.forward, b.forward)
 Base.hash(p::FlatForwardAt, h::UInt) = hash(p.forward, hash(:FlatForwardAt, h))
 Base.show(io::IO, p::FlatForwardAt) = print(io, "Yield.FlatForwardAt(Continuous(", p.forward, "))")
+# The forward is stored continuously compounded and there is no bare-number method, so Accessors
+# rebuilds the policy from the stored value through `Continuous`.
+Accessors.ConstructionBase.constructorof(::Type{<:FlatForwardAt}) = f -> FlatForwardAt(Continuous(f))
 
 # Policy is public configuration. The tail objects below are derived boundary data,
 # rebuilt from the policy and knots on construction, fitting, and Accessors updates. The policy

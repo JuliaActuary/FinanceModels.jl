@@ -7,6 +7,7 @@ import ..DataInterpolations
 import ..Bond: coupon_times, __regular_schedule, __par_coupon
 import ..__implicit_root, ..__primal, ..__ad_depth
 import ..ForwardDiff
+import ..Accessors
 
 using ..FinanceCore: Continuous, Periodic, discount, accumulation, forward, pv, AbstractContract
 
