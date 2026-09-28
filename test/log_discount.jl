@@ -72,7 +72,6 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
             ns, Yield.NelsonSiegelSvensson(2.5, 3.0, 0.04, -0.02, 0.01, -0.005),
             Yield.CairnsPritchard(0.5, 1.5, 0.04, -0.02, -0.01),
             Yield.CairnsPritchardExtended(0.5, 1.5, 3.0, 0.04, -0.02, -0.01, 0.005),
-            zrc_lin + ns, ns - Yield.Constant(Continuous(0.01)), 2 * zrc_lin,
             Yield.TenorShift(zrc_lin, (z, t) -> z + Continuous(0.01)),
             Yield.ProjectedShift(ns, (τ, z, t) -> z + Continuous(0.001 * τ), 2.0),
             FinanceModels.ShortRate.Vasicek(0.1, 0.05, 0.01, Continuous(0.03)), path,
@@ -80,6 +79,10 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
         for c in curves
             @test Yield.__log_native(c)
             @test iszero(Yield.__log_discount(c, 0.0))
+        end
+        # A wrapper takes its components' intervals, so from 0 it is `discount(w, t)` exactly too.
+        for w in (zrc_lin + ns, ns - Yield.Constant(Continuous(0.01)), 2 * zrc_lin, 2 * (zrc_lin + ns))
+            @test discount(w, 0.0, 7.3) === discount(w, 7.3)
         end
     end
 
@@ -110,6 +113,13 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
         @test discount(zrc_lin, Inf, Inf) === 1.0
         @test discount(zrc_lin, 5.0, Inf) == 0.0
         @test discount(zrc_lin, Inf, 5.0) == Inf
+        # a wrapper takes an infinite endpoint from its combined tail: the components' limits are
+        # Inf and -Inf here, but the composite's forward is 2%
+        w = Yield.Constant(Continuous(0.04)) + Yield.Constant(Continuous(-0.02))
+        @test discount(w, 5.0, Inf) == 0.0
+        @test discount(w, Inf, 5.0) == Inf
+        @test discount(w, Inf, Inf) === 1.0
+        @test discount(2 * Yield.Constant(Continuous(-0.02)), 5.0, Inf) == Inf
     end
 
     @testset "curves that define only discount" begin
@@ -117,8 +127,34 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
         @test discount(c, 0.0, 1.0) ≈ exp(-0.03) rtol = 1.0e-14
         @test discount(c, 2.0, 5.0) ≈ exp(-0.09) rtol = 1.0e-14
         @test rate(forward(c, 0.0, 1.0)) ≈ 0.03 rtol = 1.0e-12
+        # Composed or scaled, the curve still has L(0) ≠ 0, so an interval from 0 keeps the ratio
+        # and is continuous in its start.
+        k = Yield.Constant(Continuous(0.01))
+        for (w, expected) in (
+                (c + k, exp(-0.04)), (k - c, exp(0.02)), (2 * c, exp(-0.06)),
+                (zrc_lin + c, discount(zrc_lin, 1.0) * exp(-0.03)), (2 * (c + k), exp(-0.08)),
+                (c + sw, exp(-0.03) * discount(sw, 0.0, 1.0)),
+            )
+            @test discount(w, 0.0, 1.0) ≈ expected rtol = 1.0e-14
+            @test discount(w, 0.0, 1.0) ≈ discount(w, 1.0) / discount(w, 0.0) rtol = 1.0e-14
+            @test discount(w, 1.0e-12, 1.0) ≈ discount(w, 0.0, 1.0) rtol = 1.0e-10
+        end
         @test discount(__NegativeDiscountCurve(), 1.0, 2.0) ≈ exp(-0.03) rtol = 1.0e-14
         @test_throws DomainError forward(__NegativeDiscountCurve(), 1.0, 2.0)
+    end
+
+    @testset "wrappers keep their components' far-tail intervals" begin
+        # Both of each wrapper's discount factors underflow here; the components' own intervals
+        # (Smith–Wilson's ratio, a rebased curve's base interval) stay finite.
+        k = Yield.Constant(Continuous(0.01))
+        sw0 = Yield.SmithWilson(ufr = 0.03, α = 0.1)
+        fs = Yield.ForwardStarting(Yield.Constant(Continuous(0.03)), 1.0)
+        for (w, f) in (
+                (sw0 + k, 0.04), (sw0 - k, 0.02), (2 * sw0, 0.06), (sw + k, 0.04), (2 * sw, 0.06),
+                (fs + k, 0.04), (2 * fs, 0.06), (2 * (sw + k), 0.08), (zrc_lin + sw, 0.03 + rate(forward(zrc_lin, 30000.0, 30001.0))),
+            )
+            @test discount(w, 30000.0, 30001.0) ≈ exp(-f) rtol = 1.0e-12
+        end
     end
 
     @testset "Smith-Wilson intervals are exact for either sign of the discount factor" begin
@@ -136,6 +172,8 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
         # and has a real log-discount; rebased across the sign change, it has none.
         f = Yield.ForwardStarting(neg, 5.0)
         @test discount(neg, 5.0) < 0 && discount(neg, 6.0) < 0 && discount(neg, 7.0) < 0
+        # a composite interval takes Smith–Wilson's own signed interval
+        @test discount(neg + Yield.Constant(Continuous(0.01)), 5.0, 7.0) ≈ discount(neg, 5.0, 7.0) * exp(-0.02) rtol = 1.0e-13
         d1, d2 = discount(neg, 6.0) / discount(neg, 5.0), discount(neg, 7.0) / discount(neg, 5.0)
         @test rate(zero(f, 1.0)) ≈ -log(d1) rtol = 1.0e-13
         @test rate(forward(f, 1.0, 2.0)) ≈ -log(d2 / d1) rtol = 1.0e-12

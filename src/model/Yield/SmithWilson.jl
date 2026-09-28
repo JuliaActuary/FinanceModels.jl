@@ -110,11 +110,13 @@ end
 __log_discount(sw::SmithWilson, t) = isempty(sw.u) ? sw.ufr * t : sw.ufr * t - log1p(__smith_wilson_s(sw, t))
 
 # L(to) − L(from) as the log of the interval factor above: real wherever that factor is positive,
-# including where both discount factors are negative, and finite in the far tail.
+# including where both discount factors are negative, and finite in the far tail. From an exact 0 it
+# needs one sum, as the factor does.
 function __log_interval(sw::SmithWilson, from, to)
     L = sw.ufr * (to - from)
     isempty(sw.u) && return L
-    return L - log((1 + __smith_wilson_s(sw, to)) / (1 + __smith_wilson_s(sw, from)))
+    g = 1 + __smith_wilson_s(sw, to)
+    return L - log(iszero(from) ? g : g / (1 + __smith_wilson_s(sw, from)))
 end
 
 
