@@ -223,6 +223,12 @@ __quote_loss(model, loss_method, quotes) = mapreduce(+, quotes) do q
     loss_method.fn(present_value(model, q.instrument) - q.price)
 end
 
+# A knot-curve fit's trial curve (optimizer candidate, bootstrap step, calibration Jacobian): knot
+# rates `z` over tenors validated up front, built without a copy or a finite-rate check, so a
+# non-finite candidate mid-search is a bad residual rather than an exception.
+__trial_curve(spline, z, tenors, extrapolation) =
+    Yield.__build(spline, Yield.KnotGrid(Yield.Unchecked(), z, tenors); extrapolation)
+
 """
     FitConvergenceError(retcode, msg)
 
@@ -469,7 +475,7 @@ function fit(
     ) where {T <: Spline.SplineCurve, F <: Fit.Loss}
     # The solve runs on primal quotes; dual numbers in the quotes or the extrapolation policy
     # are propagated afterwards by the implicit function theorem (see `__implicit_knot_curve`).
-    quotes, primal_quotes, has_ad = __calibration_quotes(quotes)
+    quotes, primal_quotes = __calibration_quotes(quotes)
     primal_extrapolation = __primal_extrapolation(extrapolation)
     # Validate the policy and the knot grid once, up front (duplicate maturities, too few
     # knots for the interpolant, `:extension` with MonotoneConvex, …) with the same errors as
@@ -477,13 +483,10 @@ function fit(
     tenors = sort!(maturity.(primal_quotes))
     grid0 = Yield.KnotGrid(__knot_fit_seed(mod0, tenors), tenors, mod0; who = "fit($(mod0))")
     __check_primal_quotes(Yield.__build(mod0, grid0; extrapolation = primal_extrapolation), primal_quotes)
-    # Trial curves over an unchecked, pre-validated grid: candidate rates may be non-finite
-    # mid-search, which the line search must see as a bad loss rather than an exception.
-    build(u) = Yield.__build(mod0, Yield.KnotGrid(Yield.Unchecked(), u, grid0.tenors); extrapolation = primal_extrapolation)
-    loss(u, qs) = __quote_loss(build(u), method, qs)
+    loss(u, qs) = __quote_loss(__trial_curve(mod0, u, grid0.tenors, primal_extrapolation), method, qs)
     rates = __minimize(loss, grid0.rates, primal_quotes, optimizer, solve_kwargs)
     curve = Yield.ZeroRateCurve(rates, grid0.tenors, mod0; extrapolation = primal_extrapolation)   # public result: validated (finite rates)
-    return __implicit_knot_curve(curve, quotes, primal_quotes, extrapolation, has_ad)
+    return __implicit_knot_curve(curve, quotes, primal_quotes, extrapolation)
 end
 
 # FX.Forwards with a spline placeholder as the foreign curve: given spot, the domestic
@@ -524,24 +527,24 @@ function fit(
     )
     # The solve runs on primal quotes; dual numbers in the quotes or the extrapolation policy
     # are propagated afterwards by the implicit function theorem (see `__implicit_knot_curve`).
-    dual_quotes, quotes, has_ad = __calibration_quotes(quotes)
-    dual_extrapolation, extrapolation = extrapolation, __primal_extrapolation(extrapolation)
-    order = sortperm(quotes; by = maturity)
-    dual_quotes, quotes = dual_quotes[order], quotes[order]
-    n = length(quotes)
-    times = [float(maturity(q)) for q in quotes]
+    quotes, primal_quotes = __calibration_quotes(quotes)
+    primal_extrapolation = __primal_extrapolation(extrapolation)
+    order = sortperm(primal_quotes; by = maturity)
+    quotes, primal_quotes = quotes[order], primal_quotes[order]
+    n = length(primal_quotes)
+    times = [float(maturity(q)) for q in primal_quotes]
     # A quote maturing at t = 0 does not depend on the knot rate there, so the solve would
     # return its seed. The other grid rules (a quote at all, finite and distinct maturities)
     # are `KnotGrid`'s: the returned curve's knots are exactly the quote maturities, validated
     # once, up front, with the same errors as direct construction.
     all(>(0), times) || throw(ArgumentError("bootstrap quote maturities must be positive; got $times"))
     grid0 = Yield.KnotGrid(zeros(n), times, mod0; who = "fit($(mod0), Bootstrap)")
-    __check_primal_quotes(Yield.__build(mod0, grid0; extrapolation), quotes)
+    __check_primal_quotes(Yield.__build(mod0, grid0; extrapolation = primal_extrapolation), primal_quotes)
     zs = zeros(n)
     scales = zeros(n)
 
-    for i in eachindex(quotes)
-        q = quotes[i]
+    for i in eachindex(primal_quotes)
+        q = primal_quotes[i]
         # The i-th continuous zero rate is the only unknown — earlier knots are
         # already solved — so each step is a scalar root-find (exact repricing)
         # rather than an optimizer pass that rebuilds the interpolant per
@@ -550,9 +553,7 @@ function fit(
         # to this maturity, so the final curve reprices every quote to root precision.
         f = function (z)
             zs[i] = z
-            # trial curve over an unchecked grid: no copy, and no finite-rate check so a wild
-            # secant step surfaces as a bad residual, not an exception
-            c = Yield.__build(mod0, Yield.KnotGrid(Yield.Unchecked(), zs[1:i], times[1:i]); extrapolation)
+            c = __trial_curve(mod0, zs[1:i], times[1:i], primal_extrapolation)
             return present_value(c, q.instrument) - q.price
         end
         seed = i == 1 ? 0.0 : zs[i - 1] # seed with the previous zero rate
@@ -564,11 +565,11 @@ function fit(
         # a generous continuous-zero-rate range for the bracketed fallback
         zs[i] = __solve_primal_root(g, seed, (-1.0, 1.0))
     end
-    curve = Yield.ZeroRateCurve(zs, times, mod0; extrapolation)
+    curve = Yield.ZeroRateCurve(zs, times, mod0; extrapolation = primal_extrapolation)
     # Every quote's cashflows must end at its maturity for later knots to leave
     # it priced. Check the returned curve so a contract that pays beyond its
     # maturity cannot drift silently.
-    for (q, scale) in zip(quotes, scales)
+    for (q, scale) in zip(primal_quotes, scales)
         residual = present_value(curve, q.instrument) - q.price
         abs(residual) <= 1.0e-8 * scale || throw(
             ArgumentError(
@@ -577,7 +578,7 @@ function fit(
             )
         )
     end
-    return __implicit_knot_curve(curve, dual_quotes, quotes, dual_extrapolation, has_ad)
+    return __implicit_knot_curve(curve, quotes, primal_quotes, extrapolation)
 end
 
 function fit(mod0::Yield.SmithWilson, quotes)

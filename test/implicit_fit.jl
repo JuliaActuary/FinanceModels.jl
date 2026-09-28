@@ -178,11 +178,11 @@ FinanceCore.present_value(m, c::WrappedContract, t = 0.0) = FinanceCore.present_
         dual_pair = pair(ForwardDiff.Dual{ImplicitFitTestTag}(px[1], 1.0, 0.0), ForwardDiff.Dual{ImplicitFitTestTag}(px[2], 0.0, 1.0))
         off_curve = ZeroRateCurve(zx .+ [0.0, 1.0e-5], [1.0, 2.0], Spline.Linear())
         @test maximum(q -> abs(pv(off_curve, q.instrument) - q.price), pair(px...)) < 1.0e-8
-        @test_throws "Newton correction" FinanceModels.__implicit_knot_curve(off_curve, dual_pair, pair(px...), off_curve.extrapolation, true)
+        @test_throws "Newton correction" FinanceModels.__implicit_knot_curve(off_curve, dual_pair, pair(px...), off_curve.extrapolation)
         # and it says how to tighten the fit
-        @test_throws "solve_kwargs" FinanceModels.__implicit_knot_curve(off_curve, dual_pair, pair(px...), off_curve.extrapolation, true)
+        @test_throws "solve_kwargs" FinanceModels.__implicit_knot_curve(off_curve, dual_pair, pair(px...), off_curve.extrapolation)
         exact_curve = ZeroRateCurve(zx, [1.0, 2.0], Spline.Linear())
-        @test Yield.knot_rates(FinanceModels.__implicit_knot_curve(exact_curve, dual_pair, pair(px...), exact_curve.extrapolation, true)) isa AbstractVector{<:ForwardDiff.Dual}
+        @test Yield.knot_rates(FinanceModels.__implicit_knot_curve(exact_curve, dual_pair, pair(px...), exact_curve.extrapolation)) isa AbstractVector{<:ForwardDiff.Dual}
         # quote prices that do not determine a knot
         free = [ZCBPrice(ForwardDiff.Dual{ImplicitFitTestTag}(0.97, 1.0), 1.0), Quote(0.0, Cashflow(0.0, 2.0))]
         @test_throws "singular" fit(Spline.Linear(), free, Fit.Bootstrap())
