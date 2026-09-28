@@ -91,14 +91,8 @@ function Base.zero(c::Spline, t)
 end
 
 # Public, validating form: every direct construction copies and checks its inputs.
-Spline(spline::Sp.SplineCurve, tenors, rates; extrapolation = :flat_forward) =
+Spline(spline::Union{Sp.PolynomialSpline, Sp.BSpline, Sp.PCHIP, Sp.Akima}, tenors, rates; extrapolation = :flat_forward) =
     __build_public(spline, KnotGrid(rates, tenors, spline; who = "Yield.Spline"); extrapolation)
-Spline(::Sp.MonotoneConvex, tenors, rates; extrapolation = :flat_forward) = throw(
-    ArgumentError(
-        "Yield.Spline implements the DataInterpolations methods only. Build a monotone convex " *
-            "curve with ZeroRateCurve(rates, tenors, Spline.MonotoneConvex()) or Yield.MonotoneConvex(rates, tenors)."
-    )
-)
 
 # The one builder per interpolation method, over an owned grid: validated, or an internal
 # optimizer trial grid. `ZeroRateCurve`, `Yield.Spline`, `reconstruct`, and `fit` all end here,

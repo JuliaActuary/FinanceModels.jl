@@ -44,8 +44,9 @@ curves returned by spline `fit`s and `Fit.Bootstrap()`. All of them share one in
   its callable form (#272). `Spline.MonotoneConvex()` is the only monotone convex selector: it
   works with `ZeroRateCurve`, loss `fit`s (whose default optimizer for it is `LBFGS()`), and
   `FX.Forwards`, and every interpolation method is built by the same code wherever the curve
-  comes from. `Yield.Spline(Spline.MonotoneConvex(), …)` throws an `ArgumentError` pointing to
-  `ZeroRateCurve`.
+  comes from. `Yield.Spline` accepts the DataInterpolations methods only, so
+  `Yield.Spline(Spline.MonotoneConvex(), …)` is a `MethodError`, as in v6: build that curve with
+  `ZeroRateCurve` or `Yield.MonotoneConvex`.
 - **Every knot curve owns and validates its data.** Inputs are copied (mutating the vectors you
   passed in no longer changes the curve) and promoted to one concrete floating-point type per
   vector (`Int` → `Float64`; `Float32` + `BigFloat` → `BigFloat`; `Float64` +

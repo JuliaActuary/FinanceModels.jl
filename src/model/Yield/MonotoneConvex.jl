@@ -84,7 +84,7 @@ end
 
 # Public form: copies, promotes and validates through the shared knot-grid path.
 MonotoneConvex(rates, tenors; extrapolation = :flat_forward) =
-    MonotoneConvex(KnotGrid(rates, tenors, Sp.MonotoneConvex(); who = "Yield.MonotoneConvex"); extrapolation)
+    __build_public(Sp.MonotoneConvex(), KnotGrid(rates, tenors, Sp.MonotoneConvex(); who = "Yield.MonotoneConvex"); extrapolation)
 
 
 function __issector1(g0, g1)

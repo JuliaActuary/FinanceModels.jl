@@ -27,8 +27,10 @@ using ForwardDiff
             @test_throws DomainError discount(zrc, -1.0)
         end
         @test_throws DomainError Yield.instantaneous_forward(ZeroRateCurve(rates, tenors), -1.0)
-        # `Yield.Spline` covers the DataInterpolations methods only
-        @test_throws ArgumentError Yield.Spline(Spline.MonotoneConvex(), tenors, rates)
+        # `Yield.Spline` covers the DataInterpolations methods only, and the direct form takes the
+        # method positionally
+        @test_throws MethodError Yield.Spline(Spline.MonotoneConvex(), tenors, rates)
+        @test_throws MethodError ZeroRateCurve(rates, tenors; spline = Spline.Linear())
 
         zrc = ZeroRateCurve(rates, tenors, Spline.Linear())
         for t in (0.0, 1.0e-20, 3.0, 2.0e4)
