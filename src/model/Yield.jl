@@ -728,10 +728,13 @@ function Base.zero(rc::CompositeYield, time)
     z2 = FinanceCore.rate(Base.zero(rc.r2, time))
     return Continuous(rc.op(z1, z2))
 end
-# At t = Inf the components' tails are combined before the limit is taken.
+# At t = Inf the components' tails are combined before the limit is taken. The components' L is
+# inlined at these calls: a composite inlined into a loop (`pv`'s `map`) otherwise copies each
+# component onto the stack for every call. Inlining a Spline's L into every caller instead makes
+# the generic interval too large to inline into bond pricing.
 function __log_discount(rc::CompositeYield, time)
     __at_infinity(time) && return __log_discount_at_infinity(rc)
-    return rc.op(__log_discount(rc.r1, time), __log_discount(rc.r2, time))
+    return rc.op((@inline __log_discount(rc.r1, time)), (@inline __log_discount(rc.r2, time)))
 end
 function FinanceCore.discount(rc::CompositeYield, time)
     __at_infinity(time) && return __discount_at_infinity(rc)
@@ -918,9 +921,10 @@ function Base.zero(sy::ScaledYield, time)
     z = FinanceCore.rate(Base.zero(sy.curve, time))
     return Continuous(z * sy.factor)
 end
+# The curve's L is inlined at this call, as for `CompositeYield`.
 function __log_discount(sy::ScaledYield, time)
     __at_infinity(time) && return __log_discount_at_infinity(sy)
-    return sy.factor * __log_discount(sy.curve, time)
+    return sy.factor * @inline(__log_discount(sy.curve, time))
 end
 function FinanceCore.discount(sy::ScaledYield, time)
     __at_infinity(time) && return __discount_at_infinity(sy)
