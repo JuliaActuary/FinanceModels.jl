@@ -72,6 +72,10 @@ curves returned by spline `fit`s and `Fit.Bootstrap()`. All of them share one in
 - **Spline descriptors validate their order**: `Spline.PolynomialSpline(order)` accepts only
   orders 1, 2 and 3 (previously any order above 3 silently built a cubic spline), and
   `Spline.BSpline(d)` requires `d ≥ 1`.
+- **One signature per form.** The direct form is `ZeroRateCurve(rates, tenors, spline =
+  Spline.MonotoneConvex(); extrapolation = :flat_forward)`, with the method positional as in v6;
+  it has no `spline` keyword. The sampling form keeps its v6 keyword,
+  `ZeroRateCurve(curve, tenors; spline, extrapolation)`.
 - **The sampling form** `ZeroRateCurve(curve::AbstractYieldModel, tenors)` still sorts its tenor
   grid, and samples through `zero(curve, t)` instead of `-log(discount(curve, t))/t`, which is
   numerically stable at very small and very large tenors. The sampled grid is validated like any
@@ -176,6 +180,18 @@ ratio of discount factors. `discount(curve, 0, t)` is unchanged bit for bit, and
 place, and intervals far in the tail are finite where they were `NaN`. Tests that compare such
 intervals exactly should allow for rounding. A custom curve that defines only `discount` keeps the
 ratio D(to)/D(from).
+
+`forward(curve, from, to)` follows the same interval rule as `discount(curve, from, to)`: on
+composite, scaled, `ForwardStarting` and Smith–Wilson curves it can move by a few units in the last
+place, and on a Smith–Wilson fit (or a custom curve) whose discount factors are negative at both
+ends it now returns the rate of the positive interval factor instead of throwing a `DomainError`.
+
+Time derivatives at exactly `t = 0` of `Yield.MonotoneConvex`, `NelsonSiegel`,
+`NelsonSiegelSvensson` and curves built on them are exact where they were `NaN`. `MonotoneConvex`
+now computes its log-discount directly, so some of its discount factors move in the last bit. For a
+curve without its own `zero` (Smith–Wilson, the short-rate models, `ForwardStarting`, custom curves)
+the zero rate at 0 is the 0/0 of L(t)/t, so its time derivative there, and that of a yield shift
+over such a curve, throws a `DomainError`.
 
 ### Derivatives through fits and knot curves
 

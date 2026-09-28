@@ -110,6 +110,12 @@ knot. `Yield.build_model` and the `Yield.MonotoneConvex()` fit placeholder are r
 as every other interpolation method. `Spline.PolynomialSpline` accepts only orders 1 to 3 and
 `Spline.BSpline` requires degree 1 or more.
 
+Each construction form has one signature: `ZeroRateCurve(rates, tenors, spline =
+Spline.MonotoneConvex(); extrapolation)` takes the method positionally, as in 6.x, and the sampling
+form keeps its `ZeroRateCurve(curve, tenors; spline, extrapolation)` keyword. `Yield.Spline`
+accepts only the DataInterpolations methods, so `Yield.Spline(Spline.MonotoneConvex(), …)` is a
+`MethodError`, as in 6.x; `ZeroRateCurve` and `Yield.MonotoneConvex` build that curve.
+
 ### Flat zero rate before the first knot (changed numbers)
 
 DataInterpolations-backed curves now hold the first knot's zero rate between `t = 0` and the
