@@ -387,6 +387,11 @@ spline_zero_curve_with_policy(d, r, t, policy::Symbol) = ZeroRateCurve(r, t, d; 
             )
         end
         for t in (0.0, 2.0), policy in policies
+            if iszero(t) && policy === fixed
+                # the knot would set the zero rate at t = 0 and the forward at every later time
+                @test_throws ArgumentError Yield.MonotoneConvex([0.03], [t]; extrapolation = policy)
+                continue
+            end
             c = Yield.MonotoneConvex([0.03], [t]; extrapolation = policy)
             @test rate(zero(c, 0.0)) == 0.03
             f = policy === fixed ? fixed.forward : 0.03

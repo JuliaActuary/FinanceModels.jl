@@ -13,7 +13,9 @@ because packages read bare numbers differently (`Yield.Constant(0.035)` is annua
 The last-knot discount factor and all interpolation through that knot are preserved.
 The forward usually jumps at the boundary. Unlike `:flat_forward`, the supplied
 forward is an independent assumption: changing or fitting knot rates keeps it fixed.
-The value must be finite; negative rates and automatic differentiation are supported.
+The value must be finite; negative rates and automatic differentiation are supported. On a
+single knot at t = 0, which leaves every positive time to the tail, the forward must equal the
+knot's rate: otherwise the zero rate would jump at the origin.
 
 ```julia
 curve = ZeroRateCurve([0.02, 0.03, 0.04], [1.0, 10.0, 30.0];
@@ -58,8 +60,9 @@ end
 
 # Include the tenor's numeric type in coefficient promotion even for flat tails;
 # otherwise mixed-precision grids could still select different C types by policy.
-# A tail from a single knot at t = 0 has no β·tₙ/t term, so it is evaluated in the γ form, whose
-# value is the same (γ = 0 for a flat policy) but which forms no 0/0 at a dual time of 0.
+# A tail from a single knot at t = 0 has no β·tₙ/t term, and its α is the knot's rate for every
+# policy (see `__build_tail`), so the zero rate is continuous at 0. It is evaluated in the γ form,
+# whose value is the same (γ = 0 for a flat policy) but which forms no 0/0 at a dual time of 0.
 function __curve_tail(t, α, β, γ, linear)
     a, b, c, _ = promote(α, β, γ, zero(t))
     return CurveTail{typeof(t), typeof(a)}(t, a, b, c, linear || iszero(t))
@@ -105,5 +108,14 @@ function __build_tail(method::Symbol, t, z, forward, slope)
     f = forward()
     return __curve_tail(t, f, z - f, zero(z), false)
 end
-__build_tail(method::FlatForwardAt, t, z, forward, slope) =
-    __curve_tail(t, method.forward, z - method.forward, zero(z), false)
+# A single knot at t = 0 leaves every positive time to the tail, so a forward other than the knot's
+# rate would make the zero rate jump at the origin: the knot's rate at 0, the forward after it.
+function __build_tail(method::FlatForwardAt, t, z, forward, slope)
+    iszero(t) && __primal(method.forward) != __primal(z) && throw(
+        ArgumentError(
+            "a single knot at t = 0 with Yield.FlatForwardAt(forward) needs the forward to equal the " *
+                "knot's rate, $(__primal(z)); got $(__primal(method.forward))."
+        )
+    )
+    return __curve_tail(t, method.forward, z - method.forward, zero(z), false)
+end

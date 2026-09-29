@@ -331,13 +331,20 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
         # A single knot at t = 0 is a flat curve: a dual time at 0 compares above the knot and enters
         # the tail, whose zero rate α + β·tₙ/t formed 0/0 there.
         for spline in (Spline.MonotoneConvex(), Spline.Linear()),
-                (ex, f) in ((:flat_forward, 0.03), (:flat_zero, 0.03), (:linear, 0.03), (Yield.FlatForwardAt(Continuous(0.04)), 0.04))
+                ex in (:flat_forward, :flat_zero, :linear, Yield.FlatForwardAt(Continuous(0.03)))
             c1 = ZeroRateCurve([0.03], [0.0], spline; extrapolation = ex)
-            @test ForwardDiff.derivative(t -> discount(c1, t), 0.0) ≈ -f rtol = 1.0e-14
+            @test ForwardDiff.derivative(t -> discount(c1, t), 0.0) ≈ -0.03 rtol = 1.0e-14
             @test ForwardDiff.derivative(t -> rate(zero(c1, t)), 0.0) == 0
-            @test ForwardDiff.derivative(s -> ForwardDiff.derivative(t -> discount(c1, t), s), 0.0) ≈ f^2 rtol = 1.0e-14
-            @test (discount(c1, 0.0), discount(c1, 2.0), discount(c1, Inf)) == (1.0, exp(-2f), 0.0)
+            @test ForwardDiff.derivative(s -> ForwardDiff.derivative(t -> discount(c1, t), s), 0.0) ≈ 0.03^2 rtol = 1.0e-14
+            @test (discount(c1, 0.0), discount(c1, 2.0), discount(c1, Inf)) == (1.0, exp(-0.06), 0.0)
+            @test rate(zero(c1, 0.0)) == rate(zero(c1, 1.0e-8)) == 0.03
+            # Another forward would make the zero rate jump at the origin, from the knot's rate to it.
+            @test_throws ArgumentError ZeroRateCurve([0.03], [0.0], spline; extrapolation = Yield.FlatForwardAt(Continuous(0.04)))
         end
+        # the check compares primal values: a knot rate carrying a partial still builds, and the
+        # tail's forward, not the knot's rate, prices every positive time
+        at(z) = ZeroRateCurve([z], [0.0]; extrapolation = Yield.FlatForwardAt(Continuous(0.03)))
+        @test ForwardDiff.derivative(z -> discount(at(z), 2.0), 0.03) == 0
         # the rate partial survives: ∂²D/∂z∂t at 0 is -1 for the flat curve
         @test ForwardDiff.derivative(z -> ForwardDiff.derivative(t -> discount(ZeroRateCurve([z], [0.0]), t), 0.0), 0.03) ≈ -1 rtol = 1.0e-14
         # A curve without its own `zero` has only L(t)/t, 0/0 at 0: its discount has a derivative
