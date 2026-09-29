@@ -58,9 +58,11 @@ end
 
 # Include the tenor's numeric type in coefficient promotion even for flat tails;
 # otherwise mixed-precision grids could still select different C types by policy.
+# A tail from a single knot at t = 0 has no β·tₙ/t term, so it is evaluated in the γ form, whose
+# value is the same (γ = 0 for a flat policy) but which forms no 0/0 at a dual time of 0.
 function __curve_tail(t, α, β, γ, linear)
     a, b, c, _ = promote(α, β, γ, zero(t))
-    return CurveTail{typeof(t), typeof(a)}(t, a, b, c, linear)
+    return CurveTail{typeof(t), typeof(a)}(t, a, b, c, linear || iszero(t))
 end
 
 function (e::CurveTail)(t)

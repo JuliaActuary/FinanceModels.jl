@@ -328,6 +328,18 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
             @test ForwardDiff.derivative(zr, 0.0) ≈ fd(zr) atol = 1.0e-9
         end
         @test ForwardDiff.derivative(t -> rate(zero(mc_steep, t)), 0.0) > 1.0e-3   # a slope is exercised
+        # A single knot at t = 0 is a flat curve: a dual time at 0 compares above the knot and enters
+        # the tail, whose zero rate α + β·tₙ/t formed 0/0 there.
+        for spline in (Spline.MonotoneConvex(), Spline.Linear()),
+                (ex, f) in ((:flat_forward, 0.03), (:flat_zero, 0.03), (:linear, 0.03), (Yield.FlatForwardAt(Continuous(0.04)), 0.04))
+            c1 = ZeroRateCurve([0.03], [0.0], spline; extrapolation = ex)
+            @test ForwardDiff.derivative(t -> discount(c1, t), 0.0) ≈ -f rtol = 1.0e-14
+            @test ForwardDiff.derivative(t -> rate(zero(c1, t)), 0.0) == 0
+            @test ForwardDiff.derivative(s -> ForwardDiff.derivative(t -> discount(c1, t), s), 0.0) ≈ f^2 rtol = 1.0e-14
+            @test (discount(c1, 0.0), discount(c1, 2.0), discount(c1, Inf)) == (1.0, exp(-2f), 0.0)
+        end
+        # the rate partial survives: ∂²D/∂z∂t at 0 is -1 for the flat curve
+        @test ForwardDiff.derivative(z -> ForwardDiff.derivative(t -> discount(ZeroRateCurve([z], [0.0]), t), 0.0), 0.03) ≈ -1 rtol = 1.0e-14
         # A curve without its own `zero` has only L(t)/t, 0/0 at 0: its discount has a derivative
         # there, but a zero-rate transformation of it throws rather than returning NaN.
         @test ForwardDiff.derivative(t -> discount(sw, t), 0.0) ≈ -rate(zero(sw, 1.0e-9)) rtol = 1.0e-6
