@@ -560,6 +560,21 @@ using ForwardDiff
         @test fit(zrc0, qs, Fit.Loss(x -> x^2); solve_kwargs = (; g_tol = 1.0e-12)) isa Yield.MonotoneConvex
     end
 
+    @testset "single-pass quote iterators" begin
+        # Each fit collects its quotes once, so a stateful iterator gives the vector's result.
+        t = [1.0, 3.0, 7.0]
+        qs = ZCBPrice.([0.97, 0.91, 0.82], t)
+        once() = Iterators.Stateful(qs)
+        @test isequal(fit(Spline.Linear(), once()), fit(Spline.Linear(), qs))
+        @test isequal(fit(Spline.Cubic(), once(), Fit.Loss(abs2)), fit(Spline.Cubic(), qs, Fit.Loss(abs2)))
+        @test isequal(fit(Spline.Linear(), once(), Fit.Bootstrap()), fit(Spline.Linear(), qs, Fit.Bootstrap()))
+        c = ZeroRateCurve([0.03, 0.03, 0.03], t, Spline.Linear())
+        @test isequal(fit(c, once()), fit(c, qs))
+        @test discount(fit(Yield.NelsonSiegel(), once()), 5.0) == discount(fit(Yield.NelsonSiegel(), qs), 5.0)
+        sw = Yield.SmithWilson(ufr = 0.04, α = 0.1)
+        @test discount(fit(sw, once()), 5.0) == discount(fit(sw, qs), 5.0)
+    end
+
     # ─── Knot-curve interface ─────────────────────────────────────────────────
 
     @testset "reconstruct" begin

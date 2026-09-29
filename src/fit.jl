@@ -402,6 +402,7 @@ function fit(
         solve_kwargs = (;)
     ) where
     {F <: Fit.Loss}
+    quotes = collect(quotes)   # read by the check below and by every loss evaluation
     __quotes_carry_ad(quotes) && throw(
         ArgumentError(
             "fit does not differentiate through the calibration of $(nameof(typeof(mod0))) models; " *
@@ -453,8 +454,9 @@ function fit(
         mod0::T, quotes, method::F; optimizer = __default_optim(mod0), solve_kwargs = (;),
         extrapolation = :flat_forward
     ) where {T <: Spline.SplineCurve, F <: Fit.Loss}
-    tenors = sort!([maturity(q) for q in quotes])
-    return __fit_knot_rates(mod0, tenors, quotes, method, extrapolation; optimizer, solve_kwargs)
+    quotes, primal_quotes = __calibration_quotes(quotes)
+    tenors = sort!([maturity(q) for q in primal_quotes])
+    return __fit_knot_rates(mod0, tenors, quotes, primal_quotes, method, extrapolation; optimizer, solve_kwargs)
 end
 
 # Refitting a knot curve keeps its knot tenors, interpolation method and extrapolation policy.
@@ -462,16 +464,17 @@ function fit(
         c::Yield.AbstractInterpolatedZeroCurve, quotes, method::Fit.Loss;
         optimizer = __default_optim(c.spline), solve_kwargs = (;)
     )
-    return __fit_knot_rates(c.spline, Yield.knot_tenors(c), quotes, method, c.extrapolation; optimizer, solve_kwargs)
+    quotes, primal_quotes = __calibration_quotes(quotes)
+    return __fit_knot_rates(c.spline, Yield.knot_tenors(c), quotes, primal_quotes, method, c.extrapolation; optimizer, solve_kwargs)
 end
 
 # Every loss fit of knot rates, for every interpolation method including
 # `Spline.MonotoneConvex()`: one trial curve per candidate built by the same `Yield.__build` as
-# `ZeroRateCurve`, and a validated `ZeroRateCurve` as the result.
-function __fit_knot_rates(spline, tenors, quotes, method, extrapolation; optimizer, solve_kwargs)
+# `ZeroRateCurve`, and a validated `ZeroRateCurve` as the result. The callers collect the quotes
+# once, with their primal copies (`__calibration_quotes`).
+function __fit_knot_rates(spline, tenors, quotes, primal_quotes, method, extrapolation; optimizer, solve_kwargs)
     # The solve runs on primal quotes; dual numbers in the quotes or the extrapolation policy
     # are propagated afterwards by the implicit function theorem (see `__implicit_knot_curve`).
-    quotes, primal_quotes = __calibration_quotes(quotes)
     primal_extrapolation = __primal_extrapolation(extrapolation)
     # Validate the policy and the knot grid once, up front (duplicate maturities, too few
     # knots for the interpolant, `:extension` with MonotoneConvex, …) with the same errors as
@@ -578,6 +581,7 @@ function fit(
 end
 
 function fit(mod0::Yield.SmithWilson, quotes)
+    quotes = collect(quotes)
     cm, ts = cashflows_timepoints(quotes)
     prices = [q.price for q in quotes]
 
