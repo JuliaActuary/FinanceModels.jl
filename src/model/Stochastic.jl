@@ -173,9 +173,11 @@ Yield.__log_native(::ShortRate.Vasicek) = true
 # CIR ZCB price: P = A(τ) exp(-B(τ) r)
 function _cir_zcb(a, b, σ, r, τ)
     if abs(σ) < 1.0e-15
-        # Deterministic limit: dr = a(b-r)dt → r(t) = b + (r0-b)exp(-at)
-        # P(0,τ) = exp(-∫₀ᵗ r(s)ds) = exp(-(bτ + (r-b)(1-exp(-aτ))/a))
-        return exp(-(b * τ + (r - b) * _decay_integral(a, τ)))
+        # Deterministic limit dr = a(b - r)dt: Vasicek's price without volatility, which keeps r and
+        # b in separate terms. With no mean reversion the rate is constant, also at τ = ∞ where aτ
+        # is undefined; a dual `a` that carries a partial is not `iszero`, so ∂/∂a keeps the series.
+        iszero(a) && return exp(-r * τ)
+        return _vasicek_zcb(a, b, zero(σ), r, τ)
     end
     γ = sqrt(a^2 + 2σ^2)
     expγτ = exp(γ * τ)

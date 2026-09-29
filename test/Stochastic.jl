@@ -371,6 +371,23 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             # CIR with σ=0: same deterministic formula
             cir0 = ShortRate.CoxIngersollRoss(0.5, 0.04, 0.0, Continuous(0.02))
             @test discount(cir0, T) ≈ expected rtol = 1.0e-8
+
+            # With no mean reversion as well the rate stays r: b is irrelevant, at every horizon
+            cir_det(a, b, r = 0.03) = ShortRate.CoxIngersollRoss(a, b, 0.0, Continuous(r))
+            for b in (0.05, 1.0e16, -1.0)
+                @test discount(cir_det(0.0, b), 10.0) == exp(-0.3)
+                @test discount(cir_det(0.0, b), Inf) == 0.0
+            end
+            @test discount(cir_det(1.0e-300, 1.0e16), 10.0) ≈ exp(-0.3) rtol = 4eps()
+            @test discount(cir_det(0.5, 0.05), Inf) == 0.0
+            # against ∫₀ᵗ (b + (r - b)e^{-as}) ds in high precision, across the series threshold
+            det_ref(a, b, r, τ) = exp(-(b * τ + (r - b) * (a == 0 ? τ : -expm1(-a * τ) / a)))
+            for a in (1.0e-300, 1.0e-8, 1.0e-3, 0.019, 0.021, 0.05, 1.0), τ in (0.5, 10.0), b in (0.05, -0.01)
+                @test discount(cir_det(a, b), τ) ≈ det_ref(big(a), big(b), big(0.03), big(τ)) rtol = 4eps()
+            end
+            # the zero-mean-reversion derivative: ∂P/∂a = -(b - r)τ²/2 · P at a = 0
+            dP = ForwardDiff.derivative(a -> discount(cir_det(a, 0.05), 10.0), 0.0)
+            @test dP ≈ -(0.05 - 0.03) * 10.0^2 / 2 * exp(-0.3) rtol = 1.0e-13
         end
 
         @testset "a = 0 (no mean reversion)" begin
