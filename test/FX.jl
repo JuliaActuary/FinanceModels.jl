@@ -149,11 +149,9 @@
             m_fit = fit(FX.Forwards(eurusd, S, usd_boot, Spline.Cubic()), quotes)
             @test all(abs(pv(m_fit, q.instrument)) < 1.0e-6 for q in quotes)
             @test forward(fit(FX.Forwards(eurusd, S, usd_boot, Spline.Cubic()), Iterators.Stateful(quotes)), 3.3) == forward(m_fit, 3.3)
-            # a knot-curve foreign curve refits on its own knots through the same quotes (from its
-            # own rates, so to the solver's tolerance)
+            # a knot-curve foreign curve refits on its own knots through the same quotes
             m_knots = fit(FX.Forwards(eurusd, S, usd_boot, ZeroRateCurve(fill(0.03, length(ts)), ts, Spline.Cubic())), quotes)
-            @test knot_tenors(m_knots.foreign) == knot_tenors(m_fit.foreign)
-            @test knot_rates(m_knots.foreign) ≈ knot_rates(m_fit.foreign) atol = 1.0e-12
+            @test isequal(m_knots.foreign, m_fit.foreign)
         end
 
         @testset "fit keywords reach the foreign-curve fit" begin

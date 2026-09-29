@@ -81,14 +81,12 @@ too far from an exact fit now has a way to tighten it.
 
 `fit(curve, quotes)` for a knot curve (`Yield.AbstractInterpolatedZeroCurve`) is now the spline
 fit on the curve's knots: it keeps the curve's tenors, interpolation method and extrapolation
-policy, uses the spline's default optimizer, and carries implicit-function derivatives of dual
-quotes when there is one knot per quote. It previously ran the generic optic fit, whose
-candidates went through the public constructor, so a flat PCHIP or Akima starting curve threw. It
-no longer accepts `variables`, and `FinanceModels.KnotRatesOptic` is removed. An `FX.Forwards`
-with a knot-curve foreign curve refits it through the implied foreign quotes. A Linear,
-Quadratic, Cubic or BSpline curve's refit starts from the curve's own knot rates; PCHIP, Akima
-and MonotoneConvex refits start from the same rates as `fit(spline, quotes)`, since a curve's own
-rates can be flat or sit on a kink.
+policy, starts from the same knot rates as `fit(spline, quotes)` (not the curve's own), uses the
+spline's default optimizer, and carries implicit-function derivatives of dual quotes when there
+is one knot per quote. It previously ran the generic optic fit, whose candidates went through the
+public constructor, so a flat PCHIP or Akima starting curve threw. It no longer accepts
+`variables`, and `FinanceModels.KnotRatesOptic` is removed. An `FX.Forwards` with a knot-curve
+foreign curve refits it through the implied foreign quotes.
 
 ### PCHIP and Akima fits on evenly spaced maturities
 

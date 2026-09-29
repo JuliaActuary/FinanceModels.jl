@@ -537,35 +537,32 @@ using ForwardDiff
         target = [0.02, 0.025, 0.03, 0.035]
         qs = ZCBYield.(Continuous.(target), t)        # continuous quotes: fitted zero rates == target
         # The refit keeps the curve's tenors, method and extrapolation policy, and is the spline
-        # fit on those knots. Interpolants linear in their knot rates start from the curve's own
-        # rates; the others start from the spline fit's seed, so their refit is that fit exactly:
+        # fit on those knots (same solve, same starting rates), whatever the curve's own rates:
         # flat PCHIP and Akima curves sit on a kink, where the earlier optic-based refit threw.
         for spline in (Spline.MonotoneConvex(), Spline.Linear(), Spline.Cubic(), Spline.PCHIP(), Spline.Akima())
             zrc0 = ZeroRateCurve(fill(0.01, length(t)), t, spline; extrapolation = :flat_zero)
             fitted = fit(zrc0, qs)
-            direct = fit(spline, qs; extrapolation = :flat_zero)
             @test fitted isa typeof(ZeroRateCurve(target, t, spline))
             @test fitted.tenors == t && fitted.spline == spline && fitted.extrapolation === :flat_zero
             @test maximum(abs, present_value(fitted, q.instrument) - q.price for q in qs) < 1.0e-6
-            if spline isa Spline.PolynomialSpline
-                @test FinanceModels.__refit_seed(zrc0) == zrc0.rates
-                @test fitted.rates ≈ direct.rates atol = 1.0e-8
-            else
-                @test FinanceModels.__refit_seed(zrc0) == FinanceModels.__knot_fit_seed(spline, t)
-                @test isequal(fitted, direct)
-            end
+            @test isequal(fitted, fit(spline, qs; extrapolation = :flat_zero))
             @test zrc0.rates == fill(0.01, length(t))                  # original untouched
         end
-        # From any start, including flat, tied or kinked rates: refits to unchanged, shifted and
-        # twisted quotes reprice them (the knot rates solve the quotes exactly here).
+        # The curve's own rates are never the start, whether flat, tied, kinked or numerically flat
+        # under the price loss: a 100% rate discounts 30 years to 1e-13, where the loss gradient is
+        # below the solver's tolerance and a solve starting there stops at once.
         ts = [0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0, 20.0, 30.0]
         zr = 0.02 .+ 0.015 .* (1 .- exp.(-ts ./ 10))
         zcb(z) = ZCBPrice.(exp.(-z .* ts), ts)
-        starts = (fill(0.03, length(ts)), zr, [0.03, 0.01, 0.04, 0.005, 0.05, 0.01, 0.04, 0.02, 0.03])
+        starts = (fill(0.03, length(ts)), [0.03, 0.01, 0.04, 0.005, 0.05, 0.01, 0.04, 0.02, 0.03], fill(1.0, length(ts)))
         splines = (Spline.Linear(), Spline.Quadratic(), Spline.Cubic(), Spline.BSpline(3), Spline.PCHIP(), Spline.Akima(), Spline.MonotoneConvex())
-        for spline in splines, z0 in starts, z in (zr, zr .+ 1.0e-4, zr .+ 0.01 .* (ts ./ 30 .- 0.5))
-            refit = fit(ZeroRateCurve(z0, ts, spline), zcb(z))
-            @test maximum(abs(discount(refit, ti) - exp(-zi * ti)) for (ti, zi) in zip(ts, z)) < 1.0e-8
+        for spline in splines, z in (zr, zr .+ 0.01 .* (ts ./ 30 .- 0.5))
+            direct = fit(spline, zcb(z))
+            @test maximum(abs(discount(direct, ti) - exp(-zi * ti)) for (ti, zi) in zip(ts, z)) < 1.0e-8
+            @test all(isequal(fit(ZeroRateCurve(z0, ts, spline), zcb(z)), direct) for z0 in starts)
+        end
+        for (z0, tenor) in ((1.0, 30.0), (0.1, 300.0), (100.0, 10.0))
+            @test discount(fit(ZeroRateCurve([z0], [tenor], Spline.Linear()), [ZCBPrice(0.9, tenor)]), tenor) ≈ 0.9 rtol = 1.0e-8
         end
         fl = fit(ZeroRateCurve(fill(0.01, length(t)), t, Spline.Linear()), qs)
         @test fl.rates ≈ target atol = 1.0e-5
