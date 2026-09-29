@@ -1363,3 +1363,22 @@ end
     @test discount(ShortRate.Vasicek(0.1, 0.05, 0.01, Continuous(0.03)), Inf) == 0.0
     @test discount(ShortRate.Vasicek(0.1, 0.001, 0.05, Continuous(0.03)), Inf) == Inf
 end
+
+@testset "affine series keep the working precision" begin
+    # The series coefficients are exact, so Float32 inputs price in Float32 on both sides of the
+    # |aτ| = 0.2 threshold, and a BigFloat limit at a = 0 is exact to its own precision.
+    for a in (0.001f0, 0.5f0)   # aτ = 0.001 (series) and 0.5 (closed form)
+        v = ShortRate.Vasicek(a, 0.05f0, 0.01f0, Continuous(0.03f0))
+        @test discount(v, 1.0f0) isa Float32
+        @test discount(v, 0.0f0, 1.0f0, 0.03f0) isa Float32
+        @test FinanceModels._decay_integral(a, 1.0f0) isa Float32
+        @test ForwardDiff.derivative(x -> FinanceModels._decay_integral(x, 1.0f0), a) isa Float32
+    end
+    setprecision(BigFloat, 256) do
+        # a = b = r = 0: -log P = -σ²τ³/6, so P = exp(1/6) at σ = τ = 1
+        v = ShortRate.Vasicek(big(0.0), big(0.0), big(1.0), Continuous(big(0.0)))
+        @test discount(v, big(1.0)) ≈ exp(big(1) / 6) rtol = 4eps(BigFloat)
+        @test FinanceModels._decay_integral(big(0.0), big(3.0)) == 3
+        @test FinanceModels._vasicek_log_zcb(big(0.0), big"0.05", big(0.0), big"0.03", big(10.0)) ≈ big"0.3" rtol = 4eps(BigFloat)
+    end
+end

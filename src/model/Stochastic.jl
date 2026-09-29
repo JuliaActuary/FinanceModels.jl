@@ -137,10 +137,12 @@ end
 # B(τ) = -∂log P/∂r of Vasicek and Hull-White, and (at 2a) their variance factors. It is τ at a = 0.
 # The closed form is accurate for every other a, but its ForwardDiff derivative in `a` cancels as
 # aτ → 0, so |aτ| < 0.2 uses the Taylor polynomial of φ₂(x) = (e^{-x} - 1 + x)/x² (the factor is
-# τ(1 - xφ₂(x))), whose omitted terms are below Float64 rounding there.
+# τ(1 - xφ₂(x))), whose omitted terms are below Float64 rounding there. The series' coefficients are
+# exact in every precision, so their values at x = 0 are too; their truncation is set for Float64,
+# which bounds a wider type inside the band to about 4e-18 relative.
 const _AFFINE_SERIES_X = 0.2
-const _φ2_COEFFS = ntuple(k -> (-1)^(k - 1) / factorial(k + 1), 11)
-_φ2(x) = evalpoly(x, _φ2_COEFFS)
+const _φ2_COEFFS = ntuple(k -> (-1)^(k - 1) // factorial(k + 1), 11)
+_φ2(x) = __evalpoly_exact(x, _φ2_COEFFS)
 @inline function _decay_integral(a, τ)
     x = a * τ
     return abs(x) < _AFFINE_SERIES_X ? τ * (1 - x * _φ2(x)) : -expm1(-x) / a
@@ -152,12 +154,12 @@ end
 # B = -m/a and τ - B = (x + m)/a for m = expm1(-x), keeps the terms linear in τ in one product, so
 # -log P follows the long rate b - σ²/(2a²) to ±∞; its σ² terms cancel as x = aτ → 0, so |x| < 0.2
 # uses the second form with the Taylor polynomials of φ₂ and h, exact to Float64 rounding there.
-const _VASICEK_H_COEFFS = ntuple(k -> (-1)^(k - 1) * (2^(k + 1) - 2) / factorial(k + 2), 13)
+const _VASICEK_H_COEFFS = ntuple(k -> (-1)^(k - 1) * (2^(k + 1) - 2) // factorial(k + 2), 13)
 function _vasicek_log_zcb(a, b, σ, r, τ)
     x = a * τ
     if abs(x) < _AFFINE_SERIES_X
         p = x * _φ2(x)
-        return τ * (1 - p) * r + b * τ * p - σ^2 * τ^3 / 2 * evalpoly(x, _VASICEK_H_COEFFS)
+        return τ * (1 - p) * r + b * τ * p - σ^2 * τ^3 / 2 * __evalpoly_exact(x, _VASICEK_H_COEFFS)
     end
     m = expm1(-x)
     return -m / a * r + (x + m) / a * (b - σ^2 / (2a^2)) + σ^2 * m^2 / (4a^3)

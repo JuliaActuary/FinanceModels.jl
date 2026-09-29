@@ -334,5 +334,12 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
         @test_throws DomainError ForwardDiff.derivative(t -> discount(Yield.TenorShift(sw, (z, t) -> z), t), 0.0)
         @test_throws DomainError ForwardDiff.derivative(t -> rate(zero(sw, t)), 0.0)
         @test isnan(rate(zero(sw, 0.0)))   # an exact 0 stays the non-finite 0/0 the sampling form rejects
+        # Float32 parameters keep Float32 zero rates, at a dual 0 (the decay's series) and elsewhere
+        ns32 = Yield.NelsonSiegel(1.0f0, 0.05f0, -0.02f0, 0.01f0)
+        nss32 = Yield.NelsonSiegelSvensson(2.5f0, 3.0f0, 0.04f0, -0.02f0, 0.01f0, -0.005f0)
+        for c in (ns32, nss32), t in (0.0f0, 1.0f0)
+            @test rate(zero(c, t)) isa Float32
+            @test ForwardDiff.derivative(u -> rate(zero(c, u)), t) isa Float32
+        end
     end
 end

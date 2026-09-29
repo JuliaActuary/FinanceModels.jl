@@ -58,7 +58,8 @@ end
 # The zero rates for a time derivative at t = 0 (see `__dual_at_origin`), where the closed form's
 # decay (1 - e^{-q})/q is 0/0: the decay comes from its Taylor series, exact at 0 through the eighth
 # derivative. They are out of line, so that `zero` stays small enough to inline.
-__ns_decay_at_origin(q) = evalpoly(-q, (1, 1 / 2, 1 / 6, 1 / 24, 1 / 120, 1 / 720, 1 / 5040, 1 / 40320, 1 / 362880))
+const __NS_DECAY_COEFFS = ntuple(k -> 1 // factorial(k), 9)
+__ns_decay_at_origin(q) = __evalpoly_exact(-q, __NS_DECAY_COEFFS)
 @noinline function __ns_zero_at_origin(ns, t)
     q = t / ns.τ₁
     d = __ns_decay_at_origin(q)
@@ -78,7 +79,7 @@ function Base.zero(ns::NelsonSiegel, t)
     # gradient shift tips the (documented, highly sensitive) NSS calibration into NaN.
     q = t / ns.τ₁
     e = exp(-q)
-    return Continuous(ns.β₀ + ns.β₁ * (1.0 - e) / q + ns.β₂ * ((1.0 - e) / q - e))
+    return Continuous(ns.β₀ + ns.β₁ * (1 - e) / q + ns.β₂ * ((1 - e) / q - e))
 end
 FinanceCore.discount(ns::NelsonSiegel, t) = _discount_from_zero(ns, t)
 __log_discount(ns::NelsonSiegel, t) = __zero_log_discount(ns, t)
@@ -158,7 +159,7 @@ function Base.zero(nss::NelsonSiegelSvensson, t)
     q₂ = t / nss.τ₂
     e₁ = exp(-q₁)
     e₂ = exp(-q₂)
-    return Continuous(nss.β₀ + nss.β₁ * (1.0 - e₁) / q₁ + nss.β₂ * ((1.0 - e₁) / q₁ - e₁) + nss.β₃ * ((1.0 - e₂) / q₂ - e₂))
+    return Continuous(nss.β₀ + nss.β₁ * (1 - e₁) / q₁ + nss.β₂ * ((1 - e₁) / q₁ - e₁) + nss.β₃ * ((1 - e₂) / q₂ - e₂))
 end
 FinanceCore.discount(nss::NelsonSiegelSvensson, t) = _discount_from_zero(nss, t)
 __log_discount(nss::NelsonSiegelSvensson, t) = __zero_log_discount(nss, t)
