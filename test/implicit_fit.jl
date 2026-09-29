@@ -193,12 +193,14 @@ FinanceCore.present_value(m, c::WrappedContract, t = 0.0) = FinanceCore.present_
     end
 
     @testset "refitting a knot curve" begin
-        # one knot per quote: the refit is the spline fit, derivatives included
+        # One knot per quote: the refit is the spline fit, derivatives included. A Linear or Cubic
+        # refit starts from the curve's own rates, so it agrees to the solver's tolerance.
         refit(spline) = x -> pv(fit(ZeroRateCurve(fill(0.02, length(tenors)), tenors, spline), CMTYield.(x, tenors)), cfs)
         direct(spline) = x -> pv(fit(spline, CMTYield.(x, tenors)), cfs)
-        for spline in (Spline.Linear(), Spline.Cubic(), Spline.MonotoneConvex())
-            @test ForwardDiff.gradient(refit(spline), rates) == ForwardDiff.gradient(direct(spline), rates)
+        for spline in (Spline.Linear(), Spline.Cubic())
+            @test ForwardDiff.gradient(refit(spline), rates) ≈ ForwardDiff.gradient(direct(spline), rates) rtol = 1.0e-7
         end
+        @test ForwardDiff.gradient(refit(Spline.MonotoneConvex()), rates) == ForwardDiff.gradient(direct(Spline.MonotoneConvex()), rates)
         # Another number of knots leaves the repricing conditions non-square: they do not
         # determine the knot rates' derivatives, and the implicit solve cannot be formed.
         for knots in ([1.0, 3.0, 10.0], [0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0])

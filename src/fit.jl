@@ -447,6 +447,13 @@ __curve_fit_seed(n, lo, hi) = n <= 1 ? fill((lo + hi) / 2, n) : collect(range(lo
 __knot_fit_seed(::Spline.SplineCurve, tenors) = __curve_fit_seed(length(tenors), 0.049, 0.051)
 __knot_fit_seed(::Spline.MonotoneConvex, tenors) = __curve_fit_seed(length(tenors), 0.01, 0.05)
 __knot_fit_seed(::Union{Spline.PCHIP, Spline.Akima}, tenors) = 0.05 .- 0.01 .* exp.(-tenors ./ (1 + maximum(tenors; init = 0)))
+# A refit of an interpolant linear in its knot rates starts from the curve's own rates, which are
+# usually close to the new solution: its loss has no kink or singular point to start on. The others
+# start from the seed above, since a curve's rates may be flat, tied or sit on a formula switch (for
+# MonotoneConvex, a binding collar where the gradient is undefined).
+__refit_seed(c) = __refit_seed(c.spline, c)
+__refit_seed(s::Spline.SplineCurve, c) = __knot_fit_seed(s, Yield.knot_tenors(c))
+__refit_seed(::Union{Spline.PolynomialSpline, Spline.BSpline}, c) = [float(__primal(z)) for z in Yield.knot_rates(c)]
 
 # A spline fit places its knots at the sorted quote maturities. (`fit(spline, quotes; kwargs...)`
 # reaches it through the generic method's default loss, which passes the keywords on.)
@@ -456,7 +463,7 @@ function fit(
     ) where {T <: Spline.SplineCurve, F <: Fit.Loss}
     quotes, primal_quotes = __calibration_quotes(quotes)
     tenors = sort!([maturity(q) for q in primal_quotes])
-    return __fit_knot_rates(mod0, tenors, quotes, primal_quotes, method, extrapolation; optimizer, solve_kwargs)
+    return __fit_knot_rates(mod0, __knot_fit_seed(mod0, tenors), tenors, quotes, primal_quotes, method, extrapolation; optimizer, solve_kwargs)
 end
 
 # Refitting a knot curve keeps its knot tenors, interpolation method and extrapolation policy.
@@ -465,21 +472,21 @@ function fit(
         optimizer = __default_optim(c.spline), solve_kwargs = (;)
     )
     quotes, primal_quotes = __calibration_quotes(quotes)
-    return __fit_knot_rates(c.spline, Yield.knot_tenors(c), quotes, primal_quotes, method, c.extrapolation; optimizer, solve_kwargs)
+    return __fit_knot_rates(c.spline, __refit_seed(c), Yield.knot_tenors(c), quotes, primal_quotes, method, c.extrapolation; optimizer, solve_kwargs)
 end
 
 # Every loss fit of knot rates, for every interpolation method including
 # `Spline.MonotoneConvex()`: one trial curve per candidate built by the same `Yield.__build` as
-# `ZeroRateCurve`, and a validated `ZeroRateCurve` as the result. The callers collect the quotes
-# once, with their primal copies (`__calibration_quotes`).
-function __fit_knot_rates(spline, tenors, quotes, primal_quotes, method, extrapolation; optimizer, solve_kwargs)
+# `ZeroRateCurve`, and a validated `ZeroRateCurve` as the result. The callers choose the starting
+# rates `seed` and collect the quotes once, with their primal copies (`__calibration_quotes`).
+function __fit_knot_rates(spline, seed, tenors, quotes, primal_quotes, method, extrapolation; optimizer, solve_kwargs)
     # The solve runs on primal quotes; dual numbers in the quotes or the extrapolation policy
     # are propagated afterwards by the implicit function theorem (see `__implicit_knot_curve`).
     primal_extrapolation = __primal_extrapolation(extrapolation)
     # Validate the policy and the knot grid once, up front (duplicate maturities, too few
     # knots for the interpolant, `:extension` with MonotoneConvex, …) with the same errors as
     # direct construction; trial curves reuse them.
-    grid0 = Yield.KnotGrid(__knot_fit_seed(spline, tenors), tenors, spline; who = "fit($(spline))")
+    grid0 = Yield.KnotGrid(seed, tenors, spline; who = "fit($(spline))")
     __check_primal_quotes(Yield.__build(spline, grid0; extrapolation = primal_extrapolation), primal_quotes)
     loss(u, qs) = __quote_loss(__trial_curve(spline, u, grid0.tenors, primal_extrapolation), method, qs)
     rates = __minimize(loss, grid0.rates, primal_quotes, optimizer, solve_kwargs)

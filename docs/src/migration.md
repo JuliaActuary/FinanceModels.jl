@@ -83,8 +83,10 @@ curves returned by spline `fit`s and `Fit.Bootstrap()`. All of them share one in
   there; a source curve without one gives a non-finite rate, which throws.
 - **Refitting a knot curve is the spline fit on its knots.** `fit(curve, quotes)` works for any
   knot curve: it fits new knot rates at the curve's tenors with its interpolation method and
-  extrapolation policy, by the same solve as `fit(spline, quotes)`. It starts from the same rates
-  (not the curve's own), builds one unchecked trial curve per optimizer candidate, uses the
+  extrapolation policy, by the same solve as `fit(spline, quotes)`. A Linear, Quadratic, Cubic or
+  BSpline curve starts from its own knot rates; PCHIP, Akima and MonotoneConvex start from the
+  same rates as `fit(spline, quotes)`, since a curve's own rates can be flat or sit on a kink. It
+  builds one unchecked trial curve per optimizer candidate, uses the
   spline's default optimizer (`Newton()`, or `LBFGS()` for `Spline.MonotoneConvex()`), and
   differentiates through dual quotes when there is one knot per quote. It no longer accepts
   `variables` (a `MethodError`): that keyword never had a documented use for knot curves and was
