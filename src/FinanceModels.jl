@@ -45,7 +45,7 @@ export FX
 export ShortRate, AbstractStochasticModel, RatePath, simulate, pv_mc, short_rate
 export Projection, CashflowProjection, model_requirements
 export pv
-export Fit, fit
+export Fit, fit, FitConvergenceError
 
 include("precompile.jl")
 end
