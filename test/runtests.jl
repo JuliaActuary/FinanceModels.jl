@@ -22,16 +22,9 @@ include("TransformedYield.jl")
 include("YieldShiftInvariants.jl")
 include("SmithWilson.jl")
 
-# ActuaryUtilities integration: AU < 5.9 caps FinanceCore at 2.x, so when this
-# checkout is developed against an unreleased FinanceCore major the resolver can
-# only satisfy the sandbox with an ancient Yields.jl-era AU — skip rather than
-# exercise stale code. CI against registered versions runs these.
-import ActuaryUtilities
-if pkgversion(ActuaryUtilities) >= v"5"
-    include("ActuaryUtilities.jl")
-else
-    @warn "Skipping ActuaryUtilities integration tests (resolved version $(pkgversion(ActuaryUtilities)) predates the FinanceModels-based API)"
-end
+# The ActuaryUtilities integration tests (downstream/ActuaryUtilities.jl) run in the
+# Downstream workflow: ActuaryUtilities depends on FinanceModels, so it cannot be a test
+# dependency of a FinanceModels version it does not support yet.
 include("misc.jl")
 include("NelsonSiegelSvensson.jl")
 include("CairnsPritchard.jl")

@@ -22,8 +22,9 @@ using ActuaryUtilities
         mac = duration(Macaulay(), d, cfs, times)
         @test mac ≈ 2.86350467067113
         @test duration(d, cfs, times) ≈ mac
-        # ∂²V/∂Δ² with d(t) = (1+r)^(-t)·(1+Δ)^(-t) gives Σ cf·d·t·(t+1) / V
-        expected_cvx = sum(cf * 1.03^-t * t * (t + 1) for (cf, t) in zip(cfs, times)) / V
+        # ∂²V/∂Δ² for a continuous zero-rate shift, d(t)·exp(-Δt), gives Σ cf·d·t² / V
+        # (ActuaryUtilities 6; version 5 shocked the periodic rate, giving Σ cf·d·t·(t+1) / V)
+        expected_cvx = sum(cf * 1.03^-t * t^2 for (cf, t) in zip(cfs, times)) / V
         @test convexity(d, cfs, times) ≈ expected_cvx
     end
 end
