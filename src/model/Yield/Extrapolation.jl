@@ -111,7 +111,7 @@ end
 # A single knot at t = 0 leaves every positive time to the tail, so a forward other than the knot's
 # rate would make the zero rate jump at the origin: the knot's rate at 0, the forward after it.
 function __build_tail(method::FlatForwardAt, t, z, forward, slope)
-    iszero(t) && __primal(method.forward) != __primal(z) && throw(
+    iszero(__primal(t)) && __primal(method.forward) != __primal(z) && throw(
         ArgumentError(
             "a single knot at t = 0 with Yield.FlatForwardAt(forward) needs the forward to equal the " *
                 "knot's rate, $(__primal(z)); got $(__primal(method.forward))."

@@ -340,6 +340,10 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
             @test rate(zero(c1, 0.0)) == rate(zero(c1, 1.0e-8)) == 0.03
             # Another forward would make the zero rate jump at the origin, from the knot's rate to it.
             @test_throws ArgumentError ZeroRateCurve([0.03], [0.0], spline; extrapolation = Yield.FlatForwardAt(Continuous(0.04)))
+            # also when the tenor carries a derivative: the check reads its primal value
+            @test_throws ArgumentError ZeroRateCurve(
+                [0.03], [ForwardDiff.Dual(0.0, 1.0)], spline; extrapolation = Yield.FlatForwardAt(Continuous(0.04))
+            )
         end
         # the check compares primal values: a knot rate carrying a partial still builds, and the
         # tail's forward, not the knot's rate, prices every positive time
