@@ -33,7 +33,7 @@ usd = Yield.Constant(Continuous(0.05))
 quotes = FX.Outright.(eurusd, [1.1055, 1.1113, 1.1225, 1.1459], [0.25, 0.5, 1.0, 2.0])
 
 # closed-form implied EUR discount factors, bootstrapped through a spline
-m = fit(FX.Forwards(eurusd, 1.10, usd, Spline.Cubic()), quotes, Fit.Bootstrap())
+m = fit(FX.Forwards(eurusd, 1.10, usd, Spline.Linear()), quotes, Fit.Bootstrap())
 
 forward(m, 1.0)  # ≈ 1.1225, and every quote reprices to zero PV
 ```
@@ -309,7 +309,7 @@ usd = Yield.Constant(Continuous(0.05))
 quotes = FX.Outright.(eurusd, [1.1055, 1.1113, 1.1225], [0.25, 0.5, 1.0])
 
 implied = FX.implied_zcb_quotes(quotes, 1.10, usd)   # Vector of ZCB-price Quotes
-eur = fit(Spline.Cubic(), implied, Fit.Bootstrap())  # the implied EUR discount curve
+eur = fit(Spline.Linear(), implied, Fit.Bootstrap())  # the implied EUR discount curve
 ```
 """
 function implied_zcb_quotes(quotes, spot, domestic)
@@ -473,10 +473,10 @@ quotes = [
 m = fit(FX.Forwards(eurusd, 1.10, sofr, Spline.Linear()), quotes, Fit.Bootstrap())
 ```
 
-Prefer a *local* interpolation (such as `Spline.Linear`, as above) when the quote set
-includes coupon-bearing instruments: their cashflows fall between knots, and a global
-spline reshapes already-solved segments as later knots are added, silently drifting
-solved quotes off par.
+Bootstrapping requires `Spline.Linear` (as above): coupon-bearing instruments have
+cashflows between knots, and with smoother interpolation a later knot reshapes
+already-solved segments and drifts solved quotes off par. Use `Fit.Loss` to fit a
+smooth curve to the whole quote set.
 
 This is the constant-notional representation. Interbank basis swaps are quoted on the
 mark-to-market (resetting-notional) structure, in which the *flat domestic* leg's

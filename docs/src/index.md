@@ -248,7 +248,7 @@ Will produce:
        Model                                                                Method
           |                                                                    |
    |------------|                                                      |---------------|
-fit(Spline.Cubic(), CMTYield.([0.04,0.05,0.055,0.06,0.055],[1,2,3,4,5]), Fit.Bootstrap())
+fit(Spline.Linear(), CMTYield.([0.04,0.05,0.055,0.06,0.055],[1,2,3,4,5]), Fit.Bootstrap())
                     |-------------------------------------------------|
                                               |
                                               Quotes

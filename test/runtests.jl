@@ -38,6 +38,7 @@ include("CairnsPritchard.jl")
 include("MonotoneConvex.jl")
 include("ZeroRateCurve.jl")
 include("regressions.jl")
+include("bootstrap.jl")
 
 include("extensions.jl")
 include("Stochastic.jl")

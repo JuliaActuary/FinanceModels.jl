@@ -1,5 +1,27 @@
 # Migration Guide
 
+## v6.x to v7.0
+
+- **`Fit.Bootstrap()` supports only `Spline.Linear()`** (equivalently
+  `Spline.PolynomialSpline(1)` or `Spline.BSpline(1)`). Bootstrapping solves one
+  quote at a time and requires that each new knot leave earlier curve segments
+  unchanged. With quadratic, cubic, higher-order B-spline, PCHIP, or Akima
+  interpolation a later knot reshapes earlier segments, so earlier coupon quotes
+  silently stopped repricing: on uneven par quotes the residuals reached 0.40%
+  (quadratic) and 0.11% (cubic). These strategies now throw an `ArgumentError`.
+  **Migration:** use `Spline.Linear()` with `Fit.Bootstrap()`, or fit the smoother
+  strategy to all quotes at once with `Fit.Loss(x -> x^2)`; fit a monotone convex
+  curve with `fit(Spline.MonotoneConvex(), quotes)` (bootstrap previously switched
+  to this loss fit silently). Zero-coupon quote sets were exact with every strategy,
+  so their fitted curves change only if you switch to a loss fit.
+- Bootstrap validates its inputs up front: empty quote sets, non-finite or
+  non-positive maturities, and duplicate maturities throw an `ArgumentError`.
+  After solving, every quote is repriced on the returned curve, and a residual
+  beyond root-finder precision throws.
+- Full-curve `Fit.Loss` spline fits start from slightly sloped rates near 5%
+  instead of a flat 5%, which lets PCHIP and Akima fits converge. Converged fits
+  of other strategies move by at most about 1e-9 in zero rate.
+
 ## v6.0 to v6.1
 
 !!! warning "Changed numbers and new errors"

@@ -134,7 +134,7 @@ to a quote transformation followed by the ordinary fitting machinery, which is w
 one-step `fit` methods do:
 
 ```julia
-m = fit(FX.Forwards(eurusd, 1.10, usd, Spline.Cubic()), quotes, Fit.Bootstrap())
+m = fit(FX.Forwards(eurusd, 1.10, usd, Spline.Linear()), quotes, Fit.Bootstrap())
 
 forward(m, 1.0)                        # ≈ 1.1225: every quote reprices exactly
 present_value(m, quotes[3].instrument) # ≈ 0.0
@@ -307,9 +307,9 @@ Every quote — outright or swap — reprices under the fitted model, and the co
 basis swap from the previous section values to zero against it (the test suite asserts
 both). Two practical notes:
 
-- Prefer *local* interpolation (e.g. `Spline.Linear`) when bootstrapping coupon-bearing
-  quotes: a global spline reshapes earlier segments as later knots are added, drifting
-  already-solved swaps off par.
+- Bootstrapping requires `Spline.Linear`: with smoother interpolation, adding a knot
+  reshapes earlier segments and drifts already-solved swaps off par, so `Fit.Bootstrap`
+  rejects those strategies. Use `Fit.Loss` to fit a smooth curve to the whole quote set.
 - A mixed quote set under `Fit.Loss` (rather than `Fit.Bootstrap`) sums residuals of
   different scales — discount-factor units for implied zero-coupon quotes, par-price
   units for basis-swap strips — implicitly weighting the two families differently; the
