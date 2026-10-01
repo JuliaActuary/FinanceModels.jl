@@ -140,7 +140,8 @@ end
 # Taylor expansion in a for small aτ, avoiding cancellation: B = τ - aτ²/2 + a²τ³/6 - a³τ⁴/24
 _vasicek_B(a, τ) = abs(a * τ) < 0.02 ? τ * (1 - a * τ / 2 + (a * τ)^2 / 6 - (a * τ)^3 / 24) : (1 - exp(-a * τ)) / a
 
-function _vasicek_zcb(a, b, σ, r, τ)
+# −log P(τ) = B·r − lnA; the price is its exp.
+function _vasicek_log_zcb(a, b, σ, r, τ)
     B = _vasicek_B(a, τ)
     if abs(a * τ) < 0.02
         # Taylor expansion in a, avoiding cancellation:
@@ -151,12 +152,15 @@ function _vasicek_zcb(a, b, σ, r, τ)
     else
         lnA = (B - τ) * (a^2 * b - 0.5 * σ^2) / a^2 - σ^2 * B^2 / (4a)
     end
-    return exp(lnA - B * r)
+    return B * r - lnA
 end
+_vasicek_zcb(a, b, σ, r, τ) = exp(-_vasicek_log_zcb(a, b, σ, r, τ))
 
 function FinanceCore.discount(m::ShortRate.Vasicek, T)
     return _vasicek_zcb(m.a, m.b, m.σ, _initial_rate(m), T)
 end
+Yield.__log_discount(m::ShortRate.Vasicek, T) = _vasicek_log_zcb(m.a, m.b, m.σ, _initial_rate(m), T)
+Yield.__log_native(::ShortRate.Vasicek) = true
 
 # CIR ZCB price: P = A(τ) exp(-B(τ) r)
 function _cir_zcb(a, b, σ, r, τ)
@@ -187,6 +191,10 @@ end
 function FinanceCore.discount(m::ShortRate.HullWhite, T)
     return FinanceCore.discount(m.curve, T)
 end
+Yield.__log_discount(m::ShortRate.HullWhite, T) = Yield.__log_discount(m.curve, T)
+Yield.__log_interval(m::ShortRate.HullWhite, from, to) = Yield.__log_interval(m.curve, from, to)
+Yield.__log_tail(m::ShortRate.HullWhite) = Yield.__log_tail(m.curve)
+FinanceCore.discount(m::ShortRate.HullWhite, from, to) = FinanceCore.discount(m.curve, from, to)
 
 # ─── Conditional discount P(t,T|r(t)) ────────────────────────────────────────
 
@@ -248,6 +256,8 @@ end
 function FinanceCore.discount(p::RatePath, t)
     return exp(-p.interp(t))
 end
+Yield.__log_discount(p::RatePath, t) = p.interp(t)
+Yield.__log_native(::RatePath) = true
 
 # ─── simulate: path generation ───────────────────────────────────────────────
 

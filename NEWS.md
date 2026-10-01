@@ -167,6 +167,34 @@ For a pointwise transformation of one curve's zero rates, use a `TenorShift`
 (`curve + ((z, t) -> ...)`), such as `curve + ((z, t) -> max(z, Continuous(0.0)))` to floor the
 zero rate. Ordering rates with `max` needs FinanceCore 2.6, which FinanceModels now requires.
 
+### Interval factors that don't underflow
+
+For the built-in curves, `discount(curve, from, to)`, `accumulation(curve, from, to)` and
+`forward(curve, from, to)` are now computed from the cumulative log-discount L(t) = −log D(t) at
+the two endpoints, rather than as a ratio of discount factors. The main effects:
+
+- **Far-tail intervals are finite.** For example `discount(Yield.NelsonSiegel(1.0, 0.05, -0.02, 0.01), 20000, 20001)`
+  was `NaN` (0/0) and is now `exp(-0.05)`. `ForwardStarting` far into the tail is finite too.
+- **Intervals from time 0 are unchanged.** `discount(curve, 0, t)` equals `discount(curve, t)` bit for
+  bit, so every `present_value` of a contract is unchanged. Other intervals can move by a few units
+  in the last place, and `zero`/`forward` of `SmithWilson`, `ForwardStarting` and the short-rate
+  models by a few more (they no longer round-trip through the discount factor).
+- **Empty intervals.** `discount(curve, t, t)` is exactly 1, also at `t = Inf`.
+- **Composite curves at infinity.** `discount(a + b, Inf)` (and `-`, scaling and `ForwardStarting`)
+  combines the components' long-run behavior before taking the limit, so long-run forwards that
+  cancel leave their finite intercept: a flat-forward `ZeroRateCurve` minus a `Constant` at its
+  tail forward tends to a finite factor rather than `NaN`. Components with a closed-form tail are
+  `ZeroRateCurve`/`Yield.Spline`, `MonotoneConvex` and `Constant`; any other curve contributes its
+  zero rate at infinity, as the sum of zero rates did before. A zero rate that tends to ±Inf says
+  the log-discount grows faster than linearly but not how fast, so against a `:linear` tail of the
+  other sign the limit is unsupported and returns `NaN` rather than a guess.
+- **Smith-Wilson** intervals are exp(−ufr·(to − from))·(1 + s(to))/(1 + s(from)). That is exact for either sign
+  of the discount factor (a fit to arbitrary prices can make it negative) and finite in the far
+  tail; `discount(sw, t)` is unchanged.
+- **Custom curves** still need only `discount(curve, t)`, and their intervals stay the ratio
+  D(to)/D(from). `forward(curve, 0, t)` is now consistent with that for a curve with D(0) ≠ 1
+  (previously it assumed D(0) = 1).
+
 ## v6.4.0
 
 ### `Spline.BSpline` fitted values changed on non-uniform tenor grids

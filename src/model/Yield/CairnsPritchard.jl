@@ -55,6 +55,8 @@ function Base.zero(cp::CairnsPritchard, t)
     return Continuous(cp.b₀ + cp.b₁ * exp(-cp.c₁ * t) + cp.b₂ * exp(-cp.c₂ * t))
 end
 FinanceCore.discount(cp::CairnsPritchard, t) = _discount_from_zero(cp, t)
+__log_discount(cp::CairnsPritchard, t) = __zero_log_discount(cp, t)
+__log_native(::CairnsPritchard) = true
 
 """
     CairnsPritchardExtended(c₁, c₂, c₃, b₀, b₁, b₂, b₃)
@@ -116,3 +118,5 @@ function Base.zero(cp::CairnsPritchardExtended, t)
     return Continuous(cp.b₀ + cp.b₁ * exp(-cp.c₁ * t) + cp.b₂ * exp(-cp.c₂ * t) + cp.b₃ * exp(-cp.c₃ * t))
 end
 FinanceCore.discount(cp::CairnsPritchardExtended, t) = _discount_from_zero(cp, t)
+__log_discount(cp::CairnsPritchardExtended, t) = __zero_log_discount(cp, t)
+__log_native(::CairnsPritchardExtended) = true

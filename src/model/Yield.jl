@@ -14,18 +14,82 @@ export discount, zero, forward, par, implied_quote, pv, instantaneous_forward, k
 
 abstract type AbstractYieldModel <: AbstractModel end
 
-# Discount factor derived from the continuous zero rate — the single home for this logic,
-# shared by every zero-native curve through the one-line `discount` stubs at each curve
-# definition (CompositeYield, ScaledYield, the yield shifts, NelsonSiegel(Svensson),
-# CairnsPritchard, MonotoneConvex). Curves with a cheaper direct formula (Constant,
-# Yield.Spline) define their own `discount` instead. Leaf curves provide a finite zero
-# rate at t=0, but wrappers may sit over discount-native curves whose generic `zero`
-# has a removable 0/0 singularity there. Forming `one(df)` preserves the promoted
-# curve/time numeric type while enforcing the discount-factor identity DF(0) = 1.
-function _discount_from_zero(c, t)
-    df = discount(Base.zero(c, t), t)
-    return iszero(t) ? one(df) : df
+# ── Internal curve capabilities ────────────────────────────────────────────────────────
+#
+# A curve needs only `discount(c, t)`. Each method below has a default that is safe for any such
+# curve; a type adds its own where it knows more.
+#
+# | method                     | meaning                                        | default                        |
+# |----------------------------|------------------------------------------------|--------------------------------|
+# | `__log_discount(c, t)`     | L(t) = −log D(t)                               | `-log(discount(c, t))`         |
+# | `__log_native(c)`          | interval factors may be formed as exp(L(a) − L(b)) | `false`: the ratio D(b)/D(a)   |
+# | `__log_interval(c, a, b)`  | L(b) − L(a), real where the interval factor is positive | from `__log_native`   |
+# | `__log_tail(c)`            | the coefficients of L as t → ∞ (`__LogTail`)   | from `zero(c, Inf)`, below     |
+#
+# `__log_native` says that the log-difference route is valid for intervals: the curve's L is
+# computed directly and its discount factor is exp(-L), so positive. It doesn't just mean that a
+# type defines `__log_discount`: Smith–Wilson, `ForwardStarting` and Hull–White define L but take
+# their intervals from `__log_interval` or the ratio of factors.
+#
+# - `__log_discount` + `__log_native`: `Constant`, `Spline`, `MonotoneConvex`, the zero-native curves
+#   (`NelsonSiegel(Svensson)`, `CairnsPritchard(Extended)`, the yield shifts), `CompositeYield`,
+#   `ScaledYield`, `Vasicek`, `RatePath`.
+# - `__log_discount` + `__log_interval`: `SmithWilson` (signed factors: from its interval ratio),
+#   `ForwardStarting` (from the base curve's interval), `HullWhite` (its initial curve's).
+# - `__log_tail`, exact: `Constant`, `Spline`, `MonotoneConvex`, and the wrappers `CompositeYield`,
+#   `ScaledYield`, `ForwardStarting`, `HullWhite`, which combine their components' tails. Every other
+#   curve uses the fallback, which knows only the growth rate its zero rate at infinity implies.
+# - `__PrimalCurve` forwards all four without partials.
+
+# Cumulative log-discount L(t) = −log D(t): the continuously compounded force accumulated from
+# valuation time 0 to `t`. `forward` and the generic `zero` are built from it. The fallback needs
+# only `discount(c, t)`; built-in curves compute L directly.
+__log_discount(c, t) = -log(FinanceCore.discount(c, t))
+
+# Whether a curve's discount factor is exp(-L) for a directly computed L, and hence positive. Such
+# curves take interval factors as exp(L(from) − L(to)): a difference of log-discounts stays finite
+# where both discount factors underflow, and an interval from 0 reproduces `discount(c, t)` bit for
+# bit. A curve that defines only `discount` may have D(0) ≠ 1 or a nonpositive discount factor, so
+# its interval factors stay the ratio D(to)/D(from). The answer depends only on the curve's type.
+__log_native(c) = false
+
+# L(to) − L(from), the log-discount accumulated over an interval; `ForwardStarting` rebases a curve
+# with it. A curve that isn't log-native takes the log of its own interval factor, which is real
+# wherever that factor is positive (for a signed Smith-Wilson fit, also where both discount factors
+# are negative).
+__log_interval(c, from, to) = __log_native(c) ? __log_discount(c, to) - __log_discount(c, from) :
+    -log(FinanceCore.discount(c, from, to))
+
+# The tail of L (see `__LogTail`) for a curve without a closed form: the leading slope is its zero
+# rate at infinity and the intercept is not known. When those rates are finite, a composite of such
+# curves has the same limit as the sum of their zero rates, and an exact cancellation of the slopes
+# is NaN (0·Inf). An infinite zero rate means L grows faster than t, at an order the curve doesn't
+# say; the forward slot then holds ±Inf, which the limit reads as that unknown growth.
+function __log_tail(c)
+    z = FinanceCore.rate(Base.zero(c, Inf))
+    return __LogTail(zero(z), z, oftype(z, NaN))
 end
+
+# Wrappers evaluate L at t = +Inf from their combined tail; a negative time still reaches the
+# components, which reject it. The limits are out of line so the finite-time path stays small.
+__at_infinity(t) = isinf(t) && t > 0
+@noinline __discount_at_infinity(c::AbstractYieldModel) = __discount_at_infinity(__log_tail(c))
+@noinline __log_discount_at_infinity(c::AbstractYieldModel) = __log_discount_at_infinity(__log_tail(c))
+
+# L of a zero-native curve: z(t)·t with z the continuous zero rate, which is exactly the exponent
+# `discount(zero(c, t), t)` uses. At an exact zero time L is 0 whatever the zero rate there: a
+# wrapper over a discount-native curve has a removable 0/0 zero rate at t = 0. Under ForwardDiff
+# 1.x `iszero` also requires zero partials, so a time derivative at 0 still flows through z(t)·t.
+function __zero_log_discount(c, t)
+    L = FinanceCore.rate(Base.zero(c, t)) * t
+    return iszero(t) ? zero(L) : L
+end
+
+# Discount factor of the curves defined by their zero rate (NelsonSiegel(Svensson),
+# CairnsPritchard, MonotoneConvex, the yield shifts), shared through the one-line `discount`
+# stubs at each curve definition. `exp(-L)` gives DF(0) = 1 exactly and keeps the promoted
+# curve/time numeric type.
+_discount_from_zero(c, t) = exp(-__zero_log_discount(c, t))
 
 # Generic callable fallback: `curve(t) ≡ discount(curve, t)`. Covers every
 # AbstractYieldModel subtype (Constant, Spline, CompositeYield, ScaledYield,
@@ -58,6 +122,12 @@ FinanceCore.discount(c::Constant, t) = FinanceCore.discount(c.rate, t)
 # round-trip — which is `0/0 → NaN` at t=0 — and lets curves composed from a
 # `Constant` stay in zero-rate space (see `CompositeYield`/`ScaledYield`).
 Base.zero(c::Constant, t) = convert(Continuous(), c.rate)
+__log_discount(c::Constant, t) = __zero_log_discount(c, t)
+__log_native(::Constant) = true
+function __log_tail(c::Constant)
+    z = FinanceCore.rate(Base.zero(c, Inf))
+    return __LogTail(zero(z), z, zero(z))
+end
 
 # ── Shared knot-grid construction ──────────────────────────────────────────────────────
 #
@@ -320,19 +390,38 @@ struct Spline{S <: Sp.SplineCurve, R, T, E, F} <: AbstractInterpolatedZeroCurve
         new{S, R, T, E, F}(spline, ReadOnlyVector(g.rates), ReadOnlyVector(g.tenors), extrapolation, fn)
 end
 
+function __check_extension_at_infinity(c::Spline, t)
+    c._fn.extend && throw(
+        DomainError(
+            t, "discount(curve, Inf) is unsupported with extrapolation = :extension, whose " *
+                "polynomial continuation of the last piece is evaluated at finite times only. Use a " *
+                "finite time, or a policy with a tail limit (:flat_forward, :flat_zero, :linear, FlatForwardAt)."
+        )
+    )
+    return nothing
+end
+
 function FinanceCore.discount(c::Spline, t)
     __check_time(t, "discount")
     if isinf(t)
-        c._fn.extend && throw(
-            DomainError(
-                t, "discount(curve, Inf) is unsupported with extrapolation = :extension, whose " *
-                    "polynomial continuation of the last piece is evaluated at finite times only. Use a " *
-                    "finite time, or a policy with a tail limit (:flat_forward, :flat_zero, :linear, FlatForwardAt)."
-            )
-        )
+        __check_extension_at_infinity(c, t)
         return __discount_at_infinity(c._fn.tail)
     end
     return exp(-c._fn(t) * t)
+end
+
+function __log_discount(c::Spline, t)
+    __check_time(t, "discount")
+    if isinf(t)
+        __check_extension_at_infinity(c, t)
+        return __log_discount_at_infinity(c._fn.tail)
+    end
+    return c._fn(t) * t
+end
+__log_native(::Spline) = true
+function __log_tail(c::Spline)
+    __check_extension_at_infinity(c, Inf)
+    return __log_tail(c._fn.tail)
 end
 
 # `_fn(t)` is the continuous zero rate, so `zero` is a direct read of the interpolant. This
@@ -424,21 +513,24 @@ include("Yield/ImpliedQuote.jl")
 
 The discount factor for the yield curve `yc` for times `from` through `to`.
 """
-FinanceCore.discount(yc::T, from, to) where {T <: AbstractYieldModel} = discount(yc, to) / discount(yc, from)
+function FinanceCore.discount(yc::T, from, to) where {T <: AbstractYieldModel}
+    d = __log_native(yc) ? exp(__log_discount(yc, from) - __log_discount(yc, to)) :
+        FinanceCore.discount(yc, to) / FinanceCore.discount(yc, from)
+    # The empty interval is the identity, also where L is infinite at both ends (from = to = Inf).
+    # Under ForwardDiff 1.x `==` also compares partials, so this fires only where the
+    # derivative is zero anyway.
+    return from == to ? one(d) : d
+end
 
 """
-    forward(yc, from, to)˚
+    forward(yc, from, to)
 
 The forward `Rate` implied by the yield curve `yc` between times `from` and `to`.
 """
 function FinanceCore.forward(yc::T, from, to = from + 1) where {T <: AbstractYieldModel}
-    # forward = log(DF(from)/DF(to)) / (to-from) = (z(to)·to − z(from)·from)/(to−from).
-    # The `z·t` terms are `−log(DF)`, which is exactly 0 at t=0, so we guard t=0
-    # rather than evaluate a (possibly singular) zero rate there. For zero-native
-    # curves this is transcendental-free; discount-native curves (SmithWilson, the
-    # short-rate models) recover the same value through `zero`'s generic fallback.
-    zt(t) = iszero(t) ? zero(float(t)) : FinanceCore.rate(Base.zero(yc, t)) * t
-    return Continuous((zt(to) - zt(from)) / (to - from))
+    # forward = log(DF(from)/DF(to)) / (to-from) = (L(to) − L(from))/(to−from), with L the
+    # cumulative log-discount (z(t)·t for a zero-native curve), which is 0 at t = 0.
+    return Continuous((__log_discount(yc, to) - __log_discount(yc, from)) / (to - from))
 end
 
 """
@@ -520,9 +612,8 @@ end
 Return the zero rate for the curve at the given time.
 """
 function Base.zero(c::YC, time) where {YC <: AbstractYieldModel}
-    df = discount(c, time)
-    r = -log(df) / time
-    return Continuous(r)
+    # L/t; for a curve that defines only `discount`, L is -log(discount(c, time))
+    return Continuous(__log_discount(c, time) / time)
 end
 
 """
@@ -534,9 +625,8 @@ function FinanceCore.accumulation(yc::AbstractYieldModel, time)
     return 1 ./ discount(yc, time)
 end
 
-function FinanceCore.accumulation(yc::AbstractYieldModel, from, to)
-    return 1 ./ discount(yc, from, to)
-end
+# the reversed interval, so each curve's own interval method applies
+FinanceCore.accumulation(yc::AbstractYieldModel, from, to) = FinanceCore.discount(yc, to, from)
 
 ## Curve Manipulations
 """
@@ -616,16 +706,25 @@ struct CompositeYield{T, U, V <: Union{typeof(+), typeof(-)}} <: AbstractYieldMo
 end
 
 
-# Composition happens in continuous-zero-rate space: add or subtract the components' zero
-# rates, then form the discount factor with a single `exp`. This avoids
-# the previous round-trip (discount → log → recompose → exp), collapsing the common
-# Spline/Constant case from 3 `exp` + 2 `log` to a single `exp`.
+# Composition happens in log-discount space: `+` adds the components' cumulative log-discounts
+# (multiplying their discount factors) and `-` subtracts them (dividing), then a single `exp`
+# forms the discount factor. The zero rate is the same combination of the components' zero rates.
 function Base.zero(rc::CompositeYield, time)
     z1 = FinanceCore.rate(Base.zero(rc.r1, time))
     z2 = FinanceCore.rate(Base.zero(rc.r2, time))
     return Continuous(rc.op(z1, z2))
 end
-FinanceCore.discount(rc::CompositeYield, time) = _discount_from_zero(rc, time)
+# At t = Inf the components' tails are combined before the limit is taken.
+function __log_discount(rc::CompositeYield, time)
+    __at_infinity(time) && return __log_discount_at_infinity(rc)
+    return rc.op(__log_discount(rc.r1, time), __log_discount(rc.r2, time))
+end
+function FinanceCore.discount(rc::CompositeYield, time)
+    __at_infinity(time) && return __discount_at_infinity(rc)
+    return exp(-__log_discount(rc, time))
+end
+__log_native(::CompositeYield) = true
+__log_tail(rc::CompositeYield) = __combine_tails(rc.op, __log_tail(rc.r1), __log_tail(rc.r2))
 
 # ─── Yield shifts (TenorShift, ProjectedShift) ────────────────────────────
 
@@ -769,6 +868,8 @@ function Base.zero(s::ProjectedShift, t)
     return convert(Continuous(), s.rule(s.time, z, t)::FinanceCore.Rate)
 end
 FinanceCore.discount(s::AbstractYieldShift, t) = _discount_from_zero(s, t)
+__log_discount(s::AbstractYieldShift, t) = __zero_log_discount(s, t)
+__log_native(::AbstractYieldShift) = true
 
 # Deprecated alias for the previous name. Slated for removal one minor release after introduction.
 Base.@deprecate_binding TransformedYield TenorShift
@@ -786,13 +887,22 @@ struct ScaledYield{T <: AbstractYieldModel, S <: Real} <: AbstractYieldModel
     factor::S
 end
 
-# Scaling is a multiply in continuous-zero-rate space, so derive `zero` directly; the
-# discount factor (a single `exp`, no discount → log round-trip) follows from it.
+# Scaling multiplies the zero rate, and so the cumulative log-discount, by `factor` (it raises
+# the discount factor to that power); the discount factor is a single `exp` of it.
 function Base.zero(sy::ScaledYield, time)
     z = FinanceCore.rate(Base.zero(sy.curve, time))
     return Continuous(z * sy.factor)
 end
-FinanceCore.discount(sy::ScaledYield, time) = _discount_from_zero(sy, time)
+function __log_discount(sy::ScaledYield, time)
+    __at_infinity(time) && return __log_discount_at_infinity(sy)
+    return sy.factor * __log_discount(sy.curve, time)
+end
+function FinanceCore.discount(sy::ScaledYield, time)
+    __at_infinity(time) && return __discount_at_infinity(sy)
+    return exp(-__log_discount(sy, time))
+end
+__log_native(::ScaledYield) = true
+__log_tail(sy::ScaledYield) = __scale_tail(sy.factor, __log_tail(sy.curve))
 
 """
     ForwardStarting(curve,forwardstart)
@@ -820,19 +930,25 @@ While `ForwardStarting` could be nested so that, e.g. the third period's curve i
 
 `ForwardStarting` is not used to construct a curve based on forward rates. 
 """
-struct ForwardStarting{T, U, V} <: AbstractYieldModel
+struct ForwardStarting{T, U} <: AbstractYieldModel
     curve::U
     forwardstart::T
-    discount_to_forwardstart::V
-    function ForwardStarting(curve::U, forwardstart::T) where {T, U}
-        df = FinanceCore.discount(curve, forwardstart)
-        return new{T, U, typeof(df)}(curve, forwardstart, df)
-    end
 end
 
-function FinanceCore.discount(c::ForwardStarting, to)
-    return FinanceCore.discount(c.curve, to + c.forwardstart) / c.discount_to_forwardstart
+# The rebased curve's factors are the base curve's interval factors from `forwardstart`, so the
+# base curve's own interval method applies (finite in the far tail for the built-in curves).
+FinanceCore.discount(c::ForwardStarting, to) = FinanceCore.discount(c.curve, c.forwardstart, to + c.forwardstart)
+FinanceCore.discount(c::ForwardStarting, from, to) =
+    FinanceCore.discount(c.curve, from + c.forwardstart, to + c.forwardstart)
+# L of the rebased curve is the base curve's log-discount over [forwardstart, forwardstart + t], so it
+# is real wherever the rebased discount factor is positive, even where the base curve's own discount
+# factors are negative.
+function __log_discount(c::ForwardStarting, t)
+    __at_infinity(t) && return __log_discount_at_infinity(c)
+    return __log_interval(c.curve, c.forwardstart, t + c.forwardstart)
 end
+__log_interval(c::ForwardStarting, from, to) = __log_interval(c.curve, from + c.forwardstart, to + c.forwardstart)
+__log_tail(c::ForwardStarting) = __shift_tail(__log_tail(c.curve), c.forwardstart, __log_discount(c.curve, c.forwardstart))
 
 """
     Yield.AbstractYieldModel + Yield.AbstractYieldModel
