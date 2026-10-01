@@ -139,10 +139,11 @@ julia> Bond.Fixed(0.05,Periodic(1),3) |> Map(-) |> Map(x->x*2) |> collect
 Another example of this is how `InterestRateSwap`[@ref] is implemented. It's simply a `Composite` contract of a positive fixed rate bond and a negative floating rate bond:
 
 ```julia
-function InterestRateSwap(curve, tenor; model_key="OIS")
-    fixed_rate = Bond.__par_coupon(curve, tenor, 4) # the schedule's annualized par coupon
-    fixed_leg = Bond.Fixed(fixed_rate, Periodic(4), tenor)
-    float_leg = Bond.Floating(0.0, Periodic(4), tenor, model_key) |> Map(-)
+function InterestRateSwap(curve, tenor; frequency, model_key="OIS")
+    frequency = Bond.__coerce_periodic(frequency)
+    fixed_rate = Bond.__par_coupon(curve, tenor, frequency.frequency) # the schedule's annualized par coupon
+    fixed_leg = Bond.Fixed(fixed_rate, frequency, tenor)
+    float_leg = Bond.Floating(0.0, frequency, tenor, model_key) |> Map(-)
     return Composite(fixed_leg, float_leg)
 end
 ```
@@ -169,7 +170,7 @@ floating coupons when the index curve changes:
 
 ```julia
 curve = Yield.Constant(0.04)
-swap = InterestRateSwap(curve, 5.0)
+swap = InterestRateSwap(curve, 5.0; frequency = 1)
 value(index, credit) = present_value(credit, Projection(swap; index))
 value(curve, curve) # approximately zero
 ```
@@ -182,6 +183,23 @@ while retaining concrete model values. Pass an explicit store when downstream
 code requires a particular store or key type.
 
 An example of this is a floating bond where the coupon paid depends on a view of forward rates. See [this section in the overview](@ref Contracts-that-depend-on-the-model-(or-multiple-models)) on projections for how this is handled.
+
+## Quote conventions
+
+The quote constructors encode market conventions. Pass rates in the convention of
+the quoted instrument:
+
+| Constructor | Instrument | Payment frequency | Rate convention |
+|:--|:--|:--|:--|
+| `ZCBYield(r, t)` | zero-coupon bond | at maturity | annual effective for a scalar `r`, or the `Rate`'s own |
+| `ZCBPrice(p, t)` | zero-coupon bond | at maturity | price |
+| `ParYield(r, t; frequency = 2)` | par bond | `frequency`, or a `Periodic` rate's own | nominal at that frequency |
+| `CMTYield(r, t)` | US Treasury constant-maturity yield | at maturity for `t ≤ 1`; semiannual otherwise | annual effective for `t ≤ 1`; semiannual bond-equivalent otherwise |
+| `OISYield(r, t)` | overnight index swap | at maturity for `t ≤ 1`; annual otherwise | annual |
+| `ParSwapYield(r, t; frequency)` | par swap fixed leg | required `frequency` | nominal at that frequency |
+
+FinanceModels measures time in year fractions, so day-count conventions are not
+modeled.
 
 ## Available Contracts & Modules
 

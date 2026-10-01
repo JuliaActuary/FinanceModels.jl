@@ -52,21 +52,56 @@ end
     end
 
     @testset "ParSwapYield" begin
-        q = ParSwapYield(0.04, 5)
+        # Swap fixed-leg conventions differ by market, so the frequency is required.
+        @test_throws UndefKeywordError ParSwapYield(0.04, 5)
+        q = ParSwapYield(0.04, 5; frequency = 4)
         @test q.price ≈ 1.0
-        @test q.instrument.frequency == Periodic(4) # quarterly by default
-        # a Periodic Rate input carries its own frequency (overrides the kwarg default)
-        q2 = ParSwapYield(Periodic(0.04, 2), 5)
+        @test q.instrument.frequency == Periodic(4)
+        @test ParSwapYield(0.04, 5; frequency = Periodic(1)).instrument.frequency == Periodic(1)
+        # a Periodic Rate input must agree with an explicit frequency
+        q2 = ParSwapYield(Periodic(0.04, 2), 5; frequency = 2)
         @test q2.instrument.frequency == Periodic(2)
+        @test_throws ArgumentError ParSwapYield(Periodic(0.04, 2), 5; frequency = 4)
         # round-trip: a curve fit to par-swap quotes reprices them to root-finder
         # precision (the fitting-time curve and the returned curve are identical
         # for local interpolants, including the pinned t=0 knot)
         swap_rates = [0.02, 0.025, 0.03]
-        qs = ParSwapYield.(swap_rates, [1, 2, 3])
-        c = fit(Spline.Linear(), qs, Fit.Bootstrap())
-        for (r, t) in zip(swap_rates, [1, 2, 3])
-            @test rate(par(c, t; frequency = 4)) ≈ r atol = 1.0e-10
+        for frequency in (1, 4)
+            qs = ParSwapYield.(swap_rates, [1, 2, 3]; frequency)
+            c = fit(Spline.Linear(), qs, Fit.Bootstrap())
+            for (r, t) in zip(swap_rates, [1, 2, 3])
+                @test rate(par(c, t; frequency)) ≈ r atol = 1.0e-10
+            end
         end
+        @test_throws UndefKeywordError ParSwapYield(swap_rates)
+        @test ParSwapYield(swap_rates; frequency = 1) == ParSwapYield.(swap_rates, [1.0, 2.0, 3.0]; frequency = 1)
+    end
+
+    @testset "ParYield frequency" begin
+        @test ParYield(0.04, 5).instrument.frequency == Periodic(2)
+        @test ParYield(0.04, 5; frequency = 1).instrument.frequency == Periodic(1)
+        # A Periodic rate sets its own frequency; a conflicting frequency is an error,
+        # not a silently ignored keyword.
+        @test ParYield(Periodic(0.04, 4), 5).instrument.frequency == Periodic(4)
+        @test ParYield(Periodic(0.04, 4), 5; frequency = 4) == ParYield(Periodic(0.04, 4), 5)
+        @test_throws ArgumentError ParYield(Periodic(0.04, 4), 5; frequency = 2)
+        # Other rates convert to the requested frequency.
+        @test ParYield(Continuous(0.04), 5; frequency = 1).instrument.coupon_rate ≈ exp(0.04) - 1
+    end
+
+    @testset "OISYield conventions" begin
+        # One year or less: a single payment. Longer: annual payments on both legs.
+        @test OISYield(0.04, 0.5).instrument == Bond.Fixed(0.0, Periodic(1), 0.5)
+        @test OISYield(0.04, 0.5).price ≈ 1.04^-0.5
+        # annual coupons at the quoted rate (a FinanceCore older than 2.6 converts the rate to
+        # itself through continuous compounding, off by an ulp)
+        b = OISYield(0.04, 5).instrument
+        @test b isa Bond.Fixed && b.frequency == Periodic(1) && b.maturity == 5
+        @test b.coupon_rate ≈ 0.04 rtol = 1.0e-15
+        @test OISYield(0.04, 5).price == 1.0
+        # A one-year single payment equals a one-coupon annual par swap.
+        @test pv(Yield.Constant(0.04), OISYield(0.04, 1).instrument) ≈ OISYield(0.04, 1).price
+        @test pv(Yield.Constant(Periodic(0.04, 1)), OISYield(0.04, 5).instrument) ≈ 1.0 atol = 1.0e-14
     end
 
     @testset "PCHIP and Akima ZeroRateCurve" begin

@@ -68,7 +68,7 @@ Omitting `index` retains the default model-free projection.
 
 ```julia
 curve = Yield.Constant(0.04)
-swap = InterestRateSwap(curve, 5.0)
+swap = InterestRateSwap(curve, 5.0; frequency = 1)
 value(index, discount_curve) = present_value(discount_curve, Projection(swap; index))
 value(curve, curve) # approximately zero
 ```

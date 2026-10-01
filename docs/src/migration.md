@@ -133,6 +133,23 @@ curves returned by spline `fit`s and `Fit.Bootstrap()`. All of them share one in
 - **The policy is part of the curve.** It is preserved by `fit`, `reconstruct`, and `Accessors.@set`, compared by `==`, and readable as `curve.extrapolation`. The type parameters of `Yield.Spline` and `Yield.MonotoneConvex` are internal: dispatch on the type names or `Yield.AbstractInterpolatedZeroCurve`.
 - **MonotoneConvex supports the tail policies natively.** Direct construction and loss-fitting `Spline.MonotoneConvex()` return a native `Yield.MonotoneConvex` for `:flat_forward`, `:flat_zero`, `:linear`, and `Yield.FlatForwardAt(rate)`; `Fit.Bootstrap()` still rejects the descriptor. At the final knot, `instantaneous_forward` reports the interior (left) value.
 
+### Quote conventions
+
+- **`OISYield` pays annually beyond one year.** Maturities over one year now build
+  annual-pay par swaps, matching SOFR, €STR, and SONIA overnight index swaps; they
+  were quarterly. Maturities of one year or less still settle once. Bootstrapped
+  OIS curves change slightly at maturities over one year.
+- **`ParSwapYield` requires `frequency`.** The quarterly default was removed because
+  fixed-leg conventions differ by market. Write, for example,
+  `ParSwapYield(r, t; frequency = 1)` for OIS-style annual fixed legs or
+  `frequency = 2` for semiannual legs.
+- **`InterestRateSwap` requires `frequency`** for the same reason; both legs use it.
+  `InterestRateSwap(curve, 10)` becomes `InterestRateSwap(curve, 10; frequency = 4)`
+  to keep the former quarterly legs.
+- **`ParYield` rejects a conflicting `frequency`.** A `Periodic` rate sets its own
+  frequency; passing a different `frequency` now throws an `ArgumentError` instead
+  of being silently ignored. Convert the rate first, e.g. `Periodic(1)(r)`.
+
 ## v6.0 to v6.1
 
 !!! warning "Changed numbers and new errors"
