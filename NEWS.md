@@ -2,6 +2,15 @@
 
 ## v7.0.0 (unreleased)
 
+### `implied_quote`
+
+`implied_quote(curve, family, maturity)` returns the quote at which a quote
+constructor (`CMTYield`, `OISYield`, `ZCBYield`, `ZCBPrice`, or a closure such as
+`(r, t) -> ParYield(r, t; frequency = 1)`) reprices on a curve. Its first-order
+ForwardDiff derivatives with respect to curve parameters are exact: they come
+from the implicit function theorem at the solution rather than from solver
+iterations. FinanceModels now depends on ForwardDiff directly.
+
 ### Bootstrap requires linear interpolation
 
 `Fit.Bootstrap()` now accepts only `Spline.Linear()` and throws an `ArgumentError`

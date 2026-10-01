@@ -5,10 +5,11 @@ import ..Spline as Sp
 import ..ReadOnlyVector
 import ..DataInterpolations
 import ..Bond: coupon_times, __regular_schedule, __par_coupon
+import ..__implicit_root, ..__primal, ..__ad_depth
 
 using ..FinanceCore: Continuous, Periodic, discount, accumulation, forward, pv, AbstractContract
 
-export discount, zero, forward, par, pv, instantaneous_forward, knot_rates, knot_tenors, reconstruct
+export discount, zero, forward, par, implied_quote, pv, instantaneous_forward, knot_rates, knot_tenors, reconstruct
 
 abstract type AbstractYieldModel <: AbstractModel end
 
@@ -400,6 +401,7 @@ include("Yield/MonotoneConvex.jl")
 __build(::Sp.MonotoneConvex, g::KnotGrid; extrapolation = :flat_forward) = MonotoneConvex(g; extrapolation)
 
 include("Yield/ZeroRateCurve.jl")
+include("Yield/ImpliedQuote.jl")
 
 
 ## Generic and Fallbacks
