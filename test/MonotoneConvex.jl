@@ -10,7 +10,9 @@
 
     curves = [
         ("direct constructor", Yield.MonotoneConvex(rates, times)),
-        ("fit", fit(Spline.MonotoneConvex(), quotes)),
+        # the knot-point checks below compare at rtol √eps, tighter than the default
+        # stopping rule (gradient norm 1e-8) guarantees, so the fit is asked for that
+        ("fit", fit(Spline.MonotoneConvex(), quotes; solve_kwargs = (; g_tol = 1.0e-12))),
     ]
 
     f, fᵈ = Yield.__monotone_convex_fs(rates, times)
