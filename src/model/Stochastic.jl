@@ -351,7 +351,8 @@ end
 
 A simulated interest-rate path wrapped as an `AbstractYieldModel`.
 `interp` maps time `t` to the cumulative integral ∫₀ᵗ r(s) ds so that
-`discount(path, t) = exp(-interp(t))`.
+`discount(path, t) = exp(-interp(t))`. The path is defined where `interp` is;
+`simulate` builds paths that throw outside their time grid.
 """
 struct RatePath{I} <: Yield.AbstractYieldModel
     interp::I
@@ -372,7 +373,9 @@ Yield.__log_native(::RatePath) = true
 
 Generate `n_scenarios` interest-rate paths.
 Each path is returned as a `RatePath` (an `AbstractYieldModel`) so it plugs
-directly into `present_value`, `discount`, etc.
+directly into `present_value`, `discount`, etc. A path is defined on its time
+grid, from 0 to the first step at or beyond `horizon`; evaluating it outside
+that range throws rather than extending the path.
 
 Discretisation schemes:
 - **Vasicek / Hull-White**: the exact Gaussian transition density, so the
@@ -410,6 +413,9 @@ function simulate(
     for j in 1:n_steps
         times[j + 1] = j * dt
     end
+    # n_steps·dt can round below the horizon (0.3 steps to 0.9 end at 0.8999999999999999); the path
+    # covers the horizon it was asked for, and still nothing beyond its last step
+    times[end] = max(times[end], horizon)
 
     # `map` (rather than filling a Vector{RatePath}, a UnionAll eltype) infers the
     # concrete RatePath{...} element type, so downstream pricing loops dispatch
@@ -426,9 +432,10 @@ function simulate(
                 0.5 * (_observed_rate(model, r) + _observed_rate(model, r_new)) * dt
             r = r_new
         end
+        # no extrapolation: the path is defined only on its simulated grid
         interp = DataInterpolations.LinearInterpolation(
             cumulative, times;
-            extrapolation = DataInterpolations.ExtrapolationType.Extension
+            extrapolation = DataInterpolations.ExtrapolationType.None
         )
         RatePath(interp)
     end
@@ -525,7 +532,8 @@ by averaging `present_value` across simulated scenarios.
     provides the discount factors. For floating-rate instruments whose cashflows depend
     on the rate path, project cashflows per scenario using `Projection` instead.
 
-The `horizon` should cover the contract's maturity. The default (`maturity + 1`) ensures this.
+The `horizon` must cover the contract's maturity, since a simulated path throws
+beyond its horizon. The default (`maturity + 1`) ensures this.
 """
 function pv_mc(
         model::AbstractStochasticModel, contract;
