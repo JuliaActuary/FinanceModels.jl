@@ -108,3 +108,9 @@ end
 Base.size(v::ReadOnlyVector) = size(getfield(v, :_data))
 Base.IndexStyle(::Type{<:ReadOnlyVector}) = IndexLinear()
 Base.@propagate_inbounds Base.getindex(v::ReadOnlyVector, i::Int) = getfield(v, :_data)[i]
+
+# The polynomial with exact (Rational) coefficients `cs` at `x`, each coefficient rounded once to
+# the precision of `x` (for a dual number, of its primal value): Float32 stays Float32 and BigFloat
+# keeps its precision. Inlined, so that for a concrete float type the rounding of a constant table
+# folds at compile time.
+@inline __evalpoly_exact(x, cs) = evalpoly(x, map(c -> convert(typeof(float(__primal(x))), c), cs))

@@ -84,7 +84,7 @@ end
 
 # Public form: copies, promotes and validates through the shared knot-grid path.
 MonotoneConvex(rates, tenors; extrapolation = :flat_forward) =
-    MonotoneConvex(KnotGrid(rates, tenors, Sp.MonotoneConvex(); who = "Yield.MonotoneConvex"); extrapolation)
+    __build_public(Sp.MonotoneConvex(), KnotGrid(rates, tenors, Sp.MonotoneConvex(); who = "Yield.MonotoneConvex"); extrapolation)
 
 
 function __issector1(g0, g1)
@@ -156,9 +156,34 @@ end
 __g_flat(x, g0, g1) = g0 * (1 - x) + g1 * x
 __G_flat(x, g0, g1) = g0 * x + (g1 - g0) * x^2 / 2  # ∫₀ˣ [g0(1-u) + g1·u] du
 
-# The deviation (`__MC_DEVIATION`) and integrated-deviation (`__MC_INTEGRAL`) formulas.
+# `__Gx_*` is the mean deviation G(x)/x over [0, x], with the division carried out in each formula.
+# The zero rate of an interval that starts at t = 0 is fᵈ + G(x)/x, which in this form has no
+# removable 0/0 at x = 0, so a time derivative there is exact.
+__Gx_i(x, g0, g1) = g0 * (1 - 2 * x + x^2) + g1 * (x^2 - x)
+function __Gx_ii(x, g0, g1)
+    η = (g1 + 2 * g0) / (g1 - g0)
+    return x < η ? g0 : g0 + (g1 - g0) * (x - η)^3 / (3 * (1 - η)^2 * x)
+end
+function __Gx_iii(x, g0, g1)
+    η = 3 * g1 / (g1 - g0)
+    return x > η ? g1 + (g0 - g1) * η / (3 * x) : g1 + (g0 - g1) * (1 - x / η + x^2 / (3 * η^2))
+end
+function __Gx_iv(x, g0, g1)
+    η = g1 / (g1 + g0)
+    α = -g0 * g1 / (g1 + g0)
+    return if x < η
+        α + (g0 - α) * (1 - x / η + x^2 / (3 * η^2))
+    else
+        ((2 * α + g0) / 3 * η + α * (x - η) + (g1 - α) / 3 * (x - η)^3 / (1 - η)^2) / x
+    end
+end
+__Gx_flat(x, g0, g1) = g0 + (g1 - g0) * x / 2
+
+# The deviation (`__MC_DEVIATION`), integrated-deviation (`__MC_INTEGRAL`) and mean-deviation
+# (`__MC_MEAN`) formulas.
 const __MC_DEVIATION = (i = __g_i, ii = __g_ii, iii = __g_iii, iv = __g_iv, flat = __g_flat)
 const __MC_INTEGRAL = (i = __G_i, ii = __G_ii, iii = __G_iii, iv = __G_iv, flat = __G_flat)
+const __MC_MEAN = (i = __Gx_i, ii = __Gx_ii, iii = __Gx_iii, iv = __Gx_iv, flat = __Gx_flat)
 
 function __mc_sector(k, x, g0, g1)
     return if sign(g0) == sign(g1)
@@ -275,6 +300,16 @@ function g_rate(x, f⁻, f, fᵈ, ktol = nothing)
     # an `iszero(η)` guard is unsafe under ForwardDiff and `x` is the discriminator.
     (iszero(x) || isone(x)) && return zero(g0 * x)
     return __mc_kernel(__MC_INTEGRAL, x, g0, g1, fᵈ, ktol)
+end
+
+# The mean deviation G(x)/x over [0, x] (`__MC_MEAN`). Its boundary values are exact, as in `g`
+# and `g_rate`: g(0) = g0 at x = 0, and G(1) = 0 at x = 1.
+function __mc_mean_deviation(x, f⁻, f, fᵈ, ktol)
+    g0 = f⁻ - fᵈ
+    g1 = f - fᵈ
+    iszero(x) && return g0
+    isone(x) && return zero(g0 * x)
+    return __mc_kernel(__MC_MEAN, x, g0, g1, fᵈ, ktol)
 end
 
 """
@@ -431,47 +466,45 @@ end
 
 function Base.zero(mc::MonotoneConvex, t)
     __check_time(t, "zero")
+    times = mc.tenors
+    # the limit at t = 0 is the instantaneous forward there
+    t == 0 && return Continuous(mc._f[1])
+    t > last(times) && return Continuous(mc._tail(t))
+    i = __i_time(t, times)
+    return Continuous(__mc_from_origin(times, i) ? __mc_origin_zero(mc, t, i) : __mc_knot_log_discount(mc, t, i) / t)
+end
+
+# L(t) = ∫₀ᵗ f, computed directly rather than as z(t)·t, which would divide by t and multiply back.
+# Its two interval forms below are inlined into it and into `zero`, so each evaluation is one call.
+function __knot_log_discount(mc::MonotoneConvex, t)
+    times = mc.tenors
+    t > last(times) && return mc._tail(t) * t
+    i = __i_time(t, times)
+    __mc_from_origin(times, i) || return __mc_knot_log_discount(mc, t, i)
+    # L(0) = 0 exactly, also for a single knot at t = 0, whose interval from 0 has no width
+    return iszero(t) ? zero(first(mc._f) * t) : __mc_origin_zero(mc, t, i) * t
+end
+
+# Whether knot interval `i` starts at t = 0: the first, or the second after a knot at 0.
+__mc_from_origin(times, i) = i == 1 || iszero(times[i - 1])
+
+# The zero rate over an interval from t = 0 is fᵈ + G(x)/x. The mean deviation's divided form is
+# accurate for small t (G(x)/x loses digits there) and has no removable 0/0 at t = 0, so a time
+# derivative there is exact.
+@inline function __mc_origin_zero(mc::MonotoneConvex, t, i)
+    f, fᵈ = mc._f, mc._fᵈ
+    return fᵈ[i] + __mc_mean_deviation(t / mc.tenors[i], f[i], f[i + 1], fᵈ[i], __mc_kink_tol(mc, i))
+end
+
+# L over an interval after a knot: the knot's t·z, plus the discrete forward and the integrated
+# deviation accumulated since.
+@inline function __mc_knot_log_discount(mc::MonotoneConvex, t, i)
     f, fᵈ, rates, times = mc._f, mc._fᵈ, mc.rates, mc.tenors
-    lt = last(times)
-
-    # Handle t=0 case (limit is instantaneous forward at t=0)
-    if t == 0
-        return Continuous(f[1])
-    end
-
-    if t > lt
-        return Continuous(mc._tail(t))
-    end
-
-    i_time = __i_time(t, times)
-
-    # Calculate normalized position x in interval and interval bounds
-    if i_time == 1
-        # First interval: from 0 to times[1]
-        x = t / times[1]
-        G = g_rate(x, f[1], f[2], fᵈ[1], __mc_kink_tol(mc, 1))
-        # r(t) = (1/t) * [t * fᵈ[1] + times[1] * G(x)]
-        return Continuous(fᵈ[1] + times[1] * G / t)
-    else
-        # Interval from times[i_time-1] to times[i_time]
-        t_prev = times[i_time - 1]
-        t_curr = times[i_time]
-        x = (t - t_prev) / (t_curr - t_prev)
-        G = g_rate(x, f[i_time], f[i_time + 1], fᵈ[i_time], __mc_kink_tol(mc, i_time))
-        # r(t) = (1/t) * [t_prev * r_prev + (t - t_prev) * fᵈ[i] + (t_curr - t_prev) * G(x)]
-        return Continuous((t_prev * rates[i_time - 1] + (t - t_prev) * fᵈ[i_time] + (t_curr - t_prev) * G) / t)
-    end
+    t_prev = times[i - 1]
+    x = (t - t_prev) / (times[i] - t_prev)
+    G = g_rate(x, f[i], f[i + 1], fᵈ[i], __mc_kink_tol(mc, i))
+    return t_prev * rates[i - 1] + (t - t_prev) * fᵈ[i] + (times[i] - t_prev) * G
 end
-function FinanceCore.discount(mc::MonotoneConvex, t)
-    __check_time(t, "discount")
-    return isinf(t) ? __mc_discount_at_infinity(mc) : _discount_from_zero(mc, t)
-end
-function __log_discount(mc::MonotoneConvex, t)
-    __check_time(t, "discount")
-    return isinf(t) ? __mc_log_discount_at_infinity(mc) : __zero_log_discount(mc, t)
-end
-# The limits are out of line so the finite-time path stays small enough to inline.
-@noinline __mc_discount_at_infinity(mc::MonotoneConvex) = __discount_at_infinity(mc._tail)
-@noinline __mc_log_discount_at_infinity(mc::MonotoneConvex) = __log_discount_at_infinity(mc._tail)
-__log_native(::MonotoneConvex) = true
 __log_tail(mc::MonotoneConvex) = __log_tail(mc._tail)
+
+__build(::Sp.MonotoneConvex, g::KnotGrid; extrapolation = :flat_forward) = MonotoneConvex(g; extrapolation)

@@ -178,11 +178,11 @@ FinanceCore.present_value(m, c::WrappedContract, t = 0.0) = FinanceCore.present_
         dual_pair = pair(ForwardDiff.Dual{ImplicitFitTestTag}(px[1], 1.0, 0.0), ForwardDiff.Dual{ImplicitFitTestTag}(px[2], 0.0, 1.0))
         off_curve = ZeroRateCurve(zx .+ [0.0, 1.0e-5], [1.0, 2.0], Spline.Linear())
         @test maximum(q -> abs(pv(off_curve, q.instrument) - q.price), pair(px...)) < 1.0e-8
-        @test_throws "Newton correction" FinanceModels.__implicit_knot_curve(off_curve, dual_pair, pair(px...), off_curve.extrapolation, true)
+        @test_throws "Newton correction" FinanceModels.__implicit_knot_curve(off_curve, dual_pair, pair(px...), off_curve.extrapolation)
         # and it says how to tighten the fit
-        @test_throws "solve_kwargs" FinanceModels.__implicit_knot_curve(off_curve, dual_pair, pair(px...), off_curve.extrapolation, true)
+        @test_throws "solve_kwargs" FinanceModels.__implicit_knot_curve(off_curve, dual_pair, pair(px...), off_curve.extrapolation)
         exact_curve = ZeroRateCurve(zx, [1.0, 2.0], Spline.Linear())
-        @test Yield.knot_rates(FinanceModels.__implicit_knot_curve(exact_curve, dual_pair, pair(px...), exact_curve.extrapolation, true)) isa AbstractVector{<:ForwardDiff.Dual}
+        @test Yield.knot_rates(FinanceModels.__implicit_knot_curve(exact_curve, dual_pair, pair(px...), exact_curve.extrapolation)) isa AbstractVector{<:ForwardDiff.Dual}
         # quote prices that do not determine a knot
         free = [ZCBPrice(ForwardDiff.Dual{ImplicitFitTestTag}(0.97, 1.0), 1.0), Quote(0.0, Cashflow(0.0, 2.0))]
         @test_throws "singular" fit(Spline.Linear(), free, Fit.Bootstrap())
@@ -190,8 +190,21 @@ FinanceCore.present_value(m, c::WrappedContract, t = 0.0) = FinanceCore.present_
         @test_throws "reconstruct" ForwardDiff.derivative(
             x -> discount(fit(Yield.NelsonSiegel(), ZCBPrice.(exp.(-rates .* tenors) .+ x, tenors)), 3.0), 0.0
         )
-        @test_throws "reconstruct" ForwardDiff.derivative(
-            x -> discount(fit(ZeroRateCurve(rates, tenors), ZCBPrice.(exp.(-rates .* tenors) .+ x, tenors)), 3.0), 0.0
-        )
+    end
+
+    @testset "refitting a knot curve" begin
+        # one knot per quote: the refit is the spline fit, derivatives included
+        refit(spline) = x -> pv(fit(ZeroRateCurve(fill(0.02, length(tenors)), tenors, spline), CMTYield.(x, tenors)), cfs)
+        direct(spline) = x -> pv(fit(spline, CMTYield.(x, tenors)), cfs)
+        for spline in (Spline.Linear(), Spline.Cubic(), Spline.MonotoneConvex())
+            @test ForwardDiff.gradient(refit(spline), rates) == ForwardDiff.gradient(direct(spline), rates)
+        end
+        # Another number of knots leaves the repricing conditions non-square: they do not
+        # determine the knot rates' derivatives, and the implicit solve cannot be formed.
+        for knots in ([1.0, 3.0, 10.0], [0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0])
+            c0 = ZeroRateCurve(fill(0.02, length(knots)), knots, Spline.Linear())
+            @test fit(c0, CMTYield.(rates, tenors)) isa Yield.Spline    # the primal fit is fine
+            @test_throws DimensionMismatch ForwardDiff.gradient(x -> pv(fit(c0, CMTYield.(x, tenors)), cfs), rates)
+        end
     end
 end

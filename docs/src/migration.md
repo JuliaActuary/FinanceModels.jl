@@ -44,8 +44,9 @@ curves returned by spline `fit`s and `Fit.Bootstrap()`. All of them share one in
   its callable form (#272). `Spline.MonotoneConvex()` is the only monotone convex selector: it
   works with `ZeroRateCurve`, loss `fit`s (whose default optimizer for it is `LBFGS()`), and
   `FX.Forwards`, and every interpolation method is built by the same code wherever the curve
-  comes from. `Yield.Spline(Spline.MonotoneConvex(), …)` throws an `ArgumentError` pointing to
-  `ZeroRateCurve`.
+  comes from. `Yield.Spline` accepts the DataInterpolations methods only, so
+  `Yield.Spline(Spline.MonotoneConvex(), …)` is a `MethodError`, as in v6: build that curve with
+  `ZeroRateCurve` or `Yield.MonotoneConvex`.
 - **Every knot curve owns and validates its data.** Inputs are copied (mutating the vectors you
   passed in no longer changes the curve) and promoted to one concrete floating-point type per
   vector (`Int` → `Float64`; `Float32` + `BigFloat` → `BigFloat`; `Float64` +
@@ -71,15 +72,25 @@ curves returned by spline `fit`s and `Fit.Bootstrap()`. All of them share one in
 - **Spline descriptors validate their order**: `Spline.PolynomialSpline(order)` accepts only
   orders 1, 2 and 3 (previously any order above 3 silently built a cubic spline), and
   `Spline.BSpline(d)` requires `d ≥ 1`.
+- **One signature per form.** The direct form is `ZeroRateCurve(rates, tenors, spline =
+  Spline.MonotoneConvex(); extrapolation = :flat_forward)`, with the method positional as in v6;
+  it has no `spline` keyword. The sampling form keeps its v6 keyword,
+  `ZeroRateCurve(curve, tenors; spline, extrapolation)`.
 - **The sampling form** `ZeroRateCurve(curve::AbstractYieldModel, tenors)` still sorts its tenor
   grid, and samples through `zero(curve, t)` instead of `-log(discount(curve, t))/t`, which is
   numerically stable at very small and very large tenors. The sampled grid is validated like any
   other knot grid. A tenor of `0` (previously rejected) takes the source curve's zero-rate limit
   there; a source curve without one gives a non-finite rate, which throws.
-- **Fitting a knot curve is one rebuild per optimizer candidate.** `fit(curve, quotes)` works for
-  any knot curve and varies all knot rates through a single batch `FinanceModels.KnotRatesOptic()`
-  (previously one `@optic(_.rates[i])` per knot rebuilt the curve once per knot per candidate,
-  O(n²) in the number of knots). Custom `variables` still work.
+- **Refitting a knot curve is the spline fit on its knots.** `fit(curve, quotes)` works for any
+  knot curve: it fits new knot rates at the curve's tenors with its interpolation method and
+  extrapolation policy, by the same solve as `fit(spline, quotes)`. It starts from the same rates
+  (not the curve's own), builds one unchecked trial curve per optimizer candidate, uses the
+  spline's default optimizer (`Newton()`, or `LBFGS()` for `Spline.MonotoneConvex()`), and
+  differentiates through dual quotes when there is one knot per quote. It no longer accepts
+  `variables` (a `MethodError`): that keyword never had a documented use for knot curves and was
+  inherited from the generic optic-based fit, whose candidates went through the public
+  constructor and made a flat PCHIP or Akima starting curve throw. An `FX.Forwards` whose foreign
+  curve is a knot curve refits it through the implied foreign quotes, like a spline placeholder.
 - **`fit` validates the knot grid before optimising**: loss fits and `Fit.Bootstrap()` throw the
   construction `ArgumentError` for duplicate or non-positive maturities, too few quotes for the
   interpolant, or `extrapolation = :extension` with `Spline.MonotoneConvex()`, before any solver
@@ -175,6 +186,18 @@ ratio of discount factors. `discount(curve, 0, t)` is unchanged bit for bit, and
 place, and intervals far in the tail are finite where they were `NaN`. Tests that compare such
 intervals exactly should allow for rounding. A custom curve that defines only `discount` keeps the
 ratio D(to)/D(from).
+
+`forward(curve, from, to)` follows the same interval rule as `discount(curve, from, to)`: on
+composite, scaled, `ForwardStarting` and Smith–Wilson curves it can move by a few units in the last
+place, and on a Smith–Wilson fit (or a custom curve) whose discount factors are negative at both
+ends it now returns the rate of the positive interval factor instead of throwing a `DomainError`.
+
+Time derivatives at exactly `t = 0` of `Yield.MonotoneConvex`, `NelsonSiegel`,
+`NelsonSiegelSvensson` and curves built on them are exact where they were `NaN`. `MonotoneConvex`
+now computes its log-discount directly, so some of its discount factors move in the last bit. For a
+curve without its own `zero` (Smith–Wilson, the short-rate models, `ForwardStarting`, custom curves)
+the zero rate at 0 is the 0/0 of L(t)/t, so its time derivative there, and that of a yield shift
+over such a curve, throws a `DomainError`.
 
 ### Derivatives through fits and knot curves
 

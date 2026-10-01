@@ -5,7 +5,8 @@ struct __HalfFlatCurve <: Yield.AbstractYieldModel end
 FinanceCore.discount(::__HalfFlatCurve, t) = 0.5 * exp(-0.03 * t)
 
 # A curve with negative discount factors (as a Smith-Wilson fit to arbitrary prices can have): its
-# interval factors are still the exact ratio, but it has no log-discount.
+# interval factors are still the exact ratio, but it has no log-discount at a single time, only over
+# an interval whose factor is positive.
 struct __NegativeDiscountCurve <: Yield.AbstractYieldModel end
 FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
 
@@ -140,7 +141,8 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
             @test discount(w, 1.0e-12, 1.0) ≈ discount(w, 0.0, 1.0) rtol = 1.0e-10
         end
         @test discount(__NegativeDiscountCurve(), 1.0, 2.0) ≈ exp(-0.03) rtol = 1.0e-14
-        @test_throws DomainError forward(__NegativeDiscountCurve(), 1.0, 2.0)
+        @test rate(forward(__NegativeDiscountCurve(), 1.0, 2.0)) ≈ 0.03 rtol = 1.0e-12
+        @test_throws DomainError zero(__NegativeDiscountCurve(), 1.0)
     end
 
     @testset "wrappers keep their components' far-tail intervals" begin
@@ -154,6 +156,13 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
                 (fs + k, 0.04), (2 * fs, 0.06), (2 * (sw + k), 0.08), (zrc_lin + sw, 0.03 + rate(forward(zrc_lin, 30000.0, 30001.0))),
             )
             @test discount(w, 30000.0, 30001.0) ≈ exp(-f) rtol = 1.0e-12
+        end
+        # the primal view that `implied_quote` solves on keeps each curve's own interval (it took the
+        # ratio of the underflowed factors, NaN, and was one ulp off for Smith–Wilson)
+        for w in (zrc_lin + ns, sw0 + k, 2 * sw, fs + k, Yield.ForwardStarting(zrc_lin, 1.0), sw)
+            for (a, b) in ((29000.0, 30000.0), (2.0, 7.0))
+                @test discount(Yield.__PrimalCurve(w), a, b) === discount(w, a, b)
+            end
         end
     end
 
@@ -177,6 +186,12 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
         d1, d2 = discount(neg, 6.0) / discount(neg, 5.0), discount(neg, 7.0) / discount(neg, 5.0)
         @test rate(zero(f, 1.0)) ≈ -log(d1) rtol = 1.0e-13
         @test rate(forward(f, 1.0, 2.0)) ≈ -log(d2 / d1) rtol = 1.0e-12
+        # `forward` takes the curve's own interval, so it exists where both factors are negative (the
+        # difference of the two log-discounts was a DomainError there), for the curve and in a
+        # composite
+        @test rate(forward(neg, 5.0, 7.0)) ≈ -log(discount(neg, 7.0) / discount(neg, 5.0)) / 2 rtol = 1.0e-12
+        @test rate(forward(neg + Yield.Constant(Continuous(0.01)), 5.0, 7.0)) ≈ rate(forward(neg, 5.0, 7.0)) + 0.01 rtol = 1.0e-12
+        @test_throws DomainError forward(neg, 0.5, t_neg)   # across the sign change there is no rate
         @test discount(2 * f, 1.0) ≈ d1^2 rtol = 1.0e-13
         @test discount(2 * f, 0.0) == 1.0
         @test discount(f + Yield.Constant(Continuous(0.01)), 1.0) ≈ d1 * exp(-0.01) rtol = 1.0e-13
@@ -280,5 +295,74 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
         @test ForwardDiff.derivative(x -> discount(zrc_lin, x, 7.0), 0.0) ≈ 0.02 * discount(zrc_lin, 7.0) rtol = 1.0e-12
         @test ForwardDiff.derivative(x -> discount(Yield.Constant(Continuous(0.03)), x, 7.0), 0.0) ≈
             0.03 * exp(-0.21) rtol = 1.0e-12
+    end
+
+    @testset "time derivatives at t = 0" begin
+        # A dual time whose value is 0 skips the exact-zero shortcuts, so each curve's L and zero rate
+        # must have no removable 0/0 there (MonotoneConvex and Nelson-Siegel(-Svensson) were NaN).
+        # dD/dt at 0 is minus the zero rate at 0, which is the instantaneous forward there.
+        mc = ZeroRateCurve(rates, tenors)
+        # The Hagan-West boundary condition makes the forward flat at 0, unless the positivity
+        # collar binds there, as it does on this steep curve.
+        mc_steep = ZeroRateCurve([0.01, 0.05, 0.05, 0.05], tenors)
+        mc_origin = ZeroRateCurve([0.02, 0.025, 0.03], [0.0, 1.0, 5.0])   # a knot at t = 0
+        nss = Yield.NelsonSiegelSvensson(2.5, 3.0, 0.04, -0.02, 0.01, -0.005)
+        f0 = Yield.instantaneous_forward(mc, 0.0)
+        curves = (
+            mc => f0, mc_steep => 0.0, mc_origin => 0.02,
+            ns => 0.03, nss => 0.02, mc + ns => f0 + 0.03, 2 * mc => 2 * f0,
+            Yield.TenorShift(mc, (z, t) -> z + Continuous(0.01)) => f0 + 0.01,
+            Yield.ProjectedShift(mc, (τ, z, t) -> z + Continuous(0.001 * τ), 2.0) => f0 + 0.002,
+            Yield.TenorShift(nss, (z, t) -> z + Continuous(0.01)) => 0.03,
+        )
+        # a second-order one-sided difference: times below 0 throw
+        fd(f, h = 1.0e-4) = (-3 * f(0.0) + 4 * f(h) - f(2h)) / (2h)
+        for (c, z0) in curves
+            @test rate(zero(c, 0.0)) ≈ z0 rtol = 1.0e-12
+            @test ForwardDiff.derivative(t -> discount(c, t), 0.0) ≈ -z0 rtol = 1.0e-12
+            @test ForwardDiff.derivative(x -> discount(c, x, 7.0), 0.0) ≈ z0 * discount(c, 7.0) rtol = 1.0e-12
+            # the second derivative and the zero rate's slope at 0 match finite differences
+            d1(t) = ForwardDiff.derivative(u -> discount(c, u), t)
+            @test ForwardDiff.derivative(d1, 0.0) ≈ fd(d1) rtol = 1.0e-6
+            zr(t) = rate(zero(c, t))
+            @test ForwardDiff.derivative(zr, 0.0) ≈ fd(zr) atol = 1.0e-9
+        end
+        @test ForwardDiff.derivative(t -> rate(zero(mc_steep, t)), 0.0) > 1.0e-3   # a slope is exercised
+        # A single knot at t = 0 is a flat curve: a dual time at 0 compares above the knot and enters
+        # the tail, whose zero rate α + β·tₙ/t formed 0/0 there.
+        for spline in (Spline.MonotoneConvex(), Spline.Linear()),
+                ex in (:flat_forward, :flat_zero, :linear, Yield.FlatForwardAt(Continuous(0.03)))
+            c1 = ZeroRateCurve([0.03], [0.0], spline; extrapolation = ex)
+            @test ForwardDiff.derivative(t -> discount(c1, t), 0.0) ≈ -0.03 rtol = 1.0e-14
+            @test ForwardDiff.derivative(t -> rate(zero(c1, t)), 0.0) == 0
+            @test ForwardDiff.derivative(s -> ForwardDiff.derivative(t -> discount(c1, t), s), 0.0) ≈ 0.03^2 rtol = 1.0e-14
+            @test (discount(c1, 0.0), discount(c1, 2.0), discount(c1, Inf)) == (1.0, exp(-0.06), 0.0)
+            @test rate(zero(c1, 0.0)) == rate(zero(c1, 1.0e-8)) == 0.03
+            # Another forward would make the zero rate jump at the origin, from the knot's rate to it.
+            @test_throws ArgumentError ZeroRateCurve([0.03], [0.0], spline; extrapolation = Yield.FlatForwardAt(Continuous(0.04)))
+            # also when the tenor carries a derivative: the check reads its primal value
+            @test_throws ArgumentError ZeroRateCurve(
+                [0.03], [ForwardDiff.Dual(0.0, 1.0)], spline; extrapolation = Yield.FlatForwardAt(Continuous(0.04))
+            )
+        end
+        # the check compares primal values: a knot rate carrying a partial still builds, and the
+        # tail's forward, not the knot's rate, prices every positive time
+        at(z) = ZeroRateCurve([z], [0.0]; extrapolation = Yield.FlatForwardAt(Continuous(0.03)))
+        @test ForwardDiff.derivative(z -> discount(at(z), 2.0), 0.03) == 0
+        # the rate partial survives: ∂²D/∂z∂t at 0 is -1 for the flat curve
+        @test ForwardDiff.derivative(z -> ForwardDiff.derivative(t -> discount(ZeroRateCurve([z], [0.0]), t), 0.0), 0.03) ≈ -1 rtol = 1.0e-14
+        # A curve without its own `zero` has only L(t)/t, 0/0 at 0: its discount has a derivative
+        # there, but a zero-rate transformation of it throws rather than returning NaN.
+        @test ForwardDiff.derivative(t -> discount(sw, t), 0.0) ≈ -rate(zero(sw, 1.0e-9)) rtol = 1.0e-6
+        @test_throws DomainError ForwardDiff.derivative(t -> discount(Yield.TenorShift(sw, (z, t) -> z), t), 0.0)
+        @test_throws DomainError ForwardDiff.derivative(t -> rate(zero(sw, t)), 0.0)
+        @test isnan(rate(zero(sw, 0.0)))   # an exact 0 stays the non-finite 0/0 the sampling form rejects
+        # Float32 parameters keep Float32 zero rates, at a dual 0 (the decay's series) and elsewhere
+        ns32 = Yield.NelsonSiegel(1.0f0, 0.05f0, -0.02f0, 0.01f0)
+        nss32 = Yield.NelsonSiegelSvensson(2.5f0, 3.0f0, 0.04f0, -0.02f0, 0.01f0, -0.005f0)
+        for c in (ns32, nss32), t in (0.0f0, 1.0f0)
+            @test rate(zero(c, t)) isa Float32
+            @test ForwardDiff.derivative(u -> rate(zero(c, u)), t) isa Float32
+        end
     end
 end

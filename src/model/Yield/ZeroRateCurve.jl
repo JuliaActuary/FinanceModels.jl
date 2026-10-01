@@ -1,6 +1,5 @@
 """
     ZeroRateCurve(rates, tenors, spline=Spline.MonotoneConvex(); extrapolation=:flat_forward)
-    ZeroRateCurve(rates, tenors; spline=Spline.MonotoneConvex(), extrapolation=:flat_forward)
     ZeroRateCurve(curve::AbstractYieldModel, tenors;
         spline=Spline.MonotoneConvex(), extrapolation=:flat_forward)
 
@@ -91,11 +90,8 @@ kinks in the forward curve at tenor points. At the last tenor, the default `:fla
 policy keeps the instantaneous forward continuous for `Spline.MonotoneConvex()`; for the other
 interpolants, and under the other policies, the forward can jump there.
 """
-ZeroRateCurve(rates, tenors, spline::Sp.SplineCurve; extrapolation = :flat_forward) =
+ZeroRateCurve(rates, tenors, spline::Sp.SplineCurve = Sp.MonotoneConvex(); extrapolation = :flat_forward) =
     __build_public(spline, KnotGrid(rates, tenors, spline; who = "ZeroRateCurve"); extrapolation)
-
-ZeroRateCurve(rates, tenors; spline::Sp.SplineCurve = Sp.MonotoneConvex(), extrapolation = :flat_forward) =
-    ZeroRateCurve(rates, tenors, spline; extrapolation)
 
 # Sampling form. The grid is normalised ONCE (a stateful iterator must not be consumed
 # twice) and sorted, then sampled; `KnotGrid` validates the sampled grid (knot count, finite,
@@ -112,4 +108,14 @@ function ZeroRateCurve(
     # that are mathematically fine.
     rates = [FinanceCore.rate(convert(Continuous(), Base.zero(curve, tᵢ))) for tᵢ in t]
     return ZeroRateCurve(rates, t, spline; extrapolation)
+end
+
+# The public constructors (`ZeroRateCurve`, `Yield.Spline`, `Yield.MonotoneConvex`, `reconstruct`)
+# check the caller's dual
+# knot rates. FinanceModels' own trial curves (optimizer candidates, bootstrap steps, the
+# calibration Jacobian) do not: spline fits start away from the switches (`__knot_fit_seed`),
+# and a differentiated fit checks its fitted knots itself before its Jacobian.
+function __build_public(s::Sp.SplineCurve, g::KnotGrid; extrapolation = :flat_forward)
+    __check_dual_kinks(s, g)
+    return __build(s, g; extrapolation)
 end

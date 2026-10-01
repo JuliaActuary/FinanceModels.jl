@@ -64,13 +64,12 @@ __primal_extrapolation(e) = e
 __primal_extrapolation(e::Yield.FlatForwardAt) =
     __ad_depth(e.forward) == 0 ? e : Yield.FlatForwardAt(Continuous(__primal(e.forward)))
 
-# The quotes of a knot-curve fit, their primal copies, and whether any carried dual numbers.
-# Knots sit at the quote maturities, which therefore must be primal.
+# The quotes of a knot-curve fit and their primal copies. Knots sit at the quote maturities,
+# which therefore must be primal.
 function __calibration_quotes(quotes)
     qs = collect(quotes)
     foreach(q -> __no_dual_time(FinanceCore.maturity(q)), qs)
-    qp = map(__primal_quote, qs)
-    return qs, qp, any(i -> qp[i] !== qs[i], eachindex(qs))
+    return qs, map(__primal_quote, qs)
 end
 
 __quotes_carry_ad(quotes) = any(q -> __primal_quote(q) !== q, quotes)
@@ -122,14 +121,16 @@ end
 const __IMPLICIT_FIT_RTOL = 1.0e-6
 
 """
-    __implicit_knot_curve(curve, quotes, primal_quotes, extrapolation, has_ad)
+    __implicit_knot_curve(curve, quotes, primal_quotes, extrapolation)
 
-Given the knot curve `curve` fitted to `primal_quotes` (one knot per quote), return it with
-knot rates carrying the first-order derivatives of the calibration with respect to the dual
-numbers in `quotes` and in `extrapolation`. Returns `curve` itself when there are none.
+Given the knot curve `curve` fitted to `primal_quotes` (one knot per quote) under the primal
+copy of `extrapolation`, return it with knot rates carrying the first-order derivatives of the
+calibration with respect to the dual numbers in `quotes` and in `extrapolation`. Returns `curve`
+itself when there are none.
 """
-function __implicit_knot_curve(curve, quotes, primal_quotes, extrapolation, has_ad)
-    (has_ad || any(x -> __ad_depth(x) > 0, __extrapolation_dual(extrapolation))) || return curve
+function __implicit_knot_curve(curve, quotes, primal_quotes, extrapolation)
+    # The primal copies are the inputs themselves (`===`) when those carry no dual numbers.
+    (extrapolation === curve.extrapolation && all(splat(===), zip(quotes, primal_quotes))) && return curve
     residuals(c, qs) = [present_value(c, q.instrument) - q.price for q in qs]
     # R at the fitted rates, carrying the caller's partials: quotes and the extrapolation
     # policy are the only places they can enter.
@@ -138,7 +139,9 @@ function __implicit_knot_curve(curve, quotes, primal_quotes, extrapolation, has_
     D = __common_dual_type((Rd..., __extrapolation_dual(extrapolation)...))
     D === nothing && return curve
 
-    # the knots are the quote maturities (duplicates rejected), so there is one knot per quote
+    # One knot per quote: a spline fit's knots are the quote maturities (duplicates rejected). A
+    # refitted knot curve with another number of knots makes the solve below non-square, which
+    # `\` rejects (`DimensionMismatch`): the quotes then do not determine the knot rates' derivatives.
     z0 = collect(Yield.knot_rates(curve))
     tenors = collect(Yield.knot_tenors(curve))
     # A kink of the interpolant at the fitted knots (flat quotes make adjacent forwards equal,
@@ -147,9 +150,7 @@ function __implicit_knot_curve(curve, quotes, primal_quotes, extrapolation, has_
     # MonotoneConvex's centered one), not the refit's.
     Yield.__near_kink(curve, z0) && throw(__fit_kink_error(curve))
 
-    s, e = curve.spline, curve.extrapolation
-    build(z) = Yield.__build(s, Yield.KnotGrid(Yield.Unchecked(), z, tenors); extrapolation = e)
-    A = ForwardDiff.jacobian(z -> residuals(build(z), primal_quotes), z0)
+    A = ForwardDiff.jacobian(z -> residuals(__trial_curve(curve.spline, z, tenors, curve.extrapolation), primal_quotes), z0)
     # Equilibrate each residual by its sensitivity to the knot rates, so that the conditioning
     # check does not depend on the instruments' notionals.
     w = [maximum(abs, view(A, i, :)) for i in axes(A, 1)]

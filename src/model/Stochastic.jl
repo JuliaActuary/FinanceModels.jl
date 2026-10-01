@@ -133,26 +133,36 @@ function _initial_rate(m::ShortRate.CoxIngersollRoss)
     return rate(Continuous(m.initial))
 end
 
-# Vasicek ZCB price: P = A(τ) exp(-B(τ) r)
-# For small |a|, the general formula suffers from catastrophic cancellation
-# (two O(σ²τ²/a) terms nearly cancel). Use a Taylor expansion instead.
-# Vasicek's B(τ) = (1 - e^{-aτ})/a, the sensitivity -∂log P/∂r of a zero-coupon bond.
-# Taylor expansion in a for small aτ, avoiding cancellation: B = τ - aτ²/2 + a²τ³/6 - a³τ⁴/24
-_vasicek_B(a, τ) = abs(a * τ) < 0.02 ? τ * (1 - a * τ / 2 + (a * τ)^2 / 6 - (a * τ)^3 / 24) : (1 - exp(-a * τ)) / a
+# The affine short-rate models' factor ∫₀^τ e^{-as} ds = (1 - e^{-aτ})/a: the bond sensitivity
+# B(τ) = -∂log P/∂r of Vasicek and Hull-White, and (at 2a) their variance factors. It is τ at a = 0.
+# The closed form is accurate for every other a, but its ForwardDiff derivative in `a` cancels as
+# aτ → 0, so |aτ| < 0.2 uses the Taylor polynomial of φ₂(x) = (e^{-x} - 1 + x)/x² (the factor is
+# τ(1 - xφ₂(x))), whose omitted terms are below Float64 rounding there. The series' coefficients are
+# exact in every precision, so their values at x = 0 are too; their truncation is set for Float64,
+# which bounds a wider type inside the band to about 4e-18 relative.
+const _AFFINE_SERIES_X = 0.2
+const _φ2_COEFFS = ntuple(k -> (-1)^(k - 1) // factorial(k + 1), 11)
+_φ2(x) = __evalpoly_exact(x, _φ2_COEFFS)
+@inline function _decay_integral(a, τ)
+    x = a * τ
+    return abs(x) < _AFFINE_SERIES_X ? τ * (1 - x * _φ2(x)) : -expm1(-x) / a
+end
 
-# −log P(τ) = B·r − lnA; the price is its exp.
+# Vasicek ZCB price P = A(τ) exp(-B(τ) r):
+#     -log P(τ) = B·r + (τ - B)·(b - σ²/(2a²)) + σ²B²/(4a) = B·r + b·(τ - B) - σ²τ³/2·h(aτ),
+# with h(x) = (x - 3/2 + 2e^{-x} - e^{-2x}/2)/x³ = Σₖ (-x)ᵏ (2ᵏ⁺² - 2)/(k + 3)!. The first form, with
+# B = -m/a and τ - B = (x + m)/a for m = expm1(-x), keeps the terms linear in τ in one product, so
+# -log P follows the long rate b - σ²/(2a²) to ±∞; its σ² terms cancel as x = aτ → 0, so |x| < 0.2
+# uses the second form with the Taylor polynomials of φ₂ and h, exact to Float64 rounding there.
+const _VASICEK_H_COEFFS = ntuple(k -> (-1)^(k - 1) * (2^(k + 1) - 2) // factorial(k + 2), 13)
 function _vasicek_log_zcb(a, b, σ, r, τ)
-    B = _vasicek_B(a, τ)
-    if abs(a * τ) < 0.02
-        # Taylor expansion in a, avoiding cancellation:
-        # lnA = σ²τ³/6 - a(bτ²/2 + σ²τ⁴/8) + a²(bτ³/6 + 7σ²τ⁵/120)
-        lnA = σ^2 * τ^3 / 6 -
-            a * (b * τ^2 / 2 + σ^2 * τ^4 / 8) +
-            a^2 * (b * τ^3 / 6 + 7 * σ^2 * τ^5 / 120)
-    else
-        lnA = (B - τ) * (a^2 * b - 0.5 * σ^2) / a^2 - σ^2 * B^2 / (4a)
+    x = a * τ
+    if abs(x) < _AFFINE_SERIES_X
+        p = x * _φ2(x)
+        return τ * (1 - p) * r + b * τ * p - σ^2 * τ^3 / 2 * __evalpoly_exact(x, _VASICEK_H_COEFFS)
     end
-    return B * r - lnA
+    m = expm1(-x)
+    return -m / a * r + (x + m) / a * (b - σ^2 / (2a^2)) + σ^2 * m^2 / (4a^3)
 end
 _vasicek_zcb(a, b, σ, r, τ) = exp(-_vasicek_log_zcb(a, b, σ, r, τ))
 
@@ -165,13 +175,11 @@ Yield.__log_native(::ShortRate.Vasicek) = true
 # CIR ZCB price: P = A(τ) exp(-B(τ) r)
 function _cir_zcb(a, b, σ, r, τ)
     if abs(σ) < 1.0e-15
-        # Deterministic limit: dr = a(b-r)dt → r(t) = b + (r0-b)exp(-at)
-        # P(0,τ) = exp(-∫₀ᵗ r(s)ds) = exp(-(bτ + (r-b)(1-exp(-aτ))/a))
-        if abs(a) < 1.0e-12
-            return exp(-r * τ)
-        else
-            return exp(-(b * τ + (r - b) * (1 - exp(-a * τ)) / a))
-        end
+        # Deterministic limit dr = a(b - r)dt: Vasicek's price without volatility, which keeps r and
+        # b in separate terms. With no mean reversion the rate is constant, also at τ = ∞ where aτ
+        # is undefined; a dual `a` that carries a partial is not `iszero`, so ∂/∂a keeps the series.
+        iszero(a) && return exp(-r * τ)
+        return _vasicek_zcb(a, b, zero(σ), r, τ)
     end
     γ = sqrt(a^2 + 2σ^2)
     expγτ = exp(γ * τ)
@@ -230,13 +238,10 @@ function FinanceCore.discount(m::ShortRate.HullWhite, t, T, r_t)
     a, σ = m.a, m.σ
     P0t = FinanceCore.discount(m.curve, t)
     P0T = FinanceCore.discount(m.curve, T)
-    B_tT = _hw_B(a, t, T)
+    B_tT = _decay_integral(a, T - t)
     f0t = _hw_forward_rate(m.curve, t)
-    if abs(a) < 1.0e-12
-        lnA = log(P0T / P0t) + B_tT * f0t - 0.5 * σ^2 * t * B_tT^2
-    else
-        lnA = log(P0T / P0t) + B_tT * f0t - σ^2 / (4a) * B_tT^2 * (1 - exp(-2a * t))
-    end
+    # σ²/(4a)·(1 - e^{-2at}) = σ²/2 · ∫₀ᵗ e^{-2as} ds
+    lnA = log(P0T / P0t) + B_tT * f0t - σ^2 / 2 * B_tT^2 * _decay_integral(2a, t)
     return exp(lnA - B_tT * r_t)
 end
 
@@ -352,7 +357,7 @@ _sim_eltype(m::ShortRate.HullWhite, r0) =
 #   x_{t+dt} | x_t ~ Normal(x_t·ϕ, sd²),  ϕ = exp(-a·dt),  sd² = σ²(1-ϕ²)/(2a)
 function _ou_step_params(a, σ, dt)
     ϕ = exp(-a * dt)
-    var = abs(a) < 1.0e-12 ? σ^2 * dt : σ^2 * (-expm1(-2a * dt)) / (2a)
+    var = σ^2 * _decay_integral(2a, dt)
     return (ϕ = ϕ, sd = sqrt(var))
 end
 
@@ -391,11 +396,7 @@ end
 function _hw_alpha(m::ShortRate.HullWhite, t)
     a, σ = m.a, m.σ
     f0t = _hw_forward_rate(m.curve, t)
-    if abs(a) < 1.0e-12
-        return f0t + σ^2 * t^2 / 2
-    else
-        return f0t + σ^2 / (2a^2) * (1 - exp(-a * t))^2
-    end
+    return f0t + σ^2 / 2 * _decay_integral(a, t)^2
 end
 
 # Per-simulation cache: OU transition parameters for the Gaussian models
@@ -446,20 +447,6 @@ end
 #            Hull (2018) "Options, Futures, and Other Derivatives", Ch. 32
 #            Jamshidian (1989) "An Exact Bond Option Formula"
 
-# -∂log P(t,T|r)/∂r for the affine Gaussian models
-_affine_B(m::ShortRate.Vasicek, t, T) = _vasicek_B(m.a, T - t)
-_affine_B(m::ShortRate.HullWhite, t, T) = _hw_B(m.a, t, T)
-
-# Hull-White B(t,T) function
-function _hw_B(a, t, T)
-    τ = T - t
-    if abs(a) < 1.0e-12
-        return τ
-    else
-        return (1 - exp(-a * τ)) / a
-    end
-end
-
 # Instantaneous forward rate f(0,t) = -d/dt ln P(0,t) via automatic differentiation
 function _hw_forward_rate(curve, t)
     t_eval = max(t, 1.0e-10)  # avoid exactly zero for AD stability
@@ -494,13 +481,8 @@ function _zcb_option_price(m::_GaussianModel, T, S, K)
     P0T = FinanceCore.discount(m, T)
     P0S = FinanceCore.discount(m, S)
 
-    # σ_P: volatility of the ZCB price at expiry
-    B_TS = _hw_B(a, T, S)
-    if abs(a) < 1.0e-12
-        σ_P = σ * B_TS * sqrt(T)
-    else
-        σ_P = σ * B_TS * sqrt((1 - exp(-2a * T)) / (2a))
-    end
+    # σ_P: volatility of the ZCB price at expiry, σ·B(T,S)·sqrt((1 - e^{-2aT})/(2a))
+    σ_P = σ * _decay_integral(a, S - T) * sqrt(_decay_integral(2a, T))
 
     if σ_P < 1.0e-15
         # Degenerate case: no vol → intrinsic value
@@ -615,8 +597,8 @@ function FinanceCore.present_value(m::_GaussianModel, c::Option.Swaption)
         end
         return total
     end
-    slope(r) = sum(
-        weight(i) * __primal(_affine_B(m, T0, Ti)) * __primal(FinanceCore.discount(m, T0, Ti, r))
+    slope_terms(r) = (
+        weight(i) * __primal(_decay_integral(m.a, Ti - T0)) * __primal(FinanceCore.discount(m, T0, Ti, r))
             for (i, Ti) in enumerate(payment_times)
     )
 
@@ -624,32 +606,18 @@ function FinanceCore.present_value(m::_GaussianModel, c::Option.Swaption)
     # derivatives come from the implicit function theorem (a Float64 root would silently
     # drop the ∂Kᵢ/∂r*·dr*/dθ terms of every Greek).
     # The slope's own terms measure cancellation (negative strikes give negative coupon weights).
-    scale(r) = sum(
-        abs(weight(i) * __primal(_affine_B(m, T0, Ti)) * __primal(FinanceCore.discount(m, T0, Ti, r)))
-            for (i, Ti) in enumerate(payment_times)
+    r_star = __implicit_root(
+        swap_value, r -> __primal(swap_value(r)), 0.0;
+        who = "Swaption critical rate r*", slope = r -> sum(slope_terms(r)), scale = r -> sum(abs, slope_terms(r))
     )
-    r_star = __implicit_root(swap_value, r -> __primal(swap_value(r)), 0.0; who = "Swaption critical rate r*", slope, scale)
 
     # Step 2: Compute strike prices Ki = P(T0, Ti; r*)
-    # Step 3: Sum ZCB options
+    # Step 3: Sum ZCB options, weighted like the swap's payments: a payer swaption is a
+    # portfolio of ZCB puts, a receiver swaption of ZCB calls
     price = 0.0
     for (i, Ti) in enumerate(payment_times)
-        Ki = FinanceCore.discount(m, T0, Ti, r_star)
-        if c.payer
-            # Payer swaption = sum of ZCB puts
-            _, put = _zcb_option_price(m, T0, Ti, Ki)
-            price += coupon * τ * put
-            if i == length(payment_times)
-                price += put  # principal
-            end
-        else
-            # Receiver swaption = sum of ZCB calls
-            call, _ = _zcb_option_price(m, T0, Ti, Ki)
-            price += coupon * τ * call
-            if i == length(payment_times)
-                price += call  # principal
-            end
-        end
+        call, put = _zcb_option_price(m, T0, Ti, FinanceCore.discount(m, T0, Ti, r_star))
+        price += weight(i) * (c.payer ? put : call)
     end
     return price
 end

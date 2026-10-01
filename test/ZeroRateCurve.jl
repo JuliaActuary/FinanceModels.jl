@@ -27,8 +27,10 @@ using ForwardDiff
             @test_throws DomainError discount(zrc, -1.0)
         end
         @test_throws DomainError Yield.instantaneous_forward(ZeroRateCurve(rates, tenors), -1.0)
-        # `Yield.Spline` covers the DataInterpolations methods only
-        @test_throws ArgumentError Yield.Spline(Spline.MonotoneConvex(), tenors, rates)
+        # `Yield.Spline` covers the DataInterpolations methods only, and the direct form takes the
+        # method positionally
+        @test_throws MethodError Yield.Spline(Spline.MonotoneConvex(), tenors, rates)
+        @test_throws MethodError ZeroRateCurve(rates, tenors; spline = Spline.Linear())
 
         zrc = ZeroRateCurve(rates, tenors, Spline.Linear())
         for t in (0.0, 1.0e-20, 3.0, 2.0e4)
@@ -530,29 +532,63 @@ using ForwardDiff
         @test_throws "tenors must be finite" ZeroRateCurve(c, [NaN, 1.0])
     end
 
-    @testset "generic fit via __default_optic" begin
+    @testset "refitting a knot curve" begin
         t = [1.0, 2.0, 5.0, 10.0]
         target = [0.02, 0.025, 0.03, 0.035]
         qs = ZCBYield.(Continuous.(target), t)        # continuous quotes: fitted zero rates == target
-        zrc0 = ZeroRateCurve(fill(0.01, length(t)), t)
-        # one batch optic over all knot rates: a single rebuild per optimizer candidate
-        optics = FinanceModels.__default_optic(zrc0)
-        @test length(optics) == 1
-        o = first(optics).first
-        @test o isa FinanceModels.KnotRatesOptic
-        @test Accessors.getall(zrc0, o) === Tuple(zrc0.rates)
-        zb = Accessors.setall(zrc0, o, target)
-        @test zb isa Yield.MonotoneConvex && zb.rates == target && zb.tenors == t
-        @test discount(zb, 2.0) ≈ exp(-0.025 * 2.0)
-        @test zrc0.rates == fill(0.01, length(t))                  # original untouched
-        @test Accessors.modify(x -> 2x, zrc0, o).rates == fill(0.02, length(t))
-        @test_throws ArgumentError Accessors.setall(zrc0, o, [NaN, 0.0, 0.0, 0.0])   # still validated
-        fitted = fit(zrc0, qs)
-        @test fitted isa Yield.MonotoneConvex
-        @test fitted.tenors == t
-        @test maximum(abs, present_value(fitted, q.instrument) - q.price for q in qs) < 1.0e-6
+        # The refit keeps the curve's tenors, method and extrapolation policy, and is the spline
+        # fit on those knots (same solve, same starting rates), whatever the curve's own rates:
+        # flat PCHIP and Akima curves sit on a kink, where the earlier optic-based refit threw.
+        for spline in (Spline.MonotoneConvex(), Spline.Linear(), Spline.Cubic(), Spline.PCHIP(), Spline.Akima())
+            zrc0 = ZeroRateCurve(fill(0.01, length(t)), t, spline; extrapolation = :flat_zero)
+            fitted = fit(zrc0, qs)
+            @test fitted isa typeof(ZeroRateCurve(target, t, spline))
+            @test fitted.tenors == t && fitted.spline == spline && fitted.extrapolation === :flat_zero
+            @test maximum(abs, present_value(fitted, q.instrument) - q.price for q in qs) < 1.0e-6
+            @test isequal(fitted, fit(spline, qs; extrapolation = :flat_zero))
+            @test zrc0.rates == fill(0.01, length(t))                  # original untouched
+        end
+        # The curve's own rates are never the start, whether flat, tied, kinked or numerically flat
+        # under the price loss: a 100% rate discounts 30 years to 1e-13, where the loss gradient is
+        # below the solver's tolerance and a solve starting there stops at once.
+        ts = [0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0, 20.0, 30.0]
+        zr = 0.02 .+ 0.015 .* (1 .- exp.(-ts ./ 10))
+        zcb(z) = ZCBPrice.(exp.(-z .* ts), ts)
+        starts = (fill(0.03, length(ts)), [0.03, 0.01, 0.04, 0.005, 0.05, 0.01, 0.04, 0.02, 0.03], fill(1.0, length(ts)))
+        splines = (Spline.Linear(), Spline.Quadratic(), Spline.Cubic(), Spline.BSpline(3), Spline.PCHIP(), Spline.Akima(), Spline.MonotoneConvex())
+        for spline in splines, z in (zr, zr .+ 0.01 .* (ts ./ 30 .- 0.5))
+            direct = fit(spline, zcb(z))
+            @test maximum(abs(discount(direct, ti) - exp(-zi * ti)) for (ti, zi) in zip(ts, z)) < 1.0e-8
+            @test all(isequal(fit(ZeroRateCurve(z0, ts, spline), zcb(z)), direct) for z0 in starts)
+        end
+        for (z0, tenor) in ((1.0, 30.0), (0.1, 300.0), (100.0, 10.0))
+            @test discount(fit(ZeroRateCurve([z0], [tenor], Spline.Linear()), [ZCBPrice(0.9, tenor)]), tenor) ≈ 0.9 rtol = 1.0e-8
+        end
         fl = fit(ZeroRateCurve(fill(0.01, length(t)), t, Spline.Linear()), qs)
         @test fl.rates ≈ target atol = 1.0e-5
+        # more quotes than knots: a least-squares fit at the curve's own tenors
+        over = fit(ZeroRateCurve(fill(0.01, 3), [1.0, 3.0, 10.0], Spline.Linear()), qs)
+        @test over.tenors == [1.0, 3.0, 10.0] && eltype(over.rates) === Float64
+        @test all(isfinite, over.rates)
+        # knot rates are the variables: a knot curve's fit takes no optics
+        zrc0 = ZeroRateCurve(fill(0.01, length(t)), t)
+        @test_throws MethodError fit(zrc0, qs; variables = ((@optic(_.rates[1]),),))
+        @test fit(zrc0, qs, Fit.Loss(x -> x^2); solve_kwargs = (; g_tol = 1.0e-12)) isa Yield.MonotoneConvex
+    end
+
+    @testset "single-pass quote iterators" begin
+        # Each fit collects its quotes once, so a stateful iterator gives the vector's result.
+        t = [1.0, 3.0, 7.0]
+        qs = ZCBPrice.([0.97, 0.91, 0.82], t)
+        once() = Iterators.Stateful(qs)
+        @test isequal(fit(Spline.Linear(), once()), fit(Spline.Linear(), qs))
+        @test isequal(fit(Spline.Cubic(), once(), Fit.Loss(abs2)), fit(Spline.Cubic(), qs, Fit.Loss(abs2)))
+        @test isequal(fit(Spline.Linear(), once(), Fit.Bootstrap()), fit(Spline.Linear(), qs, Fit.Bootstrap()))
+        c = ZeroRateCurve([0.03, 0.03, 0.03], t, Spline.Linear())
+        @test isequal(fit(c, once()), fit(c, qs))
+        @test discount(fit(Yield.NelsonSiegel(), once()), 5.0) == discount(fit(Yield.NelsonSiegel(), qs), 5.0)
+        sw = Yield.SmithWilson(ufr = 0.04, α = 0.1)
+        @test discount(fit(sw, once()), 5.0) == discount(fit(sw, qs), 5.0)
     end
 
     # ─── Knot-curve interface ─────────────────────────────────────────────────

@@ -242,25 +242,15 @@ end
     end
 end
 
-@testset "batch knot-rate optic rebuilds once per candidate" begin
-    # One `@optic(_.rates[i])` per knot rebuilt the whole curve once per knot for every
-    # optimizer candidate, so allocation grew with the square of the knot count. The
-    # batch optic rebuilds once, so allocation should grow roughly linearly.
-    setall_bytes(c, vals) = @allocated Accessors.setall(c, FinanceModels.KnotRatesOptic(), vals)
-    builders = (
-        n -> Yield.MonotoneConvex(collect(range(0.02, 0.05; length = n)), collect(1.0:n)),
-        n -> ZeroRateCurve(collect(range(0.02, 0.05; length = n)), collect(1.0:n), Spline.Linear()),
-    )
-    for build in builders
-        bytes = map((5, 50, 500)) do n
-            c = build(n)
-            vals = collect(c.rates) .+ 0.001
-            setall_bytes(c, vals)   # compile
-            setall_bytes(c, vals)
-        end
-        # Linear growth gives ratios of at most about 10 per tenfold increase in knots;
-        # per-knot rebuilds gave ratios of about 30 (5 → 50) and 80 (50 → 500).
-        @test bytes[2] / bytes[1] < 20
-        @test bytes[3] / bytes[2] < 20
+@testset "refitting a flat PCHIP or Akima curve" begin
+    # Refitting a knot curve ran the generic optic fit, whose candidates were public
+    # `reconstruct`ions: those check dual knot rates for kinks, so the optimizer's own
+    # derivatives at a flat PCHIP or Akima start threw. The refit is now the spline fit on the
+    # curve's knots, whose trial curves are unchecked and whose start avoids the kinks.
+    tenors = [1.0, 2.0, 3.0, 5.0, 10.0]
+    qs = ZCBPrice.(exp.(-[0.03, 0.032, 0.035, 0.037, 0.04] .* tenors), tenors)
+    for spline in (Spline.PCHIP(), Spline.Akima())
+        c = fit(ZeroRateCurve(fill(0.03, 5), tenors, spline), qs)
+        @test maximum(abs(pv(c, q.instrument) - q.price) for q in qs) < 1.0e-9
     end
 end

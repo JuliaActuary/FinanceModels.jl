@@ -270,10 +270,11 @@ function __rewrap(from, to)
     return to
 end
 
-function FinanceCore.present_value(model, p::FinanceModels.Projection{C, M, K}, cur_time = 0.0) where
-    {
-        C, M, K <: FinanceModels.CashflowProjection,
-    }
+# The projection kind is dispatched internally, so a contract with a closed form can define
+# `present_value(model, p::Projection{MyContract})` without an ambiguity with this method.
+FinanceCore.present_value(model, p::FinanceModels.Projection, cur_time = 0.0) = __present_value(model, p, p.kind, cur_time)
+
+function __present_value(model, p, ::CashflowProjection, cur_time)
     xf = p |> Filter(cf -> cf.time >= cur_time) |> Map(cf -> FinanceCore.discount(model, cur_time, cf.time) * cf.amount)
     # init: an empty fold (e.g. valuing past maturity) is worth 0, not an error
     return foldxl(+, xf; init = 0.0)

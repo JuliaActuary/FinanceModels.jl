@@ -2,6 +2,14 @@
 
 ## v7.0.0 (unreleased)
 
+### Closed-form valuation of projected contracts
+
+`present_value(model, p::Projection)` dispatches on the projection kind internally, so a
+contract with a closed-form value can define
+`present_value(m::Yield.AbstractYieldModel, p::Projection{MyContract})`, reading its index
+models from `p.model`. That signature was ambiguous with the generic method; only
+`Projection{MyContract, M, K} where {M, K <: CashflowProjection}` worked.
+
 ### `implied_quote`
 
 `implied_quote(curve, family, maturity)` returns the quote at which a quote
@@ -19,6 +27,17 @@ bisection that returned a plain `Float64`, so ForwardDiff Greeks of Vasicek and
 Hull-White swaptions silently dropped every `∂Kᵢ/∂r*·dr*/dθ` term: on a 1×5 payer
 swaption, Vasicek's `∂/∂a` had the wrong sign and vega was 9% too high. `r*` now carries
 its implicit-function derivatives; prices are unchanged up to root-finder precision (#290).
+
+### Vasicek and Hull-White near zero mean reversion (changed numbers)
+
+Vasicek bond prices used a truncated Taylor expansion below |aτ| = 0.02 and, above it, a closed
+form whose variance terms cancel: `-log P` was off by up to 4.5e-7 (a = 0.001, τ = 19.9), a
+Vasicek swaption by up to 8e-8, and the bond price's derivative in `a` by 6e-5 relative at
+a = 0.001. Hull-White's closed forms switched to their a = 0 limits below |a| = 1e-12, so their
+derivatives in `a` vanished there (a swaption's `∂/∂a` at a = 0 was 0) and they lost digits just
+above the switch. Both models now evaluate these factors to within a few units of Float64
+rounding for every mean reversion, zero and negative included, with exact ForwardDiff
+derivatives. Prices change by the former errors; away from small aτ, only in the last bits.
 
 ### Differentiable spline fits
 
@@ -66,6 +85,17 @@ Optimizer-backed `fit`s accept `solve_kwargs`, passed to `Optimization.solve` (f
 `solve_kwargs = (; maxiters = 10_000, g_tol = 1e-12)`). A differentiated loss fit that stops
 too far from an exact fit now has a way to tighten it.
 
+### Refitting a knot curve
+
+`fit(curve, quotes)` for a knot curve (`Yield.AbstractInterpolatedZeroCurve`) is now the spline
+fit on the curve's knots: it keeps the curve's tenors, interpolation method and extrapolation
+policy, starts from the same knot rates as `fit(spline, quotes)` (not the curve's own), uses the
+spline's default optimizer, and carries implicit-function derivatives of dual quotes when there
+is one knot per quote. It previously ran the generic optic fit, whose candidates went through the
+public constructor, so a flat PCHIP or Akima starting curve threw. It no longer accepts
+`variables`, and `FinanceModels.KnotRatesOptic` is removed. An `FX.Forwards` with a knot-curve
+foreign curve refits it through the implied foreign quotes.
+
 ### PCHIP and Akima fits on evenly spaced maturities
 
 `Spline.PCHIP()` and `Spline.Akima()` loss fits started from knot rates that were linear in the
@@ -109,6 +139,12 @@ knot. `Yield.build_model` and the `Yield.MonotoneConvex()` fit placeholder are r
 `Spline.MonotoneConvex()` is the one monotone convex selector (#272), fitted through the same path
 as every other interpolation method. `Spline.PolynomialSpline` accepts only orders 1 to 3 and
 `Spline.BSpline` requires degree 1 or more.
+
+Each construction form has one signature: `ZeroRateCurve(rates, tenors, spline =
+Spline.MonotoneConvex(); extrapolation)` takes the method positionally, as in 6.x, and the sampling
+form keeps its `ZeroRateCurve(curve, tenors; spline, extrapolation)` keyword. `Yield.Spline`
+accepts only the DataInterpolations methods, so `Yield.Spline(Spline.MonotoneConvex(), …)` is a
+`MethodError`, as in 6.x; `ZeroRateCurve` and `Yield.MonotoneConvex` build that curve.
 
 ### Flat zero rate before the first knot (changed numbers)
 
@@ -197,6 +233,32 @@ the two endpoints, rather than as a ratio of discount factors. The main effects:
 - **Composite and scaled curves** take their components' intervals, combined: each component keeps
   its own form (a custom curve's ratio, Smith-Wilson's far-tail-stable ratio), and an infinite
   endpoint comes from the combined tail.
+- **`forward(curve, from, to)`** is the interval's log-discount per unit time, taken by the same
+  rule as `discount(curve, from, to)`. On a Smith-Wilson curve, or a custom curve with negative
+  discount factors, it therefore exists where both factors are negative (it was a `DomainError`),
+  and on composite, scaled and
+  `ForwardStarting` curves it can move by a few units in the last place.
+
+### Time derivatives at `t = 0`
+
+`ForwardDiff` derivatives with respect to time at exactly `t = 0`, such as
+`ForwardDiff.derivative(t -> discount(curve, t), 0.0)` or a derivative in the start of
+`discount(curve, from, to)`, were `NaN` for `Yield.MonotoneConvex` (the `ZeroRateCurve` default),
+`NelsonSiegel` and `NelsonSiegelSvensson`, and for composites, scaled curves and yield shifts over
+them. Their zero rates had a removable 0/0 at 0, which a dual time skips past. They are now exact:
+
+- `MonotoneConvex` computes its cumulative log-discount directly instead of multiplying its zero
+  rate back by `t`, which moves some discount factors in the last bit. Over its first interval its
+  zero rate uses a divided form of the Hagan-West integral, which is also more accurate for very
+  short maturities (the previous form lost digits as `t → 0`).
+- `NelsonSiegel` and `NelsonSiegelSvensson` use the Taylor series of their decay factor at `t = 0`.
+  Values at every other time are unchanged.
+
+A curve without its own `zero` (Smith-Wilson, the short-rate models, `ForwardStarting`, custom
+curves) has only L(t)/t, so its zero rate still has no derivative at 0. Its discount factor does,
+but its zero rate and a yield shift over it now throw a `DomainError` for a time derivative at 0
+instead of returning `NaN`. Its zero rate at an exact `0` is still the non-finite 0/0 that
+`ZeroRateCurve(curve, tenors)` rejects.
 
 ## v6.4.0
 

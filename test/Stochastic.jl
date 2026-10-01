@@ -371,6 +371,23 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             # CIR with σ=0: same deterministic formula
             cir0 = ShortRate.CoxIngersollRoss(0.5, 0.04, 0.0, Continuous(0.02))
             @test discount(cir0, T) ≈ expected rtol = 1.0e-8
+
+            # With no mean reversion as well the rate stays r: b is irrelevant, at every horizon
+            cir_det(a, b, r = 0.03) = ShortRate.CoxIngersollRoss(a, b, 0.0, Continuous(r))
+            for b in (0.05, 1.0e16, -1.0)
+                @test discount(cir_det(0.0, b), 10.0) == exp(-0.3)
+                @test discount(cir_det(0.0, b), Inf) == 0.0
+            end
+            @test discount(cir_det(1.0e-300, 1.0e16), 10.0) ≈ exp(-0.3) rtol = 4eps()
+            @test discount(cir_det(0.5, 0.05), Inf) == 0.0
+            # against ∫₀ᵗ (b + (r - b)e^{-as}) ds in high precision, across the series threshold
+            det_ref(a, b, r, τ) = exp(-(b * τ + (r - b) * (a == 0 ? τ : -expm1(-a * τ) / a)))
+            for a in (1.0e-300, 1.0e-8, 1.0e-3, 0.019, 0.021, 0.05, 1.0), τ in (0.5, 10.0), b in (0.05, -0.01)
+                @test discount(cir_det(a, b), τ) ≈ det_ref(big(a), big(b), big(0.03), big(τ)) rtol = 4eps()
+            end
+            # the zero-mean-reversion derivative: ∂P/∂a = -(b - r)τ²/2 · P at a = 0
+            dP = ForwardDiff.derivative(a -> discount(cir_det(a, 0.05), 10.0), 0.0)
+            @test dP ≈ -(0.05 - 0.03) * 10.0^2 / 2 * exp(-0.3) rtol = 1.0e-13
         end
 
         @testset "a = 0 (no mean reversion)" begin
@@ -1283,7 +1300,85 @@ end
         d = pv(ShortRate.Vasicek(ForwardDiff.Dual(0.15, 1.0), 0.04, 0.01, Continuous(0.03)), sw)
         @test ForwardDiff.value(d) == vasicek(p0)
     end
-    # a small mean reversion uses Vasicek's Taylor-expanded B in both price and slope
+    # a small mean reversion uses the series form of B in both price and slope
     small(a) = pv(ShortRate.Vasicek(a, 0.04, 0.01, Continuous(0.03)), Option.Swaption(1.0, 6.0, 0.035, 1))
     @test ForwardDiff.derivative(small, 1.0e-3) ≈ (small(1.0e-3 + 1.0e-7) - small(1.0e-3 - 1.0e-7)) / 2.0e-7 rtol = 1.0e-5
+end
+
+@testset "affine decay factor (1 - e^{-aτ})/a near a = 0" begin
+    # Vasicek's and Hull-White's B(τ) and variance factors share `_decay_integral`. Hull-White's
+    # closed forms returned τ for |a| < 1e-12, with no derivative in `a`, and lost digits as
+    # a → 0 (relative error 8e-8 at a = 1e-10); Vasicek's four-term Taylor branch was off by
+    # 1e-9 near aτ = 0.02.
+    setprecision(BigFloat, 256) do
+        ref(a, τ) = (x = a * τ; abs(x) < 0.01 ? τ * sum((-x)^k / factorial(big(k + 1)) for k in 0:60) : -expm1(-x) / a)
+        for a in (0.0, 1.0e-300, 1.0e-12, 1.0e-10, 1.0e-6, 1.0e-3, 0.019, 0.021, 0.19, 0.21, 0.5, 2.0), s in (1, -1),
+                τ in (0.25, 1.0, 10.0, 30.0)
+            @test FinanceModels._decay_integral(s * a, τ) ≈ ref(big(s * a), big(τ)) rtol = 4eps()
+            @test ForwardDiff.derivative(x -> FinanceModels._decay_integral(x, τ), s * a) ≈
+                ForwardDiff.derivative(x -> ref(x, big(τ)), big(s * a)) rtol = 1.0e-13
+        end
+    end
+    # Hull-White's swaption Greek in `a` was 0 at a = 0 and 3.6e-7 off at a = 1e-6
+    hw(a) = pv(ShortRate.HullWhite(a, 0.01, Yield.Constant(Continuous(0.03))), Option.Swaption(1.0, 6.0, 0.035, 1))
+    for a in (0.0, 1.0e-6)
+        @test ForwardDiff.derivative(hw, a) ≈ (hw(a + 1.0e-5) - hw(a - 1.0e-5)) / 2.0e-5 rtol = 1.0e-8
+    end
+end
+
+@testset "Vasicek log bond price near a = 0" begin
+    # -log P = B·r + b·(τ - B) - σ²/(2a³)·g(aτ). The closed form of A cancels for small aτ, and
+    # the former two-term Taylor branch below |aτ| = 0.02 was off by up to 4.5e-7 in -log P
+    # (a = 0.001, τ = 19.9). Errors are measured against a 256-bit reference, relative to the
+    # size of the terms.
+    setprecision(BigFloat, 256) do
+        function ref(a, b, σ, r, τ)
+            x = a * τ
+            if abs(x) < 0.01
+                φ2 = sum((-x)^k / factorial(big(k + 2)) for k in 0:60)
+                h = sum((-x)^k * (big(2)^(k + 2) - 2) / factorial(big(k + 3)) for k in 0:60)
+                return (τ - τ * x * φ2) * r + b * τ * x * φ2 - σ^2 * τ^3 / 2 * h
+            end
+            m = expm1(-x)
+            return -m / a * r + b * (x + m) / a - σ^2 / (2a^3) * (x + m - m^2 / 2)
+        end
+        logP = FinanceModels._vasicek_log_zcb
+        for a in (0.0, 1.0e-300, 1.0e-10, 1.0e-6, 1.0e-3, 0.01, 0.019, 0.021, 0.1, 0.19, 0.21, 0.5, 1.0, 2.0),
+                s in (1, -1), τ in (0.25, 1.0, 5.0, 19.9, 30.0), (b, σ, r) in ((0.05, 0.01, 0.03), (0.03, 0.2, 0.05), (-0.01, 0.1, 0.0))
+            x = s * a
+            abs(x * τ) > 40 && continue
+            R = ref(big(x), big(b), big(σ), big(r), big(τ))
+            scale = max((abs(r) + abs(b)) * τ + σ^2 * τ^3, abs(Float64(R)))
+            @test abs(logP(x, b, σ, r, τ) - R) <= 8eps() * scale
+            da = ForwardDiff.derivative(y -> logP(y, b, σ, r, τ), x)
+            dA = ForwardDiff.derivative(y -> ref(y, big(b), big(σ), big(r), big(τ)), big(x))
+            @test abs(da - dA) <= 1.0e-13 * max((abs(r) + abs(b)) * τ^2 + σ^2 * τ^4, abs(Float64(dA)))
+            dτ = ForwardDiff.derivative(t -> logP(x, b, σ, r, t), τ)
+            dT = ForwardDiff.derivative(t -> ref(big(x), big(b), big(σ), big(r), t), big(τ))
+            @test abs(dτ - dT) <= 1.0e-13 * max(abs(r) + abs(b) + σ^2 * τ^2, abs(Float64(dT)))
+        end
+        @test logP(0.001, 0.05, 0.01, 0.03, 19.9) ≈ ref(big(0.001), big(0.05), big(0.01), big(0.03), big(19.9)) rtol = 4eps()
+    end
+    # the long rate b - σ²/(2a²) decides the limit at infinity
+    @test discount(ShortRate.Vasicek(0.1, 0.05, 0.01, Continuous(0.03)), Inf) == 0.0
+    @test discount(ShortRate.Vasicek(0.1, 0.001, 0.05, Continuous(0.03)), Inf) == Inf
+end
+
+@testset "affine series keep the working precision" begin
+    # The series coefficients are exact, so Float32 inputs price in Float32 on both sides of the
+    # |aτ| = 0.2 threshold, and a BigFloat limit at a = 0 is exact to its own precision.
+    for a in (0.001f0, 0.5f0)   # aτ = 0.001 (series) and 0.5 (closed form)
+        v = ShortRate.Vasicek(a, 0.05f0, 0.01f0, Continuous(0.03f0))
+        @test discount(v, 1.0f0) isa Float32
+        @test discount(v, 0.0f0, 1.0f0, 0.03f0) isa Float32
+        @test FinanceModels._decay_integral(a, 1.0f0) isa Float32
+        @test ForwardDiff.derivative(x -> FinanceModels._decay_integral(x, 1.0f0), a) isa Float32
+    end
+    setprecision(BigFloat, 256) do
+        # a = b = r = 0: -log P = -σ²τ³/6, so P = exp(1/6) at σ = τ = 1
+        v = ShortRate.Vasicek(big(0.0), big(0.0), big(1.0), Continuous(big(0.0)))
+        @test discount(v, big(1.0)) ≈ exp(big(1) / 6) rtol = 4eps(BigFloat)
+        @test FinanceModels._decay_integral(big(0.0), big(3.0)) == 3
+        @test FinanceModels._vasicek_log_zcb(big(0.0), big"0.05", big(0.0), big"0.03", big(10.0)) ≈ big"0.3" rtol = 4eps(BigFloat)
+    end
 end
