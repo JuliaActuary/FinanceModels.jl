@@ -42,6 +42,18 @@ Transducers.asfoldable(p::Projection{AsfoldableContract}) = [Cashflow(1.0, 1.0),
         # which discounts to time 0 regardless of the third argument — so the
         # empty-fold path is exercised via a single-cashflow Projection instead)
         @test present_value(m, Projection(Cashflow(10.0, 1.0), m, CashflowProjection()), 2.0) == 0.0
+        # the 0 is a positive zero in the type of a present value under the model (#288)
+        @test present_value(m, b, 4.0) === 0.0
+        mb = Yield.Constant(Continuous(big"0.03"))
+        for x in (present_value(mb, b, 4.0), present_value(mb, Projection(Cashflow{BigFloat, Float64}[])))
+            @test x isa BigFloat && iszero(x) && !signbit(x)
+        end
+        # empty and nonempty values have the same type: a Float32 model's are Float32
+        m32 = Yield.Constant(Continuous(0.03f0))
+        @test present_value(m32, Projection(Cashflow{Float32, Float32}[]), 0.0f0) === 0.0f0
+        @test present_value(m32, Projection(Cashflow(1.0f0, 1.0f0)), 0.0f0) isa Float32
+        md = Yield.Constant(Continuous(ForwardDiff.Dual(0.03, 1.0)))
+        @test present_value(md, b, 4.0) === zero(present_value(md, b))
     end
 
     @testset "Forward contract shifts cashflow times" begin

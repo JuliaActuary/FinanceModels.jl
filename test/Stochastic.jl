@@ -1403,6 +1403,20 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             @test cap - flr ≈ swap_value atol = 1.0e-8
         end
 
+        @testset "no caplets: a positive zero in the model's type (#288)" begin
+            # a one-period cap's only caplet would reset at 0, so it has none
+            @test present_value(v, Option.Cap(0.05, 2, 0.5)) === 0.0
+            @test present_value(v, Option.Floor(0.05, 2, 0.5)) === 0.0
+            mb = ShortRate.Vasicek(big"0.1", big"0.03", big"0.01", big"0.04")
+            hb = ShortRate.HullWhite(big"0.1", big"0.01", Yield.Constant(Continuous(big"0.03")))
+            for m in (mb, hb), c in (Option.Cap(big"0.03", 2, big"0.5"), Option.Floor(big"0.03", 2, big"0.5"))
+                x = present_value(m, c)
+                @test x isa BigFloat && iszero(x) && !signbit(x)
+            end
+            vd = ShortRate.Vasicek(0.1, 0.05, ForwardDiff.Dual(0.015, 1.0), Continuous(0.03))
+            @test present_value(vd, Option.Cap(0.05, 2, 0.5)) === zero(present_value(vd, Option.Cap(0.05, 2, 1.0)))
+        end
+
         @testset "swaption payer-receiver parity" begin
             expiry = 1.0
             swap_mat = 6.0
