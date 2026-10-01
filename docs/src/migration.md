@@ -21,6 +21,24 @@
 - Full-curve `Fit.Loss` spline fits start from slightly sloped rates near 5%
   instead of a flat 5%, which lets PCHIP and Akima fits converge. Converged fits
   of other strategies move by at most about 1e-9 in zero rate.
+- **Simulated paths end at their horizon.** A `RatePath` from `simulate` is defined
+  from 0 to the first grid point at or beyond `horizon`; evaluating it later (a
+  discount factor, the present value of a later cashflow, `short_rate`) throws
+  DataInterpolations' `RightExtrapolationError` instead of extending the last
+  simulated step. **Migration:** pass a `horizon` that covers your last cashflow,
+  to `simulate` and to `pv_mc` (whose default, the contract's maturity plus one, already does).
+- **Forward-starting floating instruments change value.** `Forward(s, floater)` now
+  fixes the floater's coupons on the index rates from `s` on; it read them from
+  time 0. Fixed instruments are unchanged. ActuaryUtilities' `locked_floater`
+  builds on `Forward`.
+- **`zero(curve, 0)` is the short rate** for curves without their own zero rate
+  (Vasicek, CIR, Hull–White, Smith–Wilson, `ForwardStarting`), where it was `NaN`.
+  Code that tested for that `NaN` should drop the check.
+- **Optimization 5 is required** (with OptimizationOptimJL 0.4.6 and AccessibleModels
+  0.1.14); environments pinned to Optimization 4 must upgrade it together with
+  FinanceModels. Under Optim 2 (OptimizationOptimJL 0.4.9 and later) a loss fit
+  at the default tolerance can land about 1e-9 from the exact fit; pass
+  `solve_kwargs = (; g_tol = 1e-12)` to fit to rounding.
 
 ### Valuation contexts (FinanceCore 3)
 

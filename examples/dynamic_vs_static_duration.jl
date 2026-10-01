@@ -32,7 +32,7 @@ Run:  julia examples/dynamic_vs_static_duration.jl
 using Pkg
 Pkg.activate(; temp = true)
 Pkg.develop(path = dirname(@__DIR__))   # use local FinanceModels
-Pkg.add("ActuaryUtilities")
+Pkg.add(name = "ActuaryUtilities", version = "6")
 
 using FinanceModels
 using ActuaryUtilities
@@ -47,11 +47,11 @@ cmt_mats = [0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0, 15.0, 20.0, 30.0]
 qs = CMTYield.(cmt_rates, cmt_mats)
 bootstrapped = fit(Spline.Linear(), qs, Fit.Bootstrap())
 
-# ZeroRateCurve for AD-based sensitivities
+# The key-rate grid: `KeyRates(tenors)` below reports risk at these tenors
 tenors = [0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0]
 zrc_base = ZeroRateCurve(bootstrapped, tenors)
 
-# Credit spread curve: flat 120bps over treasury (same tenors required)
+# Credit spread curve: flat 120bps over treasury
 credit_spread = 0.012   # 120bps
 zrc_credit = ZeroRateCurve(fill(credit_spread, length(tenors)), tenors)
 
@@ -225,7 +225,7 @@ end
 println("── Computing sensitivities... ──\n")
 
 # Dynamic: AD flows through renewal lapse AND credited rate reset
-dynamic = sensitivities(zrc_base, zrc_credit) do base_curve, credit_curve
+dynamic = sensitivities(KeyRates(tenors), zrc_base, zrc_credit) do base_curve, credit_curve
     liability_pv(
         base_curve, credit_curve, credited_rate,
         new_money_spread, fixed_lapse_monthly,
@@ -238,7 +238,7 @@ static_cfs, static_times = project_cashflows(
     bootstrapped, credited_rate, new_money_spread,
     fixed_lapse_monthly, renewal_month, n_months, dt
 )
-static = sensitivities(zrc_base, zrc_credit, static_cfs, static_times)
+static = sensitivities(KeyRates(tenors), zrc_base, zrc_credit, static_cfs, static_times)
 
 # ── 7. Results ───────────────────────────────────────────────────────────────
 

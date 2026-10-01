@@ -2,6 +2,106 @@
 
 ## v7.0.0 (unreleased)
 
+### Stable CIR bond prices (changed numbers)
+
+The textbook Cox–Ingersoll–Ross price raises a number within σ² of 1 to the power 2ab/σ² and
+forms e^{γτ}, so it broke down at small volatility and long maturities: a 10-year discount factor
+was 5.6e57 at σ = 1e-10 and `Inf` at σ = 1e-12, and 10,000 years at σ = 0.01 gave `NaN`. One
+log-price kernel now gives point, conditional and interval factors for either sign of the mean
+reversion (a negative one at 10,000 years was `NaN` too), for volatilities whose square
+underflows, and at τ = ∞ without mean reversion, where the rate is absorbed at 0 and
+P(∞) = exp(−2r/γ). Overflow is detected rather than assumed from Float64's range, so Float32
+models price too; derivatives exist through a = σ = 0 (they were `NaN`); and prices don't depend
+on the time unit. σ = 0 is an ordinary case of the same kernel (the deterministic price), so the
+price is continuous as σ → 0; at τ = ∞ with b = 0 it was `NaN` at σ = 0. −log P agrees with an
+8192-bit evaluation of the textbook formula to about 1e-13 relative wherever it is finite in
+Float64 (an explosive a < 0 whose price leaves Float64's range can still give `NaN`). CIR intervals are differences of −log P, so they stay finite where both point factors
+underflow.
+
+### Forward-starting contracts project on their own clock (changed numbers)
+
+`Forward(s, c)` shifted `c`'s payment times by `s` but projected `c` against the unshifted
+models, so a floating instrument fixed its coupons on the index from time 0: a one-year floater
+starting at 2 paid 1.0202 instead of 1.0305 on an upward curve. The instrument now projects
+against the models seen from `s` (a yield curve as `ForwardStarting(curve, s)`, an FX model with
+its forward rate at `s` as spot), and its cashflows are then shifted by `s`. A model is rebased only
+when the projection reads it (a flat `Rate` index as itself), so a discount rate standing in for
+the model, a NamedTuple store and unused entries work as before. Fixed instruments are unchanged.
+
+Wrapper contracts also nest in any order: `Forward(Forward(…))`, `Forward(Composite(…))`,
+`Forward(FX.Converted(…))` and `FX.Converted(Forward(…))` threw a `MethodError`. Projecting
+them obeys the laws of time translation: a forward at 0 is the contract, nested starts add,
+forwarding a composite forwards its parts, and conversion commutes with forwarding. Contracts
+defined by either documented extension point, `asfoldable` or `__foldl__`, fold inside any wrapper.
+
+### Transducers over contracts keep their order (changed numbers)
+
+A chain of transducers over a contract applied in reverse inside a projection: `bond |> double |>
+add1` projected as [2.1, 4.1] instead of [1.1, 3.1] (`collect(bond |> double |> add1)` was right),
+so its present value was wrong too. The chain now applies in the order written, inside every
+wrapper, and stateful and early-terminating transducers (`Take`, `Scan`) work over a contract inside
+a projection, a portfolio or a `Composite`; they threw.
+
+### Simulated paths are defined only on their simulated grid
+
+A `RatePath` from `simulate` covers times from 0 to the first grid point at or beyond `horizon`
+(the requested horizon itself, where `n · timestep` rounds just below it).
+Evaluating it outside that range (`discount`, interval discounts, `zero`, `forward`,
+`short_rate`, the present value of a later cashflow, or `pv_mc` with an explicit `horizon` shorter
+than the contract) throws DataInterpolations' `RightExtrapolationError` or
+`LeftExtrapolationError`. It used to extend the last simulated step silently, so a one-year
+simulation priced a payment at year 10. A path's instantaneous rate is right-continuous: at a grid
+time `short_rate` and `Yield.instantaneous_forward` both give the slope of the step that starts
+there, and the last step's at the path's end.
+
+### Short-end limits and instantaneous forwards
+
+`zero(curve, 0)` is the zero rate's limit, the short rate, for every curve: it was `NaN` for
+Vasicek, CIR, Hull–White, Smith–Wilson and `ForwardStarting`. `Yield.instantaneous_forward(curve,
+t)` is defined for every curve, in closed form for the built-in ones (knot curves,
+MonotoneConvex, Nelson–Siegel(–Svensson), Vasicek, CIR, Hull–White, `Constant`,
+`ForwardStarting`, composite and scaled curves). A yield shift's forward at 0 is its zero rate
+there, so an identity `TenorShift` keeps its base curve's forward; any other curve differentiates
+its own log-discount. A knot curve's forward is the right-hand derivative of −log D: at a knot, the
+forward of the interpolant piece that starts there, and from the last knot on the tail's. Hull–White
+reads its curve's forward, so its values at knot times are those of 6.x. Hull–White's conditional
+bond price uses its curve's log interval and forward, so it no longer returns `NaN` once point
+discount factors underflow, and Float32 models stay Float32.
+Nelson–Siegel(–Svensson) zero rates near t = 0 come from the loadings' Taylor series: at
+t = 1e-16 the closed form gave 2.5% for a curve whose short rate is 2%.
+
+### Cashflow matrices keep the amounts' type; Smith–Wilson coupon sensitivities
+
+`FinanceModels.cashflows_timepoints` keeps the amounts' numeric type as a float: `BigFloat`
+amounts are no longer narrowed to `Float64`, and dual-number amounts no longer throw. So
+`fit(Yield.SmithWilson(…), quotes)` can be differentiated with ForwardDiff with respect to
+cashflow amounts such as `Bond.Fixed` coupons, not only quote prices. The matrix is built in one
+pass over the cashflows (about twice as fast for 30 semiannual swap quotes), and payments at times
+`-0.0` and `0.0` share a row (each was counted in both).
+
+### `maturity` for forwards and European options
+
+`maturity` is defined for `Forward` (its start plus the instrument's maturity), `Option.EuroCall`
+and `Option.EuroPut`. For a forward-starting contract this makes `pv_mc`'s default horizon work;
+`pv_mc` still cannot value a European option, which has no scenario cashflow projection.
+
+### Empty values keep the model's number type
+
+Present values of contracts with no cashflows, and of caps and floors with no caplets, are a zero
+in the model's number type (`BigFloat`, ForwardDiff duals) instead of a `Float64` `0.0` (#288). A
+contract's present value starts its sum at the first discounted cashflow, so a Float32 model's
+present values are Float32 (they were widened to Float64), the same type as its empty ones; a
+`Bond.Fixed` still projects Float64 amounts. Float64 results are unchanged.
+
+### Optimization 5
+
+FinanceModels requires Optimization 5 (was 4.4), OptimizationOptimJL 0.4.6 and AccessibleModels
+0.1.14. `fit`'s optimizer interface is unchanged: `optimizer` takes any OptimizationOptimJL solver
+and `solve_kwargs` is passed to `Optimization.solve`. With OptimizationOptimJL 0.4.9 or later
+(Optim 2), a loss fit can stop at a different point within the solver's default tolerance
+(gradient norm `1e-8`), so fitted knot rates can differ from Optim 1 results by about `1e-9`.
+Pass `solve_kwargs = (; g_tol = 1e-12)` for a fit that reprices its quotes to rounding.
+
 ### Valuation that composes: valuation contexts (requires FinanceCore 3; changed numbers)
 
 `present_value(model, contract)` is the one valuation. The first argument is a valuation context:
