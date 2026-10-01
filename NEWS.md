@@ -194,6 +194,9 @@ the two endpoints, rather than as a ratio of discount factors. The main effects:
 - **Custom curves** still need only `discount(curve, t)`, and their intervals stay the ratio
   D(to)/D(from). `forward(curve, 0, t)` is now consistent with that for a curve with D(0) ≠ 1
   (previously it assumed D(0) = 1).
+- **Composite and scaled curves** take their components' intervals, combined: each component keeps
+  its own form (a custom curve's ratio, Smith-Wilson's far-tail-stable ratio), and an infinite
+  endpoint comes from the combined tail.
 
 ## v6.4.0
 

@@ -22,20 +22,20 @@ abstract type AbstractYieldModel <: AbstractModel end
 # | method                     | meaning                                        | default                        |
 # |----------------------------|------------------------------------------------|--------------------------------|
 # | `__log_discount(c, t)`     | L(t) = −log D(t)                               | `-log(discount(c, t))`         |
-# | `__log_native(c)`          | interval factors may be formed as exp(L(a) − L(b)) | `false`: the ratio D(b)/D(a)   |
+# | `__log_native(c)`          | L is direct, L(0) = 0, and D = exp(−L)         | `false`: the ratio D(b)/D(a)   |
 # | `__log_interval(c, a, b)`  | L(b) − L(a), real where the interval factor is positive | from `__log_native`   |
 # | `__log_tail(c)`            | the coefficients of L as t → ∞ (`__LogTail`)   | from `zero(c, Inf)`, below     |
 #
 # `__log_native` says that the log-difference route is valid for intervals: the curve's L is
-# computed directly and its discount factor is exp(-L), so positive. It doesn't just mean that a
-# type defines `__log_discount`: Smith–Wilson, `ForwardStarting` and Hull–White define L but take
-# their intervals from `__log_interval` or the ratio of factors.
+# computed directly, with L(0) = 0, and its discount factor is exp(-L), so positive. It doesn't just
+# mean that a type defines `__log_discount`: Smith–Wilson, `ForwardStarting`, Hull–White and the
+# composite and scaled wrappers define L but take their intervals from `__log_interval`.
 #
 # - `__log_discount` + `__log_native`: `Constant`, `Spline`, `MonotoneConvex`, the zero-native curves
-#   (`NelsonSiegel(Svensson)`, `CairnsPritchard(Extended)`, the yield shifts), `CompositeYield`,
-#   `ScaledYield`, `Vasicek`, `RatePath`.
+#   (`NelsonSiegel(Svensson)`, `CairnsPritchard(Extended)`, the yield shifts), `Vasicek`, `RatePath`.
 # - `__log_discount` + `__log_interval`: `SmithWilson` (signed factors: from its interval ratio),
-#   `ForwardStarting` (from the base curve's interval), `HullWhite` (its initial curve's).
+#   `ForwardStarting` (from the base curve's interval), `HullWhite` (its initial curve's),
+#   `CompositeYield` and `ScaledYield` (their components' intervals, combined).
 # - `__log_tail`, exact: `Constant`, `Spline`, `MonotoneConvex`, and the wrappers `CompositeYield`,
 #   `ScaledYield`, `ForwardStarting`, `HullWhite`, which combine their components' tails. Every other
 #   curve uses the fallback, which knows only the growth rate its zero rate at infinity implies.
@@ -57,8 +57,16 @@ __log_native(c) = false
 # with it. A curve that isn't log-native takes the log of its own interval factor, which is real
 # wherever that factor is positive (for a signed Smith-Wilson fit, also where both discount factors
 # are negative).
-__log_interval(c, from, to) = __log_native(c) ? __log_discount(c, to) - __log_discount(c, from) :
+__log_interval(c, from, to) = __log_native(c) ? __log_native_interval(c, from, to) :
     -log(FinanceCore.discount(c, from, to))
+
+# L(to) − L(from) of a log-native curve. L(0) = 0, so an interval from 0 (every present value) skips
+# it and is L(to) exactly. Under ForwardDiff 1.x `iszero` also requires zero partials, so a time
+# derivative at 0 still evaluates L(from).
+function __log_native_interval(c, from, to)
+    L_to = __log_discount(c, to)
+    return L_to - (iszero(from) ? zero(L_to) : __log_discount(c, from))
+end
 
 # The tail of L (see `__LogTail`) for a curve without a closed form: the leading slope is its zero
 # rate at infinity and the intercept is not known. When those rates are finite, a composite of such
@@ -308,9 +316,11 @@ reconstruct(
 ) = ZeroRateCurve(rates, tenors, spline; extrapolation)
 
 function __check_time(t, who)
-    t < zero(t) && throw(DomainError(t, "$who is only defined for t ≥ 0"))
+    t < zero(t) && __throw_negative_time(t, who)
     return nothing
 end
+# Out of line: building the message inline makes every discount body too large to inline.
+@noinline __throw_negative_time(t, who) = throw(DomainError(t, "$who is only defined for t ≥ 0"))
 
 # Structural equality on the construction inputs. Every derived cache is rebuilt from these
 # by the only constructors, and the stored knots are read-only. `isequal` is fieldwise (not via
@@ -403,20 +413,23 @@ end
 
 function FinanceCore.discount(c::Spline, t)
     __check_time(t, "discount")
-    if isinf(t)
-        __check_extension_at_infinity(c, t)
-        return __discount_at_infinity(c._fn.tail)
-    end
+    isinf(t) && return __spline_discount_at_infinity(c, t)
     return exp(-c._fn(t) * t)
 end
 
 function __log_discount(c::Spline, t)
     __check_time(t, "discount")
-    if isinf(t)
-        __check_extension_at_infinity(c, t)
-        return __log_discount_at_infinity(c._fn.tail)
-    end
+    isinf(t) && return __spline_log_discount_at_infinity(c, t)
     return c._fn(t) * t
+end
+# The limits are out of line so the finite-time path stays small enough to inline.
+@noinline function __spline_discount_at_infinity(c::Spline, t)
+    __check_extension_at_infinity(c, t)
+    return __discount_at_infinity(c._fn.tail)
+end
+@noinline function __spline_log_discount_at_infinity(c::Spline, t)
+    __check_extension_at_infinity(c, t)
+    return __log_discount_at_infinity(c._fn.tail)
 end
 __log_native(::Spline) = true
 function __log_tail(c::Spline)
@@ -514,7 +527,8 @@ include("Yield/ImpliedQuote.jl")
 The discount factor for the yield curve `yc` for times `from` through `to`.
 """
 function FinanceCore.discount(yc::T, from, to) where {T <: AbstractYieldModel}
-    d = __log_native(yc) ? exp(__log_discount(yc, from) - __log_discount(yc, to)) :
+    # A log-native interval from 0 is `discount(yc, to)` exactly (see `__log_native_interval`).
+    d = __log_native(yc) ? exp(-__log_native_interval(yc, from, to)) :
         FinanceCore.discount(yc, to) / FinanceCore.discount(yc, from)
     # The empty interval is the identity, also where L is infinite at both ends (from = to = Inf).
     # Under ForwardDiff 1.x `==` also compares partials, so this fires only where the
@@ -714,17 +728,31 @@ function Base.zero(rc::CompositeYield, time)
     z2 = FinanceCore.rate(Base.zero(rc.r2, time))
     return Continuous(rc.op(z1, z2))
 end
-# At t = Inf the components' tails are combined before the limit is taken.
+# At t = Inf the components' tails are combined before the limit is taken. The components' L is
+# inlined at these calls: a composite inlined into a loop (`pv`'s `map`) otherwise copies each
+# component onto the stack for every call. Inlining a Spline's L into every caller instead makes
+# the generic interval too large to inline into bond pricing.
 function __log_discount(rc::CompositeYield, time)
     __at_infinity(time) && return __log_discount_at_infinity(rc)
-    return rc.op(__log_discount(rc.r1, time), __log_discount(rc.r2, time))
+    return rc.op((@inline __log_discount(rc.r1, time)), (@inline __log_discount(rc.r2, time)))
 end
 function FinanceCore.discount(rc::CompositeYield, time)
     __at_infinity(time) && return __discount_at_infinity(rc)
     return exp(-__log_discount(rc, time))
 end
-__log_native(::CompositeYield) = true
 __log_tail(rc::CompositeYield) = __combine_tails(rc.op, __log_tail(rc.r1), __log_tail(rc.r2))
+
+# A wrapper's interval combines its components' intervals, so each keeps its own form: a log-native
+# curve's difference of log-discounts (L(to) alone from 0), Smith–Wilson's signed ratio, a rebased
+# curve's base interval, the ratio D(to)/D(from) of a curve that defines only `discount` (whose D(0)
+# need not be 1). Those stay finite where both of a wrapper's discount factors underflow. At an
+# infinite endpoint the components' limits alone lose information (flat forwards of 4% and −2% have
+# L = Inf and −Inf), so the wrapper's own L there comes from its combined tail.
+__at_infinity_either(from, to) = isinf(from) || isinf(to)
+function __log_interval(rc::CompositeYield, from, to)
+    __at_infinity_either(from, to) && return __log_discount(rc, to) - __log_discount(rc, from)
+    return rc.op(__log_interval(rc.r1, from, to), __log_interval(rc.r2, from, to))
+end
 
 # ─── Yield shifts (TenorShift, ProjectedShift) ────────────────────────────
 
@@ -893,16 +921,24 @@ function Base.zero(sy::ScaledYield, time)
     z = FinanceCore.rate(Base.zero(sy.curve, time))
     return Continuous(z * sy.factor)
 end
+# The curve's L is inlined at this call, as for `CompositeYield`.
 function __log_discount(sy::ScaledYield, time)
     __at_infinity(time) && return __log_discount_at_infinity(sy)
-    return sy.factor * __log_discount(sy.curve, time)
+    return sy.factor * @inline(__log_discount(sy.curve, time))
 end
 function FinanceCore.discount(sy::ScaledYield, time)
     __at_infinity(time) && return __discount_at_infinity(sy)
     return exp(-__log_discount(sy, time))
 end
-__log_native(::ScaledYield) = true
 __log_tail(sy::ScaledYield) = __scale_tail(sy.factor, __log_tail(sy.curve))
+function __log_interval(sy::ScaledYield, from, to)
+    __at_infinity_either(from, to) && return __log_discount(sy, to) - __log_discount(sy, from)
+    return sy.factor * __log_interval(sy.curve, from, to)
+end
+function FinanceCore.discount(w::Union{CompositeYield, ScaledYield}, from, to)
+    d = exp(-__log_interval(w, from, to))
+    return from == to ? one(d) : d
+end
 
 """
     ForwardStarting(curve,forwardstart)

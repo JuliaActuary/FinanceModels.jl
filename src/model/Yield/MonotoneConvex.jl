@@ -464,11 +464,14 @@ function Base.zero(mc::MonotoneConvex, t)
 end
 function FinanceCore.discount(mc::MonotoneConvex, t)
     __check_time(t, "discount")
-    return isinf(t) ? __discount_at_infinity(mc._tail) : _discount_from_zero(mc, t)
+    return isinf(t) ? __mc_discount_at_infinity(mc) : _discount_from_zero(mc, t)
 end
 function __log_discount(mc::MonotoneConvex, t)
     __check_time(t, "discount")
-    return isinf(t) ? __log_discount_at_infinity(mc._tail) : __zero_log_discount(mc, t)
+    return isinf(t) ? __mc_log_discount_at_infinity(mc) : __zero_log_discount(mc, t)
 end
+# The limits are out of line so the finite-time path stays small enough to inline.
+@noinline __mc_discount_at_infinity(mc::MonotoneConvex) = __discount_at_infinity(mc._tail)
+@noinline __mc_log_discount_at_infinity(mc::MonotoneConvex) = __log_discount_at_infinity(mc._tail)
 __log_native(::MonotoneConvex) = true
 __log_tail(mc::MonotoneConvex) = __log_tail(mc._tail)
