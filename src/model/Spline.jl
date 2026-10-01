@@ -16,6 +16,14 @@ Convenience methods which create a `Spline.PolynomialSpline` of the appropriate 
 
 For a *global* B-spline (e.g. as a basis for smooth least-squares fitting) use `Spline.BSpline(d)` explicitly, noting its thread-safety caveat.
 
+Knot-based yield curves built from these descriptors extrapolate flat-forward beyond their
+last knot by default: the instantaneous forward is held at the last discrete forward (the
+average forward over the last knot interval; `Spline.MonotoneConvex()` uses its own boundary
+instantaneous forward instead). Pass `extrapolation=:flat_zero`, `:linear`, `:extension`, or
+`Yield.FlatForwardAt(rate)` to
+[`Yield.Spline`](@ref FinanceModels.Yield.Spline), `ZeroRateCurve`, or spline `fit` methods to
+select a different long-end policy. `:extension` is unavailable for MonotoneConvex.
+
 Notes on Fitting:
 - `fit(spline,quotes)` will fit entire curve at once, with knots equal to the maturity points of the `Quote`s
 - `fit(spline, quotes, Fit.Bootstrap())` solves one knot at a time with `Spline.Linear()`. Other strategies require full-curve loss fitting because adding a knot changes earlier segments.
@@ -127,12 +135,18 @@ struct Akima <: SplineCurve end
 """
     Spline.MonotoneConvex()
 
-Hagan-West (2006) monotone convex interpolation. Finance-aware: guarantees positive
-continuous forward rates (when input rates imply positive forwards) and matches
+Hagan-West (2006) monotone convex interpolation. With the default `:flat_forward`
+extrapolation, it guarantees positive continuous forward rates when input rates imply
+positive discrete forwards, and matches
 discrete forward rates at knot points. Produces the best KRD locality among smooth methods.
+
+Other extrapolation policies change only the tail beyond the last knot. They can introduce
+a forward jump at that knot or negative forwards in the tail; the interior guarantees remain.
 
 Unlike other `SplineCurve` types that wrap DataInterpolations, this dispatches to
 `Yield.MonotoneConvex` which implements the Hagan-West sector-based polynomial construction.
+Loss-fitting this descriptor returns that native curve for every supported extrapolation policy;
+`Fit.Bootstrap()` rejects it.
 
 # References
 - Hagan & West, "Interpolation Methods for Curve Construction", Applied Mathematical Finance (2006)
@@ -147,8 +161,8 @@ This object is not a fitted spline itself, rather it is a placeholder which beco
 within [`fit`](@ref FinanceModels.fit),
 or when passed to `ZeroRateCurve`.
 
-Numerically **identical** to `BSpline(1)`, but local and thread-safe (`Spline.BSpline` carries a
-thread-safety caveat for concurrent evaluation).
+Numerically **identical** to `BSpline(1)`, with local knot-rate sensitivities within the knot grid
+and thread-safe evaluation (`Spline.BSpline` carries a thread-safety caveat for concurrent evaluation).
 
 # Returns
 - A `PolynomialSpline` object representing a linear spline.
@@ -170,7 +184,7 @@ within [`fit`](@ref FinanceModels.fit),
 or when passed to `ZeroRateCurve`.
 
 Differs numerically from `BSpline(2)` (a global quadratic B-spline); use `Spline.BSpline(2)` to recover the
-previous behavior. This local form is thread-safe.
+previous behavior. This piecewise polynomial form is thread-safe.
 
 # Returns
 - A `PolynomialSpline` object representing a quadratic spline.
@@ -192,7 +206,8 @@ within [`fit`](@ref FinanceModels.fit),
 or when passed to `ZeroRateCurve`.
 
 Differs numerically from `BSpline(3)` (a global cubic B-spline); use `Spline.BSpline(3)` to recover the
-previous behavior. This local form builds faster, has better key-rate locality, and is thread-safe.
+previous behavior. This form builds faster and is thread-safe. Its coefficients depend on the whole
+knot grid, so bumping one knot can affect other intervals.
 
 # Returns
 - A `PolynomialSpline` object representing a cubic spline.
