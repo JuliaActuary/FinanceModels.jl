@@ -11,6 +11,27 @@ give exact first-order derivatives: they come from the implicit function theorem
 point, not from differentiating a solver's iterations. The values are always the primal
 calculation, bitwise.
 
+!!! note "The implicit function theorem, in actuarial terms"
+    A bond's yield to maturity is defined implicitly. It is the rate `y` at which the present
+    value equals the price: `PV(y) = P`. To see how the yield moves when the price moves, you
+    don't rerun the root-finder. Differentiate both sides at the solution, `PV′(y) dy = dP`, so
+    `dy/dP = 1 / PV′(y) = −1 / (P × modified duration)`. That is the implicit function theorem:
+    the slope of a solved quantity comes from the slopes of the equation it solves, evaluated at
+    the answer.
+
+    A curve fit works the same way, with many quotes at once. The fitted knot rates are whatever
+    makes every quote reprice. Differentiating "every quote reprices" at the fitted curve gives
+    one linear system. Its matrix says how each quote's value responds to each knot rate: a
+    duration-like matrix with one row per quote. FinanceModels solves that system once, so:
+
+    - the sensitivities are exact for the fitted curve;
+    - they cost one extra linear solve, not one refit per bumped quote;
+    - they don't depend on how many iterations the optimizer took, or on a bump size.
+
+    It is also why `fit` refuses to differentiate when that matrix is singular, or when the curve
+    sits on a kink of its interpolation: the theorem needs the knot rates to respond smoothly,
+    and in only one way, to the quotes.
+
 ## The contract at a glance
 
 - **First order only through solves.** Derivatives through `fit` and `implied_quote` are exact
