@@ -544,6 +544,9 @@ Forward(time,instrument)
 
 The instrument is relative to the Forward time.
 e.g. if you have a `Forward(1.0, Cashflow(1.0, 3.0))` then the instrument is a cashflow that pays 1.0 at time 4.0
+
+A projected instrument also reads its models on that clock: in `Forward(2.0, floater)`, a one-year
+floater fixes its coupon on the index rate from time 2 to 3.
 """
 struct Forward{T <: FinanceCore.Timepoint, I <: FinanceCore.AbstractContract} <: FinanceCore.AbstractContract
     time::T
