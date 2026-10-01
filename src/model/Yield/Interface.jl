@@ -16,7 +16,8 @@
 # composite and scaled wrappers define L but take their intervals from `__log_interval`.
 #
 # - `__log_discount` + `__log_native`: `Constant`, `Spline`, `MonotoneConvex`, the zero-native curves
-#   (`NelsonSiegel(Svensson)`, `CairnsPritchard(Extended)`, the yield shifts), `Vasicek`, `RatePath`.
+#   (`NelsonSiegel(Svensson)`, `CairnsPritchard(Extended)`, the yield shifts), `Vasicek`,
+#   `CoxIngersollRoss`, `RatePath`.
 # - `__log_discount` + `__log_interval`: `SmithWilson` (signed factors: from its interval ratio),
 #   `ForwardStarting` (from the base curve's interval), `HullWhite` (its initial curve's),
 #   `CompositeYield` and `ScaledYield` (their components' intervals, combined).
