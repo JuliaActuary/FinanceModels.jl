@@ -150,6 +150,29 @@ curves returned by spline `fit`s and `Fit.Bootstrap()`. All of them share one in
   frequency; passing a different `frequency` now throws an `ArgumentError` instead
   of being silently ignored. Convert the rate first, e.g. `Periodic(1)(r)`.
 
+### Derivatives through fits and knot curves
+
+Spline `fit`s are now differentiable with ForwardDiff; see
+[Sensitivities Through Calibration](@ref). The contract:
+
+- Derivatives are first order; nested dual numbers throw.
+- They are with respect to the quotes passed to `fit`. Risk to another quote family computed
+  from a fitted curve (for example `implied_quote` at its knots) is risk to that synthetic family.
+  It equals market-quote risk only when the curve was fitted to that family at those tenors.
+- A differentiated loss fit must reprice its quotes (a Newton correction of at most `1e-6` in
+  every knot rate), or it throws.
+
+Knot-rate derivatives at interpolation kinks changed:
+
+- `Spline.MonotoneConvex()`: where two adjacent discrete forwards are equal (every flat stretch of
+  the curve), each knot partial is now the centered response to a bump of that knot; ForwardDiff
+  previously returned a one-sided or fallback value. On a flat stretch these partials need not
+  sum to the parallel-shift derivative, so do not aggregate them like a gradient: differentiate
+  the parallel shift directly.
+- `Spline.PCHIP()` and `Spline.Akima()` throw at their kinks, where they returned `NaN` or a
+  wrong derivative.
+- Away from kinks, derivatives are unchanged.
+
 ## v6.0 to v6.1
 
 !!! warning "Changed numbers and new errors"

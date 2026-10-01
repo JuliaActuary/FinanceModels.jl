@@ -52,5 +52,7 @@ function implied_quote(curve, family::F, maturity; guess = 0.0, bracket = (-0.5,
             "implied_quote differentiates through the curve only; the quote family must not close over dual numbers"
         )
     )
-    return __implicit_root(g, g_primal, guess; bracket, who = "implied_quote")
+    # the size of the quote's price and value at the solution, whatever its notional
+    scale(x) = (q = family(x, maturity); max(abs(FinanceCore.present_value(primal, q.instrument)), abs(q.price)))
+    return __implicit_root(g, g_primal, guess; bracket, who = "implied_quote", scale)
 end

@@ -133,7 +133,7 @@ knot_rates(zrc), knot_tenors(zrc)                            # read-only views o
 zrc_up = reconstruct(zrc; rates = rates .+ 0.001)            # a new curve, 10bp higher at every knot
 ```
 
-Knot rates may be ForwardDiff dual numbers, so `reconstruct(zrc; rates = dual_rates)` differentiates a valuation with respect to the curve's knot rates. [ActuaryUtilities.jl](https://github.com/JuliaActuary/ActuaryUtilities.jl) builds its sensitivities on this.
+Knot rates may be ForwardDiff dual numbers, so `reconstruct(zrc; rates = dual_rates)` differentiates a valuation with respect to the curve's knot rates, and spline `fit`s differentiate with respect to their quotes. [ActuaryUtilities.jl](https://github.com/JuliaActuary/ActuaryUtilities.jl) builds its sensitivities on this. The derivatives are first order and have limits at interpolation kinks; see [Sensitivities Through Calibration](@ref).
 
 #### Stochastic short-rate models
 

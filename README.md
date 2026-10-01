@@ -144,7 +144,7 @@ ns = Yield.NelsonSiegel(1.0, 0.04, -0.02, 0.01)
 zrc = ZeroRateCurve(ns, [1.0, 2.0, 5.0, 10.0, 20.0])
 ```
 
-Knot rates may be ForwardDiff dual numbers, so `reconstruct(zrc; rates = dual_rates)` differentiates a valuation with respect to the curve's knot rates. [ActuaryUtilities.jl](https://github.com/JuliaActuary/ActuaryUtilities.jl) builds its sensitivities on this.
+Knot rates may be ForwardDiff dual numbers, so `reconstruct(zrc; rates = dual_rates)` differentiates a valuation with respect to the curve's knot rates, and spline `fit`s differentiate with respect to their quotes. [ActuaryUtilities.jl](https://github.com/JuliaActuary/ActuaryUtilities.jl) builds its sensitivities on this. The derivatives are first order and have limits at interpolation kinks; see "Sensitivities Through Calibration" in the documentation.
 
 #### Stochastic short-rate models
 

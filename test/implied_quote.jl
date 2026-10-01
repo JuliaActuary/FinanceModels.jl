@@ -51,6 +51,16 @@ using ForwardDiff
         @test g[1] ≈ g[2]
     end
 
+    @testset "the derivative does not depend on the notional" begin
+        curve(z) = Yield.Constant(Continuous(z))
+        unit = ForwardDiff.derivative(z -> implied_quote(curve(z), ZCBPrice, 2.0), 0.03)
+        @test unit ≈ -2 * exp(-0.06) rtol = 1.0e-12
+        for n in (1.0e-10, 1.0, 1.0e10)
+            family(q, t) = Quote(n * q, Cashflow(n, t))
+            @test ForwardDiff.derivative(z -> implied_quote(curve(z), family, 2.0), 0.03) ≈ unit rtol = 1.0e-10
+        end
+    end
+
     @testset "loud errors" begin
         @test_throws ArgumentError ForwardDiff.derivative(
             x -> ForwardDiff.derivative(y -> implied_quote(Yield.Constant(Continuous(x + y)), ZCBYield, 2.0), 0.0), 0.03

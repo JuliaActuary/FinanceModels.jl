@@ -613,7 +613,12 @@ function FinanceCore.present_value(m::_GaussianModel, c::Option.Swaption)
     # r* depends on the model's parameters. The root is solved on primal values and its
     # derivatives come from the implicit function theorem (a Float64 root would silently
     # drop the ∂Kᵢ/∂r*·dr*/dθ terms of every Greek).
-    r_star = __implicit_root(swap_value, r -> __primal(swap_value(r)), 0.0; who = "Swaption critical rate r*", slope)
+    # The slope's own terms measure cancellation (negative strikes give negative coupon weights).
+    scale(r) = sum(
+        abs(weight(i) * __primal(_affine_B(m, T0, Ti)) * __primal(FinanceCore.discount(m, T0, Ti, r)))
+            for (i, Ti) in enumerate(payment_times)
+    )
+    r_star = __implicit_root(swap_value, r -> __primal(swap_value(r)), 0.0; who = "Swaption critical rate r*", slope, scale)
 
     # Step 2: Compute strike prices Ki = P(T0, Ti; r*)
     # Step 3: Sum ZCB options

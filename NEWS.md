@@ -30,6 +30,41 @@ calibration from the implicit function theorem; their values are the primal fit,
 Dual maturities, nested dual numbers, dual numbers from two differentiations, loss fits that
 do not reprice their quotes, and other models' fits throw an `ArgumentError` (#290).
 
+### Derivatives at interpolation kinks
+
+`Spline.MonotoneConvex()`, `Spline.PCHIP()`, and `Spline.Akima()` are only piecewise smooth in
+their knot rates. Where they switch formula (a flat stretch of the curve, equal adjacent
+forwards, a straight run of Akima knots), ForwardDiff previously returned a derivative that
+matched neither an up nor a down bump: on a flat MonotoneConvex curve the knot sensitivities
+could be off by a factor of two, flat PCHIP gave `NaN`, and a flat MonotoneConvex curve on a
+dense grid gave derivatives driven by rounding noise.
+
+- MonotoneConvex now reports, for each partial, the limit of a centered bump in its direction.
+  On a flat stretch of the curve these partials need not sum to the parallel-shift derivative,
+  so they do not aggregate like a gradient. Primal values are unchanged.
+- PCHIP and Akima throw an `ArgumentError` when dual knot rates move a kink, including the point
+  where Akima switches to its fallback slope and its value jumps.
+- A differentiated `fit` throws when the fitted curve lies on a kink or within the fit's
+  precision of one.
+
+Away from kinks, derivatives are unchanged. See "Sensitivities Through Calibration".
+
+### Notional-independent solver checks
+
+`implied_quote`, the swaption critical rate, and differentiated fits judged a vanishing slope or
+an ill-conditioned calibration on an absolute scale, so a quote family with a tiny notional was
+refused. A bootstrap likewise solved each quote to an absolute tolerance, so a quote with a
+notional of `1e-10` was fitted only to about `1e-5` in its zero rate. Every check and solve is
+now relative to the size of the quote.
+
+### `discount(curve, Inf)` under a zero tail forward
+
+With a tail forward of zero (for example `Yield.FlatForwardAt(Continuous(0.0))`),
+`discount(curve, Inf)` returned `NaN` from `exp(-0 * Inf)`. It now returns the limit: the
+discount factor at the last knot. It returns 0 for a positive tail forward and `Inf` for a
+negative one. Differentiating it where the long-run forward is zero throws, since any bump moves
+the limit to 0 or `Inf`.
+
 ### Bootstrap requires linear interpolation
 
 `Fit.Bootstrap()` now accepts only `Spline.Linear()` and throws an `ArgumentError`
