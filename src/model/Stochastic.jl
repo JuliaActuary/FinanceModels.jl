@@ -629,6 +629,10 @@ function FinanceCore.present_value(m::_GaussianModel, c::Option.Cap)
     # For forward-starting caps, adjust the contract maturity accordingly.
     n_periods = _check_integer_periods(c.maturity, freq, "Cap maturity")
     K_bond = 1.0 / (1.0 + K * τ)
+    # Without a caplet (a maturity of one period or less) the cap is worth 0. As FinanceCore values
+    # an empty collection, that 0 is `zero` of a caplet amount discounted at time zero: the type of a
+    # present value under `m`, with no dependence on its value.
+    n_periods < 2 && return zero((1.0 + K * τ) * FinanceCore.discount(m, zero(τ)))
     total = 0.0
     for i in 2:n_periods
         T_reset = (i - 1) * τ   # option expiry = reset date
@@ -645,6 +649,8 @@ function FinanceCore.present_value(m::_GaussianModel, c::Option.Floor)
     τ = 1.0 / freq
     n_periods = _check_integer_periods(c.maturity, freq, "Floor maturity")
     K_bond = 1.0 / (1.0 + K * τ)
+    # without a floorlet, 0 in the type of a present value under `m` (as for a cap)
+    n_periods < 2 && return zero((1.0 + K * τ) * FinanceCore.discount(m, zero(τ)))
     total = 0.0
     for i in 2:n_periods
         T_reset = (i - 1) * τ

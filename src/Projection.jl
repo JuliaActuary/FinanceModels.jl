@@ -256,8 +256,17 @@ end
 # `present_value(model, p::Projection{MyContract})` without an ambiguity with this method.
 FinanceCore.present_value(model, p::FinanceModels.Projection, cur_time = 0.0) = __present_value(model, p, p.kind, cur_time)
 
+# Adds a discounted cashflow to the running present value. The fold starts from `nothing`, so an
+# empty fold is recognizable, and the sum starts at the first discounted cashflow, in its own type
+# (a Float64 0.0 to start from would widen a Float32 model's values).
+__add_present_value(total, v) = total + v
+__add_present_value(::Nothing, v) = v
+
 function __present_value(model, p, ::CashflowProjection, cur_time)
     xf = p |> Filter(cf -> cf.time >= cur_time) |> Map(cf -> FinanceCore.discount(model, cur_time, cf.time) * cf.amount)
-    # init: an empty fold (e.g. valuing past maturity) is worth 0, not an error
-    return foldxl(+, xf; init = 0.0)
+    total = foldxl(__add_present_value, xf; init = nothing)
+    # An empty fold (e.g. valuing past maturity) is worth 0, not an error. As FinanceCore values an
+    # empty collection, that 0 is `zero` of a discount factor over no time: the type of a present
+    # value under `model`, with no dependence on its value.
+    return isnothing(total) ? zero(FinanceCore.discount(model, cur_time, cur_time)) : total
 end
