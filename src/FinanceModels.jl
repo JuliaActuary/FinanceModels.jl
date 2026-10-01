@@ -25,6 +25,7 @@ include("Contract.jl")
 include("model/Model.jl")
 include("Projection.jl")
 include("projection_models.jl")
+include("fit_implicit.jl")
 include("fit.jl")
 
 export Cashflow, Quote, Forward, CommonEquity, Option, InterestRateSwap

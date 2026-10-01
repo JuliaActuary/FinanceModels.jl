@@ -342,6 +342,25 @@ Different types of quotes are appropriate for different kinds of models. For exa
 ## Returns
 - The fitted model.
 
+## Differentiating through a fit
+
+Spline fits (`fit(spline, quotes)` and `fit(Spline.Linear(), quotes, Fit.Bootstrap())`,
+including `FX.Forwards` with a spline foreign curve) are differentiable with ForwardDiff: when
+quote prices, rates, or cashflow amounts are dual numbers, the fitted knot rates carry the exact
+first-order derivatives of the calibration. They come from the implicit function theorem at
+the fitted curve, not from the solver's iterations, and their values are the primal fit exactly.
+
+```julia
+tenors = [1.0, 2.0, 5.0, 10.0]
+value(rates) = pv(fit(Spline.Linear(), OISYield.(rates, tenors), Fit.Bootstrap()), cashflows)
+ForwardDiff.gradient(value, [0.03, 0.032, 0.035, 0.037])   # ∂value/∂quoted rates
+```
+
+Maturities and cashflow times cannot carry dual numbers, nested (higher-order) dual numbers
+are not supported, and a loss fit must reprice its quotes (relative residual at most 1e-6) to
+be differentiated. Other models' `fit`s throw an `ArgumentError` when given dual quotes. See
+[Sensitivities Through Calibration](@ref) for details.
+
 # Examples
 ```julia-repl
 julia> model = Yield.Constant();
@@ -421,6 +440,13 @@ function fit(
         optimizer = __default_optim(mod0)
     ) where
     {F <: Fit.Loss}
+    __quotes_carry_ad(quotes) && throw(
+        ArgumentError(
+            "fit does not differentiate through the calibration of $(nameof(typeof(mod0))) models; " *
+                "spline fits such as fit(Spline.Linear(), quotes) do. To differentiate a valuation with " *
+                "respect to a fitted curve's knot rates, use reconstruct(curve; rates = dual_rates)."
+        )
+    )
     # find the rate that minimizes the loss function w.r.t. the calculated price vs the quotes
     # AccessibleModels uses maximization internally, so we negate the loss to minimize it
     function neg_loss_fn(m, qs)
@@ -475,15 +501,20 @@ function fit(
         mod0::T, quotes, method::F; optimizer = __default_optim(mod0),
         extrapolation = :flat_forward
     ) where {T <: Spline.SplineCurve, F <: Fit.Loss}
+    # The solve runs on primal quotes; dual numbers in the quotes or the extrapolation policy
+    # are propagated afterwards by the implicit function theorem (see `__implicit_knot_curve`).
+    quotes, primal_quotes, _ = __calibration_quotes(quotes)
+    primal_extrapolation = __primal_extrapolation(extrapolation)
     # Validate the policy and the knot grid once, up front (duplicate maturities, too few
     # knots for the interpolant, `:extension` with MonotoneConvex, …) with the same errors as
     # direct construction; trial curves reuse them.
-    grid0 = Yield.KnotGrid(__knot_fit_seed(mod0, length(quotes)), sort!(maturity.(quotes)), mod0; who = "fit($(mod0))")
-    Yield.__build(mod0, grid0; extrapolation)
-    optf = __knot_loss_function(mod0, grid0.tenors, method, quotes, extrapolation)
+    grid0 = Yield.KnotGrid(__knot_fit_seed(mod0, length(quotes)), sort!(maturity.(primal_quotes)), mod0; who = "fit($(mod0))")
+    __check_primal_quotes(Yield.__build(mod0, grid0; extrapolation = primal_extrapolation), primal_quotes)
+    optf = __knot_loss_function(mod0, grid0.tenors, method, primal_quotes, primal_extrapolation)
     prob = Optimization.OptimizationProblem(optf, grid0.rates)
     sol = __successful_fit_solution(Optimization.solve(prob, optimizer))
-    return Yield.ZeroRateCurve(sol.u, grid0.tenors, mod0; extrapolation)   # public result: validated (finite rates)
+    curve = Yield.ZeroRateCurve(sol.u, grid0.tenors, mod0; extrapolation = primal_extrapolation)   # public result: validated (finite rates)
+    return __implicit_knot_curve(curve, quotes, primal_quotes, extrapolation)
 end
 
 # FX.Forwards with a spline placeholder as the foreign curve: given spot, the domestic
@@ -522,7 +553,12 @@ function fit(
         )
     )
     extrapolation = Yield.__extrapolation_method(extrapolation)
-    quotes = sort(collect(quotes); by = maturity)
+    # The solve runs on primal quotes; dual numbers in the quotes or the extrapolation policy
+    # are propagated afterwards by the implicit function theorem (see `__implicit_knot_curve`).
+    dual_quotes, quotes, _ = __calibration_quotes(quotes)
+    dual_extrapolation, extrapolation = extrapolation, __primal_extrapolation(extrapolation)
+    order = sortperm(quotes; by = maturity)
+    dual_quotes, quotes = dual_quotes[order], quotes[order]
     n = length(quotes)
     n > 0 || throw(ArgumentError("bootstrap requires at least one quote"))
     times = [float(maturity(q)) for q in quotes]
@@ -533,7 +569,8 @@ function fit(
     allunique(times) || throw(ArgumentError("bootstrap quotes must have distinct maturities; got duplicates among $times"))
     # the returned curve's knots are exactly the quote maturities: validate that grid once, up
     # front, with the same errors as direct construction
-    Yield.KnotGrid(zeros(n), times, mod0; who = "fit($(mod0), Bootstrap)")
+    grid0 = Yield.KnotGrid(zeros(n), times, mod0; who = "fit($(mod0), Bootstrap)")
+    __check_primal_quotes(Yield.__build(mod0, grid0; extrapolation), quotes)
     zs = zeros(n)
 
     for i in eachindex(quotes)
@@ -575,7 +612,7 @@ function fit(
             )
         )
     end
-    return curve
+    return __implicit_knot_curve(curve, dual_quotes, quotes, dual_extrapolation)
 end
 
 function fit(mod0::Yield.SmithWilson, quotes)
