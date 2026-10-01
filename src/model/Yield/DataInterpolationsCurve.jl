@@ -68,6 +68,16 @@ function Base.zero(c::Spline, t)
     return Continuous(c._fn(t))
 end
 
+# f = (z·t)′ = z + t·z′ on the interpolant, whose derivative is 0 on the flat short end; beyond the
+# last knot the tail's forward. At the last knot itself the interior (left) forward, as for
+# `MonotoneConvex`.
+function instantaneous_forward(c::Spline, t)
+    __check_time(t, "instantaneous_forward")
+    e = c._fn
+    (e.extend || t <= e.tail.last_tenor) || return __tail_forward(e.tail, t)
+    return e.interpolant(t) + t * DataInterpolations.derivative(e.interpolant, t)
+end
+
 # Public, validating form: every direct construction copies and checks its inputs.
 Spline(spline::Union{Sp.PolynomialSpline, Sp.BSpline, Sp.PCHIP, Sp.Akima}, tenors, rates; extrapolation = :flat_forward) =
     __build_public(spline, KnotGrid(rates, tenors, spline; who = "Yield.Spline"); extrapolation)

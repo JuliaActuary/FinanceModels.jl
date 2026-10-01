@@ -145,9 +145,10 @@ using ForwardDiff
             # a knot at t = 0 takes the source curve's zero-rate limit there
             z0 = ZeroRateCurve(c, [0.0, 1.0, 2.0])
             @test knot_tenors(z0) == [0.0, 1.0, 2.0] && all(r -> r ≈ log(1.05), knot_rates(z0))
-            # a source with no zero-rate limit at 0 (its generic zero rate is 0/0) gives a
-            # non-finite rate, which the knot grid rejects
-            @test_throws "rates must be finite" ZeroRateCurve(Yield.SmithWilson(ufr = 0.03, α = 0.1), [0.0, 1.0])
+            # a source without its own zero rate also has the limit, its short rate (the generic
+            # zero rate L/t was 0/0 there, which the knot grid rejected)
+            sw = Yield.SmithWilson(ufr = 0.03, α = 0.1)
+            @test knot_rates(ZeroRateCurve(sw, [0.0, 1.0])) ≈ [0.03, 0.03] rtol = 1.0e-14
             @test_throws ArgumentError ZeroRateCurve(c, [-1.0, 1.0, 2.0])
         end
     end
