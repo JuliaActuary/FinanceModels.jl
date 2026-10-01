@@ -178,6 +178,19 @@ value(curve, curve) # approximately zero
 For multiple index curves or combined yield and FX requirements, use an explicit
 store, for example `Projection(contract, Dict("SOFR" => sofr, "EURUSD" => fx))`.
 The single-model convenience form rejects a model of the wrong required type.
+
+A contract with a closed-form value can define `present_value` on its projection
+instead of producing cashflows; the projection's `model` holds the models it requires:
+
+```julia
+struct OnePeriodFloater <: FinanceCore.AbstractContract
+    key::String
+end
+FinanceModels.model_requirements(c::OnePeriodFloater) = (c.key => Yield.AbstractYieldModel,)
+# Pays principal plus the forward rate from t = 1 to 2 at t = 2.
+FinanceCore.present_value(m::Yield.AbstractYieldModel, p::Projection{OnePeriodFloater}) =
+    discount(m, 2.0) / discount(p.model[p.contract.key], 1.0, 2.0)
+```
 Its generated store is a `Dict{Any, typeof(index)}`, supporting mixed key types
 while retaining concrete model values. Pass an explicit store when downstream
 code requires a particular store or key type.

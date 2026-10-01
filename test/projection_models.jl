@@ -137,4 +137,22 @@ FinanceModels.model_requirements(c::IterableProjectionContract) = c.requirements
     end
 end
 
+# A closed-form floater: at t = 2 it pays principal plus the index forward rate set at t = 1.
+struct ClosedFormFloater <: FinanceCore.AbstractContract
+    key::Symbol
+end
+FinanceModels.model_requirements(c::ClosedFormFloater) = (c.key => Yield.AbstractYieldModel,)
+FinanceCore.present_value(m::Yield.AbstractYieldModel, p::Projection{ClosedFormFloater}) =
+    discount(m, 2.0) / discount(p.model[p.contract.key], 1.0, 2.0)
+struct UnsupportedKind <: FinanceModels.ProjectionKind end
+
+@testset "Closed-form valuation of a projection" begin
+    index = Yield.Constant(Continuous(0.04))
+    credit = Yield.Constant(Continuous(0.06))
+    # The natural signature is more specific than the generic method, not ambiguous with it.
+    @test present_value(credit, Projection(ClosedFormFloater(:index); index)) ≈ exp(-0.12 + 0.04)
+    @test present_value(credit, Projection(ClosedFormFloater(:index), Dict(:index => credit))) ≈ exp(-0.06)
+    @test_throws MethodError present_value(credit, Projection(Bond.Fixed(0.05, Periodic(1), 2.0), NullModel(), UnsupportedKind()))
+end
+
 end # module ProjectionModelTests

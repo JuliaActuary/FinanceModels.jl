@@ -2,6 +2,14 @@
 
 ## v7.0.0 (unreleased)
 
+### Closed-form valuation of projected contracts
+
+`present_value(model, p::Projection)` dispatches on the projection kind internally, so a
+contract with a closed-form value can define
+`present_value(m::Yield.AbstractYieldModel, p::Projection{MyContract})`, reading its index
+models from `p.model`. That signature was ambiguous with the generic method; only
+`Projection{MyContract, M, K} where {M, K <: CashflowProjection}` worked.
+
 ### `implied_quote`
 
 `implied_quote(curve, family, maturity)` returns the quote at which a quote
