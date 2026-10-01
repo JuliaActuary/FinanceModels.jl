@@ -570,7 +570,7 @@ This is used when constructing SmithWilson yield curves.
 - `contracts` or `quotes`: A collection of `<:AbstractContract`s or `Quotes`.
 
 # Returns
-- A tuple `(m, times)` where `m` is a matrix of cashflows and `times` is a vector of timepoints.
+- A tuple `(m, times)` where `times` is the sorted vector of distinct timepoints and `m[i, j]` is the total amount that contract `j` pays at `times[i]`, in the floating-point type of the amounts (so `BigFloat` and dual-number amounts are kept).
 
 # Examples
 ```julia-repl
@@ -580,22 +580,31 @@ julia> FinanceModels.cashflows_timepoints(ParYield.([0.04,0.02,0.04],[1,4,4]))
 """
 function cashflows_timepoints(qs)
     cfs = map(q -> collect(q), qs)
+    # A time of -0.0 is the instant 0.0; adding zero makes it so for `unique` and the lookup.
+    timepoint(cf) = cf.time + zero(cf.time)
     times = map(cfs) do cf
-        map(c -> c.time, cf)
+        map(timepoint, cf)
     end |> Iterators.flatten |> unique |> sort!
+    row = Dict(zip(times, eachindex(times)))
 
-    m = zeros(length(times), length(qs))
-
-    for t in 1:length(times)
-        for q in 1:length(qs)
-            for c in 1:length(cfs[q])
-                if times[t] == cfs[q][c].time
-                    m[t, q] += cfs[q][c].amount
-                end
-            end
-        end
+    # Keep the amounts' numeric type (BigFloat, dual numbers), but sum in floating point:
+    # amounts at the same time accumulate, and a small integer type would wrap.
+    amounts = [cf.amount for contract_cashflows in cfs for cf in contract_cashflows]
+    A = eltype(amounts)
+    amount_type = if isconcretetype(A) && A <: Real
+        float(A)
+    elseif !isempty(amounts)
+        float(mapreduce(typeof, promote_type, amounts))
+    else
+        # An empty, untyped quote set carries no amount type, and there is no curve here to
+        # type the zero matrix by (unlike an empty present value), so it stays Float64.
+        Float64
     end
-    m
+    m = zeros(amount_type, length(times), length(qs))
+
+    for (q, contract_cashflows) in enumerate(cfs), cf in contract_cashflows
+        m[row[timepoint(cf)], q] += cf.amount
+    end
     return m, times
 end
 
