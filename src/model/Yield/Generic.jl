@@ -102,13 +102,15 @@ end
 """
     zero(curve,time)
 
-Return the zero rate for the curve at the given time.
+Return the zero rate for the curve at the given time. At `time = 0` it is the limit of the zero
+rate, the instantaneous forward rate at 0 (the short rate).
 """
 function Base.zero(c::YC, time) where {YC <: AbstractYieldModel}
-    # L/t; for a curve that defines only `discount`, L is -log(discount(c, time)). At t = 0 this is
-    # 0/0, which only a curve's own `zero` resolves: NaN at an exact 0 (the sampling form of
-    # `ZeroRateCurve` rejects it), and a throw for a time derivative there, which would be NaN too.
+    # L/t; for a curve that defines only `discount`, L is -log(discount(c, time)). At t = 0 that is
+    # 0/0, whose limit is L′(0), the instantaneous forward there. A time derivative at 0 would need
+    # L″(0) as well, so it throws instead of returning a NaN.
     __dual_at_origin(time) && __throw_zero_rate_derivative_at_origin(time)
+    iszero(time) && return Continuous(instantaneous_forward(c, time))
     return Continuous(__log_discount(c, time) / time)
 end
 @noinline __throw_zero_rate_derivative_at_origin(t) = throw(
@@ -117,6 +119,21 @@ end
             "in time at t = 0, and neither does a zero-rate transformation of it. Differentiate at a positive time."
     )
 )
+
+"""
+    instantaneous_forward(curve, t)
+
+The instantaneous (continuously compounded) forward rate of `curve` at time `t`,
+``f(t) = -\\frac{d}{dt} \\log D(t)``. At `t = 0` it is the curve's short rate.
+
+The built-in curves compute it in closed form. Any other curve differentiates its cumulative
+log-discount with ForwardDiff, which stays finite where its discount factors underflow.
+
+Note this is distinct from `forward(curve, from, to)`, which is the *discrete* forward `Rate`
+between two times.
+"""
+instantaneous_forward(c::AbstractYieldModel, t) = __log_discount_derivative(c, t)
+__log_discount_derivative(c, t) = ForwardDiff.derivative(s -> __log_discount(c, s), t)
 
 """
     accumulation(yc, from, to)

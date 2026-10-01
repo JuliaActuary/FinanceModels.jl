@@ -119,6 +119,7 @@ __log_tail(w::__CombinedYield) = __combine(w, __log_tail)
 # need not be 1). Those stay finite where both of a wrapper's discount factors underflow. At an
 # infinite endpoint the components' limits alone lose information (flat forwards of 4% and −2% have
 # L = Inf and −Inf), so the wrapper's own L there comes from its combined tail.
+instantaneous_forward(w::__CombinedYield, t) = __combine(w, c -> instantaneous_forward(c, t))
 function __log_interval(w::__CombinedYield, from, to)
     (isinf(from) || isinf(to)) && return __log_discount(w, to) - __log_discount(w, from)
     return __combine(w, @inline(c -> __log_interval(c, from, to)))
@@ -172,6 +173,7 @@ function __log_discount(c::ForwardStarting, t)
     return __log_interval(c.curve, c.forwardstart, t + c.forwardstart)
 end
 __log_interval(c::ForwardStarting, from, to) = __log_interval(c.curve, from + c.forwardstart, to + c.forwardstart)
+instantaneous_forward(c::ForwardStarting, t) = instantaneous_forward(c.curve, t + c.forwardstart)
 __log_tail(c::ForwardStarting) = __shift_tail(__log_tail(c.curve), c.forwardstart, __log_discount(c.curve, c.forwardstart))
 
 """

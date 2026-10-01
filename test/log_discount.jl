@@ -356,7 +356,9 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
         @test ForwardDiff.derivative(t -> discount(sw, t), 0.0) ≈ -rate(zero(sw, 1.0e-9)) rtol = 1.0e-6
         @test_throws DomainError ForwardDiff.derivative(t -> discount(Yield.TenorShift(sw, (z, t) -> z), t), 0.0)
         @test_throws DomainError ForwardDiff.derivative(t -> rate(zero(sw, t)), 0.0)
-        @test isnan(rate(zero(sw, 0.0)))   # an exact 0 stays the non-finite 0/0 the sampling form rejects
+        # An exact 0 is the zero rate's limit there, the instantaneous forward (it was the 0/0 NaN)
+        @test rate(zero(sw, 0.0)) == Yield.instantaneous_forward(sw, 0.0)
+        @test rate(zero(sw, 0.0)) ≈ rate(zero(sw, 1.0e-7)) rtol = 1.0e-6
         # Float32 parameters keep Float32 zero rates, at a dual 0 (the decay's series) and elsewhere
         ns32 = Yield.NelsonSiegel(1.0f0, 0.05f0, -0.02f0, 0.01f0)
         nss32 = Yield.NelsonSiegelSvensson(2.5f0, 3.0f0, 0.04f0, -0.02f0, 0.01f0, -0.005f0)
@@ -364,5 +366,78 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
             @test rate(zero(c, t)) isa Float32
             @test ForwardDiff.derivative(u -> rate(zero(c, u)), t) isa Float32
         end
+    end
+
+    @testset "instantaneous forwards, and zero rates at t = 0" begin
+        quiet(f) = Base.CoreLogging.with_logger(f, Base.CoreLogging.NullLogger())
+        vas = ShortRate.Vasicek(0.1, 0.03, 0.01, 0.04)
+        cir = quiet(() -> ShortRate.CoxIngersollRoss(0.1, 0.03, 0.05, 0.04))
+        cir_explosive = quiet(() -> ShortRate.CoxIngersollRoss(-0.1, 0.03, 0.05, 0.04))
+        cubic = ZeroRateCurve([0.02, 0.025, 0.03, 0.031], [1.0, 2.0, 5.0, 10.0], Spline.Cubic())
+        hw = ShortRate.HullWhite(0.1, 0.01, cubic)
+        nss = Yield.NelsonSiegelSvensson(1.5, 3.0, 0.03, -0.01, 0.005, 0.002)
+        curves = (
+            Yield.Constant(Continuous(0.04)), ZeroRateCurve(rates, tenors, Spline.Linear()), cubic,
+            ZeroRateCurve(rates, tenors), ns, nss, vas, cir, cir_explosive, hw, sw,
+            Yield.ForwardStarting(cubic, 1.5), cubic + ns, 0.7 * cubic, vas - Yield.Constant(0.01),
+        )
+        # The closed forms equal the derivative of each curve's L (the generic method, which
+        # Smith–Wilson uses), including at t = 0 and past the last knot
+        L′(c, t) = ForwardDiff.derivative(s -> Yield.__log_discount(c, s), t)
+        for c in curves, t in (0.0, 0.3, 1.0, 1.7, 4.0, 7.5, 12.0, 40.0)
+            @test Yield.instantaneous_forward(c, t) ≈ L′(c, t) atol = 1.0e-14
+        end
+        # long-run forwards
+        @test Yield.instantaneous_forward(vas, Inf) ≈ 0.03 - 0.01^2 / (2 * 0.1^2) rtol = 1.0e-14
+        @test Yield.instantaneous_forward(cir, Inf) ≈ 2 * 0.1 * 0.03 / (sqrt(0.1^2 + 2 * 0.05^2) + 0.1) rtol = 1.0e-14
+        @test Yield.instantaneous_forward(ns, Inf) == ns.β₀
+        # CIR without mean reversion: the forward decays to 0 at τ = ∞; and a σ whose square underflows
+        @test Yield.instantaneous_forward(ShortRate.CoxIngersollRoss(0.0, 0.03, 0.1, 0.04), Inf) == 0
+        @test Yield.instantaneous_forward(ShortRate.CoxIngersollRoss(0.0, 0.03, 1.0e-200, 0.04), 10.0) ≈ 0.04 rtol = 1.0e-15
+        # a < 0 with a tiny σ: 2γ/D′ is ~1e200 and e^{-γτ} ~1e-218, so B′ overflowed when squared first
+        # (a 2048-bit reference gives 1.1399322250785743e178)
+        @test Yield.instantaneous_forward(ShortRate.CoxIngersollRoss(-0.1, 0.0, 1.0e-100, 0.04), 5000.0) ≈ 1.1399322250785743e178 rtol = 1.0e-12
+        # and through a = σ = 0: f = r(1 - σ²B²/2) at a = 0, so ∂²f/∂σ² = -rτ²
+        fσ(σ) = Yield.instantaneous_forward(ShortRate.CoxIngersollRoss(0.0, 0.03, σ, 0.04), 10.0)
+        @test ForwardDiff.derivative(s -> ForwardDiff.derivative(fσ, s), 0.0) ≈ -0.04 * 10.0^2 rtol = 1.0e-13
+
+        # A curve without its own `zero` takes the limit at an exact 0, its short rate; it was NaN
+        for c in (vas, cir, cir_explosive, hw, sw, Yield.ForwardStarting(cubic, 1.5), vas - Yield.Constant(0.01))
+            z0 = rate(zero(c, 0.0))
+            @test z0 == Yield.instantaneous_forward(c, 0.0)
+            @test z0 ≈ rate(zero(c, 1.0e-7)) rtol = 1.0e-6
+        end
+        @test rate(zero(vas, 0.0)) == 0.04
+        @test rate(zero(cir, 0.0)) ≈ 0.04 rtol = 1.0e-14
+        @test rate(zero(hw, 0.0)) == 0.02   # its curve's flat short end
+        # A shift's forward at 0 is its rule applied to the base's limit, so an identity shift of a curve
+        # without its own zero rate keeps that curve's forward, at 0 too (it threw), and a shift
+        # parameter keeps its derivative there
+        for c in (vas, cir, sw), t in (0.0, 0.5, 7.5)
+            @test Yield.instantaneous_forward(Yield.TenorShift(c, (z, t) -> z), t) ≈
+                Yield.instantaneous_forward(c, t) rtol = 1.0e-12
+        end
+        shifted(h) = Yield.TenorShift(vas, (z, t) -> z + Continuous(h))
+        @test ForwardDiff.derivative(h -> Yield.instantaneous_forward(shifted(h), 0.0), 0.01) == 1
+        @test ForwardDiff.derivative(r -> rate(zero(ShortRate.Vasicek(0.1, 0.03, 0.01, r), 0.0)), 0.04) == 1
+
+        # Nelson–Siegel near 0: at t = 1e-16, e^{-q} rounded to 1 and the zero rate jumped from 2% to
+        # 2.5%. The short end now agrees with the closed form in high precision on both sides of
+        # the series band, |q| < 0.1
+        ns_reference(c, t) = setprecision(BigFloat, 512) do
+            q = big(t) / big(c.τ₁)
+            d = -expm1(-q) / q
+            Float64(big(c.β₀) + big(c.β₁) * d + big(c.β₂) * (d - exp(-q)))
+        end
+        ns2 = Yield.NelsonSiegel(2.0, 0.03, -0.01, 0.005)
+        for t in (1.0e-300, 1.0e-16, 1.0e-10, 1.0e-6, 1.0e-3, 0.1999, 0.2001, 1.0, 10.0)
+            @test rate(zero(ns2, t)) ≈ ns_reference(ns2, t) rtol = 2.0e-15
+        end
+        @test rate(zero(ns2, 1.0e-16)) == rate(zero(ns2, 0.0))
+        @test rate(zero(nss, 1.0e-16)) == rate(zero(nss, 0.0))
+        # and the zero rate's slope there is the series', z′(0) = (f′(0))/2
+        f′0 = ForwardDiff.derivative(t -> Yield.instantaneous_forward(ns2, t), 0.0)
+        @test ForwardDiff.derivative(t -> rate(zero(ns2, t)), 0.0) ≈ f′0 / 2 rtol = 1.0e-14
+        @test ForwardDiff.derivative(t -> rate(zero(ns2, t)), 1.0e-12) ≈ f′0 / 2 rtol = 1.0e-9
     end
 end

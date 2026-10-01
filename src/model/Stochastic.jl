@@ -171,6 +171,14 @@ function FinanceCore.discount(m::ShortRate.Vasicek, T)
 end
 Yield.__log_discount(m::ShortRate.Vasicek, T) = _vasicek_log_zcb(m.a, m.b, m.σ, _initial_rate(m), T)
 Yield.__log_native(::ShortRate.Vasicek) = true
+Yield.instantaneous_forward(m::ShortRate.Vasicek, T) = _vasicek_forward(m.a, m.b, m.σ, _initial_rate(m), T)
+
+# The instantaneous forward f(τ) = d(-log P)/dτ from the Riccati equations B′ = 1 - aB and
+# (-log A)′ = abB - σ²B²/2: f = r·e^{-aτ} + b·(1 - e^{-aτ}) - σ²B²/2, with 1 - aB written as e^{-aτ}.
+function _vasicek_forward(a, b, σ, r, τ)
+    m = expm1(-a * τ)
+    return r * (1 + m) - b * m - σ^2 / 2 * _decay_integral(a, τ)^2
+end
 
 # CIR ZCB price P = A(τ) exp(-B(τ) r), with γ = √(a² + 2σ²) (Cox, Ingersoll & Ross 1985):
 #     B = 2(e^{γτ} - 1)/D,  log A = (2ab/σ²)·log(2γ e^{(a+γ)τ/2}/D),  D = (γ + a)(e^{γτ} - 1) + 2γ.
@@ -256,6 +264,24 @@ function _cir_series(a, σ, τ)
 end
 _cir_zcb(a, b, σ, r, τ) = exp(-_cir_log_zcb(a, b, σ, r, τ))
 
+# The instantaneous forward f(τ) = d(-log P)/dτ = r·B′ + ab·B, from the Riccati equation
+# (log A)′ = -abB, with B from the same pieces as `_cir_log_zcb`. B′ = (2γ e^{-γτ/2}/D′)², with the
+# exponential inside the square so that a huge 2γ/D′ (a < 0, tiny σ) meets e^{-γτ} before it is squared;
+# for small γτ, B′ = 1 - aB - σ²B²/2 from the Riccati equation itself, smooth through a = σ = 0. σ = 0
+# is Vasicek's forward without volatility.
+function _cir_forward(a, b, σ, r, τ)
+    if iszero(σ)
+        iszero(a) && return r + zero(τ)
+        return _vasicek_forward(a, b, σ, r, τ)
+    end
+    if _cir_short(a, σ, τ)
+        B, _ = _cir_series(a, σ, τ)
+        return r * (1 - a * B - σ^2 * B^2 / 2) + a * b * B
+    end
+    (; γ, D, B) = _cir_pieces(a, σ, τ)
+    return r * (2γ * exp(-γ * τ / 2) / D)^2 + a * b * B
+end
+
 # log1p(u)/u. Where |u| < 1e-3 its Taylor polynomial, whose omitted terms are below Float64 rounding,
 # so it is 1 at u = 0 (σ² underflows, or σ is a dual zero) and differentiable there.
 const _LOG1P_RATIO_COEFFS = ntuple(k -> (-1)^(k - 1) // k, 7)
@@ -266,6 +292,7 @@ function FinanceCore.discount(m::ShortRate.CoxIngersollRoss, T)
 end
 Yield.__log_discount(m::ShortRate.CoxIngersollRoss, T) = _cir_log_zcb(m.a, m.b, m.σ, _initial_rate(m), T)
 Yield.__log_native(::ShortRate.CoxIngersollRoss) = true
+Yield.instantaneous_forward(m::ShortRate.CoxIngersollRoss, T) = _cir_forward(m.a, m.b, m.σ, _initial_rate(m), T)
 
 # Hull-White is calibrated to match the initial term structure exactly.
 # The model parameters (a, σ) affect derivative pricing and simulation,
@@ -276,6 +303,7 @@ end
 Yield.__log_discount(m::ShortRate.HullWhite, T) = Yield.__log_discount(m.curve, T)
 Yield.__log_interval(m::ShortRate.HullWhite, from, to) = Yield.__log_interval(m.curve, from, to)
 Yield.__log_tail(m::ShortRate.HullWhite) = Yield.__log_tail(m.curve)
+Yield.instantaneous_forward(m::ShortRate.HullWhite, T) = Yield.instantaneous_forward(m.curve, T)
 FinanceCore.discount(m::ShortRate.HullWhite, from, to) = FinanceCore.discount(m.curve, from, to)
 
 # ─── Conditional discount P(t,T|r(t)) ────────────────────────────────────────
@@ -310,12 +338,11 @@ Formula (Brigo & Mercurio 2006, Proposition 3.2.2):
 """
 function FinanceCore.discount(m::ShortRate.HullWhite, t, T, r_t)
     a, σ = m.a, m.σ
-    P0t = FinanceCore.discount(m.curve, t)
-    P0T = FinanceCore.discount(m.curve, T)
     B_tT = _decay_integral(a, T - t)
-    f0t = _hw_forward_rate(m.curve, t)
-    # σ²/(4a)·(1 - e^{-2at}) = σ²/2 · ∫₀ᵗ e^{-2as} ds
-    lnA = log(P0T / P0t) + B_tT * f0t - σ^2 / 2 * B_tT^2 * _decay_integral(2a, t)
+    f0t = Yield.instantaneous_forward(m.curve, t)
+    # ln(P(0,T)/P(0,t)) is the curve's log-discount over [t, T], which stays finite where both factors
+    # underflow; σ²/(4a)·(1 - e^{-2at}) = σ²/2 · ∫₀ᵗ e^{-2as} ds
+    lnA = -Yield.__log_interval(m.curve, t, T) + B_tT * f0t - σ^2 / 2 * B_tT^2 * _decay_integral(2a, t)
     return exp(lnA - B_tT * r_t)
 end
 
@@ -413,7 +440,7 @@ end
 _sim_initial_rate(m::ShortRate.Vasicek) = _initial_rate(m)
 _sim_initial_rate(m::ShortRate.CoxIngersollRoss) = _initial_rate(m)
 function _sim_initial_rate(m::ShortRate.HullWhite)
-    return _hw_forward_rate(m.curve, 0.0)
+    return Yield.instantaneous_forward(m.curve, 0.0)
 end
 
 # Include every model parameter that can flow into a simulated state. Falling
@@ -469,7 +496,7 @@ end
 
 function _hw_alpha(m::ShortRate.HullWhite, t)
     a, σ = m.a, m.σ
-    f0t = _hw_forward_rate(m.curve, t)
+    f0t = Yield.instantaneous_forward(m.curve, t)
     return f0t + σ^2 / 2 * _decay_integral(a, t)^2
 end
 
@@ -520,15 +547,6 @@ end
 # Reference: Brigo & Mercurio (2006) "Interest Rate Models", Chapter 3
 #            Hull (2018) "Options, Futures, and Other Derivatives", Ch. 32
 #            Jamshidian (1989) "An Exact Bond Option Formula"
-
-# Instantaneous forward rate f(0,t) = -d/dt ln P(0,t) via automatic differentiation
-function _hw_forward_rate(curve, t)
-    t_eval = max(t, 1.0e-10)  # avoid exactly zero for AD stability
-    return -DifferentiationInterface.derivative(
-        s -> log(FinanceCore.discount(curve, s)),
-        AutoForwardDiff(), t_eval
-    )
-end
 
 # Union type for Gaussian (normal) short-rate models that share the same
 # ZCB option formula (Black's formula with σ_P from the B(t,T) function).

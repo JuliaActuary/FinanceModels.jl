@@ -25,6 +25,7 @@ FinanceCore.discount(c::Constant, t) = FinanceCore.discount(c.rate, t)
 Base.zero(c::Constant, t) = convert(Continuous(), c.rate)
 __log_discount(c::Constant, t) = __zero_log_discount(c, t)
 __log_native(::Constant) = true
+instantaneous_forward(c::Constant, t) = FinanceCore.rate(Base.zero(c, t))
 function __log_tail(c::Constant)
     z = FinanceCore.rate(Base.zero(c, Inf))
     return __LogTail(zero(z), z, zero(z))
