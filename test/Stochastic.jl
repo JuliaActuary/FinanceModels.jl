@@ -358,6 +358,46 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
         @test zero(rp, 2.0) isa FinanceCore.Rate
     end
 
+    @testset "simulated RatePath domain" begin
+        # A path is defined on its grid [0, 1] only: every evaluation outside it throws rather
+        # than extending the last step (a 1-year simulation used to price a year-10 payment).
+        import DataInterpolations
+        Left, Right = DataInterpolations.LeftExtrapolationError, DataInterpolations.RightExtrapolationError
+        v = ShortRate.Vasicek(0.1, 0.05, 0.0, Continuous(0.03))
+        path = only(simulate(v; n_scenarios = 1, timestep = 0.25, horizon = 1.0))
+        @test discount(path, 0.0) == 1.0
+        @test discount(path, 1.0) == exp(-last(path.interp.u))
+        @test discount(path, 0.5, 1.0) ≈ discount(path, 1.0) / discount(path, 0.5)
+        @test short_rate(path, 0.0) ≈ 0.03 rtol = 0.02
+        @test short_rate(path, 1.0) ≈ 0.05 - 0.02 * exp(-0.1) rtol = 0.02
+        for t in (nextfloat(1.0), 2.0)
+            @test_throws Right discount(path, t)
+            @test_throws Right Yield.__log_discount(path, t)
+            @test_throws Right discount(path, 0.5, t)
+            @test_throws Right short_rate(path, t)
+            @test_throws Right present_value(path, Cashflow(1.0, t))
+            @test_throws Right ForwardDiff.derivative(s -> discount(path, s), t)
+        end
+        @test_throws Left discount(path, -0.5)
+        @test_throws Left discount(path, -0.5, 0.5)
+        @test_throws Left short_rate(path, -0.5)
+
+        # pv_mc: the default horizon (maturity + 1) covers the contract, a shorter one throws
+        cf = Cashflow(1.0, 10.0)
+        @test_throws Right pv_mc(v, cf; n_scenarios = 1, horizon = 1.0)
+        @test pv_mc(v, cf; n_scenarios = 1, horizon = 10.0) ≈ discount(v, 10.0) rtol = 1.0e-6
+        @test pv_mc(v, cf; n_scenarios = 1) ≈ discount(v, 10.0) rtol = 1.0e-6
+
+        # The grid covers the requested horizon where n·timestep rounds below it (3 × 0.3 is
+        # 0.8999999999999999), and the domain still ends there
+        for (step, h) in ((0.3, 0.9), (1 / 365, 38 * 0.1), (0.1, 0.7))
+            p = only(simulate(v; n_scenarios = 1, timestep = step, horizon = h))
+            @test last(p.interp.t) >= h
+            @test isfinite(discount(p, h))
+            @test_throws Right discount(p, nextfloat(last(p.interp.t)))
+        end
+    end
+
     @testset "Degenerate parameters" begin
         @testset "σ = 0 (deterministic)" begin
             # Vasicek with σ=0: deterministic, r(t) = b + (r0-b)exp(-at)

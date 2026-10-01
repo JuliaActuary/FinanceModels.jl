@@ -159,7 +159,7 @@ Custom bounds can be passed via the `variables` keyword argument to `fit`.
 
 ### Generating Scenarios with `simulate`
 
-`simulate` generates interest-rate paths using the exact Gaussian transition density for Vasicek and Hull-White (no discretisation bias in the short rate at any timestep) and the full truncation scheme (Lord, Koekkoek & Van Dijk, 2010) for Cox-Ingersoll-Ross. Each path is returned as a [`RatePath`](@ref FinanceModels.RatePath), which is itself an `AbstractYieldModel` -- so `discount`, `zero`, `forward`, `par`, and `present_value` all work on individual scenarios.
+`simulate` generates interest-rate paths using the exact Gaussian transition density for Vasicek and Hull-White (no discretisation bias in the short rate at any timestep) and the full truncation scheme (Lord, Koekkoek & Van Dijk, 2010) for Cox-Ingersoll-Ross. Each path is returned as a [`RatePath`](@ref FinanceModels.RatePath), which is itself an `AbstractYieldModel` -- so `discount`, `zero`, `forward`, `par`, and `present_value` all work on individual scenarios. A path is defined only up to its simulated horizon: evaluating it at a later time throws, so choose a `horizon` that covers every cashflow you value.
 
 ```julia
 using Random
@@ -250,7 +250,7 @@ For **floating-rate bonds**, the cashflows depend on forward rates, which differ
 using FinanceModels, Random
 
 v = ShortRate.Vasicek(0.136, 0.0168, 0.0119, Continuous(0.01))
-scenarios = simulate(v; n_scenarios=3, timestep=1/12, horizon=4.0,
+scenarios = simulate(v; n_scenarios=3, timestep=1/12, horizon=5.0,
                      rng=MersenneTwister(42))
 
 # Floating bond: 2% spread over "SOFR", semiannual, 3-year
