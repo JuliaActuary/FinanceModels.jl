@@ -149,6 +149,19 @@
             m_fit = fit(FX.Forwards(eurusd, S, usd_boot, Spline.Cubic()), quotes)
             @test all(abs(pv(m_fit, q.instrument)) < 1.0e-6 for q in quotes)
         end
+
+        @testset "fit keywords reach the foreign-curve fit" begin
+            m0 = FX.Forwards(eurusd, S, usd_boot, Spline.Cubic())
+            m_tight = fit(m0, quotes, Fit.Loss(abs2); solve_kwargs = (; g_tol = 1.0e-12))
+            @test all(abs(pv(m_tight, q.instrument)) < 1.0e-6 for q in quotes)
+            m_tight2 = fit(m0, quotes; solve_kwargs = (; g_tol = 1.0e-12))   # default loss
+            @test all(abs(pv(m_tight2, q.instrument)) < 1.0e-6 for q in quotes)
+            @test_throws FinanceModels.FitConvergenceError fit(m0, quotes; solve_kwargs = (; maxiters = 1))
+            m_lin = FX.Forwards(eurusd, S, usd_boot, Spline.Linear())
+            m_flat = fit(m_lin, quotes, Fit.Bootstrap(); extrapolation = :flat_zero)
+            @test m_flat.foreign.extrapolation === :flat_zero
+            @test forward(m_flat, 3.3) ≈ forward(fit(m_lin, quotes, Fit.Bootstrap()), 3.3)
+        end
     end
 
     @testset "explicit cross-currency basis composition" begin
@@ -544,10 +557,10 @@
             m_e = FX.Forwards(eurusd, S, sofr, estr)
             @test_throws ArgumentError pv(m_e, q_gbp.instrument)
             @test_throws ArgumentError pv(m_e, q_gbp.instrument, 0.5)
-            # an outright and a basis swap at the same maturity are refused by the
-            # bootstrap's distinct-maturities check rather than silently blended
+            # an outright and a basis swap at the same maturity are refused by the knot
+            # grid's strictly-increasing rule rather than silently blended
             clash = [FX.Outright(eurusd, 1.12, 2.0), FX.ParBasisSwap(eurusd, -0.001, 2.0; reference = estr)]
-            @test_throws "distinct maturities" fit(m0, clash, Fit.Bootstrap())
+            @test_throws "strictly increasing" fit(m0, clash, Fit.Bootstrap())
         end
     end
 end

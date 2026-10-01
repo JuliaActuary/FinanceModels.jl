@@ -7,9 +7,8 @@ spline `fit` call.
 
 `forward` must be a `FinanceCore.Rate`, such as `Continuous(0.035)` or `Periodic(0.035, 1)`,
 so that its compounding convention is explicit; it is converted to and stored as a
-continuously compounded rate in the `forward` field. A bare number throws an
-`ArgumentError`, because packages read bare numbers differently (`Yield.Constant(0.035)`
-is annual effective).
+continuously compounded rate in the `forward` field. There is no method for a bare number,
+because packages read bare numbers differently (`Yield.Constant(0.035)` is annual effective).
 
 The last-knot discount factor and all interpolation through that knot are preserved.
 The forward usually jumps at the boundary. Unlike `:flat_forward`, the supplied
@@ -31,48 +30,18 @@ struct FlatForwardAt{F <: Real}
     end
 end
 
-FlatForwardAt(forward::Real) = throw(
-    ArgumentError(
-        "FlatForwardAt needs a rate with an explicit compounding convention; got the bare number $forward. " *
-            "Pass Continuous($forward) for a continuously compounded forward or Periodic($forward, m) " *
-            "for one compounded m times per year."
-    )
-)
-
 Base.:(==)(a::FlatForwardAt, b::FlatForwardAt) = a.forward == b.forward
 Base.isequal(a::FlatForwardAt, b::FlatForwardAt) = isequal(a.forward, b.forward)
 Base.hash(p::FlatForwardAt, h::UInt) = hash(p.forward, hash(:FlatForwardAt, h))
 Base.show(io::IO, p::FlatForwardAt) = print(io, "Yield.FlatForwardAt(Continuous(", p.forward, "))")
 
 # Policy is public configuration. The tail objects below are derived boundary data,
-# rebuilt from the policy and knots on construction, fitting, and Accessors updates.
-const __EXTRAPOLATION_METHODS = (:flat_forward, :flat_zero, :linear, :extension)
-function __extrapolation_method(method)
-    method isa FlatForwardAt && return method
-    method isa Symbol && method in __EXTRAPOLATION_METHODS || throw(
-        ArgumentError(
-            "extrapolation must be one of $(join(__EXTRAPOLATION_METHODS, ", ")) or " *
-                "Yield.FlatForwardAt(forward); got $(repr(method))."
-        )
-    )
-    return method
-end
-
-function __monotone_extrapolation_method(method)
-    method = __extrapolation_method(method)
-    method === :extension && throw(
-        ArgumentError(
-            "extrapolation=:extension is only available for DataInterpolations-backed curves; " *
-                "use :flat_forward, :flat_zero, :linear, or Yield.FlatForwardAt(forward) with MonotoneConvex."
-        )
-    )
-    return method
-end
+# rebuilt from the policy and knots on construction, fitting, and Accessors updates. The policy
+# is validated where it is used, in `__build_tail`.
 
 # DataInterpolations handles the short end (a flat zero rate before the first knot) and, only
 # for `:extension`, the long end; every other long-end policy is a `CurveTail` below.
 function __interpolation_extrapolation(method)
-    method = __extrapolation_method(method)
     E = DataInterpolations.ExtrapolationType
     return method === :extension ? (; extrapolation_left = E.Constant, extrapolation_right = E.Extension) :
         (; extrapolation_left = E.Constant)
@@ -158,8 +127,9 @@ function __build_tail(method::Symbol, t, z, forward, slope)
     method === :linear && return __curve_tail(t, z, zero(z), slope(), true)
     method === :flat_forward || throw(
         ArgumentError(
-            "cannot build a financial tail for extrapolation=$(repr(method)); " *
-                ":extension must delegate to the interpolant."
+            "extrapolation must be :flat_forward, :flat_zero, :linear, or Yield.FlatForwardAt(forward), " *
+                "or :extension for a DataInterpolations-backed curve (not Spline.MonotoneConvex()); " *
+                "got $(repr(method))."
         )
     )
     f = forward()
@@ -181,7 +151,6 @@ end
 
 # The zero-rate function of a `Yield.Spline`: the interpolant through the last knot, then the tail.
 function __extrapolate(interpolant, g::KnotGrid, method)
-    method = __extrapolation_method(method)
     t, z = last(g.tenors), last(g.rates)
     if method === :extension
         # Same tail type as `:flat_zero`, but never evaluated.

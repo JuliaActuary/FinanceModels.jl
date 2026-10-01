@@ -49,6 +49,23 @@ FinanceCore.present_value(model, c::PaysAfterMaturity) = FinanceCore.present_val
     late = Quote(0.9, PaysAfterMaturity(Cashflow(1.0, 3.0), 1.5))
     @test_throws "could not reprice" fit(Spline.Linear(), [ZCBPrice(0.97, 1.0), late, ZCBPrice(0.93, 2.0)], Fit.Bootstrap())
 
+    # Scaling every quote by a notional leaves the curve unchanged: the knot rates are the
+    # zero rates the quotes were priced from, at every notional.
+    z = [0.03, 0.035, 0.04]
+    for n in (1.0e-12, 1.0, 1.0e10)
+        scaled = [
+            Quote(n * exp(-z[1]), Cashflow(n, 1.0)),
+            Quote(
+                n * (0.05 * exp(-z[1]) + 1.05 * exp(-2 * z[2])),
+                FinanceCore.Composite(Cashflow(0.05n, 1.0), Cashflow(1.05n, 2.0)),
+            ),
+            Quote(n * exp(-3 * z[3]), Cashflow(n, 3.0)),
+        ]
+        curve = fit(Spline.Linear(), scaled, Fit.Bootstrap())
+        @test knot_rates(curve) ≈ z rtol = 1.0e-12
+        @test knot_tenors(curve) == [1.0, 2.0, 3.0]
+    end
+
     # The documented full-grid alternative must actually fit the quote set.
     # A flat optimizer seed previously stalled PCHIP and Akima at the seed curve.
     quotes = ZCBPrice.([0.98, 0.94, 0.88, 0.75], [1.0, 2.5, 5.0, 10.0])

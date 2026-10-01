@@ -32,9 +32,9 @@ fitted or changed.
 ## Constructing from another yield model
 
 The third form samples zero rates from any `AbstractYieldModel` (e.g. `Yield.Constant`,
-`Yield.NelsonSiegel`, a fitted curve) at the given `tenors`. All tenors must be positive
-(`t > 0`); they are sorted before sampling, and the grid is validated before the source curve is
-evaluated.
+`Yield.NelsonSiegel`, a fitted curve) at the given `tenors`. The tenors are sorted before
+sampling and the sampled grid is validated like any other. A tenor of `0` takes the source curve's
+zero-rate limit at `t = 0`; a curve with no such limit gives a non-finite rate, which is an error.
 
 # Examples
 
@@ -70,11 +70,14 @@ and tuples are accepted. Construction throws an `ArgumentError` when:
 - `rates` and `tenors` differ in length, or either is empty;
 - any rate or tenor is not finite (`NaN`, `±Inf`);
 - any tenor is negative, or the tenors are not strictly increasing (unsorted or duplicated);
-- `extrapolation` is neither `FlatForwardAt(forward)` nor one of `:flat_forward`,
-  `:flat_zero`, `:linear`, or `:extension`, or `:extension` is requested with
-  `Spline.MonotoneConvex()`;
+- `extrapolation` is a `Symbol` other than `:flat_forward`, `:flat_zero`, `:linear`, or
+  `:extension`, or `:extension` is requested with `Spline.MonotoneConvex()` (a policy of another
+  type, other than `FlatForwardAt(forward)`, is a `MethodError`);
 - there are fewer knots than the interpolant needs: `Spline.PCHIP()` and `Spline.Akima()`
   need 3; the other methods accept a single knot, which gives a flat curve.
+
+Polynomial and B-spline orders reduce on short grids: with `k` knots, an order-`n` spline
+interpolates at order `min(n, k - 1)`, so `Spline.Cubic()` through two knots is linear.
 
 A tenor of `0` is allowed in the direct form (you supply the instantaneous rate `r(0)`
 explicitly); negative rates are allowed.
@@ -95,26 +98,14 @@ ZeroRateCurve(rates, tenors; spline::Sp.SplineCurve = Sp.MonotoneConvex(), extra
     ZeroRateCurve(rates, tenors, spline; extrapolation)
 
 # Sampling form. The grid is normalised ONCE (a stateful iterator must not be consumed
-# twice) and validated BEFORE the source curve is touched (so `Inf` never reaches
-# `discount(curve, Inf)`), then sorted, checked for duplicates and the method's minimum knot
-# count, and sampled.
+# twice) and sorted, then sampled; `KnotGrid` validates the sampled grid (knot count, finite,
+# non-negative and distinct tenors, finite rates). A knot at t = 0 takes the source curve's
+# zero-rate limit there; a curve without one gives a non-finite rate, which `KnotGrid` rejects.
 function ZeroRateCurve(
         curve::AbstractYieldModel, tenors;
         spline::Sp.SplineCurve = Sp.MonotoneConvex(), extrapolation = :flat_forward
     )
-    t = sort!(__owned_float_vector(tenors, "tenors", "ZeroRateCurve"))
-    all(isfinite, t) || throw(ArgumentError("ZeroRateCurve: all tenors must be finite (got $(t))."))
-    first(t) > zero(eltype(t)) || throw(
-        ArgumentError(
-            "All tenors must be positive (t > 0). The zero rate is undefined at t = 0."
-        )
-    )
-    # same adjacent strict comparison as `KnotGrid` (`allunique` would treat Duals with equal
-    # primals but different partials as distinct)
-    for i in 2:length(t)
-        t[i] > t[i - 1] || throw(ArgumentError("ZeroRateCurve: tenors must be distinct (got $(t))."))
-    end
-    __check_min_knots(spline, length(t), "ZeroRateCurve")
+    t = sort!(__owned_float_vector(tenors))
     # Sample through the zero-rate interface rather than `-log(discount)/t`: that round-trip
     # is numerically unstable at extreme tenors (for a flat 5% curve it gives -0.0 at
     # t = 1e-20 and Inf at t = 2e4) and would trip the finite-rate validation on curves

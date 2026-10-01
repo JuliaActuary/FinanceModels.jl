@@ -138,14 +138,13 @@ function __implicit_knot_curve(curve, quotes, primal_quotes, extrapolation, has_
     D = __common_dual_type((Rd..., __extrapolation_dual(extrapolation)...))
     D === nothing && return curve
 
+    # the knots are the quote maturities (duplicates rejected), so there is one knot per quote
     z0 = collect(Yield.knot_rates(curve))
     tenors = collect(Yield.knot_tenors(curve))
-    length(Rd) == length(z0) || throw(
-        ArgumentError("fit can differentiate only calibrations with one knot per quote (got $(length(Rd)) quotes and $(length(z0)) knots).")
-    )
     # A kink of the interpolant at the fitted knots (flat quotes make adjacent forwards equal,
-    # for example) leaves the refit without a derivative. Checked first: the Jacobian below
-    # would otherwise meet the interpolant's own check.
+    # for example) leaves the refit without a derivative. Checked before the Jacobian, which is
+    # built from unchecked trial curves: at a kink it would hold one side's derivative (or
+    # MonotoneConvex's centered one), not the refit's.
     Yield.__near_kink(curve, z0) && throw(__fit_kink_error(curve))
 
     s, e = curve.spline, curve.extrapolation
@@ -172,7 +171,8 @@ function __implicit_knot_curve(curve, quotes, primal_quotes, extrapolation, has_
             "fit cannot differentiate a curve that does not reprice its quotes: a Newton correction " *
                 "towards the exact fit moves its knot rate at $(tenors[worst]) by $(abs(δ[worst])) " *
                 "(largest quote residual $(maximum(abs, r0))), more than 1e-6. Its derivatives assume " *
-                "an exact fit; tighten the optimizer, or use Fit.Bootstrap() with Spline.Linear()."
+                "an exact fit; tighten the optimizer with `solve_kwargs` (for example " *
+                "`solve_kwargs = (; g_tol = 1e-12)`), or use Fit.Bootstrap() with Spline.Linear()."
         )
     )
     # The fitted knots must resolve which side of each kink the exact fit lies on.

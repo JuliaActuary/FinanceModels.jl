@@ -118,8 +118,8 @@ assumed = ZeroRateCurve(rates, tenors; extrapolation=Yield.FlatForwardAt(Continu
 annual = ZeroRateCurve(rates, tenors; extrapolation=Yield.FlatForwardAt(Periodic(0.035, 1)))
 ```
 
-A bare number (`Yield.FlatForwardAt(0.035)`) throws an `ArgumentError`: `Yield.Constant(0.035)`
-reads a bare number as annual effective, so the convention must be stated. The rate is
+A bare number (`Yield.FlatForwardAt(0.035)`) is a `MethodError`: `Yield.Constant(0.035)` reads a
+bare number as annual effective, so the convention must be stated. The rate is
 stored as its continuously compounded value and stays fixed when knot rates are bumped or
 fitted. Appending a synthetic far knot does not generally impose a chosen terminal
 instantaneous forward and can also change interior interpolation.

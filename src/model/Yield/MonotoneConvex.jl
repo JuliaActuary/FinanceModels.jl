@@ -69,7 +69,6 @@ struct MonotoneConvex{T, U, P, E} <: AbstractInterpolatedZeroCurve
     # The only inner constructor: takes an owned grid (validated, or an optimizer trial grid) and
     # computes the forwards from it, so they are consistent with the knots by construction.
     function MonotoneConvex(g::KnotGrid{T, U}; extrapolation = :flat_forward) where {T, U}
-        extrapolation = __monotone_extrapolation_method(extrapolation)
         f, fᵈ = __monotone_convex_fs(g.rates, g.tenors)
         t, z = last(g.tenors), last(g.rates)
         # `:flat_forward` keeps the native Hagan-West boundary forward f(tₙ); `:linear` uses

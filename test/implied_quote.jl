@@ -61,6 +61,23 @@ using ForwardDiff
         end
     end
 
+    @testset "nonlinear quotes do not depend on the notional" begin
+        # An annual-effective zero-coupon yield and a deposit-style quote, both scaled by a
+        # notional n: the implied rate is expm1(z) and its derivative exp(z) at every n. The
+        # solve used to stop on an absolute residual, so at n = 1e-10 the rate was about 1e-5
+        # off and at n = 1e-14 it was the starting guess.
+        curve(z) = Yield.Constant(Continuous(z))
+        families = (
+            n -> ((q, t) -> Quote(n * (1 + q)^-t, Cashflow(n, t))),
+            n -> ((q, t) -> Quote(n, Cashflow(n * (1 + q)^t, t))),
+        )
+        for make in families, n in (1.0e-14, 1.0e-10, 1.0, 1.0e10)
+            family = make(n)
+            @test implied_quote(curve(0.035), family, 0.1) ≈ expm1(0.035) rtol = 1.0e-12
+            @test ForwardDiff.derivative(z -> implied_quote(curve(z), family, 0.1), 0.035) ≈ exp(0.035) rtol = 1.0e-12
+        end
+    end
+
     @testset "loud errors" begin
         @test_throws ArgumentError ForwardDiff.derivative(
             x -> ForwardDiff.derivative(y -> implied_quote(Yield.Constant(Continuous(x + y)), ZCBYield, 2.0), 0.0), 0.03

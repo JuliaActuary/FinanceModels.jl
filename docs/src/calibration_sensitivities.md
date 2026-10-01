@@ -13,8 +13,10 @@ calculation, bitwise.
 
 ## The contract at a glance
 
-- **First order only.** Derivatives through `fit`, `reconstruct`, and `implied_quote` are exact
+- **First order only through solves.** Derivatives through `fit` and `implied_quote` are exact
   first derivatives. Nested dual numbers (a Hessian, or convexity through a calibration) throw.
+  `reconstruct` solves nothing: a curve rebuilt from dual knot rates has derivatives of any
+  order, except at an interpolation kink, where nested dual numbers throw.
 - **With respect to what you differentiate.** Differentiating through `fit` gives risk to the
   quotes passed to it: the original market inputs. Quotes implied from a fitted curve in another
   family (for example `implied_quote` at the curve's knots) are a synthetic family. Risk to them
@@ -90,7 +92,8 @@ precision. A loss fit stops at its optimizer's tolerance, and `fit` refuses to d
 unless the largest absolute component of one Newton correction of its knot rates towards the
 exact fit is at most `1e-6`. The correction is a local estimate of the fit's error, not a
 guaranteed distance to the exact solution; like the conditioning check, it does not depend on
-the quotes' notionals.
+the quotes' notionals. To tighten a loss fit, pass solver settings through `fit`'s
+`solve_kwargs`, for example `fit(Spline.MonotoneConvex(), quotes; solve_kwargs = (; g_tol = 1e-12))`.
 Refitting with bumped quotes and taking finite differences is a much noisier check: optimizer
 noise of `1e-11` in the fitted rates becomes an error of order `1e-4` in a difference quotient.
 

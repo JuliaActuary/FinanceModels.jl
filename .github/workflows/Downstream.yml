@@ -11,11 +11,12 @@ concurrency:
   cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
 jobs:
   actuaryutilities:
-    # FinanceModels' integration tests with ActuaryUtilities. ActuaryUtilities depends on
-    # FinanceModels, so it cannot be a test dependency of a FinanceModels version it does
-    # not support yet. Until ActuaryUtilities 6 (for FinanceModels 7) is registered, this
-    # tests its development branch with its FinanceModels compat bound removed; afterwards,
-    # add the registered package instead.
+    # FinanceModels' integration tests with ActuaryUtilities, then ActuaryUtilities' own test
+    # suite against this FinanceModels. ActuaryUtilities depends on FinanceModels, so it cannot
+    # be a test dependency of a FinanceModels version it does not support yet. Until
+    # ActuaryUtilities 6 (for FinanceModels 7) is registered, this tests its development branch
+    # with its FinanceModels compat set to this version's major (a bound, so Aqua's compat check
+    # still passes); afterwards, add the registered package instead.
     name: ActuaryUtilities
     runs-on: ubuntu-latest
     env:
@@ -40,10 +41,19 @@ jobs:
           au = joinpath(root, "downstream", "ActuaryUtilities.jl")
           toml = joinpath(au, "Project.toml")
           project = TOML.parsefile(toml)
-          delete!(project["compat"], "FinanceModels")
+          fm = VersionNumber(TOML.parsefile(joinpath(root, "Project.toml"))["version"])
+          project["compat"]["FinanceModels"] = string(fm.major)
           open(io -> TOML.print(io, project), toml, "w")
           Pkg.activate(joinpath(root, "downstream", "env"))
           Pkg.develop([PackageSpec(path = root), PackageSpec(path = au)])
           Pkg.add(["FinanceCore", "Test"])
           using Test, FinanceCore, FinanceModels
           include(joinpath(root, "test", "downstream", "ActuaryUtilities.jl"))
+      - name: ActuaryUtilities test suite
+        shell: julia --color=yes {0}
+        run: |
+          # The environment from the previous step develops this FinanceModels, so the test
+          # sandbox uses it.
+          using Pkg
+          Pkg.activate(joinpath(pwd(), "downstream", "env"))
+          Pkg.test("ActuaryUtilities")
