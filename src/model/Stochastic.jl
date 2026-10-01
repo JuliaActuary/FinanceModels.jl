@@ -136,17 +136,19 @@ end
 # Vasicek ZCB price: P = A(τ) exp(-B(τ) r)
 # For small |a|, the general formula suffers from catastrophic cancellation
 # (two O(σ²τ²/a) terms nearly cancel). Use a Taylor expansion instead.
+# Vasicek's B(τ) = (1 - e^{-aτ})/a, the sensitivity -∂log P/∂r of a zero-coupon bond.
+# Taylor expansion in a for small aτ, avoiding cancellation: B = τ - aτ²/2 + a²τ³/6 - a³τ⁴/24
+_vasicek_B(a, τ) = abs(a * τ) < 0.02 ? τ * (1 - a * τ / 2 + (a * τ)^2 / 6 - (a * τ)^3 / 24) : (1 - exp(-a * τ)) / a
+
 function _vasicek_zcb(a, b, σ, r, τ)
+    B = _vasicek_B(a, τ)
     if abs(a * τ) < 0.02
         # Taylor expansion in a, avoiding cancellation:
-        # B = τ - aτ²/2 + a²τ³/6 - a³τ⁴/24
         # lnA = σ²τ³/6 - a(bτ²/2 + σ²τ⁴/8) + a²(bτ³/6 + 7σ²τ⁵/120)
-        B = τ * (1 - a * τ / 2 + (a * τ)^2 / 6 - (a * τ)^3 / 24)
         lnA = σ^2 * τ^3 / 6 -
             a * (b * τ^2 / 2 + σ^2 * τ^4 / 8) +
             a^2 * (b * τ^3 / 6 + 7 * σ^2 * τ^5 / 120)
     else
-        B = (1 - exp(-a * τ)) / a
         lnA = (B - τ) * (a^2 * b - 0.5 * σ^2) / a^2 - σ^2 * B^2 / (4a)
     end
     return exp(lnA - B * r)
@@ -434,6 +436,10 @@ end
 #            Hull (2018) "Options, Futures, and Other Derivatives", Ch. 32
 #            Jamshidian (1989) "An Exact Bond Option Formula"
 
+# -∂log P(t,T|r)/∂r for the affine Gaussian models
+_affine_B(m::ShortRate.Vasicek, t, T) = _vasicek_B(m.a, T - t)
+_affine_B(m::ShortRate.HullWhite, t, T) = _hw_B(m.a, t, T)
+
 # Hull-White B(t,T) function
 function _hw_B(a, t, T)
     τ = T - t
@@ -589,20 +595,25 @@ function FinanceCore.present_value(m::_GaussianModel, c::Option.Swaption)
     # Step 1: Find r* such that the swap has zero value at T0
     # Swap value at T0 given r(T0) = r:
     #   V(r) = 1 - P(T0,Tn;r) - c·τ·∑ P(T0,Ti;r)
+    # Each bond price is affine in r, P(T0,Ti;r) = Aᵢ e^{-Bᵢ r}, so V is increasing in r
+    # with the closed-form slope ∑ wᵢ Bᵢ P(T0,Ti;r) (wᵢ the coupon and principal weights).
+    weight(i) = coupon * τ + (i == n_payments ? 1 : 0)
     function swap_value(r)
         total = 1.0
         for (i, Ti) in enumerate(payment_times)
-            P_Ti = FinanceCore.discount(m, T0, Ti, r)
-            total -= coupon * τ * P_Ti
-            if i == length(payment_times)
-                total -= P_Ti  # principal repayment
-            end
+            total -= weight(i) * FinanceCore.discount(m, T0, Ti, r)
         end
         return total
     end
+    slope(r) = sum(
+        weight(i) * __primal(_affine_B(m, T0, Ti)) * __primal(FinanceCore.discount(m, T0, Ti, r))
+            for (i, Ti) in enumerate(payment_times)
+    )
 
-    # Bisection to find r*
-    r_star = _bisect(swap_value, -1.0, 1.0)
+    # r* depends on the model's parameters. The root is solved on primal values and its
+    # derivatives come from the implicit function theorem (a Float64 root would silently
+    # drop the ∂Kᵢ/∂r*·dr*/dθ terms of every Greek).
+    r_star = __implicit_root(swap_value, r -> __primal(swap_value(r)), 0.0; who = "Swaption critical rate r*", slope)
 
     # Step 2: Compute strike prices Ki = P(T0, Ti; r*)
     # Step 3: Sum ZCB options
@@ -638,40 +649,6 @@ function _check_integer_periods(value, freq, label)
         )
     )
     return n_int
-end
-
-# Simple bisection solver with automatic bracket widening
-function _bisect(f, lo, hi; tol = 1.0e-12, maxiter = 200)
-    flo, fhi = f(lo), f(hi)
-    if sign(flo) == sign(fhi)
-        # Try widening the bounds symmetrically
-        for _ in 1:5
-            span = max(hi - lo, 0.1)
-            lo, hi = lo - span, hi + span
-            flo, fhi = f(lo), f(hi)
-            sign(flo) != sign(fhi) && break
-        end
-        if sign(flo) == sign(fhi)
-            error("Bisection: no sign change found in [$lo, $hi]; f(lo)=$flo, f(hi)=$fhi")
-        end
-    end
-    for _ in 1:maxiter
-        mid = (lo + hi) / 2
-        fmid = f(mid)
-        if abs(fmid) < tol || (hi - lo) / 2 < tol
-            return mid
-        end
-        if sign(fmid) == sign(flo)
-            lo = mid
-            flo = fmid
-        else
-            hi = mid
-        end
-    end
-    mid = (lo + hi) / 2
-    fmid = f(mid)
-    abs(fmid) < tol || @warn "Bisection: unconverged after $maxiter iterations (|f(x)| = $(abs(fmid)))"
-    return mid
 end
 
 # ─── short_rate: extract r(t) from a simulated RatePath ──────────────────────
