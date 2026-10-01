@@ -272,7 +272,7 @@ This also works with composite contracts like interest rate swaps, where the flo
 
 ```julia
 curve = Yield.Constant(0.05)
-swap = InterestRateSwap(curve, 5)
+swap = InterestRateSwap(curve, 5; frequency = 1)
 
 sc = scenarios[1]
 proj = Projection(swap, Dict("OIS" => sc), CashflowProjection())

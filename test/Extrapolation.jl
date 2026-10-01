@@ -21,7 +21,7 @@ spline_zero_curve_with_policy(d, r, t, policy::Symbol) = ZeroRateCurve(r, t, d; 
         for T in (Float32, Float64), U in (Float32, Float64, BigFloat)
             r, t = T.(rates), U.(times)
             @test (@inferred Yield.MonotoneConvex(r, t)) isa Yield.MonotoneConvex
-            @test (@inferred ZeroRateCurve(r, t)) isa ZeroRateCurve
+            @test (@inferred ZeroRateCurve(r, t)) isa Yield.MonotoneConvex
             for policy in (:flat_forward, :flat_zero, :linear)
                 @test (@inferred monotone_with_policy(r, t, policy)).extrapolation === policy
                 @test (@inferred zero_curve_with_policy(r, t, policy)).extrapolation === policy
@@ -74,7 +74,7 @@ spline_zero_curve_with_policy(d, r, t, policy::Symbol) = ZeroRateCurve(r, t, d; 
     end
 
     @testset "boundary and AD: $descriptor" for descriptor in descriptors
-        base = Yield.build_model(descriptor, times, rates)
+        base = ZeroRateCurve(rates, times, descriptor)
         # A second-order one-sided difference measures the INTERIOR zero slope.
         h = 1.0e-3
         left_slope = (
@@ -82,7 +82,7 @@ spline_zero_curve_with_policy(d, r, t, policy::Symbol) = ZeroRateCurve(r, t, d; 
                 rate(zero(base, tn - 2h))
         ) / (2h)
         for policy in policies
-            curve = Yield.build_model(descriptor, times, rates; extrapolation = policy)
+            curve = ZeroRateCurve(rates, times, descriptor; extrapolation = policy)
             wrapped = ZeroRateCurve(rates, times, descriptor; extrapolation = policy)
             for t in (0.0, 0.5, 3.0, 17.0, tn)
                 @test zero(curve, t) == zero(base, t)
@@ -135,7 +135,7 @@ spline_zero_curve_with_policy(d, r, t, policy::Symbol) = ZeroRateCurve(r, t, d; 
             if curve isa Yield.MonotoneConvex
                 @test Yield.instantaneous_forward(curve, horizon) ≈
                     rate(zero(curve, horizon)) + horizon * zdot atol = 1.0e-14
-                @test Yield.instantaneous_forward(curve, tn) == last(curve.f)
+                @test Yield.instantaneous_forward(curve, tn) == last(curve._f)
             end
         end
         # Different fixed assumptions change only the tail and remain differentiable.
@@ -172,15 +172,9 @@ spline_zero_curve_with_policy(d, r, t, policy::Symbol) = ZeroRateCurve(r, t, d; 
                 elseif policy === :flat_forward
                     @test rate(forward(bumped, tn, horizon)) != rate(forward(c, tn, horizon))
                 end
-                if c isa Yield.MonotoneConvex
-                    moved = @set c.times = times .* 2
-                    @test moved.extrapolation == policy
-                    @test_throws ArgumentError c._tail
-                    @test_throws ArgumentError (@set c._tail = nothing)
-                else
-                    moved = @set c.tenors = times .* 2
-                    @test moved.extrapolation == policy
-                end
+                moved = @set c.tenors = times .* 2
+                @test moved.extrapolation == policy && knot_tenors(moved) == times .* 2
+                @test_throws ArgumentError CB.setproperties(c, (_tail = nothing,))
                 @test_throws ArgumentError (@set c.extrapolation = :unknown)
             end
         end
@@ -200,7 +194,7 @@ spline_zero_curve_with_policy(d, r, t, policy::Symbol) = ZeroRateCurve(r, t, d; 
             c = Yield.MonotoneConvex(rates, times; extrapolation = policy)
             @test c == Yield.MonotoneConvex(copy(rates), copy(times); extrapolation = policy)
             @test c != (@set c.rates[end] = c.rates[end] + 0.001)
-            @test c != (@set c.times[end] = c.times[end] + 1)
+            @test c != (@set c.tenors[end] = c.tenors[end] + 1)
             @test c != (@set c.extrapolation = Yield.FlatForwardAt(Continuous(0.045)))
             @test Set([c, deepcopy(c)]) == Set([c])
         end
@@ -253,18 +247,18 @@ spline_zero_curve_with_policy(d, r, t, policy::Symbol) = ZeroRateCurve(r, t, d; 
             for policy in policies
                 c = fit(Spline.MonotoneConvex(), qs, method; extrapolation = policy)
                 @test c isa Yield.MonotoneConvex
-                @test c.rates == baseline.rates && c.times == baseline.times
+                @test c.rates == baseline.rates && c.tenors == baseline.tenors
                 @test c.extrapolation == policy
                 @test isfinite(Yield.instantaneous_forward(c, horizon))
                 @test zero(c, horizon) == zero(
                     Yield.MonotoneConvex(
-                        c.rates, c.times;
+                        c.rates, c.tenors;
                         extrapolation = policy
                     ), horizon
                 )
             end
         end
-        for descriptor in (Spline.Linear(), Spline.MonotoneConvex(), Yield.MonotoneConvex())
+        for descriptor in (Spline.Linear(), Spline.MonotoneConvex())
             c = fit(descriptor, qs; extrapolation = fixed)
             @test rate(forward(c, tn, horizon)) ≈ fixed.forward
         end
@@ -305,7 +299,7 @@ spline_zero_curve_with_policy(d, r, t, policy::Symbol) = ZeroRateCurve(r, t, d; 
         flat_rates = fill(0.03, length(times))
         for d in (Spline.Linear(), Spline.Cubic(), Spline.PCHIP(), Spline.MonotoneConvex())
             for policy in policies
-                c = Yield.build_model(d, times, rates; extrapolation = policy)
+                c = ZeroRateCurve(rates, times, d; extrapolation = policy)
                 expected = if policy === :flat_zero
                     zn
                 elseif policy === :linear
@@ -323,7 +317,7 @@ spline_zero_curve_with_policy(d, r, t, policy::Symbol) = ZeroRateCurve(r, t, d; 
                 flat = if d == Spline.MonotoneConvex()
                     Yield.MonotoneConvex([0.03], [tn]; extrapolation = policy)
                 else
-                    Yield.build_model(d, times, flat_rates; extrapolation = policy)
+                    ZeroRateCurve(flat_rates, times, d; extrapolation = policy)
                 end
                 expected_flat = policy isa Yield.FlatForwardAt ? policy.forward : 0.03
                 @test rate(zero(flat, Inf)) ≈ expected_flat
@@ -336,7 +330,7 @@ spline_zero_curve_with_policy(d, r, t, policy::Symbol) = ZeroRateCurve(r, t, d; 
                 # `:extension` keeps DataInterpolations' own continuation of the final
                 # piece, even at t = Inf, where a sloped linear piece diverges and a cubic
                 # piece can be undefined (Inf - Inf). This is the legacy behavior.
-                c = Yield.build_model(d, times, rates; extrapolation = :extension)
+                c = ZeroRateCurve(rates, times, d; extrapolation = :extension)
                 DI = FinanceModels.DataInterpolations
                 E = DI.ExtrapolationType.Extension
                 legacy = if d == Spline.Linear()
@@ -362,7 +356,7 @@ spline_zero_curve_with_policy(d, r, t, policy::Symbol) = ZeroRateCurve(r, t, d; 
         for policy in (:extension, :unknown)
             @test_throws ArgumentError Yield.MonotoneConvex(rates, times; extrapolation = policy)
             @test_throws ArgumentError fit(
-                Yield.MonotoneConvex(),
+                Spline.MonotoneConvex(),
                 ZCBYield.(rates, times); extrapolation = policy
             )
         end

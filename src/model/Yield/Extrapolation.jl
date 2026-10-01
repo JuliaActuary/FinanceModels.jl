@@ -2,8 +2,8 @@
     Yield.FlatForwardAt(forward::FinanceCore.Rate)
 
 Hold the instantaneous forward at the supplied rate beyond the last knot. Pass this object as
-`extrapolation` to `Yield.Spline`, `Yield.MonotoneConvex`, `ZeroRateCurve`,
-`Yield.build_model`, or a spline `fit` call.
+`extrapolation` to `ZeroRateCurve`, `Yield.Spline`, `Yield.MonotoneConvex`, `reconstruct`, or a
+spline `fit` call.
 
 `forward` must be a `FinanceCore.Rate`, such as `Continuous(0.035)` or `Periodic(0.035, 1)`,
 so that its compounding convention is explicit; it is converted to and stored as a
@@ -42,6 +42,7 @@ FlatForwardAt(forward::Real) = throw(
 Base.:(==)(a::FlatForwardAt, b::FlatForwardAt) = a.forward == b.forward
 Base.isequal(a::FlatForwardAt, b::FlatForwardAt) = isequal(a.forward, b.forward)
 Base.hash(p::FlatForwardAt, h::UInt) = hash(p.forward, hash(:FlatForwardAt, h))
+Base.show(io::IO, p::FlatForwardAt) = print(io, "Yield.FlatForwardAt(Continuous(", p.forward, "))")
 
 # Policy is public configuration. The tail objects below are derived boundary data,
 # rebuilt from the policy and knots on construction, fitting, and Accessors updates.
@@ -68,10 +69,13 @@ function __monotone_extrapolation_method(method)
     return method
 end
 
+# DataInterpolations handles the short end (a flat zero rate before the first knot) and, only
+# for `:extension`, the long end; every other long-end policy is a `CurveTail` below.
 function __interpolation_extrapolation(method)
     method = __extrapolation_method(method)
-    extension = DataInterpolations.ExtrapolationType.Extension
-    return method === :extension ? (; extrapolation = extension) : (; extrapolation_left = extension)
+    E = DataInterpolations.ExtrapolationType
+    return method === :extension ? (; extrapolation_left = E.Constant, extrapolation_right = E.Extension) :
+        (; extrapolation_left = E.Constant)
 end
 
 # The average (discrete) continuously compounded forward over the last knot interval,
@@ -153,15 +157,16 @@ struct Extrapolated{I, E}
 end
 (e::Extrapolated)(t) = (e.extend || t <= e.tail.last_tenor) ? e.interpolant(t) : e.tail(t)
 
+# The zero-rate function of a `Yield.Spline`: the interpolant through the last knot, then the tail.
 function __extrapolate(interpolant, g::KnotGrid, method)
     method = __extrapolation_method(method)
     t, z = last(g.tenors), last(g.rates)
     if method === :extension
         # Same tail type as `:flat_zero`, but never evaluated.
         tail = __curve_tail(t, z, zero(z), zero(z), false)
-        return Spline(Extrapolated(interpolant, tail, true))
+        return Extrapolated(interpolant, tail, true)
     end
     forward = () -> __last_discrete_forward(g.rates, g.tenors)
     slope = () -> DataInterpolations.derivative(interpolant, t)
-    return Spline(Extrapolated(interpolant, __build_tail(method, t, z, forward, slope), false))
+    return Extrapolated(interpolant, __build_tail(method, t, z, forward, slope), false)
 end

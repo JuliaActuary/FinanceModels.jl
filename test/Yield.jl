@@ -201,7 +201,7 @@ end
             @test internal_rate_of_return(ParYield(y, 2.3)) ≈ y atol = 1.0e-6
             # CMT and OIS par quotes share the convention
             @test pv(Yield.Constant(Periodic(0.045, 2)), CMTYield(0.045, 2.3).instrument) ≈ 1.0 atol = 1.0e-14
-            @test pv(Yield.Constant(Periodic(0.045, 4)), Bond.OISYield(0.045, 2.3).instrument) ≈ 1.0 atol = 1.0e-14
+            @test pv(Yield.Constant(Periodic(0.045, 1)), Bond.OISYield(0.045, 2.3).instrument) ≈ 1.0 atol = 1.0e-14
 
             # bootstrap through a stub-tenor quote alongside whole tenors
             qs = ParYield.(y, [1.0, 2.3, 4.0])
@@ -225,8 +225,8 @@ end
             @test pv(c, Bond.Fixed(cpn, Periodic(4), 0.6)) ≈ 1.0 atol = 1.0e-14
 
             m = fit(Spline.Linear(), ZCBYield.([0.03, 0.041, 0.045], [0.5, 2.0, 5.0]), Fit.Bootstrap())
-            for T in [0.6, 2.3, 10]
-                swap = InterestRateSwap(m, T)
+            for T in [0.6, 2.3, 10], frequency in (1, 4)
+                swap = InterestRateSwap(m, T; frequency)
                 @test abs(pv(m, Projection(swap, Dict("OIS" => m), CashflowProjection()))) < 1.0e-12
             end
         end
@@ -797,8 +797,9 @@ end
         k > 1 && @test_throws ArgumentError Yield.Spline(d, collect(1.0:(k - 1)), fill(0.02, k - 1))
         ck = Yield.Spline(d, collect(1.0:k), fill(0.02, k))
         @test 0 < discount(ck, 0.5 + k / 2) <= 1
-        # same errors through `build_model` (the ActuaryUtilities AD entry point)
-        @test_throws ArgumentError Yield.build_model(d, [2.0, 1.0, 3.0], [0.1, 0.2, 0.3])
+        # same errors through `ZeroRateCurve` and `reconstruct`
+        @test_throws ArgumentError ZeroRateCurve([0.1, 0.2, 0.3], [2.0, 1.0, 3.0], d)
+        @test_throws ArgumentError reconstruct(ck; tenors = [2.0, 1.0, 3.0], rates = [0.1, 0.2, 0.3])
     end
 
     @testset "promotion: $d" for d in descriptors
@@ -877,13 +878,14 @@ end
         @test discount(mc, 3.0) == d3
         @test discount(mc, 3.0) == discount(Yield.MonotoneConvex([0.02, 0.03, 0.035], [1.0, 2.0, 5.0]), 3.0)
         rr = [0.02, 0.03, 0.035]
-        sp = Yield.Spline(Spline.Linear(), KG(rr, [1.0, 2, 5]))
+        sp = FinanceModels.Yield.__build(Spline.Linear(), KG(rr, [1.0, 2, 5]))
         d3 = discount(sp, 3.0)
         rr[2] = 0.08
         @test discount(sp, 3.0) == d3
         # a curve built over a grid checks its own minimum knot count
-        @test_throws ArgumentError Yield.Spline(Spline.PCHIP(), KG([0.02, 0.03], [1.0, 2.0]))
-        @test_throws ArgumentError Yield.Spline(Spline.Linear(), KG([0.02], [1.0]))
+        @test_throws ArgumentError FinanceModels.Yield.__build(Spline.PCHIP(), KG([0.02, 0.03], [1.0, 2.0]))
+        # one knot is a flat curve
+        @test rate(zero(FinanceModels.Yield.__build(Spline.Linear(), KG([0.02], [1.0])), 5.0)) == 0.02
     end
 
     @testset "flat-forward long-end extrapolation" begin
@@ -952,7 +954,7 @@ end
         # curve is continuous at the last knot.
         mc = Yield.MonotoneConvex(rates, tenors)
         fₙ = Yield.instantaneous_forward(mc, 30.0)
-        @test fₙ == last(mc.f)
+        @test fₙ == last(mc._f)
         @test rate(forward(mc, 30.0, 100.0)) ≈ fₙ atol = 1.0e-14
         @test abs(fₙ - f) > 1.0e-4
     end
