@@ -4,32 +4,58 @@ using ForwardDiff
     rates = [0.02, 0.03, 0.035, 0.04]
     tenors = [1.0, 2.0, 5.0, 10.0]
 
-    @testset "zero-rate primitive survives the wrapper" begin
+    @testset "returns the concrete knot curve" begin
+        @test !(ZeroRateCurve isa Type)
         for spline in (
                 Spline.Linear(), Spline.Quadratic(), Spline.Cubic(),
                 Spline.PCHIP(), Spline.Akima(), Spline.MonotoneConvex(), Spline.BSpline(1),
             )
             flat = ZeroRateCurve(fill(0.05, 4), tenors, spline)
             zrc = ZeroRateCurve(rates, tenors, spline)
-            model = Yield.build_model(spline, tenors, rates)
+            direct = spline isa Spline.MonotoneConvex ? Yield.MonotoneConvex(rates, tenors) :
+                Yield.Spline(spline, tenors, rates)
+            @test zrc isa Yield.AbstractInterpolatedZeroCurve
+            @test zrc isa (spline isa Spline.MonotoneConvex ? Yield.MonotoneConvex : Yield.Spline)
+            @test zrc == direct && typeof(zrc) == typeof(direct)
             for t in (0.0, 1.0e-20, 0.5, 3.0, 10.0, 2.0e4)
                 @test rate(zero(flat, t)) ≈ 0.05
-                @test zero(zrc, t) == zero(model, t)
+                @test zero(zrc, t) == zero(direct, t)
                 @test rate(zero(flat + Yield.Constant(Continuous(0.01)), t)) ≈ 0.06
                 @test rate(zero(flat + ((z, t) -> z + Continuous(0.01)), t)) ≈ 0.06
             end
             @test_throws DomainError zero(zrc, -1.0)
+            @test_throws DomainError discount(zrc, -1.0)
         end
+        @test_throws DomainError Yield.instantaneous_forward(ZeroRateCurve(rates, tenors), -1.0)
+        # `Yield.Spline` covers the DataInterpolations methods only
+        @test_throws ArgumentError Yield.Spline(Spline.MonotoneConvex(), tenors, rates)
 
-        for t in (0.0, 1.0e-20, 3.0, 2.0e4)
-            wrapped(rs) = rate(zero(ZeroRateCurve(rs, tenors, Spline.Linear()), t))
-            direct(rs) = rate(zero(Yield.build_model(Spline.Linear(), tenors, rs), t))
-            @test ForwardDiff.gradient(wrapped, rates) ≈ ForwardDiff.gradient(direct, rates)
-        end
         zrc = ZeroRateCurve(rates, tenors, Spline.Linear())
-        model = Yield.build_model(Spline.Linear(), tenors, rates)
-        @test ForwardDiff.derivative(t -> rate(zero(zrc, t)), 3.0) ≈
-            ForwardDiff.derivative(t -> rate(zero(model, t)), 3.0)
+        for t in (0.0, 1.0e-20, 3.0, 2.0e4)
+            g = ForwardDiff.gradient(rs -> rate(zero(ZeroRateCurve(rs, tenors, Spline.Linear()), t)), rates)
+            @test g ≈ ForwardDiff.gradient(rs -> rate(zero(reconstruct(zrc; rates = rs), t)), rates)
+        end
+    end
+
+    @testset "flat zero rate before the first knot" begin
+        # DataInterpolations-backed curves hold the first knot's zero rate on [0, t₁]
+        for spline in (
+                    Spline.Linear(), Spline.Quadratic(), Spline.Cubic(),
+                    Spline.PCHIP(), Spline.Akima(), Spline.BSpline(1), Spline.BSpline(3),
+                ),
+                extrapolation in (:flat_forward, :flat_zero, :linear, :extension)
+            zrc = ZeroRateCurve(rates, tenors, spline; extrapolation)
+            for t in (0.0, 0.1, 0.5, 0.999, 1.0)
+                @test rate(zero(zrc, t)) == first(rates)
+            end
+            @test discount(zrc, 0.5) == exp(-first(rates) * 0.5)
+        end
+        # MonotoneConvex interpolates from t = 0 as part of the Hagan-West construction:
+        # its zero rate at the origin is the instantaneous forward f(0), not z₁
+        mc = ZeroRateCurve(rates, tenors)
+        @test rate(zero(mc, 0.0)) == Yield.instantaneous_forward(mc, 0.0)
+        @test rate(zero(mc, 0.0)) != first(rates)
+        @test rate(zero(mc, 1.0)) ≈ first(rates)
     end
 
     @testset "MonotoneConvex (default)" begin
@@ -209,13 +235,16 @@ using ForwardDiff
             @test_throws ArgumentError sort!(zrc.rates; rev = true)
             @test_throws ArgumentError view(zrc.rates, 1:2)[1] = 0.2
             @test_throws ArgumentError view(zrc.rates, :) .= 0.0
-            # hidden backing storage and cache, in both public and private listings
+            # hidden backing storage; derived caches are listed only as private properties
             @test_throws ArgumentError zrc.rates._data
             @test propertynames(zrc.rates) == ()
             @test propertynames(zrc.rates, true) == ()
-            @test propertynames(zrc) == (:rates, :tenors, :spline, :extrapolation)
-            @test propertynames(zrc, true) == (:rates, :tenors, :spline, :extrapolation)
-            @test_throws ArgumentError zrc._model
+            @test propertynames(zrc) == (:spline, :rates, :tenors, :extrapolation)
+            @test propertynames(zrc, true) == fieldnames(typeof(zrc))
+            @test all(p -> startswith(String(p), "_"), setdiff(propertynames(zrc, true), propertynames(zrc)))
+            @test knot_rates(zrc) === zrc.rates && knot_tenors(zrc) === zrc.tenors
+            @test_throws ArgumentError knot_rates(zrc)[1] = 0.2
+            @test_throws ArgumentError knot_tenors(zrc)[1] = 0.2
             # nothing above changed the curve
             @test discount(zrc, 1.0) == df1
             @test hash(zrc) == h1
@@ -269,23 +298,26 @@ using ForwardDiff
     @testset "ConstructionBase round-trips" begin
         CB = Accessors.ConstructionBase
         z = ZeroRateCurve([0.02, 0.03, 0.04], [1.0, 2.0, 5.0], Spline.Linear())
-        @test keys(CB.getproperties(z)) == (:rates, :tenors, :spline, :extrapolation)
+        @test keys(CB.getproperties(z)) == (:spline, :rates, :tenors, :extrapolation)
         @test CB.setproperties(z, CB.getproperties(z)) == z
         raw = CB.constructorof(typeof(z))(CB.getfields(z)...)
         @test raw == z && discount(raw, 3.5) == discount(z, 3.5)
         @test Accessors.mapproperties(identity, z) == z
         @test Accessors.getall(z, Accessors.Properties()) ==
-            (z.rates, z.tenors, z.spline, z.extrapolation)
+            (z.spline, z.rates, z.tenors, z.extrapolation)
         newrates = [0.03, 0.04, 0.05]
         zp = Accessors.setall(
             z, Accessors.Properties(),
-            (newrates, z.tenors, z.spline, :flat_zero)
+            (z.spline, newrates, z.tenors, :flat_zero)
         )
         @test zp == ZeroRateCurve(
             newrates, [1.0, 2.0, 5.0], Spline.Linear();
             extrapolation = :flat_zero
         )
         @test discount(zp, 5.0) ≈ exp(-0.05 * 5.0)
+        mc = ZeroRateCurve([0.02, 0.03, 0.04], [1.0, 2.0, 5.0])
+        rawmc = CB.constructorof(typeof(mc))(CB.getfields(mc)...)
+        @test rawmc == mc && discount(rawmc, 3.5) == discount(mc, 3.5)
     end
 
     @testset "Accessors rebuild the cached model" begin
@@ -322,10 +354,10 @@ using ForwardDiff
         @test_throws ArgumentError Accessors.@set zrc.tenors[1] = -1.0    # negative
         @test_throws ArgumentError Accessors.@set zrc.rates = [NaN, 0.03, 0.04]
         @test_throws ArgumentError Accessors.@set zrc.rates = [0.02, 0.03]  # length mismatch
-        # the cache cannot be patched (RHS must not read `zrc._model`: that getter throws first)
-        @test_throws ArgumentError zrc._model
-        @test_throws ArgumentError (Accessors.@set zrc._model = nothing)
-        @test_throws ArgumentError CB.setproperties(zrc, (_model = nothing,))
+        # the derived caches cannot be patched
+        @test_throws ArgumentError (Accessors.@set zrc._f = Float64[])
+        @test_throws ArgumentError CB.setproperties(zrc, (_tail = nothing,))
+        @test_throws ArgumentError CB.setproperties(lin, (_fn = nothing,))
         @test_throws ArgumentError CB.setproperties(zrc, (foo = 1,))
         # ConstructionBase reconstruction preserves the public policy and rebuilds the cache.
         sp = CB.setproperties(zrc, (rates = [0.03, 0.04, 0.05],))
@@ -338,7 +370,7 @@ using ForwardDiff
         @test ForwardDiff.partials(discount(dz, 1.0), 1) ≈ -1.0 * exp(-0.02 * 1.0) atol = 1.0e-12
         # The policy is keyword-only and there is no public positional cache constructor.
         @test_throws MethodError ZeroRateCurve(r, t, Spline.Linear(), :flat_zero)
-        @test_throws MethodError ZeroRateCurve(r, t, Spline.Linear(), getfield(zrc, :_model))
+        @test_throws MethodError ZeroRateCurve(r, t, Spline.Linear(), getfield(lin, :_fn))
     end
 
     # ─── Validation ───────────────────────────────────────────────────────────
@@ -412,7 +444,7 @@ using ForwardDiff
 
     @testset "minimum knots per interpolant" begin
         expected = Dict(
-            Spline.Linear() => 2, Spline.Quadratic() => 2, Spline.Cubic() => 2, Spline.BSpline(3) => 2,
+            Spline.Linear() => 1, Spline.Quadratic() => 1, Spline.Cubic() => 1, Spline.BSpline(3) => 1,
             Spline.PCHIP() => 3, Spline.Akima() => 3, Spline.MonotoneConvex() => 1,
         )
         for (spl, k) in expected
@@ -441,10 +473,16 @@ using ForwardDiff
         za = ZeroRateCurve(BigFloat[0.02, 0.03, 0.035], BigFloat[1, 2, 5], Spline.Akima())
         @test eltype(za.rates) === BigFloat
         @test isfinite(discount(za, big"1.5"))
-        # a single MonotoneConvex knot is a flat curve
-        z1 = ZeroRateCurve([0.03], [2.0])
-        @test discount(z1, 1.0) ≈ exp(-0.03 * 1.0)
-        @test discount(z1, 4.0) ≈ exp(-0.03 * 4.0)
+        # a single knot is a flat curve for every method that accepts one, under every policy
+        for spl in (Spline.MonotoneConvex(), Spline.Linear(), Spline.Cubic(), Spline.BSpline(3)),
+                extrapolation in (:flat_forward, :flat_zero, :linear)
+            z1 = ZeroRateCurve([0.03], [2.0], spl; extrapolation)
+            for t in (0.0, 1.0, 2.0, 4.0, 50.0)
+                @test rate(zero(z1, t)) ≈ 0.03
+            end
+        end
+        z1 = ZeroRateCurve([0.03], [2.0], Spline.Cubic(); extrapolation = :extension)
+        @test rate(zero(z1, 50.0)) == 0.03
     end
 
     @testset "zero-tenor knot, interior times" begin
@@ -494,16 +532,145 @@ using ForwardDiff
         @test o isa FinanceModels.KnotRatesOptic
         @test Accessors.getall(zrc0, o) === Tuple(zrc0.rates)
         zb = Accessors.setall(zrc0, o, target)
-        @test zb isa ZeroRateCurve && zb.rates == target && zb.tenors == t
+        @test zb isa Yield.MonotoneConvex && zb.rates == target && zb.tenors == t
         @test discount(zb, 2.0) ≈ exp(-0.025 * 2.0)
         @test zrc0.rates == fill(0.01, length(t))                  # original untouched
         @test Accessors.modify(x -> 2x, zrc0, o).rates == fill(0.02, length(t))
         @test_throws ArgumentError Accessors.setall(zrc0, o, [NaN, 0.0, 0.0, 0.0])   # still validated
         fitted = fit(zrc0, qs)
-        @test fitted isa ZeroRateCurve
+        @test fitted isa Yield.MonotoneConvex
         @test fitted.tenors == t
         @test maximum(abs, present_value(fitted, q.instrument) - q.price for q in qs) < 1.0e-6
         fl = fit(ZeroRateCurve(fill(0.01, length(t)), t, Spline.Linear()), qs)
         @test fl.rates ≈ target atol = 1.0e-5
+    end
+
+    # ─── Knot-curve interface ─────────────────────────────────────────────────
+
+    @testset "reconstruct" begin
+        local rates = [0.02, 0.03, 0.035, 0.04]
+        local tenors = [1.0, 2.0, 5.0, 10.0]
+        splines = (
+            Spline.Linear(), Spline.Quadratic(), Spline.Cubic(), Spline.PCHIP(),
+            Spline.Akima(), Spline.BSpline(3), Spline.MonotoneConvex(),
+        )
+        ts = (0.0, 0.3, 1.0, 2.7, 5.0, 9.9, 10.0, 25.0, 1.0e3)
+        for spline in splines, extrapolation in (:flat_forward, :flat_zero, Yield.FlatForwardAt(Continuous(0.03)))
+            c = ZeroRateCurve(rates, tenors, spline; extrapolation)
+            # the same inputs rebuild an equal curve that prices bitwise identically
+            for r in (reconstruct(c), reconstruct(c; rates = collect(knot_rates(c))))
+                @test r == c && isequal(r, c) && hash(r) == hash(c) && typeof(r) == typeof(c)
+                @test all(discount(r, t) === discount(c, t) for t in ts)
+            end
+            # each argument replaces only its own input
+            up = reconstruct(c; rates = rates .+ 0.01)
+            @test knot_rates(up) == rates .+ 0.01 && knot_tenors(up) == tenors
+            @test up.spline == spline && up.extrapolation == extrapolation
+            @test discount(up, 5.0) ≈ exp(-(0.035 + 0.01) * 5.0)
+            @test knot_tenors(reconstruct(c; tenors = tenors .* 2)) == tenors .* 2
+            @test reconstruct(c; extrapolation = :linear).extrapolation === :linear
+            @test knot_rates(c) == rates                                # original untouched
+        end
+        # replacing the method can change the concrete type
+        mc = ZeroRateCurve(rates, tenors)
+        lin = reconstruct(mc; spline = Spline.Linear())
+        @test lin isa Yield.Spline && lin == ZeroRateCurve(rates, tenors, Spline.Linear())
+        @test reconstruct(lin; spline = Spline.MonotoneConvex()) == mc
+        # the requested method survives a short grid (Cubic on two knots evaluates linearly)
+        short = ZeroRateCurve(rates[1:2], tenors[1:2], Spline.Cubic())
+        @test short.spline == Spline.Cubic()
+        @test reconstruct(short; rates, tenors) == ZeroRateCurve(rates, tenors, Spline.Cubic())
+        # validation is the constructor's
+        @test_throws ArgumentError reconstruct(mc; rates = rates[1:3])
+        @test_throws ArgumentError reconstruct(mc; tenors = reverse(tenors))
+        @test_throws ArgumentError reconstruct(mc; extrapolation = :extension)
+        @test_throws ArgumentError reconstruct(mc; rates = [NaN, 0.03, 0.035, 0.04])
+        # knot-rate derivatives through `reconstruct` are exact at the knots
+        for spline in splines
+            c = ZeroRateCurve(rates, tenors, spline)
+            g = ForwardDiff.gradient(z -> discount(reconstruct(c; rates = z), 5.0), collect(knot_rates(c)))
+            @test g ≈ [0.0, 0.0, -5.0 * exp(-0.035 * 5.0), 0.0] atol = 1.0e-12
+        end
+    end
+
+    @testset "knot vectors are read-only and copyable" begin
+        local rates = [0.02, 0.03, 0.035, 0.04]
+        local tenors = [1.0, 2.0, 5.0, 10.0]
+        for spline in (Spline.Linear(), Spline.MonotoneConvex())
+            c = ZeroRateCurve(rates, tenors, spline)
+            @test_throws ArgumentError knot_rates(c) .= 0.0
+            @test_throws ArgumentError sort!(knot_tenors(c); rev = true)
+            v = copy(knot_rates(c))
+            @test v isa Vector{Float64}
+            v[1] = 0.5
+            @test knot_rates(c)[1] == 0.02
+        end
+    end
+
+    @testset "structural equality across concrete types" begin
+        local rates = [0.02, 0.03, 0.035, 0.04]
+        local tenors = [1.0, 2.0, 5.0, 10.0]
+        lin = ZeroRateCurve(rates, tenors, Spline.Linear())
+        mc = ZeroRateCurve(rates, tenors)
+        @test lin != mc && !isequal(lin, mc) && hash(lin) != hash(mc)
+        @test lin != ZeroRateCurve(rates, tenors, Spline.BSpline(1))     # numerically identical, different method
+        @test lin == Yield.Spline(Spline.Linear(), tenors, rates)
+        @test mc == Yield.MonotoneConvex(rates, tenors)
+        d = Dict(lin => 1, mc => 2)
+        @test d[ZeroRateCurve(copy(rates), copy(tenors), Spline.Linear())] == 1
+        @test d[ZeroRateCurve(copy(rates), copy(tenors))] == 2
+    end
+
+    @testset "show prints a construction call that rebuilds the curve" begin
+        local rates = [0.02, 0.03, 0.035, 0.04]
+        local tenors = [1.0, 2.0, 5.0, 10.0]
+        for c in (
+                ZeroRateCurve(rates, tenors),
+                ZeroRateCurve(rates, tenors, Spline.Cubic(); extrapolation = :linear),
+                ZeroRateCurve(rates, tenors, Spline.BSpline(3); extrapolation = :extension),
+                ZeroRateCurve(rates, tenors, Spline.PCHIP(); extrapolation = Yield.FlatForwardAt(Periodic(0.04, 2))),
+            )
+            s = repr(c)
+            @test startswith(s, "ZeroRateCurve(")
+            rebuilt = Core.eval(Main, Meta.parse(s))
+            @test rebuilt == c && typeof(rebuilt) == typeof(c)
+        end
+    end
+
+    @testset "one monotone convex selector (#272)" begin
+        # `Spline.MonotoneConvex()` is the only selector: construction and every fit route
+        # through it to the native curve; the former `Yield.MonotoneConvex()` placeholder is gone.
+        @test_throws MethodError Yield.MonotoneConvex()
+        qs = ZCBYield.([0.02, 0.025, 0.03], [1.0, 2.0, 5.0])
+        fitted = fit(Spline.MonotoneConvex(), qs)
+        @test fitted isa Yield.MonotoneConvex
+        @test fit(Spline.MonotoneConvex(), qs, Fit.Loss(x -> x^2)) == fitted
+        @test maximum(abs(present_value(fitted, q.instrument) - q.price) for q in qs) < 1.0e-7
+        @test_throws ArgumentError fit(Spline.MonotoneConvex(), qs; extrapolation = :extension)
+        @test_throws "fit(Spline.MonotoneConvex(), quotes)" fit(Spline.MonotoneConvex(), qs, Fit.Bootstrap())
+        # refitting an existing curve varies only its knot rates
+        refit = fit(ZeroRateCurve(fill(0.01, 3), [1.0, 2.0, 5.0]), qs)
+        @test refit isa Yield.MonotoneConvex && knot_tenors(refit) == [1.0, 2.0, 5.0]
+        @test knot_rates(refit) ≈ knot_rates(fitted) atol = 1.0e-5
+    end
+
+    @testset "bootstrap knots are the quote maturities" begin
+        qs = CMTYield.([0.03, 0.032, 0.035, 0.037], [0.5, 1.0, 2.0, 5.0])
+        for spline in (Spline.Linear(), Spline.BSpline(1))
+            c = fit(spline, qs, Fit.Bootstrap())
+            @test c isa Yield.Spline && c.spline == spline
+            @test knot_tenors(c) == [0.5, 1.0, 2.0, 5.0]
+            @test length(knot_rates(c)) == 4
+            # the knots alone determine the curve, including its flat short end
+            @test reconstruct(c; rates = collect(knot_rates(c))) == c
+            @test rate(zero(c, 0.0)) == first(knot_rates(c)) == rate(zero(c, 0.5))
+            for q in qs
+                @test present_value(c, q.instrument) ≈ q.price atol = 1.0e-12
+            end
+        end
+        one_quote = fit(Spline.Linear(), [ZCBPrice(0.95, 2.0)], Fit.Bootstrap())
+        @test knot_tenors(one_quote) == [2.0]
+        @test discount(one_quote, 2.0) ≈ 0.95
+        @test rate(zero(one_quote, 0.0)) == rate(zero(one_quote, 2.0)) == rate(zero(one_quote, 10.0))
     end
 end

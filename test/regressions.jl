@@ -103,7 +103,7 @@ end
         qs = ZCBPrice.([0.97, 0.93, 0.88], [1.0, 2.0, 3.0])
         fits = (
             () -> fit(Yield.Constant(), qs; optimizer = FailingFitOptimizer()),
-            () -> fit(Yield.MonotoneConvex(), qs; optimizer = FailingFitOptimizer()),
+            () -> fit(Spline.MonotoneConvex(), qs; optimizer = FailingFitOptimizer()),
             () -> fit(Spline.Linear(), qs, Fit.Loss(abs2); optimizer = FailingFitOptimizer()),
         )
 
@@ -146,7 +146,7 @@ end
 
     @testset "MonotoneConvex fit with a single quote" begin
         # range(0.01, 0.05, length=1) used to throw before any solving happened
-        c = fit(Yield.MonotoneConvex(), [ZCBPrice(0.95, 2.0)])
+        c = fit(Spline.MonotoneConvex(), [ZCBPrice(0.95, 2.0)])
         @test discount(c, 2.0) ≈ 0.95 atol = 1.0e-8
     end
 
@@ -167,7 +167,7 @@ end
         @test_logs fit(Yield.NelsonSiegel(), qs; optimizer = ipn)  # smooth 4-param fit: assert only quiet
 
         # MonotoneConvex (unbounded) path: Newton is the canonical second-order method.
-        mc = @test_logs fit(Yield.MonotoneConvex(), qs; optimizer = FinanceModels.OptimizationOptimJL.Newton())
+        mc = @test_logs fit(Spline.MonotoneConvex(), qs; optimizer = FinanceModels.OptimizationOptimJL.Newton())
         @test reprice(mc) < 1.0e-10
     end
 end

@@ -8,7 +8,7 @@ import ..Bond: coupon_times, __regular_schedule, __par_coupon
 
 using ..FinanceCore: Continuous, Periodic, discount, accumulation, forward, pv, AbstractContract
 
-export discount, zero, forward, par, pv, instantaneous_forward
+export discount, zero, forward, par, pv, instantaneous_forward, knot_rates, knot_tenors, reconstruct
 
 abstract type AbstractYieldModel <: AbstractModel end
 
@@ -27,7 +27,7 @@ end
 
 # Generic callable fallback: `curve(t) ≡ discount(curve, t)`. Covers every
 # AbstractYieldModel subtype (Constant, Spline, CompositeYield, ScaledYield,
-# TenorShift, ProjectedShift, NelsonSiegel, MonotoneConvex, ZeroRateCurve, …);
+# TenorShift, ProjectedShift, NelsonSiegel, MonotoneConvex, …);
 # each one routes through its own `discount`, so no per-type callable is needed.
 (yc::AbstractYieldModel)(t) = FinanceCore.discount(yc, t)
 
@@ -59,17 +59,17 @@ Base.zero(c::Constant, t) = convert(Continuous(), c.rate)
 
 # ── Shared knot-grid construction ──────────────────────────────────────────────────────
 #
-# Every curve that interpolates zero rates over a knot grid (`Yield.Spline`,
-# `Yield.MonotoneConvex`, `ZeroRateCurve`) obtains its knot data through `KnotGrid`, so all
-# of them copy their inputs, promote to one concrete float type, and raise the same
-# `ArgumentError`s for the same invalid grids.
+# Every curve that interpolates zero rates over a knot grid (`Yield.Spline` and
+# `Yield.MonotoneConvex`, however built: `ZeroRateCurve`, `reconstruct`, `fit`) obtains its
+# knot data through `KnotGrid`, so all of them copy their inputs, promote to one concrete float
+# type, and raise the same `ArgumentError`s for the same invalid grids.
 
-# Minimum knot counts that the backing interpolants can handle (verified against
-# DataInterpolations 9; `Yield.Spline` already reduces a polynomial/B-spline order to n-1).
-__min_knots(::Sp.SplineCurve) = 2     # Linear / Quadratic / Cubic / BSpline
+# Minimum knot counts. Polynomial and B-spline orders reduce to `n - 1` on short grids, so one
+# knot is a flat curve; PCHIP and Akima need three (two reach an UndefRefError inside
+# DataInterpolations); a one-knot MonotoneConvex curve is flat.
+__min_knots(::Sp.SplineCurve) = 1
 __min_knots(::Sp.PCHIP) = 3
-__min_knots(::Sp.Akima) = 3           # 2 knots reach an UndefRefError inside DataInterpolations
-__min_knots(::Sp.MonotoneConvex) = 1  # single knot is a flat curve
+__min_knots(::Sp.Akima) = 3
 
 __check_min_knots(::Nothing, n, who) = nothing
 function __check_min_knots(spline::Sp.SplineCurve, n, who)
@@ -77,6 +77,7 @@ function __check_min_knots(spline::Sp.SplineCurve, n, who)
     n >= k || throw(ArgumentError("$who: $(spline) requires at least $k knots (got $n)."))
     return nothing
 end
+
 
 # Owned, concretely-typed float `Vector` from any iterable of reals. Always copies (even
 # when handed a `Vector`), so the curve never aliases caller-owned memory; never narrows
@@ -108,8 +109,8 @@ struct Unchecked end
 """
     KnotGrid(rates, tenors[, spline::Spline.SplineCurve]; who = "KnotGrid")
 
-Internal. The owned, validated knot data behind every curve that interpolates zero rates
-(`Yield.Spline`, `Yield.MonotoneConvex`, `ZeroRateCurve`). `rates` and `tenors` are each
+Internal. The owned, validated knot data behind every `AbstractInterpolatedZeroCurve`
+(`Yield.Spline`, `Yield.MonotoneConvex`). `rates` and `tenors` are each
 copied from any iterable of reals (a `Vector` is copied too, so no curve aliases caller-owned
 memory) and promoted **independently** to one concrete floating-point element type
 (`Int` → `Float64`, `Float32` + `BigFloat` → `BigFloat`, `Float64` + `ForwardDiff.Dual` →
@@ -165,6 +166,111 @@ function KnotGrid(rates, tenors, spline::Union{Nothing, Sp.SplineCurve} = nothin
     return KnotGrid(Unchecked(), r, t)
 end
 
+# ── Interpolated zero curves ───────────────────────────────────────────────────────────
+
+"""
+    Yield.AbstractInterpolatedZeroCurve <: Yield.AbstractYieldModel
+
+Supertype of the yield curves that interpolate continuously compounded zero rates over a knot
+grid: [`Yield.Spline`](@ref) (the DataInterpolations-backed methods) and
+[`Yield.MonotoneConvex`](@ref). [`ZeroRateCurve`](@ref), [`reconstruct`](@ref), and spline
+[`fit`](@ref FinanceModels.fit)s return one of these.
+
+Every such curve:
+
+- owns validated copies of its knots, read with [`knot_rates`](@ref) and
+  [`knot_tenors`](@ref) (read-only vectors);
+- changes only by building a new curve with [`reconstruct`](@ref) (or `Accessors.@set` on its
+  `rates`, `tenors`, `spline`, or `extrapolation` properties, which calls `reconstruct`);
+- follows its `extrapolation` policy beyond the last knot;
+- throws a `DomainError` for negative times; and
+- compares structurally: two curves are `==` (and `isequal`, with equal hashes) when their knot
+  rates, knot tenors, interpolation method, and extrapolation policy are.
+
+Before the first knot, the DataInterpolations-backed curves hold the zero rate flat at the first
+knot's rate. `Yield.MonotoneConvex` instead interpolates from `t = 0` as part of the Hagan-West
+construction. Other fields of the concrete types are internal.
+"""
+abstract type AbstractInterpolatedZeroCurve <: AbstractYieldModel end
+
+"""
+    knot_rates(curve::Yield.AbstractInterpolatedZeroCurve)
+
+The continuously compounded zero rates at the curve's knots, in tenor order, as a read-only
+vector. Use `copy` or `collect` for a mutable `Vector`.
+
+See also [`knot_tenors`](@ref), [`reconstruct`](@ref).
+"""
+knot_rates(c::AbstractInterpolatedZeroCurve) = c.rates
+
+"""
+    knot_tenors(curve::Yield.AbstractInterpolatedZeroCurve)
+
+The curve's knot tenors (strictly increasing, in years) as a read-only vector. Use `copy` or
+`collect` for a mutable `Vector`.
+
+See also [`knot_rates`](@ref), [`reconstruct`](@ref).
+"""
+knot_tenors(c::AbstractInterpolatedZeroCurve) = c.tenors
+
+"""
+    reconstruct(curve::Yield.AbstractInterpolatedZeroCurve;
+        rates = knot_rates(curve), tenors = knot_tenors(curve),
+        spline = <curve's method>, extrapolation = <curve's policy>)
+
+Build a new curve from `curve` with any of its knot `rates`, knot `tenors`, interpolation
+method (`spline`), or `extrapolation` policy replaced; omitted arguments keep the curve's own.
+The result goes through the same validation as [`ZeroRateCurve`](@ref) and is built once.
+Replacing `spline` can change the concrete type, for example to `Yield.MonotoneConvex`.
+
+`reconstruct(curve)` is equal to `curve` and prices identically. `rates` may hold ForwardDiff
+dual numbers, so this is how to differentiate a valuation with respect to a curve's knot rates:
+
+```julia
+curve = ZeroRateCurve([0.03, 0.035, 0.04], [1.0, 5.0, 10.0])
+ForwardDiff.gradient(z -> pv(reconstruct(curve; rates = z), cfs), collect(knot_rates(curve)))
+```
+"""
+reconstruct(
+    c::AbstractInterpolatedZeroCurve;
+    rates = knot_rates(c), tenors = knot_tenors(c), spline = c.spline, extrapolation = c.extrapolation
+) = ZeroRateCurve(rates, tenors, spline; extrapolation)
+
+function __check_time(t, who)
+    t < zero(t) && throw(DomainError(t, "$who is only defined for t ≥ 0"))
+    return nothing
+end
+
+# Structural equality on the construction inputs. Every derived cache is rebuilt from these
+# by the only constructors, and the stored knots are read-only. `isequal` is fieldwise (not via
+# `==`) so that `isequal(a, b)` implies `hash(a) == hash(b)` with Julia's own array semantics
+# (`[-0.0] == [0.0]` but `!isequal([-0.0], [0.0])`).
+Base.:(==)(a::AbstractInterpolatedZeroCurve, b::AbstractInterpolatedZeroCurve) =
+    a.spline == b.spline && a.extrapolation == b.extrapolation && a.tenors == b.tenors &&
+    a.rates == b.rates
+Base.isequal(a::AbstractInterpolatedZeroCurve, b::AbstractInterpolatedZeroCurve) =
+    isequal(a.spline, b.spline) && isequal(a.extrapolation, b.extrapolation) &&
+    isequal(a.tenors, b.tenors) && isequal(a.rates, b.rates)
+Base.hash(c::AbstractInterpolatedZeroCurve, h::UInt) =
+    hash(c.rates, hash(c.tenors, hash(c.extrapolation, hash(c.spline, hash(:AbstractInterpolatedZeroCurve, h)))))
+
+# Base's convention: the derived caches are listed only with `propertynames(c, true)`.
+Base.propertynames(c::AbstractInterpolatedZeroCurve, private::Bool = false) =
+    private ? fieldnames(typeof(c)) : (:spline, :rates, :tenors, :extrapolation)
+
+# Print the construction call, which rebuilds an equal curve.
+function Base.show(io::IO, c::AbstractInterpolatedZeroCurve)
+    print(io, "ZeroRateCurve(")
+    show(io, collect(c.rates))
+    print(io, ", ")
+    show(io, collect(c.tenors))
+    print(io, ", ")
+    show(io, c.spline)
+    print(io, "; extrapolation = ")
+    show(io, c.extrapolation)
+    return print(io, ")")
+end
+
 # ── DataInterpolations-backed curve ────────────────────────────────────────────────────
 
 """
@@ -173,7 +279,13 @@ end
 A yield curve that interpolates continuously-compounded zero rates over a knot grid with a
 DataInterpolations interpolant chosen by the `spline` descriptor (`Spline.Linear()`,
 `Spline.Cubic()`, `Spline.PCHIP()`, `Spline.BSpline(3)`, …). Polynomial and B-spline orders are
-reduced to `length(tenors) - 1` when the grid is short.
+reduced to `length(tenors) - 1` when the grid is short, so a single knot gives a flat curve.
+`Spline.MonotoneConvex()` is not a DataInterpolations method: build it with
+[`ZeroRateCurve`](@ref) or [`Yield.MonotoneConvex`](@ref). Note the argument order
+`(spline, tenors, rates)`, unlike `ZeroRateCurve(rates, tenors, spline)`, which returns the
+same curve.
+
+Before the first knot the zero rate is held flat at the first knot's rate.
 
 The default `extrapolation=:flat_forward` holds the instantaneous forward rate constant beyond
 the last knot at the **last discrete forward**, the average continuously compounded forward over
@@ -186,80 +298,84 @@ not depend on the interpolant, so a quadratic or cubic end piece cannot drive th
 instantaneous forward generally jumps at `tₙ`, from the interpolant's endpoint forward to `fₙ`.
 Set `extrapolation` to `:flat_zero`, `:linear`, or `:extension` to instead hold the zero rate
 constant, extend the zero rate at its left-hand boundary slope, or continue the final
-interpolation piece (the behavior before v7), respectively.
+interpolation piece, respectively.
 [`FlatForwardAt`](@ref) holds a supplied forward rate fixed beyond the last knot.
 
-Inputs go through the shared knot-grid construction: `rates` and `tenors` are **copied** (later
-mutation of the vectors you passed in does not affect the curve) and promoted to one concrete
-float element type each, and the same `ArgumentError`s as `ZeroRateCurve` are raised for a
-length mismatch, empty or non-finite inputs, negative/unsorted/duplicate tenors, or fewer knots
-than the interpolant needs. The curve keeps no public copy of the knots beside the interpolant;
-use [`ZeroRateCurve`](@ref) when the knot rates need to be inspected or varied.
-
-The one-argument `Spline(fn)` wraps any callable `t -> continuous zero rate` as a curve.
+Inputs are **copied** (later mutation of the vectors you passed in does not affect the curve)
+and promoted to one concrete float element type each. An `ArgumentError` is raised for a length
+mismatch, empty or non-finite inputs, negative/unsorted/duplicate tenors, or fewer knots than
+the interpolant needs. `Yield.Spline` is a [`Yield.AbstractInterpolatedZeroCurve`](@ref): read
+its knots with [`knot_rates`](@ref)/[`knot_tenors`](@ref) and change it with
+[`reconstruct`](@ref).
 """
-struct Spline{U} <: AbstractYieldModel
-    fn::U # here, fn is a map from time to instantaneous zero rate
+struct Spline{S <: Sp.SplineCurve, R, T, E, F} <: AbstractInterpolatedZeroCurve
+    spline::S                  # the requested method (not the order reduced for short grids)
+    rates::ReadOnlyVector{R}   # continuously-compounded zero rates at the knots
+    tenors::ReadOnlyVector{T}  # finite, ≥ 0, strictly increasing
+    extrapolation::E           # validated long-end policy
+    _fn::F                     # t -> continuous zero rate (interpolant, short end, and tail)
+    # Internal: the builders below pass an owned grid and a validated policy.
+    Spline(::Unchecked, spline::S, g::KnotGrid{R, T}, extrapolation::E, fn::F) where {S, R, T, E, F} =
+        new{S, R, T, E, F}(spline, ReadOnlyVector(g.rates), ReadOnlyVector(g.tenors), extrapolation, fn)
 end
 
-# `discount`/`zero` below are the interface; the callable `(c::Spline)(t)` comes from
-# the generic `AbstractYieldModel` fallback, which routes to this same `discount`.
-function FinanceCore.discount(c::Spline, time)
-    z = c.fn(time)
-    return exp(-z * time)
+function FinanceCore.discount(c::Spline, t)
+    __check_time(t, "discount")
+    return exp(-c._fn(t) * t)
 end
 
-# `c.fn(t)` is the continuous zero rate, so `zero` is a direct read of the
-# interpolant. Avoids the generic `-log(discount)/t` round-trip (and its
-# `0/0 → NaN` at t=0), which also makes composites/shifts built on a Spline cheap.
-Base.zero(c::Spline, time) = Continuous(c.fn(time))
+# `_fn(t)` is the continuous zero rate, so `zero` is a direct read of the interpolant. This
+# avoids the generic `-log(discount)/t` round-trip (and its `0/0 → NaN` at t=0).
+function Base.zero(c::Spline, t)
+    __check_time(t, "zero")
+    return Continuous(c._fn(t))
+end
 
 include("Yield/Extrapolation.jl")
 
 # Public, validating form: every direct construction copies and checks its inputs.
 Spline(spline::Sp.SplineCurve, tenors, rates; extrapolation = :flat_forward) =
-    Spline(spline, KnotGrid(rates, tenors, spline; who = "Yield.Spline"); extrapolation)
+    __build(spline, KnotGrid(rates, tenors, spline; who = "Yield.Spline"); extrapolation)
+Spline(::Sp.MonotoneConvex, tenors, rates; extrapolation = :flat_forward) = throw(
+    ArgumentError(
+        "Yield.Spline implements the DataInterpolations methods only. Build a monotone convex " *
+            "curve with ZeroRateCurve(rates, tenors, Spline.MonotoneConvex()) or Yield.MonotoneConvex(rates, tenors)."
+    )
+)
 
-# Builders over an owned `KnotGrid` (validated, or an internal optimizer trial grid). The
-# interpolant stores the grid's vectors directly. The grid-level checks do not know the
-# interpolant, so each builder checks its own minimum knot count.
-function Spline(b::Sp.BSpline, g::KnotGrid; extrapolation = :flat_forward)
-    __check_min_knots(b, length(g.tenors), "Yield.Spline")
+# The one builder per interpolation method, over an owned grid: validated, or an internal
+# optimizer trial grid. `ZeroRateCurve`, `Yield.Spline`, `reconstruct`, and `fit` all end here,
+# so the descriptor → curve-type mapping lives in one place.
+function __build(s::Sp.SplineCurve, g::KnotGrid; extrapolation = :flat_forward)
+    extrapolation = __extrapolation_method(extrapolation)
+    __check_min_knots(s, length(g.tenors), "Yield.Spline")
+    interpolant = __interpolant(s, __interpolation_grid(g), __interpolation_extrapolation(extrapolation))
+    return Spline(Unchecked(), s, g, extrapolation, __extrapolate(interpolant, g, extrapolation))
+end
+
+# DataInterpolations needs two points. A one-knot curve is flat, so its interpolant runs a flat
+# segment from the knot to one year beyond it; the curve's own knots, tail, and short end are
+# still those of the single knot. Returning a grid of the same type keeps construction inferable.
+function __interpolation_grid(g::KnotGrid)
+    length(g.tenors) == 1 || return g
+    z, t = only(g.rates), only(g.tenors)
+    return KnotGrid(Unchecked(), [z, z], [t, t + one(t)])
+end
+
+function __interpolant(b::Sp.BSpline, g::KnotGrid, extrapolation_kwargs)
     xs, ys = g.tenors, g.rates
     order = min(length(xs) - 1, b.order) # in case the length of xs is less than the spline order
-    knot_type = if length(xs) < 3
-        :Uniform
-    else
-        :Average
-    end
-
-    interpolant = DataInterpolations.BSplineInterpolation(
-        ys, xs, order, knot_type;
-        __interpolation_extrapolation(extrapolation)...
-    )
-    return __extrapolate(interpolant, g, extrapolation)
+    knot_type = length(xs) < 3 ? :Uniform : :Average
+    return DataInterpolations.BSplineInterpolation(ys, xs, order, knot_type; extrapolation_kwargs...)
 end
 
-function Spline(s::Sp.PCHIP, g::KnotGrid; extrapolation = :flat_forward)
-    __check_min_knots(s, length(g.tenors), "Yield.Spline")
-    interpolant = DataInterpolations.PCHIPInterpolation(
-        g.rates, g.tenors;
-        __interpolation_extrapolation(extrapolation)...
-    )
-    return __extrapolate(interpolant, g, extrapolation)
-end
+__interpolant(::Sp.PCHIP, g::KnotGrid, extrapolation_kwargs) =
+    DataInterpolations.PCHIPInterpolation(g.rates, g.tenors; extrapolation_kwargs...)
 
-function Spline(s::Sp.Akima, g::KnotGrid; extrapolation = :flat_forward)
-    __check_min_knots(s, length(g.tenors), "Yield.Spline")
-    interpolant = DataInterpolations.AkimaInterpolation(
-        g.rates, g.tenors;
-        __interpolation_extrapolation(extrapolation)...
-    )
-    return __extrapolate(interpolant, g, extrapolation)
-end
+__interpolant(::Sp.Akima, g::KnotGrid, extrapolation_kwargs) =
+    DataInterpolations.AkimaInterpolation(g.rates, g.tenors; extrapolation_kwargs...)
 
-function Spline(b::Sp.PolynomialSpline, g::KnotGrid; extrapolation = :flat_forward)
-    __check_min_knots(b, length(g.tenors), "Yield.Spline")
+function __interpolant(b::Sp.PolynomialSpline, g::KnotGrid, extrapolation_kwargs)
     xs, ys = g.tenors, g.rates
     order = min(length(xs) - 1, b.order) # in case the length of xs is less than the spline order
     # `cache_parameters = true` precomputes per-segment parameters at construction so that evaluation is
@@ -267,24 +383,13 @@ function Spline(b::Sp.PolynomialSpline, g::KnotGrid; extrapolation = :flat_forwa
     # otherwise overwrites a shared internal coefficient buffer on every call. It also avoids recomputing
     # parameters on each evaluation. (Curves here are built immutably, so the "do not mutate u/t" caveat
     # of cached parameters does not apply.)
-    extrapolation_kwargs = __interpolation_extrapolation(extrapolation)
-    if order == 1
-        interpolant = DataInterpolations.LinearInterpolation(
-            ys, xs;
-            extrapolation_kwargs..., cache_parameters = true
-        )
+    return if order == 1
+        DataInterpolations.LinearInterpolation(ys, xs; extrapolation_kwargs..., cache_parameters = true)
     elseif order == 2
-        interpolant = DataInterpolations.QuadraticSpline(
-            ys, xs;
-            extrapolation_kwargs..., cache_parameters = true
-        )
+        DataInterpolations.QuadraticSpline(ys, xs; extrapolation_kwargs..., cache_parameters = true)
     else
-        interpolant = DataInterpolations.CubicSpline(
-            ys, xs;
-            extrapolation_kwargs..., cache_parameters = true
-        )
+        DataInterpolations.CubicSpline(ys, xs; extrapolation_kwargs..., cache_parameters = true)
     end
-    return __extrapolate(interpolant, g, extrapolation)
 end
 
 include("Yield/SmithWilson.jl")
@@ -292,28 +397,10 @@ include("Yield/NelsonSiegelSvensson.jl")
 include("Yield/CairnsPritchard.jl")
 include("Yield/MonotoneConvex.jl")
 
-"""
-    build_model(spline, tenors, rates; extrapolation=:flat_forward)
-
-Build a yield model from a `SplineCurve` type descriptor, tenor times, and rates.
-Returns an `AbstractYieldModel` that supports `discount()` and callable `(t)` syntax.
-The `extrapolation` choices match [`Yield.Spline`](@ref).
-
-Used by `ZeroRateCurve` and the AD pathway in ActuaryUtilities to construct the
-interpolation model efficiently (once per gradient step rather than per discount call).
-"""
-build_model(spline::Sp.SplineCurve, tenors, rates; extrapolation = :flat_forward) =
-    Yield.Spline(spline, tenors, rates; extrapolation)
-build_model(::Sp.MonotoneConvex, tenors, rates; extrapolation = :flat_forward) =
-    build_model(Sp.MonotoneConvex(), KnotGrid(rates, tenors, Sp.MonotoneConvex(); who = "Yield.build_model"); extrapolation)
-# Internal: build over an already-validated `KnotGrid` (no second copy or validation).
-build_model(spline::Sp.SplineCurve, g::KnotGrid; extrapolation = :flat_forward) =
-    Yield.Spline(spline, g; extrapolation)
-
-build_model(::Sp.MonotoneConvex, g::KnotGrid; extrapolation = :flat_forward) =
-    Yield.MonotoneConvex(g; extrapolation)
+__build(::Sp.MonotoneConvex, g::KnotGrid; extrapolation = :flat_forward) = MonotoneConvex(g; extrapolation)
 
 include("Yield/ZeroRateCurve.jl")
+
 
 ## Generic and Fallbacks
 """
