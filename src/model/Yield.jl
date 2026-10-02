@@ -29,7 +29,6 @@ include("Yield/CairnsPritchard.jl")
 include("Yield/MonotoneConvex.jl")
 include("Yield/ZeroRateCurve.jl")
 include("Yield/ImpliedQuote.jl")
-include("Yield/Generic.jl")
 include("Yield/Composition.jl")
 include("Yield/YieldShifts.jl")
 

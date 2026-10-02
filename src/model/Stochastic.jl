@@ -301,6 +301,7 @@ Yield.__log_discount(m::ShortRate.HullWhite, T) = Yield.__log_discount(m.curve, 
 Yield.__log_interval(m::ShortRate.HullWhite, from, to) = Yield.__log_interval(m.curve, from, to)
 Yield.__log_tail(m::ShortRate.HullWhite) = Yield.__log_tail(m.curve)
 Yield.instantaneous_forward(m::ShortRate.HullWhite, T) = Yield.instantaneous_forward(m.curve, T)
+Base.zero(m::ShortRate.HullWhite, T) = Base.zero(m.curve, T)
 FinanceCore.discount(m::ShortRate.HullWhite, from, to) = FinanceCore.discount(m.curve, from, to)
 
 # ─── Conditional discount P(t,T|r(t)) ────────────────────────────────────────
