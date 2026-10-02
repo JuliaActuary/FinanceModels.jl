@@ -618,42 +618,28 @@ _frequency_value(f::Real) = f
 #
 # Similarly a floorlet = (1 + K·τ) calls on a ZCB.
 
-function FinanceCore.present_value(m::_GaussianModel, c::Option.Cap)
+# The first caplet (reset at 0, pay at τ) is excluded: its rate is already known at valuation
+# (standard market convention; see Hull 2018, §32.3). For forward-starting caps, adjust the contract
+# maturity accordingly. A strip without a caplet (a maturity of one period or less) is worth 0: the
+# sum starts from `zero` of a caplet amount discounted at time zero, the type of a present value under
+# `m` with no dependence on its value, as FinanceCore values an empty collection.
+function _caplet_strip(m, c, option, who)
     K = c.strike
     freq = _frequency_value(c.frequency)
     τ = 1.0 / freq
-    # Payment dates: τ, 2τ, ..., maturity
-    # Caplet i: reset at T_{i-1}, pays at T_i
-    # First caplet (reset at 0, pay at τ) is excluded: its rate is already known
-    # at valuation (standard market convention; see Hull 2018, §32.3).
-    # For forward-starting caps, adjust the contract maturity accordingly.
-    n_periods = _check_integer_periods(c.maturity, freq, "Cap maturity")
+    n_periods = _check_integer_periods(c.maturity, freq, who)
     K_bond = 1.0 / (1.0 + K * τ)
-    total = 0.0
+    total = zero((1.0 + K * τ) * FinanceCore.discount(m, zero(τ)))
     for i in 2:n_periods
         T_reset = (i - 1) * τ   # option expiry = reset date
         T_pay = i * τ         # bond maturity = payment date
-        _, put = _zcb_option_price(m, T_reset, T_pay, K_bond)
-        total += (1.0 + K * τ) * put
+        total += (1.0 + K * τ) * option(_zcb_option_price(m, T_reset, T_pay, K_bond))
     end
     return total
 end
-
-function FinanceCore.present_value(m::_GaussianModel, c::Option.Floor)
-    K = c.strike
-    freq = _frequency_value(c.frequency)
-    τ = 1.0 / freq
-    n_periods = _check_integer_periods(c.maturity, freq, "Floor maturity")
-    K_bond = 1.0 / (1.0 + K * τ)
-    total = 0.0
-    for i in 2:n_periods
-        T_reset = (i - 1) * τ
-        T_pay = i * τ
-        call, _ = _zcb_option_price(m, T_reset, T_pay, K_bond)
-        total += (1.0 + K * τ) * call
-    end
-    return total
-end
+# a caplet is a ZCB put, a floorlet a ZCB call (`_zcb_option_price` returns `(call, put)`)
+FinanceCore.present_value(m::_GaussianModel, c::Option.Cap) = _caplet_strip(m, c, last, "Cap maturity")
+FinanceCore.present_value(m::_GaussianModel, c::Option.Floor) = _caplet_strip(m, c, first, "Floor maturity")
 
 # ─── present_value for European Swaptions (Jamshidian decomposition) ─────────
 #
