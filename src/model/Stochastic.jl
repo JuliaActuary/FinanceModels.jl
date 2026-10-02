@@ -178,38 +178,33 @@ Yield.__log_native(::ShortRate.Vasicek) = true
 # power 2ab/σ² (σ = 1e-10 gave 5.6e57). With s = γ + a and d = γ - a, so that s·d = 2σ² and s + d = 2γ,
 # dividing D by e^{γτ} gives D′ = s + d·e^{-γτ}, and for either sign of a
 #     B = 2(1 - e^{-γτ})/D′,   log A = 2ab·G.
-# Each of s and d is formed as a sum or difference of γ and a where that doesn't cancel (σ ≥ |a|, or
-# the same signs), and otherwise as 2σ²/(the other) = (2σ/other)·σ, so σ² never underflows. G is
-# written so that nothing cancels as σ → 0:
+# The larger of s and d is γ + |a|; the other is formed as 2σ²/(γ + |a|) = (2σ/(γ + |a|))·σ, which
+# neither cancels nor underflows σ². G is written so that nothing cancels as σ → 0:
 #     G = w·ℓ(σ²w) - τ/s,             w = 2(1 - e^{-γτ})/(s·D′)            for a ≥ 0,
 #     G = τ/d - log1p(σ²v)/σ²,        v = (e^{γτ} - 1)/(d·γ)               for a < 0,
 # where ℓ(u) = log1p(u)/u. Where σ²v overflows (a < 0), log1p(σ²v) comes from log(σ²v) instead, with
 # G's two terms combined into one slope in τ, so that τ = ∞ gives ±∞ rather than ∞ - ∞.
-# Both reach the deterministic price continuously as σ → 0. σ = 0 itself is Vasicek's price without
-# volatility, which also covers a = 0, where γ = 0. For small γτ, where the divisions by γ, s and σ² are
-# near 0/0 (exactly so at a = σ = 0, leaving derivatives NaN), B and G come from series in γ² instead
-# (`_cir_series`).
+# Both reach the deterministic price continuously as σ → 0, and σ = 0 needs no case of its own: the
+# smaller factor is then 0 and they give the deterministic (volatility-free Vasicek) price. For small γτ,
+# where the divisions by γ, s and σ² are near 0/0 (exactly so at a = σ = 0, leaving derivatives NaN),
+# B and G come from series in γ² instead (`_cir_series`); outside that band only a = σ = 0 remains,
+# at τ = ∞, where γτ is 0·∞ and the rate stays constant.
 function _cir_pieces(a, σ, τ)
     γ = hypot(a, σ, σ)
-    # γ ∓ a cancels only where σ ≪ |a|; there the other factor is 2σ²/(γ ± a), formed as (2σ/sum)·σ
-    s = a >= 0 || σ > -a ? γ + a : 2σ / (γ - a) * σ
-    d = a < 0 || σ > a ? γ - a : 2σ / (γ + a) * σ
+    big = γ + abs(a)
+    small = 2σ / big * σ
+    s, d = a >= 0 ? (big, small) : (small, big)
     q = -expm1(-γ * τ)
     D = s + d * exp(-γ * τ)
     return (; γ, s, d, q, D, B = 2q / D)
 end
 function _cir_log_zcb(a, b, σ, r, τ)
-    if iszero(σ)
-        # Deterministic limit dr = a(b - r)dt. With no mean reversion the rate is constant, also at
-        # τ = ∞ where aτ is undefined; a dual `a` that carries a partial is not `iszero`, so ∂/∂a
-        # keeps Vasicek's series.
-        iszero(a) && return r * τ
-        return _vasicek_log_zcb(a, b, σ, r, τ)
-    end
     if _cir_short(a, σ, τ)
         B, g = _cir_series(a, σ, τ)
-        return iszero(a * b) ? B * r : B * r + (a * τ) * (b * τ) * g
+        return B * r + (a * τ) * (b * τ) * g
     end
+    # a = σ = 0 at τ = ∞ (γτ = 0·∞): the rate stays constant
+    iszero(a) && iszero(σ) && return r * τ
     (; γ, s, d, q, D, B) = _cir_pieces(a, σ, τ)
     # Without a drift towards b, A = 1, also at τ = ∞ where τ/s is infinite
     iszero(a * b) && return B * r
