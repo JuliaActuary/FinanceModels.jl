@@ -10,7 +10,7 @@ using Test
 using Transducers
 
 include("generic.jl")
-include("projection_models.jl")
+include("valuation_contexts.jl")
 include("sp.jl")
 
 include("Equity.jl")

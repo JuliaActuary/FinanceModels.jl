@@ -30,6 +30,8 @@ using PrecompileTools
         fit(Yield.NelsonSiegelSvensson(), q_rate)
 
         present_value(model_rate, Cashflow(1.0, 1.0))
+        present_value(model_rate, [Bond.Fixed(0.05, Periodic(1), 2.0), Cashflow(1.0, 1.0)])
+        present_value(Models(model_rate; index = model_rate), Bond.Floating(0.0, Periodic(1), 2.0, :index))
         first(q_rate).instrument |> collect
     end
 end

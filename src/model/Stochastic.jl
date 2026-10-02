@@ -631,12 +631,12 @@ end
 
 # ─── present_value for ZCB options ───────────────────────────────────────────
 
-function FinanceCore.present_value(m::_GaussianModel, c::Option.ZCBCall)
+function __closed_form(m::_GaussianModel, c::Option.ZCBCall)
     call, _ = _zcb_option_price(m, c.expiry, c.bond_maturity, c.strike)
     return call
 end
 
-function FinanceCore.present_value(m::_GaussianModel, c::Option.ZCBPut)
+function __closed_form(m::_GaussianModel, c::Option.ZCBPut)
     _, put = _zcb_option_price(m, c.expiry, c.bond_maturity, c.strike)
     return put
 end
@@ -670,8 +670,8 @@ function _caplet_strip(m, c, option, who)
     return total
 end
 # a caplet is a ZCB put, a floorlet a ZCB call (`_zcb_option_price` returns `(call, put)`)
-FinanceCore.present_value(m::_GaussianModel, c::Option.Cap) = _caplet_strip(m, c, last, "Cap maturity")
-FinanceCore.present_value(m::_GaussianModel, c::Option.Floor) = _caplet_strip(m, c, first, "Floor maturity")
+__closed_form(m::_GaussianModel, c::Option.Cap) = _caplet_strip(m, c, last, "Cap maturity")
+__closed_form(m::_GaussianModel, c::Option.Floor) = _caplet_strip(m, c, first, "Floor maturity")
 
 # ─── present_value for European Swaptions (Jamshidian decomposition) ─────────
 #
@@ -690,7 +690,7 @@ FinanceCore.present_value(m::_GaussianModel, c::Option.Floor) = _caplet_strip(m,
 # NOTE: Jamshidian decomposition requires monotonic bond prices in r, which holds
 # only for Gaussian models (Vasicek, Hull-White). For CIR, use pv_mc() instead.
 
-function FinanceCore.present_value(m::_GaussianModel, c::Option.Swaption)
+function __closed_form(m::_GaussianModel, c::Option.Swaption)
     T0 = c.expiry
     freq = _frequency_value(c.frequency)
     τ = 1.0 / freq

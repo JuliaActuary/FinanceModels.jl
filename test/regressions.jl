@@ -33,27 +33,24 @@ Transducers.asfoldable(p::Projection{AsfoldableContract}) = [Cashflow(1.0, 1.0),
         @test_throws ArgumentError par(c, 0.3)
     end
 
-    @testset "present_value past maturity is 0, not an error" begin
+    @testset "an empty projection is worth an exact zero of the valuation's type" begin
+        # (a contract with no cashflows left, such as one whose stream is filtered empty)
+        none(c) = c |> Filter(cf -> false)
         b = Bond.Fixed(0.05, Periodic(1), 3)
         m = Yield.Constant(0.03)
-        @test present_value(m, b, 4.0) == 0.0
-        @test present_value(m, Projection(b, m, CashflowProjection()), 5.0) == 0.0
-        # (n.b. `present_value(m, ::Cashflow, t)` hits FinanceCore's Cashflow method,
-        # which discounts to time 0 regardless of the third argument — so the
-        # empty-fold path is exercised via a single-cashflow Projection instead)
-        @test present_value(m, Projection(Cashflow(10.0, 1.0), m, CashflowProjection()), 2.0) == 0.0
-        # the 0 is a positive zero in the type of a present value under the model (#288)
-        @test present_value(m, b, 4.0) === 0.0
+        @test present_value(m, none(b)) === 0.0
+        # a positive zero in the type of a present value under the model (#288)
         mb = Yield.Constant(Continuous(big"0.03"))
-        for x in (present_value(mb, b, 4.0), present_value(mb, Projection(Cashflow{BigFloat, Float64}[])))
+        for x in (present_value(mb, none(b)), present_value(mb, Cashflow{BigFloat, Float64}[]))
             @test x isa BigFloat && iszero(x) && !signbit(x)
         end
         # empty and nonempty values have the same type: a Float32 model's are Float32
         m32 = Yield.Constant(Continuous(0.03f0))
-        @test present_value(m32, Projection(Cashflow{Float32, Float32}[]), 0.0f0) === 0.0f0
-        @test present_value(m32, Projection(Cashflow(1.0f0, 1.0f0)), 0.0f0) isa Float32
+        @test present_value(m32, none(Cashflow(1.0f0, 1.0f0))) === 0.0f0
+        @test present_value(m32, Cashflow(1.0f0, 1.0f0)) isa Float32
+        @test present_value(m32, FinanceCore.Composite(Cashflow(1.0f0, 1.0f0), Cashflow(1.0f0, 2.0f0))) isa Float32
         md = Yield.Constant(Continuous(ForwardDiff.Dual(0.03, 1.0)))
-        @test present_value(md, b, 4.0) === zero(present_value(md, b))
+        @test present_value(md, none(b)) === zero(present_value(md, b))
     end
 
     @testset "Forward contract shifts cashflow times" begin
@@ -204,10 +201,9 @@ Transducers.asfoldable(p::Projection{AsfoldableContract}) = [Cashflow(1.0, 1.0),
         # an inner `Take` completes the partition, whose flush then meets the outer stop
         @test times(collect(Projection(semi |> Transducers.Take(5) |> windows) |> Transducers.Take(2))) == [w1, [2.5]]
         # and its value
-        @test present_value(curve, Projection(bond |> dbl |> inc, curve, CashflowProjection())) ≈
-            1.1 * discount(curve, 1.0) + 3.1 * discount(curve, 2.0) rtol = 1.0e-14
+        @test present_value(curve, bond |> dbl |> inc) ≈ 1.1 * discount(curve, 1.0) + 3.1 * discount(curve, 2.0) rtol = 1.0e-14
         # Its value is the floater's at the start, discounted to now
-        @test present_value(curve, Projection(Forward(2.0, floater), Dict(:index => curve))) ≈ discount(curve, 2.0) rtol = 1.0e-14
+        @test present_value(Models(curve, Dict(:index => curve)), Forward(2.0, floater)) ≈ discount(curve, 2.0) rtol = 1.0e-14
     end
 
     @testset "ParSwapYield" begin
