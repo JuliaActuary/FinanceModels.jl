@@ -380,6 +380,21 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             end
             @test discount(cir_det(1.0e-300, 1.0e16), 10.0) ≈ exp(-0.3) rtol = 4eps()
             @test discount(cir_det(0.5, 0.05), Inf) == 0.0
+            # σ = 0 is not a case of its own: at τ = ∞ with b = 0 the price is exp(-r/a) for a > 0
+            # (it was NaN), the explosive a < 0 rate prices to 0 (it was NaN), and σ → 0 is continuous
+            @test discount(cir_det(0.1, 0.0), Inf) ≈ exp(-0.3) rtol = 4eps()
+            @test discount(cir_det(0.1, -0.05), Inf) == Inf
+            @test discount(cir_det(-0.1, 0.0), Inf) == 0.0
+            @test discount(cir_det(-0.1, 0.0), 1.0e4) == 0.0
+            # (an explosive a < 0 with b ≠ 0 over thousands of years prices outside Float64's range,
+            # the documented limit, so it is checked at τ = 10 only)
+            cases = [
+                ((0.1, 0.0), (10.0, 1.0e4, Inf)), ((0.1, 0.05), (10.0, 1.0e4, Inf)), ((0.1, -0.05), (10.0, 1.0e4, Inf)),
+                ((-0.1, 0.0), (10.0, 1.0e4, Inf)), ((-0.1, 0.02), (10.0,)),
+            ]
+            for ((a, b), τs) in cases, τ in τs
+                @test discount(cir_det(a, b), τ) ≈ discount(ShortRate.CoxIngersollRoss(a, b, 1.0e-300, Continuous(0.03)), τ) rtol = 4eps()
+            end
             # against ∫₀ᵗ (b + (r - b)e^{-as}) ds in high precision, across the series threshold
             det_ref(a, b, r, τ) = exp(-(b * τ + (r - b) * (a == 0 ? τ : -expm1(-a * τ) / a)))
             for a in (1.0e-300, 1.0e-8, 1.0e-3, 0.019, 0.021, 0.05, 1.0), τ in (0.5, 10.0), b in (0.05, -0.01)
