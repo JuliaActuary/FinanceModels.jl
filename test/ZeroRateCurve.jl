@@ -362,7 +362,7 @@ using ForwardDiff
         # the derived caches cannot be patched: they are not `reconstruct` keywords
         @test_throws MethodError (Accessors.@set zrc._f = Float64[])
         @test_throws MethodError CB.setproperties(zrc, (_tail = nothing,))
-        @test_throws MethodError CB.setproperties(lin, (_fn = nothing,))
+        @test_throws MethodError CB.setproperties(lin, (_interp = nothing,))
         @test_throws MethodError CB.setproperties(zrc, (foo = 1,))
         # ConstructionBase reconstruction preserves the public policy and rebuilds the cache.
         sp = CB.setproperties(zrc, (rates = [0.03, 0.04, 0.05],))
@@ -375,7 +375,7 @@ using ForwardDiff
         @test ForwardDiff.partials(discount(dz, 1.0), 1) ≈ -1.0 * exp(-0.02 * 1.0) atol = 1.0e-12
         # The policy is keyword-only and there is no public positional cache constructor.
         @test_throws MethodError ZeroRateCurve(r, t, Spline.Linear(), :flat_zero)
-        @test_throws MethodError ZeroRateCurve(r, t, Spline.Linear(), getfield(lin, :_fn))
+        @test_throws MethodError ZeroRateCurve(r, t, Spline.Linear(), getfield(lin, :_interp))
     end
 
     # ─── Validation ───────────────────────────────────────────────────────────

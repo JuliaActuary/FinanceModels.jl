@@ -80,6 +80,52 @@ end
 # Out of line: building the message inline makes every discount body too large to inline.
 @noinline __throw_negative_time(t, who) = throw(DomainError(t, "$who is only defined for t ≥ 0"))
 
+# Every knot curve's time functions share one skeleton: a negative time throws; beyond the last knot
+# the curve's tail, `__tail(c)` (a `CurveTail`); otherwise its interior, `__interior_zero`,
+# `__interior_log_discount` and `__interior_forward`. A curve that continues its interpolant past the
+# last knot (`:extension`, `__extends(c)`) has no tail. The zero rate and L are continuous at the last
+# knot, so the tail starts after it; the instantaneous forward is the right-hand derivative of L, the
+# tail's from the last knot on.
+@inline __in_tail(c::AbstractInterpolatedZeroCurve, t) = !__extends(c) && t > __tail(c).last_tenor
+function Base.zero(c::AbstractInterpolatedZeroCurve, t)
+    __check_time(t, "zero")
+    return Continuous(__in_tail(c, t) ? __tail(c)(t) : __interior_zero(c, t))
+end
+@inline __knot_log_discount(c::AbstractInterpolatedZeroCurve, t) =
+    __in_tail(c, t) ? __tail(c)(t) * t : __interior_log_discount(c, t)
+
+"""
+    instantaneous_forward(curve::AbstractInterpolatedZeroCurve, t)
+
+The instantaneous (continuously compounded) forward rate of a knot curve at `t`: the right-hand
+derivative of `-log(discount(curve, t))`. At a knot where the interpolant's pieces meet it is the
+forward of the piece that starts there (`Spline.MonotoneConvex()`'s forward is continuous at its
+interior knots). From the last knot on it is the tail's forward, which follows `curve.extrapolation`:
+the default `:flat_forward` holds it constant, `:flat_zero` holds it at the last zero rate,
+`:linear` derives it from the linearly extended zero rate, and `FlatForwardAt(f)` holds it at `f`.
+At `t = Inf` it is the tail's limit.
+
+Note this is distinct from `forward(curve, from, to)`, which is the *discrete* forward `Rate`
+between two times and is defined for every yield model.
+"""
+function instantaneous_forward(c::AbstractInterpolatedZeroCurve, t)
+    __check_time(t, "instantaneous_forward")
+    (__extends(c) || t < __tail(c).last_tenor) || return __tail_forward(__tail(c), t)
+    return __interior_forward(c, t)
+end
+
+function __log_tail(c::AbstractInterpolatedZeroCurve)
+    __extends(c) && __throw_extension_tail()
+    return __log_tail(__tail(c))
+end
+@noinline __throw_extension_tail() = throw(
+    DomainError(
+        Inf, "discount(curve, Inf) is unsupported with extrapolation = :extension, whose " *
+            "polynomial continuation of the last piece is evaluated at finite times only. Use a " *
+            "finite time, or a policy with a tail limit (:flat_forward, :flat_zero, :linear, FlatForwardAt)."
+    )
+)
+
 # Every knot curve evaluates alike: a negative time throws, t = Inf is the limit of the curve's tail
 # (`__log_tail`, out of line so that the finite path stays small enough to inline), and a finite
 # time is the curve's own L, `__knot_log_discount(c, t)`.
