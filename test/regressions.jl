@@ -128,6 +128,30 @@ Transducers.asfoldable(p::Projection{AsfoldableContract}) = [Cashflow(1.0, 1.0),
             @test collect(p |> Transducers.Map(cf -> cf.amount) |> Transducers.Scan(+)) ==
                 collect(all_flows |> Transducers.Map(cf -> cf.amount) |> Transducers.Scan(+))
         end
+        # A transducer over a contract applies in the order written, alone and inside every wrapper
+        # (a projection applied a chain in reverse: [2.1, 4.1] here)
+        bond = Bond.Fixed(0.05, Periodic(1), 2.0)
+        dbl = Transducers.Map(cf -> Cashflow(2cf.amount, cf.time))
+        inc = Transducers.Map(cf -> Cashflow(cf.amount + 1, cf.time))
+        amounts(c, models = NullModel()) = [cf.amount for cf in collect(Projection(c, models))]
+        @test amounts(bond |> dbl |> inc) == [1.1, 3.1] == [cf.amount for cf in collect(bond |> dbl |> inc)]
+        @test amounts(FinanceCore.Composite(bond |> dbl |> inc, Cashflow(1.0, 3.0))) == [1.1, 3.1, 1.0]
+        @test amounts([bond |> dbl |> inc, bond]) == [1.1, 3.1, 0.05, 1.05]
+        # stateful and early-terminating transducers over a contract (they threw inside a projection),
+        # and an outer stop after an inner one
+        @test amounts(bond |> Transducers.Take(1)) == [0.05]
+        @test amounts(FinanceCore.Composite(bond |> Transducers.Take(1), bond)) == [0.05, 0.05, 1.05]
+        @test collect(Projection(bond |> Transducers.Map(cf -> cf.amount) |> Transducers.Scan(+))) ≈ [0.05, 1.1]
+        two = Projection(FinanceCore.Composite(bond |> Transducers.Take(1), bond)) |> Transducers.Take(2)
+        @test [cf.amount for cf in collect(two)] == [0.05, 0.05]
+        @test [cf.amount for cf in collect(Projection(FinanceCore.Composite(bond, bond |> Transducers.Take(1))) |> Transducers.Take(1))] == [0.05]
+        # a contract defined by `asfoldable` behind a transducer
+        @test amounts(AsfoldableContract() |> Transducers.Map(cf -> Cashflow(-cf.amount, cf.time))) == [-1.0, -2.0]
+        @test amounts(FinanceCore.Composite(AsfoldableContract() |> Transducers.Take(1), AsfoldableContract())) == [1.0, 1.0, 2.0]
+        @test collect(AsfoldableContract() |> Transducers.Map(cf -> cf.amount)) == [1.0, 2.0]
+        # and its value
+        @test present_value(curve, Projection(bond |> dbl |> inc, curve, CashflowProjection())) ≈
+            1.1 * discount(curve, 1.0) + 3.1 * discount(curve, 2.0) rtol = 1.0e-14
         # Its value is the floater's at the start, discounted to now
         @test present_value(curve, Projection(Forward(2.0, floater), Dict(:index => curve))) ≈ discount(curve, 2.0) rtol = 1.0e-14
     end
