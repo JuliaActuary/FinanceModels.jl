@@ -1,3 +1,6 @@
+# A curve type with only the generic methods, to tell a forwarding type's own method apart
+struct GenericOnlyCurve <: FinanceModels.Yield.AbstractYieldModel end
+
 using ForwardDiff
 
 # A curve that defines only `discount`, with D(0) ≠ 1: intervals keep D(to)/D(from) semantics.
@@ -462,5 +465,22 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
         f′0 = ForwardDiff.derivative(t -> Yield.instantaneous_forward(ns2, t), 0.0)
         @test ForwardDiff.derivative(t -> rate(zero(ns2, t)), 0.0) ≈ f′0 / 2 rtol = 1.0e-14
         @test ForwardDiff.derivative(t -> rate(zero(ns2, t)), 1.0e-12) ≈ f′0 / 2 rtol = 1.0e-9
+    end
+
+    @testset "forwarding curves forward every capability" begin
+        lin = ZeroRateCurve([0.02, 0.03, 0.035], [1.0, 5.0, 10.0], Spline.Linear())
+        hw = ShortRate.HullWhite(0.1, 0.01, lin)
+        primal = FinanceModels.Yield.__PrimalCurve(lin)
+        for c in (hw, primal), (f, n) in FinanceModels.Yield.__FORWARDED_CAPABILITIES
+            args = ntuple(_ -> Float64, n)
+            @test which(f, Tuple{typeof(c), args...}) !== which(f, Tuple{GenericOnlyCurve, args...})
+        end
+        # with the wrapped curve's values, including its right-continuous forward at a knot
+        for t in (0.0, 0.5, 1.0, 3.0, 5.0, 12.0, Inf)
+            @test zero(hw, t) == zero(lin, t)
+            @test Yield.instantaneous_forward(primal, t) == Yield.instantaneous_forward(lin, t)
+        end
+        # a time derivative of Hull–White's zero rate at 0 (it threw: the generic zero is L/t there)
+        @test ForwardDiff.derivative(t -> rate(zero(hw, t)), 0.0) == ForwardDiff.derivative(t -> rate(zero(lin, t)), 0.0)
     end
 end
