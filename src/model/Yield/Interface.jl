@@ -24,9 +24,9 @@
 # - `__log_tail`, exact: `Constant`, `Spline`, `MonotoneConvex`, and the wrappers `CompositeYield`,
 #   `ScaledYield`, `ForwardStarting`, `HullWhite`, which combine their components' tails. Every other
 #   curve uses the fallback, which knows only the growth rate its zero rate at infinity implies.
-# - A curve that forwards to another (`HullWhite`, `__PrimalCurve`) forwards `discount(c, t)`,
-#   `discount(c, from, to)`, `__log_discount`, `__log_interval` and `__log_tail`, so the wrapped
-#   curve's own interval rule applies. `__log_native` is for leaf curves only.
+# - A curve that forwards to another (`HullWhite`, `__PrimalCurve`) forwards every capability in
+#   `__FORWARDED_CAPABILITIES` (at the end of this file), so the wrapped curve's own rules (its
+#   intervals, its closed-form forward) apply. `__log_native` is for leaf curves only.
 
 # Cumulative log-discount L(t) = −log D(t): the continuously compounded force accumulated from
 # valuation time 0 to `t`. `forward` and the generic `zero` are built from it. The fallback needs
@@ -100,3 +100,87 @@ _discount_from_zero(c, t) = exp(-__zero_log_discount(c, t))
 # TenorShift, ProjectedShift, NelsonSiegel, MonotoneConvex, …);
 # each one routes through its own `discount`, so no per-type callable is needed.
 (yc::AbstractYieldModel)(t) = FinanceCore.discount(yc, t)
+
+# ── Public generic methods ─────────────────────────────────────────────────────────────
+
+"""
+    discount(yc, to)
+    discount(yc, from,to)
+
+The discount factor for the yield curve `yc` for times `from` through `to`.
+"""
+function FinanceCore.discount(yc::T, from, to) where {T <: AbstractYieldModel}
+    # A log-native interval from 0 is `discount(yc, to)` exactly (see `__log_native_interval`).
+    d = __log_native(yc) ? exp(-__log_native_interval(yc, from, to)) :
+        FinanceCore.discount(yc, to) / FinanceCore.discount(yc, from)
+    # The empty interval is the identity, also where L is infinite at both ends (from = to = Inf).
+    # Under ForwardDiff 1.x `==` also compares partials, so this fires only where the
+    # derivative is zero anyway.
+    return from == to ? one(d) : d
+end
+
+"""
+    forward(yc, from, to)
+
+The forward `Rate` implied by the yield curve `yc` between times `from` and `to`.
+"""
+function FinanceCore.forward(yc::T, from, to = from + 1) where {T <: AbstractYieldModel}
+    # forward = log(DF(from)/DF(to)) / (to-from): the interval's log-discount L(to) − L(from), by
+    # the curve's own interval rule, per unit time.
+    return Continuous(__log_interval(yc, from, to) / (to - from))
+end
+
+"""
+    zero(curve,time)
+
+Return the zero rate for the curve at the given time. At `time = 0` it is the limit of the zero
+rate, the instantaneous forward rate at 0 (the short rate).
+"""
+function Base.zero(c::YC, time) where {YC <: AbstractYieldModel}
+    # L/t; for a curve that defines only `discount`, L is -log(discount(c, time)). At t = 0 that is
+    # 0/0, whose limit is L′(0), the instantaneous forward there. A time derivative at 0 would need
+    # L″(0) as well, so it throws instead of returning a NaN.
+    __dual_at_origin(time) && __throw_zero_rate_derivative_at_origin(time)
+    iszero(time) && return Continuous(instantaneous_forward(c, time))
+    return Continuous(__log_discount(c, time) / time)
+end
+@noinline __throw_zero_rate_derivative_at_origin(t) = throw(
+    DomainError(
+        t, "the zero rate of a curve without its own `zero` (L(t)/t, 0/0 at t = 0) has no derivative " *
+            "in time at t = 0, and neither does a zero-rate transformation of it. Differentiate at a positive time."
+    )
+)
+
+"""
+    instantaneous_forward(curve, t)
+
+The instantaneous (continuously compounded) forward rate of `curve` at time `t`,
+``f(t) = -\\frac{d}{dt} \\log D(t)``. At `t = 0` it is the curve's short rate.
+
+The built-in curves compute it in closed form. Any other curve differentiates its cumulative
+log-discount with ForwardDiff, which stays finite where its discount factors underflow.
+
+Note this is distinct from `forward(curve, from, to)`, which is the *discrete* forward `Rate`
+between two times.
+"""
+instantaneous_forward(c::AbstractYieldModel, t) = __log_discount_derivative(c, t)
+__log_discount_derivative(c, t) = ForwardDiff.derivative(s -> __log_discount(c, s), t)
+
+"""
+    accumulation(yc, from, to)
+
+The accumulation factor for the yield curve `yc` for times `from` through `to`.
+"""
+function FinanceCore.accumulation(yc::AbstractYieldModel, time)
+    return 1 ./ discount(yc, time)
+end
+
+# the reversed interval, so each curve's own interval method applies
+FinanceCore.accumulation(yc::AbstractYieldModel, from, to) = FinanceCore.discount(yc, to, from)
+
+# The capabilities a curve that forwards to another (`HullWhite`, `__PrimalCurve`) forwards, with
+# their numbers of time arguments; the test suite checks every forwarding type against this list.
+const __FORWARDED_CAPABILITIES = (
+    (FinanceCore.discount, 1), (FinanceCore.discount, 2), (__log_discount, 1), (__log_interval, 2),
+    (__log_tail, 0), (Base.zero, 1), (instantaneous_forward, 1),
+)

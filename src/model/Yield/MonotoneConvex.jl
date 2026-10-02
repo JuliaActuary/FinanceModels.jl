@@ -312,34 +312,13 @@ function __mc_mean_deviation(x, f⁻, f, fᵈ, ktol)
     return __mc_kernel(__MC_MEAN, x, g0, g1, fᵈ, ktol)
 end
 
-"""
-    instantaneous_forward(mc::MonotoneConvex, t)
-
-The instantaneous (continuously-compounded) forward rate of the Hagan-West
-interpolant at time `t`. Beyond the last knot it follows `mc.extrapolation`.
-The default `:flat_forward` holds the boundary forward constant. `:flat_zero`
-holds the forward at the last zero rate, `:linear` derives it from the linearly
-extended zero rate, and `FlatForwardAt(f)` holds it at `f`.
-At the last knot itself this method returns the interior (left) forward.
-
-Note this is distinct from `forward(curve, from, to)`, which is the *discrete*
-forward `Rate` between two times and is defined for every yield model.
-"""
-function instantaneous_forward(mc::MonotoneConvex, t)
-    __check_time(t, "instantaneous_forward")
+# The knot-curve skeleton (InterpolatedCurves.jl) over the Hagan–West interpolant. Its forward is
+# continuous at the interior knots; the skeleton returns the tail's from the last knot on.
+__tail(mc::MonotoneConvex) = mc._tail
+__extends(::MonotoneConvex) = false
+function __interior_forward(mc::MonotoneConvex, t)
     f, fᵈ, times = mc._f, mc._fᵈ, mc.tenors
-    lt = last(times)
-
-    # At the boundary report the interior (left) forward. Policies that impose a
-    # different forward begin strictly after the knot, consistently with `zero`.
-    if t > lt
-        return __tail_forward(mc._tail, t)
-    elseif t == lt
-        return f[end]
-    end
-
     i_time = __i_time(t, times)
-
     if i_time == 1
         # First interval: from 0 to times[1]
         x = t / times[1]
@@ -464,21 +443,21 @@ function __kink_quantities(::Sp.MonotoneConvex, z, tenors)
 end
 
 
-function Base.zero(mc::MonotoneConvex, t)
-    __check_time(t, "zero")
+# Inlined into the skeleton's `zero`, as L is into `discount` below: a second call made valuing a
+# shifted curve with a dual shift about 15% slower.
+@inline function __interior_zero(mc::MonotoneConvex, t)
     times = mc.tenors
     # the limit at t = 0 is the instantaneous forward there
-    t == 0 && return Continuous(mc._f[1])
-    t > last(times) && return Continuous(mc._tail(t))
+    t == 0 && return mc._f[1]
     i = __i_time(t, times)
-    return Continuous(__mc_from_origin(times, i) ? __mc_origin_zero(mc, t, i) : __mc_knot_log_discount(mc, t, i) / t)
+    return __mc_from_origin(times, i) ? __mc_origin_zero(mc, t, i) : __mc_knot_log_discount(mc, t, i) / t
 end
 
 # L(t) = ∫₀ᵗ f, computed directly rather than as z(t)·t, which would divide by t and multiply back.
-# Its two interval forms below are inlined into it and into `zero`, so each evaluation is one call.
-function __knot_log_discount(mc::MonotoneConvex, t)
+# Its two interval forms below are inlined into it and into the zero rate, and it is inlined into the
+# skeleton's `discount`, so each evaluation is one call (a second made `discount` about 10% slower).
+@inline function __interior_log_discount(mc::MonotoneConvex, t)
     times = mc.tenors
-    t > last(times) && return mc._tail(t) * t
     i = __i_time(t, times)
     __mc_from_origin(times, i) || return __mc_knot_log_discount(mc, t, i)
     # L(0) = 0 exactly, also for a single knot at t = 0, whose interval from 0 has no width
@@ -505,6 +484,5 @@ end
     G = g_rate(x, f[i], f[i + 1], fᵈ[i], __mc_kink_tol(mc, i))
     return t_prev * rates[i - 1] + (t - t_prev) * fᵈ[i] + (times[i] - t_prev) * G
 end
-__log_tail(mc::MonotoneConvex) = __log_tail(mc._tail)
 
 __build(::Sp.MonotoneConvex, g::KnotGrid; extrapolation = :flat_forward) = MonotoneConvex(g; extrapolation)

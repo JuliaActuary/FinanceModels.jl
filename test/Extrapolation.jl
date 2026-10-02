@@ -135,7 +135,8 @@ spline_zero_curve_with_policy(d, r, t, policy::Symbol) = ZeroRateCurve(r, t, d; 
             if curve isa Yield.MonotoneConvex
                 @test Yield.instantaneous_forward(curve, horizon) ≈
                     rate(zero(curve, horizon)) + horizon * zdot atol = 1.0e-14
-                @test Yield.instantaneous_forward(curve, tn) == last(curve._f)
+                # right-continuous: from the last knot on, the tail's forward
+                @test Yield.instantaneous_forward(curve, tn) == FinanceModels.Yield.__tail_forward(curve._tail, tn)
             end
         end
         # Different fixed assumptions change only the tail and remain differentiable.
