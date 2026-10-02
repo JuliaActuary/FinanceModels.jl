@@ -9,7 +9,7 @@ struct WrappedContract{C} <: FinanceCore.AbstractContract
     inner::C
 end
 FinanceCore.maturity(c::WrappedContract) = FinanceCore.maturity(c.inner)
-FinanceCore.present_value(m, c::WrappedContract, t = 0.0) = FinanceCore.present_value(m, c.inner, t)
+FinanceCore.present_value(m, c::WrappedContract) = FinanceCore.present_value(m, c.inner)
 
 # Prices that depend on a dual number only in part of the parameter space, so it reaches a
 # solve after its first evaluation (an external review's counterexample and its spline analogue).

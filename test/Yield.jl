@@ -184,8 +184,7 @@ end
         @testset "zero-spread floating leg telescopes to par on any schedule" begin
             m = fit(Spline.Linear(), ZCBYield.([0.03, 0.035, 0.041, 0.045, 0.0475], [0.5, 1.0, 2.0, 5.0, 10.0]), Fit.Bootstrap())
             for T in [0.05, 0.6, 2.3, 5.0, 5.3]
-                p = Projection(Bond.Floating(0.0, Periodic(4), T, "k"), Dict("k" => m), CashflowProjection())
-                @test pv(m, p) ≈ 1.0 atol = 1.0e-14
+                @test pv(Models(m, Dict("k" => m)), Bond.Floating(0.0, Periodic(4), T, "k")) ≈ 1.0 atol = 1.0e-14
             end
         end
 
@@ -227,7 +226,7 @@ end
             m = fit(Spline.Linear(), ZCBYield.([0.03, 0.041, 0.045], [0.5, 2.0, 5.0]), Fit.Bootstrap())
             for T in [0.6, 2.3, 10], frequency in (1, 4)
                 swap = InterestRateSwap(m, T; frequency)
-                @test abs(pv(m, Projection(swap, Dict("OIS" => m), CashflowProjection()))) < 1.0e-12
+                @test abs(pv(Models(m, Dict("OIS" => m)), swap)) < 1.0e-12
             end
         end
     end

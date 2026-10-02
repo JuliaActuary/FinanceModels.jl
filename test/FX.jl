@@ -73,18 +73,17 @@
         # struck below the forward: worth the discounted difference in quote currency
         off = FX.Forward(eurusd, F1 - 0.01, 1.0)
         @test pv(m, off) ≈ 0.01 * exp(-0.05)
-        # valuation at cur_time > 0: same payoff, discounted over the remaining period
-        @test pv(m, off, 0.5) ≈ 0.01 * exp(-0.05 * 0.5)
-        # inclusive at cur_time == settlement: the undiscounted payoff (matches the
-        # `cf.time >= cur_time` projection filter convention)
-        @test pv(m, off, 1.0) ≈ 0.01
-        # a forward that settled before the valuation time is worth zero
-        @test pv(m, off, 2.0) == 0.0
+        # the value as of t is an explicit reduction over its one quote-currency cashflow: discounted
+        # over the remaining period, the undiscounted payoff at settlement (inclusive), and zero after
+        asof(m, c, t) = foldxl(+, Projection(c, m) |> Filter(cf -> cf.time >= t) |> Map(cf -> cf.amount * discount(m, t, cf.time)); init = 0.0)
+        @test asof(m, off, 0.5) ≈ 0.01 * exp(-0.05 * 0.5)
+        @test asof(m, off, 1.0) ≈ 0.01
+        @test asof(m, off, 2.0) == 0.0
         # pair mismatch errors loudly instead of pricing a crossed/inverted rate
         @test_throws ArgumentError pv(m, FX.Forward(FX.Pair(:GBP, :USD), 1.0, 1.0))
         @test_throws ArgumentError pv(m, FX.Forward(inv(eurusd), 1.0, 1.0))
-        # ...including through the valuation-time form
-        @test_throws ArgumentError pv(m, FX.Forward(FX.Pair(:GBP, :USD), 1.0, 1.0), 0.5)
+        # ...including through its projection
+        @test_throws ArgumentError collect(Projection(FX.Forward(FX.Pair(:GBP, :USD), 1.0, 1.0), m))
     end
 
     @testset "quote conventions" begin
@@ -245,29 +244,30 @@
 
         # fundamental identity: converting at CIP forwards then discounting on the
         # domestic curve equals discounting on the foreign curve then converting at spot
-        @test pv(usd_boot, Projection(FX.Converted(bond, eurusd, "EURUSD"), store, CashflowProjection())) ≈ 1.08 * pv(eur, bond)
+        @test pv(Models(usd_boot, store), FX.Converted(bond, eurusd, "EURUSD")) ≈ 1.08 * pv(eur, bond)
 
         # a converted floating leg resolves its own reference curve from the same store
         frn = Bond.Floating(0.001, Periodic(4), 2.0, "ESTR")
-        lhs = pv(usd_boot, Projection(FX.Converted(frn, eurusd, "EURUSD"), store, CashflowProjection()))
-        rhs = 1.08 * pv(eur, Projection(frn, store, CashflowProjection()))
+        lhs = pv(Models(usd_boot, store), FX.Converted(frn, eurusd, "EURUSD"))
+        rhs = 1.08 * pv(Models(eur, store), frn)
         @test lhs ≈ rhs
 
         # transducer-modified (Eduction) contracts convert too
-        scaled = pv(usd_boot, Projection(FX.Converted(bond |> Map(cf -> cf * 100.0), eurusd, "EURUSD"), store, CashflowProjection()))
+        scaled = pv(Models(usd_boot, store), FX.Converted(bond |> Map(cf -> cf * 100.0), eurusd, "EURUSD"))
         @test scaled ≈ 100.0 * 1.08 * pv(eur, bond)
 
-        # rolling the valuation date through the projection path: only cashflows at
-        # or after cur_time remain, discounted from cur_time
+        # the value as of a later date: only cashflows at or after it remain, each discounted from it
         cur = 2.25
         manual = sum(cf.amount * forward(fx, cf.time) * discount(usd_boot, cur, cf.time) for cf in raw if cf.time >= cur)
-        @test pv(usd_boot, Projection(FX.Converted(bond, eurusd, "EURUSD"), store, CashflowProjection()), cur) ≈ manual
+        ctx = Models(usd_boot, store)
+        later = Projection(FX.Converted(bond, eurusd, "EURUSD"), ctx) |> Filter(cf -> cf.time >= cur) |> Map(cf -> cf.amount * discount(ctx, cur, cf.time))
+        @test foldxl(+, later; init = 0.0) ≈ manual
 
         # the identity pair converts at forward ≡ 1, letting generic multi-currency
         # code route domestic contracts through the same machinery
         idfx = FX.Forwards(FX.Pair(:USD, :USD), 1.0, usd_boot, usd_boot)
         @test forward(idfx, 2.0) == 1.0
-        @test pv(usd_boot, Projection(FX.Converted(bond, FX.Pair(:USD, :USD), "USDUSD"), Dict("USDUSD" => idfx), CashflowProjection())) ≈ pv(usd_boot, bond)
+        @test pv(Models(usd_boot, Dict("USDUSD" => idfx)), FX.Converted(bond, FX.Pair(:USD, :USD), "USDUSD")) ≈ pv(usd_boot, bond)
 
         @test maturity(FX.Converted(bond, eurusd, "EURUSD")) == 5.0
         # a missing model key errors loudly
@@ -299,17 +299,17 @@
         yen_leg = FX.Converted(Bond.Fixed(0.05, Periodic(1), 3) |> Map(cf -> cf * 1200.0), jpyusd, "JPYUSD")
         usd_leg = Bond.Fixed(0.08, Periodic(1), 3) |> Map(cf -> cf * -10.0)
         swap = Composite(yen_leg, usd_leg)
-        p = Projection(swap, Dict("JPYUSD" => fx), CashflowProjection())
+        ctx = Models(usd9, Dict("JPYUSD" => fx))
 
         # (a) the portfolio-of-forward-contracts valuation — our projection route
-        @test pv(usd9, p) ≈ 1.543 atol = 1.0e-4
+        @test pv(ctx, swap) ≈ 1.543 atol = 1.0e-4
         # (b) the two-bond valuation: B_F/110 − B_D = 1,230.55/110 − 9.6439
         B_D = 10.0 * pv(usd9, Bond.Fixed(0.08, Periodic(1), 3))
         B_F = 1200.0 * pv(jpy4, Bond.Fixed(0.05, Periodic(1), 3))
         @test B_D ≈ 9.6439 atol = 1.0e-4
         @test B_F ≈ 1230.55 atol = 1.0e-2
         # the two routes agree to numerical precision
-        @test pv(usd9, p) ≈ B_F * spot - B_D
+        @test pv(ctx, swap) ≈ B_F * spot - B_D
     end
 
     @testset "textbook: currency swap (Hull Examples 7.2 & 7.3, later editions)" begin
@@ -337,14 +337,14 @@
         yen_leg = FX.Converted(Bond.Fixed(0.03, Periodic(1), 3) |> Map(cf -> cf * 1200.0), jpyusd, "JPYUSD")
         usd_leg = Bond.Fixed(0.04, Periodic(1), 3) |> Map(cf -> cf * -10.0)
         swap = Composite(yen_leg, usd_leg)
-        p = Projection(swap, Dict("JPYUSD" => fx), CashflowProjection())
-        @test pv(usd25, p) ≈ 0.9629 atol = 2.0e-4
+        ctx = Models(usd25, Dict("JPYUSD" => fx))
+        @test pv(ctx, swap) ≈ 0.9629 atol = 2.0e-4
 
         B_D = 10.0 * pv(usd25, Bond.Fixed(0.04, Periodic(1), 3))
         B_F = 1200.0 * pv(jpy15, Bond.Fixed(0.03, Periodic(1), 3))
         @test B_D ≈ 10.4191 atol = 1.0e-4
         @test B_F ≈ 1252.01 atol = 1.0e-2
-        @test pv(usd25, p) ≈ B_F * spot - B_D
+        @test pv(ctx, swap) ≈ B_F * spot - B_D
     end
 
     @testset "FX.ParBasisSwap long-end basis calibration" begin
@@ -366,14 +366,14 @@
             m_fit = fit(FX.Forwards(eurusd, S, usd, Spline.Linear()), qs, Fit.Bootstrap())
             @test all(isapprox(discount(m_fit.foreign, T), 1.028^-T; atol = 1.0e-8) for T in tenors)
 
-            # at-market legs price to par (in base-currency units) under the true model
+            # at-market legs price to par in base-currency units on the true model's foreign curve
             csa28 = Yield.Constant(Periodic(0.028, 1))
             m_true = FX.Forwards(eurusd, S, usd, csa28)
-            @test all(pv(m_true, q.instrument) ≈ 1.0 for q in qs)
+            @test all(pv(m_true.foreign, q.instrument) ≈ 1.0 for q in qs)
             # and the leg composes with FX.Converted: domestic value = spot × foreign value
             leg = qs[2].instrument
             store = Dict("EURUSD" => m_true)
-            @test pv(usd, Projection(FX.Converted(leg, eurusd, "EURUSD"), store, CashflowProjection())) ≈ S * pv(csa28, leg)
+            @test pv(Models(usd, store), FX.Converted(leg, eurusd, "EURUSD")) ≈ S * pv(csa28, leg)
         end
 
         @testset "materialization matches Bond.Floating projection" begin
@@ -436,7 +436,7 @@
             ]
             @test all(pv(csa, q.instrument) ≈ 1.0 for q in qs)
             m_fit = fit(FX.Forwards(eurusd, S, usd, Spline.Linear()), qs, Fit.Bootstrap())
-            @test all(abs(pv(m_fit, q.instrument) - 1.0) < 1.0e-9 for q in qs)
+            @test all(abs(pv(m_fit.foreign, q.instrument) - 1.0) < 1.0e-9 for q in qs)
             @test all(isapprox(discount(m_fit.foreign, t), 1.028^-t; atol = 1.0e-8) for t in [1.0, 2.0, 2.5])
         end
 
@@ -469,7 +469,7 @@
 
             # both quote families reprice on the fitted model
             @test all(abs(pv(m_fit, q.instrument)) < 1.0e-9 for q in fx_qs)
-            @test all(abs(pv(m_fit, q.instrument) - 1.0) < 1.0e-9 for q in bs_qs)
+            @test all(abs(pv(m_fit.foreign, q.instrument) - 1.0) < 1.0e-9 for q in bs_qs)
 
             # independent cross-check through the projection machinery: the actual
             # constant-notional basis swap — a floating EUR leg converted at the fitted
@@ -479,8 +479,7 @@
                 FX.Converted(Bond.Floating(spreads[2], freq, T5, "ESTR"), eurusd, "EURUSD"),
                 Bond.Floating(0.0, freq, T5, "SOFR") |> Map(cf -> cf * -S),
             )
-            p = Projection(swap, Dict("EURUSD" => m_fit, "ESTR" => estr, "SOFR" => sofr), CashflowProjection())
-            @test abs(pv(sofr, p)) < 1.0e-6
+            @test abs(pv(Models(sofr, Dict("EURUSD" => m_fit, "ESTR" => estr, "SOFR" => sofr)), swap)) < 1.0e-6
         end
 
         @testset "MTM (resetting-notional) equivalence" begin
@@ -532,8 +531,7 @@
                 @test foreign_leg - leg ≈ 0.0 atol = 1.0e-12
             end
 
-            # matched-pair leg pricing at a rolled valuation date delegates to the
-            # foreign curve with the same cur_time
+            # a leg's value as of a later date, natively on the foreign curve
             q = FX.ParBasisSwap(eurusd, -0.002, 3.0; reference = estr)
             m_par = FX.Forwards(eurusd, S, sofr, csa_true)
             cur = 1.5
@@ -541,7 +539,9 @@
                 cf.amount * discount(csa_true, cur, cf.time)
                     for cf in q.instrument.cashflows if cf.time >= cur
             )
-            @test pv(m_par, q.instrument, cur) ≈ manual
+            f = m_par.foreign
+            later = Projection(q.instrument, f) |> Filter(cf -> cf.time >= cur) |> Map(cf -> cf.amount * discount(f, cur, cf.time))
+            @test foldxl(+, later; init = 0.0) ≈ manual
         end
 
         @testset "parametric foreign curve via generic fit" begin
@@ -558,8 +558,8 @@
             m0 = FX.Forwards(eurusd, S, sofr, Spline.Linear())
             @test_throws ArgumentError fit(m0, [q_gbp], Fit.Bootstrap())
             m_e = FX.Forwards(eurusd, S, sofr, estr)
-            @test_throws ArgumentError pv(m_e, q_gbp.instrument)
-            @test_throws ArgumentError pv(m_e, q_gbp.instrument, 0.5)
+            # an unconverted base-currency leg under a quote-currency model
+            @test_throws "is denominated in :GBP" pv(m_e, q_gbp.instrument)
             # an outright and a basis swap at the same maturity are refused by the knot
             # grid's strictly-increasing rule rather than silently blended
             clash = [FX.Outright(eurusd, 1.12, 2.0), FX.ParBasisSwap(eurusd, -0.001, 2.0; reference = estr)]
