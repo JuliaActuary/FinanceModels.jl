@@ -384,8 +384,22 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
         # The closed forms equal the derivative of each curve's L (the generic method, which
         # Smith–Wilson uses), including at t = 0 and past the last knot
         L′(c, t) = ForwardDiff.derivative(s -> Yield.__log_discount(c, s), t)
-        for c in curves, t in (0.0, 0.3, 1.0, 1.7, 4.0, 7.5, 12.0, 40.0)
+        for c in curves, t in (0.0, 0.3, 1.0, 1.7, 2.0, 4.0, 5.0, 7.5, 10.0, 12.0, 40.0)
             @test Yield.instantaneous_forward(c, t) ≈ L′(c, t) atol = 1.0e-14
+        end
+        # At a knot the forward is L's right-hand derivative, the forward of the piece that starts
+        # there, so Hull–White's θ and conditional prices at knot times keep their values (a 6.x
+        # Linear curve's P(t, t + 1 | r = 3%) at knots 2, 5 and 10)
+        lin = ZeroRateCurve([0.02, 0.025, 0.03, 0.031], [1.0, 2.0, 5.0, 10.0], Spline.Linear())
+        L(t) = -log(discount(lin, t))
+        for t in (2.0, 5.0, 10.0)
+            h = 1.0e-6
+            @test Yield.instantaneous_forward(lin, t) ≈ (L(t + h) - L(t)) / h rtol = 1.0e-4
+            @test !isapprox(Yield.instantaneous_forward(lin, t), (L(t) - L(t - h)) / h; rtol = 1.0e-4)
+        end
+        hw_lin = ShortRate.HullWhite(0.1, 0.01, lin)
+        for (t, P) in ((2.0, 0.9688352697), (5.0, 0.9700656931), (10.0, 0.9701617133))
+            @test discount(hw_lin, t, t + 1.0, 0.03) ≈ P rtol = 1.0e-9
         end
         # long-run forwards
         @test Yield.instantaneous_forward(vas, Inf) ≈ 0.03 - 0.01^2 / (2 * 0.1^2) rtol = 1.0e-14

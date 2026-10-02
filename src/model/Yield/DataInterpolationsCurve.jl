@@ -35,48 +35,31 @@ the interpolant needs. `Yield.Spline` is a [`Yield.AbstractInterpolatedZeroCurve
 its knots with [`knot_rates`](@ref)/[`knot_tenors`](@ref) and change it with
 [`reconstruct`](@ref).
 """
-struct Spline{S <: Sp.SplineCurve, R, T, E, F} <: AbstractInterpolatedZeroCurve
+struct Spline{S <: Sp.SplineCurve, R, T, E, I, X} <: AbstractInterpolatedZeroCurve
     spline::S                  # the requested method (not the order reduced for short grids)
     rates::ReadOnlyVector{R}   # continuously-compounded zero rates at the knots
     tenors::ReadOnlyVector{T}  # finite, ≥ 0, strictly increasing
     extrapolation::E           # validated long-end policy
-    _fn::F                     # t -> continuous zero rate (interpolant, short end, and tail)
-    # Internal: the builders below pass an owned grid and a validated policy.
-    Spline(::Unchecked, spline::S, g::KnotGrid{R, T}, extrapolation::E, fn::F) where {S, R, T, E, F} =
-        new{S, R, T, E, F}(spline, ReadOnlyVector(g.rates), ReadOnlyVector(g.tenors), extrapolation, fn)
+    _interp::I                 # t -> continuous zero rate through the last knot (and the flat short end)
+    _tail::X                   # the long-end policy's `CurveTail` (unused with `:extension`)
+    _extend::Bool              # `:extension`: the interpolant continues past the last knot
+    # Internal: the builders below pass an owned grid and a validated policy. Every policy has the
+    # same tail type, so a runtime policy Symbol does not change the curve's type.
+    Spline(::Unchecked, spline::S, g::KnotGrid{R, T}, extrapolation::E, interp::I, tail::X, extend::Bool) where {S, R, T, E, I, X} =
+        new{S, R, T, E, I, X}(spline, ReadOnlyVector(g.rates), ReadOnlyVector(g.tenors), extrapolation, interp, tail, extend)
 end
 
-# L = z(t)·t from the zero-rate function; `discount` and `__log_discount` are the knot curves'.
-# Inlined, so that the interpolant is evaluated in the body of `discount` rather than behind a
-# second call (which made bond pricing on a Linear curve 40% slower).
-@inline __knot_log_discount(c::Spline, t) = c._fn(t) * t
-function __log_tail(c::Spline)
-    c._fn.extend && throw(
-        DomainError(
-            Inf, "discount(curve, Inf) is unsupported with extrapolation = :extension, whose " *
-                "polynomial continuation of the last piece is evaluated at finite times only. Use a " *
-                "finite time, or a policy with a tail limit (:flat_forward, :flat_zero, :linear, FlatForwardAt)."
-        )
-    )
-    return __log_tail(c._fn.tail)
-end
-
-# `_fn(t)` is the continuous zero rate, so `zero` is a direct read of the interpolant. This
-# avoids the generic `-log(discount)/t` round-trip (and its `0/0 → NaN` at t=0).
-function Base.zero(c::Spline, t)
-    __check_time(t, "zero")
-    return Continuous(c._fn(t))
-end
-
-# f = (z·t)′ = z + t·z′ on the interpolant, whose derivative is 0 on the flat short end; beyond the
-# last knot the tail's forward. At the last knot itself the interior (left) forward, as for
-# `MonotoneConvex`.
-function instantaneous_forward(c::Spline, t)
-    __check_time(t, "instantaneous_forward")
-    e = c._fn
-    (e.extend || t <= e.tail.last_tenor) || return __tail_forward(e.tail, t)
-    return e.interpolant(t) + t * DataInterpolations.derivative(e.interpolant, t)
-end
+# The knot-curve skeleton (InterpolatedCurves.jl) over the interpolant. The zero rate is a direct read
+# of it, without a `-log(discount)/t` round trip (and its 0/0 at t = 0). L is inlined, so that the
+# interpolant is evaluated in the body of `discount` rather than behind a second call (which made
+# bond pricing on a Linear curve 40% slower). The forward is L's right-hand derivative: ForwardDiff's
+# dual time at a knot evaluates the piece that starts there (DataInterpolations' own `derivative`
+# takes the piece that ends there).
+__tail(c::Spline) = c._tail
+__extends(c::Spline) = c._extend
+@inline __interior_zero(c::Spline, t) = c._interp(t)
+@inline __interior_log_discount(c::Spline, t) = c._interp(t) * t
+__interior_forward(c::Spline, t) = ForwardDiff.derivative(s -> __interior_log_discount(c, s), t)
 
 # Public, validating form: every direct construction copies and checks its inputs.
 Spline(spline::Union{Sp.PolynomialSpline, Sp.BSpline, Sp.PCHIP, Sp.Akima}, tenors, rates; extrapolation = :flat_forward) =
@@ -87,7 +70,7 @@ Spline(spline::Union{Sp.PolynomialSpline, Sp.BSpline, Sp.PCHIP, Sp.Akima}, tenor
 # so the descriptor → curve-type mapping lives in one place.
 function __build(s::Sp.SplineCurve, g::KnotGrid; extrapolation = :flat_forward)
     interpolant = __interpolant(s, __interpolation_grid(g), __interpolation_extrapolation(extrapolation))
-    return Spline(Unchecked(), s, g, extrapolation, __extrapolate(interpolant, g, extrapolation))
+    return Spline(Unchecked(), s, g, extrapolation, interpolant, __spline_tail(interpolant, g, extrapolation), extrapolation === :extension)
 end
 
 # DataInterpolations needs two points. A one-knot curve is flat, so its interpolant runs a flat
@@ -149,26 +132,12 @@ function __last_discrete_forward(rates, tenors)
     return (zₙ * tₙ - zₘ * tₘ) / (tₙ - tₘ)
 end
 
-# A single callable adapter combines a DataInterpolations zero-rate interpolant with its
-# tail. Every policy, including `:extension`, uses this one type, so a runtime policy
-# Symbol does not change the constructed curve's type. With `extend = true`
-# (`:extension`) the interpolant also evaluates beyond the last knot and the tail is unused.
-struct Extrapolated{I, E}
-    interpolant::I
-    tail::E
-    extend::Bool
-end
-@inline (e::Extrapolated)(t) = (e.extend || t <= e.tail.last_tenor) ? e.interpolant(t) : e.tail(t)
-
-# The zero-rate function of a `Yield.Spline`: the interpolant through the last knot, then the tail.
-function __extrapolate(interpolant, g::KnotGrid, method)
+# The long-end tail of a DataInterpolations-backed curve. `:extension` continues the interpolant
+# instead, and gets a tail of the same type as `:flat_zero` that is never evaluated.
+function __spline_tail(interpolant, g::KnotGrid, method)
     t, z = last(g.tenors), last(g.rates)
-    if method === :extension
-        # Same tail type as `:flat_zero`, but never evaluated.
-        tail = __curve_tail(t, z, zero(z), zero(z), false)
-        return Extrapolated(interpolant, tail, true)
-    end
+    method === :extension && return __curve_tail(t, z, zero(z), zero(z), false)
     forward = () -> __last_discrete_forward(g.rates, g.tenors)
     slope = () -> DataInterpolations.derivative(interpolant, t)
-    return Extrapolated(interpolant, __build_tail(method, t, z, forward, slope), false)
+    return __build_tail(method, t, z, forward, slope)
 end
