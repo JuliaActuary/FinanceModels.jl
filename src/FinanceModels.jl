@@ -24,7 +24,7 @@ include("implicit.jl")
 include("Contract.jl")
 include("model/Model.jl")
 include("Projection.jl")
-include("projection_models.jl")
+include("valuation_contexts.jl")
 include("fit_implicit.jl")
 include("fit.jl")
 
@@ -46,7 +46,7 @@ export par, implied_quote
 export Equity, Volatility
 export FX
 export ShortRate, AbstractStochasticModel, RatePath, simulate, pv_mc, short_rate
-export Projection, CashflowProjection, model_requirements
+export Projection, CashflowProjection, Models, valuation_model
 export pv
 export Fit, fit, FitConvergenceError
 

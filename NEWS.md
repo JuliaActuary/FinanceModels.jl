@@ -2,13 +2,37 @@
 
 ## v7.0.0 (unreleased)
 
-### Closed-form valuation of projected contracts
+### Valuation that composes: valuation contexts (requires FinanceCore 3; changed numbers)
 
-`present_value(model, p::Projection)` dispatches on the projection kind internally, so a
-contract with a closed-form value can define
-`present_value(m::Yield.AbstractYieldModel, p::Projection{MyContract})`, reading its index
-models from `p.model`. That signature was ambiguous with the generic method; only
-`Projection{MyContract, M, K} where {M, K <: CashflowProjection}` worked.
+`present_value(model, contract)` is the one valuation. The first argument is a valuation context:
+a yield curve or rate, a model with a closed form for the contract, or `Models(model, store)` /
+`Models(model; index)`, which also holds the models a contract reads by key.
+
+- **Portfolios are correct.** FinanceCore passed each element's index of a collection as a third
+  argument, which FinanceModels read as a valuation time: a 3-year zero-coupon bond at a
+  continuous 3% was worth 0.9139 alone but 0.9418 inside `[bond]`, and `[a, b]` and `[b, a]`
+  differed. A collection of contracts is now worth the sum of its contracts' values.
+- **Closed forms compose.** A `Composite` is worth the sum of its parts, so options, caps, floors
+  and swaptions (which have no cashflow projection) value inside a `Composite` and a portfolio;
+  they threw. A closed form is defined on the contract, `present_value(ctx, c::MyContract)`,
+  reading `discount(ctx, t)`, `ctx[key]` and `valuation_model(ctx)`; it is the same under
+  `Models(model, store)` as under `model`. Wrappers that act on the cashflow stream (`Forward`,
+  `FX.Converted`, transducers) need a projection.
+- **No valuation-time argument.** `present_value(model, contract, cur_time)` is removed. For a
+  deterministic curve, the value as of `t` of the cashflows at or after `t` is
+  `foldxl(+, Projection(c, curve) |> Filter(cf -> cf.time >= t) |> Map(cf -> cf.amount * discount(curve, t, cf.time)); init = zero(discount(curve, t, t)))`
+  (see the migration guide). Cashflows before time 0 accumulate; the default `cur_time = 0` filter
+  dropped them.
+- **Removed:** `Projection(contract; index)` (use `Models(model; index)`), `model_requirements`,
+  and valuing a `Projection` (`present_value(model, ::Projection)`; value the contract under a
+  context, and `collect(Projection(contract, ctx))` for its cashflows). A custom closed form on
+  `Projection{MyContract}` moves to the contract.
+- **FX values are in one reporting currency per context.** An `FX.Forwards` model discounts in
+  its quote currency, and `FX.Forward` is one quote-currency cashflow. A base-currency
+  `FX.BasisSwapLeg` is valued on a base-currency curve (`present_value(m.foreign, leg)`) or
+  converted with `FX.Converted`; under a quote-currency context it throws (it was valued in
+  base-currency units, so a `Composite` would have added EUR to USD). Par basis-swap quotes stay
+  native in calibration.
 
 ### `implied_quote`
 

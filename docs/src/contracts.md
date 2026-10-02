@@ -49,9 +49,6 @@ struct PrincipleOnlyBond{F<:FinanceCore.Frequency} <: FinanceModels.Bond.Abstrac
     maturity::Float64
 end
 
-# This contract needs no model when using Projection(contract; index).
-FinanceModels.model_requirements(::PrincipleOnlyBond) = ()
-
 # We extend the interface to say what should happen as the bond is projected
 # There's two parts to customize:
 # 1. any initialization or state to keep track of
@@ -150,50 +147,40 @@ end
 
 ##### Cashflows are model dependent
 
-FinanceModels owns the model requirements of projectable contracts. Use
-`model_requirements(contract)` to iterate over the `key => model_type` pairs, including
-those inside composites, forward-starting contracts, transformed legs, portfolios,
-and FX wrappers. Custom projectable contracts extend this function; an unknown
-contract is never assumed to be model independent.
-
-The protocol returns an iterable: small fixed contracts may return tuples, while
-runtime portfolios are flattened lazily, including inside contract wrappers.
-Use arrays for large portfolios to avoid compilation costs from deeply nested
-`Composite` types.
-Use `collect(model_requirements(contract))` when a materialized list is needed.
-The convenience constructor consumes requirements once and validates every
-occurrence, even when a repeated key has different model type constraints.
-
-For a shared index curve, `Projection(contract; index=curve)` wires the required
-keys automatically. Rebuild this projection inside a valuation closure to recompute
-floating coupons when the index curve changes:
+A contract that observes models, such as a floating bond reading its index curve, reads them by
+key from the valuation context. [`Models`](@ref) holds the model that discounts and the models a
+contract reads; `Models(model; index)` reads `index` under every key. Value a contract under a
+context, and list its cashflows by projecting it against the same context:
 
 ```julia
 curve = Yield.Constant(0.04)
 swap = InterestRateSwap(curve, 5.0; frequency = 1)
-value(index, credit) = present_value(credit, Projection(swap; index))
+value(index, credit) = present_value(Models(credit; index), swap)
 value(curve, curve) # approximately zero
+collect(Projection(swap, Models(curve; index = curve)))
 ```
 
-For multiple index curves or combined yield and FX requirements, use an explicit
-store, for example `Projection(contract, Dict("SOFR" => sofr, "EURUSD" => fx))`.
-The single-model convenience form rejects a model of the wrong required type.
+Valuation is linear: a `Composite` is worth the sum of its parts and a collection of contracts the
+sum of its contracts' values. For multiple index curves or combined yield and FX models, use an
+explicit store, for example `Models(ois, Dict("SOFR" => sofr, "EURUSD" => fx))`.
 
-A contract with a closed-form value can define `present_value` on its projection
-instead of producing cashflows; the projection's `model` holds the models it requires:
+A contract with a closed-form value defines `present_value` on the contract, reading the models it
+needs from the context: `discount(ctx, t)` for discounting, `ctx[key]` for an observed model, and
+[`valuation_model(ctx)`](@ref valuation_model) for the model whose formula prices it. It then
+composes with every other contract:
 
 ```julia
 struct OnePeriodFloater <: FinanceCore.AbstractContract
     key::String
 end
-FinanceModels.model_requirements(c::OnePeriodFloater) = (c.key => Yield.AbstractYieldModel,)
 # Pays principal plus the forward rate from t = 1 to 2 at t = 2.
-FinanceCore.present_value(m::Yield.AbstractYieldModel, p::Projection{OnePeriodFloater}) =
-    discount(m, 2.0) / discount(p.model[p.contract.key], 1.0, 2.0)
+FinanceCore.present_value(ctx, c::OnePeriodFloater) = discount(ctx, 2.0) / discount(ctx[c.key], 1.0, 2.0)
+
+present_value(Models(ois, Dict("SOFR" => sofr)), [OnePeriodFloater("SOFR"), Bond.Fixed(0.04, Periodic(2), 5.0)])
 ```
-Its generated store is a `Dict{Any, typeof(index)}`, supporting mixed key types
-while retaining concrete model values. Pass an explicit store when downstream
-code requires a particular store or key type.
+
+Wrappers that act on the cashflow stream (`Forward`, `FX.Converted`, `contract |> Map(f)`) need the
+contract's projection, so a contract with only a closed form cannot be placed inside them.
 
 An example of this is a floating bond where the coupon paid depends on a view of forward rates. See [this section in the overview](@ref Contracts-that-depend-on-the-model-(or-multiple-models)) on projections for how this is handled.
 

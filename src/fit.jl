@@ -211,8 +211,14 @@ end
 
 # The fitting loss: `loss_method.fn` summed over the price residuals of `quotes` under `model`.
 __quote_loss(model, loss_method, quotes) = mapreduce(+, quotes) do q
-    loss_method.fn(present_value(model, q.instrument) - q.price)
+    loss_method.fn(__quote_value(model, q) - q.price)
 end
+
+# A quote's value under the model being fitted. A par basis-swap quote is a base-currency quote: its
+# leg is valued on the FX model's foreign curve, the native route (`FX.__implied_foreign_quote` checks
+# its pair), as the spline fits of an FX model do.
+__quote_value(model, q) = present_value(model, q.instrument)
+__quote_value(m::FX.Forwards, q::Quote{<:Any, <:FX.BasisSwapLeg}) = present_value(m.foreign, FX.__implied_foreign_quote(m, q).instrument)
 
 # A knot-curve fit's trial curve (optimizer candidate, bootstrap step, calibration Jacobian): knot
 # rates `z` over tenors validated up front, built without a copy or a finite-rate check, so a

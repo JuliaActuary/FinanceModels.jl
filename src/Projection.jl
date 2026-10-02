@@ -7,8 +7,8 @@ The set of `contract`s and assumptions (`model`) to project the `kind` of output
 
 If attempting to `collect` or otherwise reduce a contract (`<:AbstractContract`), by default it will get wrapped into a `Projection(contract,NullModel(),CashflowProjection())`
 
-Use `Projection(contract; index)` to build a shared-index model store from
-[`model_requirements`](@ref).
+`Projection(contract, models)` projects against a valuation context such as
+[`Models`](@ref), whose models the contract reads by key: `collect(Projection(swap, Models(curve; index = curve)))`.
 """
 struct Projection{C, M, K} <: AbstractProjection
     contract::C
@@ -70,9 +70,10 @@ Base.collect(c::C) where {C <: FinanceCore.AbstractContract} = Projection(c) |> 
 
 # the default projection is just one where we get the cashflows and assume that the contract needs
 # no assumptions/model to determine the cashflows (the contract will error if a certain model is needed)
-# The default and keyword index forms are defined in projection_models.jl.
 # if the model is also given, assume that we want a `CashflowProjection` by default
 Projection(c, m) = Projection(c, m, CashflowProjection())
+# a contract's cashflows without models (fixed cashflows)
+Projection(c) = Projection(c, NullModel())
 
 
 # Reducibles ###################################
@@ -218,6 +219,7 @@ struct __Rebased{M, T}
     time::T
 end
 Base.getindex(r::__Rebased, key) = __rebase(r.models[key], r.time)
+valuation_model(r::__Rebased) = __rebase(valuation_model(r.models), r.time)
 # A model seen from time `t`: a yield curve from `t` on; an FX model with its forward rate at `t` as
 # spot and its curves from `t` on; a flat rate (a `Rate`, or a number read as one) is the same from any
 # start.
@@ -238,13 +240,40 @@ __rebase(m::FX.Forwards, t) = FX.Forwards(m.pair, forward(m, t), __rebase(m.dome
     if fx.pair != p.contract.pair
         throw(ArgumentError("`FX.Converted` declared $(p.contract.pair) but the model under key $(repr(p.contract.key)) prices $(fx.pair)"))
     end
-    inner = @set p.contract = p.contract.contract
+    inner = Projection(p.contract.contract, __InBase(p.model, p.contract.pair.base), p.kind)
     return __concat(Transducers.Reduction(Map(cf -> @set cf.amount *= forward(fx, cf.time)), rf), val, (inner,))
 end
 
-# an `FX.BasisSwapLeg` is a materialized strip of base-currency cashflows; emit them
-# directly (they need no model to resolve).
+# The currency a projection's cashflows are declared in, for a contract denominated in a currency of
+# its own (`FX.BasisSwapLeg`): a plain yield curve is the contract's own (native) currency, an
+# `FX.Converted` projects its contract in the pair's base currency (`__InBase`), `Forward`'s rebased
+# store keeps its models' declaration, `NullModel` only lists cashflows, and any other context (an
+# `FX.Forwards`, `Models`, a store) declares none: its values are in its own reporting currency.
+struct __Native end
+struct __Inspect end
+struct __InBase{S, B}
+    store::S
+    base::B
+end
+Base.getindex(m::__InBase, key) = m.store[key]
+valuation_model(m::__InBase) = valuation_model(m.store)
+__denomination(::Yield.AbstractYieldModel) = __Native()
+__denomination(m::__InBase) = m.base
+__denomination(m::__Rebased) = __denomination(m.models)
+__denomination(::NullModel) = __Inspect()
+__denomination(_) = nothing
+
+# an `FX.Forward` is one quote-currency cashflow, read from the projection's valuation model
+@inline function Transducers.__foldl__(rf, val, p::Projection{C, M, K}) where {C <: FX.Forward, M, K <: CashflowProjection}
+    val = @next(rf, val, FX.__forward_cashflow(valuation_model(p.model), p.contract))
+    return complete(rf, val)
+end
+
+# an `FX.BasisSwapLeg` is a materialized strip of base-currency cashflows; emit them directly
+# (they need no model to resolve), in a projection declared in that currency only.
 @inline function Transducers.__foldl__(rf, val, p::Projection{C, M, K}) where {C <: FX.BasisSwapLeg, M, K}
+    d = __denomination(p.model)
+    (d isa __Native || d isa __Inspect || isequal(d, p.contract.pair.base)) || FX.__throw_unconverted(p.contract)
     for cf in p.contract.cashflows
         val = @next(rf, val, cf)
     end
@@ -252,21 +281,46 @@ end
 end
 
 
-# The projection kind is dispatched internally, so a contract with a closed form can define
-# `present_value(model, p::Projection{MyContract})` without an ambiguity with this method.
-FinanceCore.present_value(model, p::FinanceModels.Projection, cur_time = 0.0) = __present_value(model, p, p.kind, cur_time)
+"""
+    present_value(model, contract)
 
-# Adds a discounted cashflow to the running present value. The fold starts from `nothing`, so an
-# empty fold is recognizable, and the sum starts at the first discounted cashflow, in its own type
-# (a Float64 0.0 to start from would widen a Float32 model's values).
-__add_present_value(total, v) = total + v
-__add_present_value(::Nothing, v) = v
+The value of `contract` at time 0 under `model`, a valuation context: a yield curve or rate that
+discounts its cashflows, a model with a closed form for it (`Equity.BlackScholesMerton` for a
+European option), or a [`Models`](@ref) context that also holds the models it observes.
 
-function __present_value(model, p, ::CashflowProjection, cur_time)
-    xf = p |> Filter(cf -> cf.time >= cur_time) |> Map(cf -> FinanceCore.discount(model, cur_time, cf.time) * cf.amount)
-    total = foldxl(__add_present_value, xf; init = nothing)
-    # An empty fold (e.g. valuing past maturity) is worth 0, not an error. As FinanceCore values an
-    # empty collection, that 0 is `zero` of a discount factor over no time: the type of a present
-    # value under `model`, with no dependence on its value.
-    return isnothing(total) ? zero(FinanceCore.discount(model, cur_time, cur_time)) : total
-end
+- A contract with a cashflow projection is worth its projected cashflows, each discounted by
+  `model` (`discount(model, t)`). A cashflow paid before time 0 accumulates.
+- A `Composite` is worth the sum of its parts, and a collection of contracts the sum of its
+  contracts' values (FinanceCore), so a part with a closed form keeps it.
+- `Forward`, `FX.Converted` and transducers (`contract |> Map(f)`) act on the cashflow stream: a
+  contract under one of them is valued by its projection.
+
+The valuation is as of time 0; there is no valuation-time argument. For a deterministic curve, the
+value as of `t` of the cashflows at or after `t` applies the interval discount to each, from a zero
+of the valuation's type:
+
+```julia
+foldxl(+, Projection(c, curve) |> Filter(cf -> cf.time >= t) |> Map(cf -> cf.amount * discount(curve, t, cf.time)); init = zero(discount(curve, t, t)))
+```
+
+# Examples
+
+```julia
+m = Equity.BlackScholesMerton(0.01, 0.02, 0.15)
+a = Option.EuroCall(CommonEquity(), 1.0, 1.0)
+pv(m, a) # ≈ 0.05410094201902403
+```
+"""
+FinanceCore.present_value(ctx, c::FinanceCore.AbstractContract) = __stream_value(ctx, c)
+# a transducer over a contract (a swap leg is one) is an ordered cashflow stream, as a wrapper is
+FinanceCore.present_value(ctx, c::Transducers.Eduction{<:Any, <:FinanceCore.AbstractContract}) = __stream_value(ctx, c)
+
+# The value of a contract's projected cashflows, each discounted by `ctx`. The sum starts from the
+# value of an empty projection: as FinanceCore values an empty collection, `zero` of an amount
+# discounted at time zero, in the type of a present value under `ctx` (a Float32 model's sum stays
+# Float32), so the accumulator is concretely typed. The time is an `Int` 0, which adds no precision
+# either; a `Bool` time would fail for number types that don't compare with `Bool`, such as DecFP's.
+__stream_value(ctx, c) = foldxl(
+    +, Projection(c, ctx, CashflowProjection()) |> Map(cf -> FinanceCore.present_value(ctx, cf));
+    init = zero(FinanceCore.present_value(ctx, false, 0))
+)
