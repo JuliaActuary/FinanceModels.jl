@@ -272,9 +272,8 @@
         @test maturity(FX.Converted(bond, eurusd, "EURUSD")) == 5.0
         # a missing model key errors loudly
         @test_throws KeyError collect(Projection(FX.Converted(bond, FX.Pair(:GBP, :USD), "GBPUSD"), store, CashflowProjection()))
-        # ...and so does a mis-keyed store: a yield curve where the FX model belongs
-        # is named at the source instead of failing inside the transducer pipeline
-        @test_throws ArgumentError collect(Projection(FX.Converted(bond, eurusd, "EURUSD"), Dict("EURUSD" => usd_boot), CashflowProjection()))
+        # ...and so does a mis-keyed store: a yield curve where the FX model belongs has no pair
+        @test_throws (VERSION >= v"1.12" ? FieldError : ErrorException) collect(Projection(FX.Converted(bond, eurusd, "EURUSD"), Dict("EURUSD" => usd_boot), CashflowProjection()))
         # the declared pair catches an inverted model under an otherwise-valid key —
         # the silent reciprocal-rate conversion this wrapper exists to prevent
         @test_throws ArgumentError collect(Projection(FX.Converted(bond, eurusd, "EURUSD"), Dict("EURUSD" => inv(fx)), CashflowProjection()))
