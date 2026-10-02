@@ -128,7 +128,11 @@ when:
   are not supported);
 - the dual numbers are nested (second-order derivatives) or come from two different ForwardDiff
   calls;
-- a dual number sits inside a contract type `fit` does not know how to strip;
+- a dual number reaches the solve through data the fit does not differentiate: inside a contract
+  type `fit` does not know how to strip, in a model field it does not optimize, or in any input
+  of a non-spline fit. Each solve checks every evaluation for dual numbers that are not its own,
+  so a dual number that appears only partway through the solve (a price that depends on it in
+  part of the parameter space) throws as well;
 - a loss fit does not reprice its quotes (for example with a loss function whose minimum is not
   at zero residual);
 - the quote prices do not determine the knot rates (a singular or ill-conditioned repricing

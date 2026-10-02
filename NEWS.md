@@ -49,6 +49,13 @@ calibration from the implicit function theorem; their values are the primal fit,
 Dual maturities, nested dual numbers, dual numbers from two differentiations, loss fits that
 do not reprice their quotes, and other models' fits throw an `ArgumentError` (#290).
 
+A dual number that reaches any fit's solve through data it does not differentiate (inside a
+contract type `fit` does not strip, such as an option strike or a `Forward`-wrapped amount, or in
+any input of a non-spline fit) throws an `ArgumentError` at the evaluation where it appears.
+Previously some reached the optimizer, and ForwardDiff returned the derivative of its iterations:
+`0.0` under `NelderMead`. Each solve now checks what it evaluates for ForwardDiff tags other than
+its own, which are keyed by its loss and its data, so nested fits cannot mistake each other's.
+
 ### Derivatives at interpolation kinks
 
 `Spline.MonotoneConvex()`, `Spline.PCHIP()`, and `Spline.Akima()` are only piecewise smooth in
