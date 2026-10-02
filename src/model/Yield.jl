@@ -5,7 +5,7 @@ import ..Spline as Sp
 import ..ReadOnlyVector
 import ..DataInterpolations
 import ..Bond: coupon_times, __regular_schedule, __par_coupon
-import ..__implicit_root, ..__primal, ..__ad_depth, ..__evalpoly_exact
+import ..__implicit_root, ..__primal, ..__ad_depth, ..__evalpoly_exact, ..__float_eltype
 import ..ForwardDiff
 import ..Accessors
 

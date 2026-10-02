@@ -17,12 +17,10 @@ __min_knots(::Sp.Akima) = 3
 # when handed a `Vector`), so the curve never aliases caller-owned memory; never narrows
 # AD types (`float(::Dual)` is a `Dual`). Inputs that are not real numbers fail where they are
 # converted (`float(String)`, `Float64(::Dual)` for mixed dual tags, …). An untyped empty input
-# has no values to promote: `Bool`, which every real type absorbs, makes it `Float64[]`, so the
-# grid's own length check reports it.
+# is `Float64[]`, so the grid's own length check reports it.
 function __owned_float_vector(x)
     v = x isa AbstractVector ? x : collect(x)
-    T = isconcretetype(eltype(v)) ? eltype(v) : mapreduce(typeof, promote_type, v; init = Bool)
-    return Vector{float(T)}(v)   # Array-from-AbstractArray always allocates a fresh copy
+    return Vector{__float_eltype(v)}(v)   # Array-from-AbstractArray always allocates a fresh copy
 end
 
 # Marker for the internal, unvalidated `KnotGrid` construction used by optimizer trial curves.
