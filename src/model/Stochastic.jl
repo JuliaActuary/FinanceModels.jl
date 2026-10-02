@@ -351,7 +351,8 @@ end
 
 A simulated interest-rate path wrapped as an `AbstractYieldModel`.
 `interp` maps time `t` to the cumulative integral ∫₀ᵗ r(s) ds so that
-`discount(path, t) = exp(-interp(t))`.
+`discount(path, t) = exp(-interp(t))`. The path is defined where `interp` is;
+`simulate` builds paths that throw outside their time grid.
 """
 struct RatePath{I} <: Yield.AbstractYieldModel
     interp::I
@@ -372,7 +373,9 @@ Yield.__log_native(::RatePath) = true
 
 Generate `n_scenarios` interest-rate paths.
 Each path is returned as a `RatePath` (an `AbstractYieldModel`) so it plugs
-directly into `present_value`, `discount`, etc.
+directly into `present_value`, `discount`, etc. A path is defined on its time
+grid, from 0 to the first step at or beyond `horizon`; evaluating it outside
+that range throws rather than extending the path.
 
 Discretisation schemes:
 - **Vasicek / Hull-White**: the exact Gaussian transition density, so the
@@ -410,6 +413,9 @@ function simulate(
     for j in 1:n_steps
         times[j + 1] = j * dt
     end
+    # n_steps·dt can round below the horizon (0.3 steps to 0.9 end at 0.8999999999999999); the path
+    # covers the horizon it was asked for, and still nothing beyond its last step
+    times[end] = max(times[end], horizon)
 
     # `map` (rather than filling a Vector{RatePath}, a UnionAll eltype) infers the
     # concrete RatePath{...} element type, so downstream pricing loops dispatch
@@ -426,9 +432,10 @@ function simulate(
                 0.5 * (_observed_rate(model, r) + _observed_rate(model, r_new)) * dt
             r = r_new
         end
+        # no extrapolation: the path is defined only on its simulated grid
         interp = DataInterpolations.LinearInterpolation(
             cumulative, times;
-            extrapolation = DataInterpolations.ExtrapolationType.Extension
+            extrapolation = DataInterpolations.ExtrapolationType.None
         )
         RatePath(interp)
     end
@@ -525,7 +532,8 @@ by averaging `present_value` across simulated scenarios.
     provides the discount factors. For floating-rate instruments whose cashflows depend
     on the rate path, project cashflows per scenario using `Projection` instead.
 
-The `horizon` should cover the contract's maturity. The default (`maturity + 1`) ensures this.
+The `horizon` must cover the contract's maturity, since a simulated path throws
+beyond its horizon. The default (`maturity + 1`) ensures this.
 """
 function pv_mc(
         model::AbstractStochasticModel, contract;
@@ -736,8 +744,18 @@ The short rate is the derivative of this cumulative integral.
 
 Because the cumulative integral is built from trapezoidal steps, the
 returned rate is piecewise-constant within each timestep — an approximation to the
-continuous short-rate process, not the exact value.
+continuous short-rate process, not the exact value. It is right-continuous: at a grid time
+it is the slope of the step that starts there, and at the path's last time the last step's.
+It is the path's `Yield.instantaneous_forward`.
 """
-function short_rate(path::RatePath, t)
-    return DataInterpolations.derivative(path.interp, t)
+short_rate(path::RatePath, t) = Yield.instantaneous_forward(path, t)
+
+# The slope of L = ∫₀ᵗ r over the grid step that starts at `t` (the last step at the path's last time),
+# so the rate is right-continuous like a knot curve's forward. Outside its grid the interpolant's own
+# extrapolation decides: a simulated path throws, a path built with an extension extends.
+function Yield.instantaneous_forward(p::RatePath, t)
+    ts, L = p.interp.t, p.interp.u
+    first(ts) <= t <= last(ts) || return DataInterpolations.derivative(p.interp, t)
+    i = min(searchsortedlast(ts, t), length(ts) - 1)
+    return (L[i + 1] - L[i]) / (ts[i + 1] - ts[i])
 end
