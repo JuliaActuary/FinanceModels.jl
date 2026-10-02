@@ -172,26 +172,100 @@ end
 Yield.__log_discount(m::ShortRate.Vasicek, T) = _vasicek_log_zcb(m.a, m.b, m.σ, _initial_rate(m), T)
 Yield.__log_native(::ShortRate.Vasicek) = true
 
-# CIR ZCB price: P = A(τ) exp(-B(τ) r)
-function _cir_zcb(a, b, σ, r, τ)
-    if abs(σ) < 1.0e-15
-        # Deterministic limit dr = a(b - r)dt: Vasicek's price without volatility, which keeps r and
-        # b in separate terms. With no mean reversion the rate is constant, also at τ = ∞ where aτ
-        # is undefined; a dual `a` that carries a partial is not `iszero`, so ∂/∂a keeps the series.
-        iszero(a) && return exp(-r * τ)
-        return _vasicek_zcb(a, b, zero(σ), r, τ)
-    end
-    γ = sqrt(a^2 + 2σ^2)
-    expγτ = exp(γ * τ)
-    denom = (γ + a) * (expγτ - 1) + 2γ
-    B = 2(expγτ - 1) / denom
-    A = (2γ * exp((a + γ) * τ / 2) / denom)^(2a * b / σ^2)
-    return A * exp(-B * r)
+# CIR ZCB price P = A(τ) exp(-B(τ) r), with γ = √(a² + 2σ²) (Cox, Ingersoll & Ross 1985):
+#     B = 2(e^{γτ} - 1)/D,  log A = (2ab/σ²)·log(2γ e^{(a+γ)τ/2}/D),  D = (γ + a)(e^{γτ} - 1) + 2γ.
+# That form overflows e^{γτ} at long maturities, and as σ → 0 it raises a number within σ² of 1 to the
+# power 2ab/σ² (σ = 1e-10 gave 5.6e57). With s = γ + a and d = γ - a, so that s·d = 2σ² and s + d = 2γ,
+# dividing D by e^{γτ} gives D′ = s + d·e^{-γτ}, and for either sign of a
+#     B = 2(1 - e^{-γτ})/D′,   log A = 2ab·G.
+# The larger of s and d is γ + |a|; the other is formed as 2σ²/(γ + |a|) = (2σ/(γ + |a|))·σ, which
+# neither cancels nor underflows σ². G is written so that nothing cancels as σ → 0:
+#     G = w·ℓ(σ²w) - τ/s,             w = 2(1 - e^{-γτ})/(s·D′)            for a ≥ 0,
+#     G = τ/d - log1p(σ²v)/σ²,        v = (e^{γτ} - 1)/(d·γ)               for a < 0,
+# where ℓ(u) = log1p(u)/u. Where σ²v overflows (a < 0), log1p(σ²v) comes from log(σ²v) instead, with
+# G's two terms combined into one slope in τ, so that τ = ∞ gives ±∞ rather than ∞ - ∞.
+# Both reach the deterministic price continuously as σ → 0, and σ = 0 needs no case of its own: the
+# smaller factor is then 0 and they give the deterministic (volatility-free Vasicek) price. For small γτ,
+# where the divisions by γ, s and σ² are near 0/0 (exactly so at a = σ = 0, leaving derivatives NaN),
+# B and G come from series in γ² instead (`_cir_series`); outside that band only a = σ = 0 remains,
+# at τ = ∞, where γτ is 0·∞ and the rate stays constant.
+function _cir_pieces(a, σ, τ)
+    γ = hypot(a, σ, σ)
+    big = γ + abs(a)
+    small = 2σ / big * σ
+    s, d = a >= 0 ? (big, small) : (small, big)
+    q = -expm1(-γ * τ)
+    D = s + d * exp(-γ * τ)
+    return (; γ, s, d, q, D, B = 2q / D)
 end
+function _cir_log_zcb(a, b, σ, r, τ)
+    if _cir_short(a, σ, τ)
+        B, g = _cir_series(a, σ, τ)
+        return B * r + (a * τ) * (b * τ) * g
+    end
+    # a = σ = 0 at τ = ∞ (γτ = 0·∞): the rate stays constant
+    iszero(a) && iszero(σ) && return r * τ
+    (; γ, s, d, q, D, B) = _cir_pieces(a, σ, τ)
+    # Without a drift towards b, A = 1, also at τ = ∞ where τ/s is infinite
+    iszero(a * b) && return B * r
+    return B * r - 2a * b * _cir_log_a_ratio(a, σ, τ, γ, s, d, q, D)
+end
+# G = log A/(2ab), as described above
+function _cir_log_a_ratio(a, σ, τ, γ, s, d, q, D)
+    if a >= 0
+        w = 2q / (s * D)
+        return w * _log1p_ratio(σ^2 * w) - τ / s
+    end
+    γτ = γ * τ
+    v = expm1(γτ) / (d * γ)
+    isfinite(σ^2 * v) && return τ / d - v * _log1p_ratio(σ^2 * v)
+    # log1p(σ²v) = ℓc + γτ + log1p(e^{-(ℓc + γτ)}) with ℓc = log(σ²q/(dγ)), and 1/d - γ/σ² =
+    # -(a² + σ² - aγ)/(dσ²), a sum of positive terms for a < 0; one numerator over σ², so that σ² = 0
+    # (underflow) or τ = ∞ gives an infinity of the right sign
+    ℓc = 2log(σ) - log(d * γ) + log(q)
+    return -(τ * (a^2 + σ^2 - a * γ) / d + ℓc + log1p(exp(-(ℓc + γτ)))) / σ^2
+end
+
+# For small γτ: in the dimensionless X = (γτ/2)² = (aτ/2)² + (στ)²/2, C = cosh(γτ/2) and
+# Ŝ = sinh(γτ/2)/(γτ/2) are entire, and B = τŜ/(C + (aτ/2)Ŝ). C + (aτ/2)Ŝ is e^{aτ/2} at σ = 0
+# (X = X₀ = (aτ/2)²), so with Δ̂ its divided difference between X₀ and X, the log A term is
+#     log A = 2ab·G = -(aτ)(bτ)·g,   g = Δ̂e^{-aτ/2}·ℓ((στ)²/2·Δ̂e^{-aτ/2}),
+# which never divides by σ² or γ. Only dimensionless powers are formed, so a long time with small
+# rates (or the reverse) can't overflow one factor while underflowing another. With (γτ)² < 0.16 the
+# series' omitted terms are below Float64 rounding.
+const _CIR_SERIES_X2 = 0.16
+const _CIR_C = ntuple(k -> 1 // factorial(2k - 2), 9)   # 1/(2j)!, j = 0, …, 8
+const _CIR_S = ntuple(k -> 1 // factorial(2k - 1), 9)   # 1/(2j + 1)!
+_cir_short(a, σ, τ) = (a * τ)^2 + 2(σ * τ)^2 < _CIR_SERIES_X2
+function _cir_series(a, σ, τ)
+    α = a * τ / 2
+    y = (σ * τ)^2 / 2
+    X0 = α^2
+    X = X0 + y
+    C = __evalpoly_exact(X, _CIR_C)
+    Ŝ = __evalpoly_exact(X, _CIR_S)
+    T = typeof(float(__primal(X)))
+    Δ, dd, X0k = zero(X), zero(X), one(X0)   # Δ̂, (Xᵏ - X₀ᵏ)/(X - X₀), X₀ᵏ⁻¹
+    for k in 2:length(_CIR_C)
+        dd = X * dd + X0k
+        X0k *= X0
+        Δ += (convert(T, _CIR_C[k]) + α * convert(T, _CIR_S[k])) * dd
+    end
+    e = exp(-α)
+    return τ * Ŝ / (C + α * Ŝ), Δ * e * _log1p_ratio(y * Δ * e)
+end
+_cir_zcb(a, b, σ, r, τ) = exp(-_cir_log_zcb(a, b, σ, r, τ))
+
+# log1p(u)/u. Where |u| < 1e-3 its Taylor polynomial, whose omitted terms are below Float64 rounding,
+# so it is 1 at u = 0 (σ² underflows, or σ is a dual zero) and differentiable there.
+const _LOG1P_RATIO_COEFFS = ntuple(k -> (-1)^(k - 1) // k, 7)
+_log1p_ratio(u) = abs(u) < 1.0e-3 ? __evalpoly_exact(u, _LOG1P_RATIO_COEFFS) : log1p(u) / u
 
 function FinanceCore.discount(m::ShortRate.CoxIngersollRoss, T)
     return _cir_zcb(m.a, m.b, m.σ, _initial_rate(m), T)
 end
+Yield.__log_discount(m::ShortRate.CoxIngersollRoss, T) = _cir_log_zcb(m.a, m.b, m.σ, _initial_rate(m), T)
+Yield.__log_native(::ShortRate.CoxIngersollRoss) = true
 
 # Hull-White is calibrated to match the initial term structure exactly.
 # The model parameters (a, σ) affect derivative pricing and simulation,
