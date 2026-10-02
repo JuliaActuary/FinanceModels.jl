@@ -7,9 +7,10 @@ A fitted curve is a function of the market quotes it was fitted to. Two question
   ([`implied_quote`](@ref FinanceModels.Yield.implied_quote)).
 
 Both are answered with [ForwardDiff.jl](https://github.com/JuliaDiff/ForwardDiff.jl), and both
-give exact first-order derivatives: they come from the implicit function theorem at the solved
-point, not from differentiating a solver's iterations. The values are always the primal
-calculation, bitwise.
+give exact first-order derivatives. For the solved calibrations they come from the implicit
+function theorem at the solved point, not from differentiating a solver's iterations, and the
+values are the primal calculation, bitwise; a Smith–Wilson fit, a closed form, is differentiated
+directly (see the table below).
 
 !!! note "The implicit function theorem, in actuarial terms"
     A bond's yield to maturity is defined implicitly. It is the rate `y` at which the present
