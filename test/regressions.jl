@@ -53,6 +53,11 @@ Transducers.asfoldable(p::Projection{AsfoldableContract}) = [Cashflow(1.0, 1.0),
         # for a flat curve, shifting all cashflows by Δ scales the PV by discount(Δ)
         m = Yield.Constant(0.03)
         @test present_value(m, fwd) ≈ present_value(m, b) * discount(m, 1.0)
+        # maturity is the forward time plus the instrument's, so pv_mc's default horizon covers it
+        @test maturity(fwd) == 3.0
+        @test maturity(Forward(0.5, fwd)) == 3.5
+        v = ShortRate.Vasicek(0.1, 0.05, 0.0, Continuous(0.03))
+        @test pv_mc(v, fwd; n_scenarios = 1) ≈ present_value(v, fwd) rtol = 1.0e-6
     end
 
     @testset "Forward contract reads its models on its own clock" begin

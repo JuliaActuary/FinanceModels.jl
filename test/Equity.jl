@@ -40,6 +40,9 @@ end
     @test pv(m, a) ≈ 0.05410094201902403
 
     ap = Option.EuroPut(CommonEquity(), 1.0, 1.0)
+    @test maturity(a) == 1.0
+    @test maturity(b) == 2.0
+    @test maturity(ap) == 1.0
 
     # put call parity with continuous dividend yield
     # https://web.ma.utexas.edu/users/mcudina/m339d_lecture6.pdf, pg 2
