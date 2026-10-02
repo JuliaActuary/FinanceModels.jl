@@ -391,6 +391,15 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
         @test Yield.instantaneous_forward(vas, Inf) ≈ 0.03 - 0.01^2 / (2 * 0.1^2) rtol = 1.0e-14
         @test Yield.instantaneous_forward(cir, Inf) ≈ 2 * 0.1 * 0.03 / (sqrt(0.1^2 + 2 * 0.05^2) + 0.1) rtol = 1.0e-14
         @test Yield.instantaneous_forward(ns, Inf) == ns.β₀
+        # CIR at σ = 0 is the deterministic forward r(τ) = b + (r - b)e^{-aτ}, continuous with σ → 0
+        # (at τ = ∞ only for a ≥ 0: an explosive a < 0 forward tends to ∞ at σ = 0 but to a finite limit
+        # for every σ > 0)
+        cir_σ(a, b, σ) = ShortRate.CoxIngersollRoss(a, b, σ, Continuous(0.04))
+        for (a, b) in ((0.1, 0.05), (0.1, 0.0), (-0.1, 0.0), (0.0, 0.03)), τ in (0.5, 10.0, 1.0e3)
+            @test Yield.instantaneous_forward(cir_σ(a, b, 0.0), τ) ≈ b + (0.04 - b) * exp(-a * τ) rtol = 1.0e-13
+            @test Yield.instantaneous_forward(cir_σ(a, b, 0.0), τ) ≈ Yield.instantaneous_forward(cir_σ(a, b, 1.0e-300), τ) rtol = 4eps()
+        end
+        @test Yield.instantaneous_forward(cir_σ(0.1, 0.05, 0.0), Inf) ≈ 0.05 rtol = 1.0e-15
         # CIR without mean reversion: the forward decays to 0 at τ = ∞; and a σ whose square underflows
         @test Yield.instantaneous_forward(ShortRate.CoxIngersollRoss(0.0, 0.03, 0.1, 0.04), Inf) == 0
         @test Yield.instantaneous_forward(ShortRate.CoxIngersollRoss(0.0, 0.03, 1.0e-200, 0.04), 10.0) ≈ 0.04 rtol = 1.0e-15
