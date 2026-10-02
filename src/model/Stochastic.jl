@@ -747,8 +747,18 @@ The short rate is the derivative of this cumulative integral.
 
 Because the cumulative integral is built from trapezoidal steps, the
 returned rate is piecewise-constant within each timestep — an approximation to the
-continuous short-rate process, not the exact value.
+continuous short-rate process, not the exact value. It is right-continuous: at a grid time
+it is the slope of the step that starts there, and at the path's last time the last step's.
+It is the path's `Yield.instantaneous_forward`.
 """
-function short_rate(path::RatePath, t)
-    return DataInterpolations.derivative(path.interp, t)
+short_rate(path::RatePath, t) = Yield.instantaneous_forward(path, t)
+
+# The slope of L = ∫₀ᵗ r over the grid step that starts at `t` (the last step at the path's last time),
+# so the rate is right-continuous like a knot curve's forward. Outside its grid the interpolant's own
+# extrapolation decides: a simulated path throws, a path built with an extension extends.
+function Yield.instantaneous_forward(p::RatePath, t)
+    ts, L = p.interp.t, p.interp.u
+    first(ts) <= t <= last(ts) || return DataInterpolations.derivative(p.interp, t)
+    i = min(searchsortedlast(ts, t), length(ts) - 1)
+    return (L[i + 1] - L[i]) / (ts[i + 1] - ts[i])
 end

@@ -370,11 +370,20 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
         @test discount(path, 0.5, 1.0) ≈ discount(path, 1.0) / discount(path, 0.5)
         @test short_rate(path, 0.0) ≈ 0.03 rtol = 0.02
         @test short_rate(path, 1.0) ≈ 0.05 - 0.02 * exp(-0.1) rtol = 0.02
+        # One right-continuous rate: at a grid time the step that starts there, at the horizon the
+        # last step, the same as the instantaneous forward (which threw at the horizon)
+        ts, L = path.interp.t, path.interp.u
+        slope(i) = (L[i + 1] - L[i]) / (ts[i + 1] - ts[i])
+        @test short_rate(path, ts[2]) == slope(2) == Yield.instantaneous_forward(path, ts[2])
+        @test short_rate(path, 1.0) == slope(length(ts) - 1) == Yield.instantaneous_forward(path, 1.0)
+        @test ForwardDiff.derivative(s -> -log(discount(path, s)), ts[2]) ≈ slope(2) rtol = 1.0e-12
+        @test Yield.instantaneous_forward(path, 0.0) == rate(zero(path, 0.0))
         for t in (nextfloat(1.0), 2.0)
             @test_throws Right discount(path, t)
             @test_throws Right Yield.__log_discount(path, t)
             @test_throws Right discount(path, 0.5, t)
             @test_throws Right short_rate(path, t)
+            @test_throws Right Yield.instantaneous_forward(path, t)
             @test_throws Right present_value(path, Cashflow(1.0, t))
             @test_throws Right ForwardDiff.derivative(s -> discount(path, s), t)
         end
