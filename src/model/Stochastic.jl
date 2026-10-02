@@ -267,17 +267,14 @@ _cir_zcb(a, b, σ, r, τ) = exp(-_cir_log_zcb(a, b, σ, r, τ))
 # The instantaneous forward f(τ) = d(-log P)/dτ = r·B′ + ab·B, from the Riccati equation
 # (log A)′ = -abB, with B from the same pieces as `_cir_log_zcb`. B′ = (2γ e^{-γτ/2}/D′)², with the
 # exponential inside the square so that a huge 2γ/D′ (a < 0, tiny σ) meets e^{-γτ} before it is squared;
-# for small γτ, B′ = 1 - aB - σ²B²/2 from the Riccati equation itself, smooth through a = σ = 0. σ = 0
-# is Vasicek's forward without volatility.
+# for small γτ, B′ = 1 - aB - σ²B²/2 from the Riccati equation itself, smooth through a = σ = 0. As for
+# the price, σ = 0 is an ordinary case, and only a = σ = 0 at τ = ∞ is handled apart.
 function _cir_forward(a, b, σ, r, τ)
-    if iszero(σ)
-        iszero(a) && return r + zero(τ)
-        return _vasicek_forward(a, b, σ, r, τ)
-    end
     if _cir_short(a, σ, τ)
         B, _ = _cir_series(a, σ, τ)
         return r * (1 - a * B - σ^2 * B^2 / 2) + a * b * B
     end
+    iszero(a) && iszero(σ) && return r + zero(τ)
     (; γ, D, B) = _cir_pieces(a, σ, τ)
     return r * (2γ * exp(-γ * τ / 2) / D)^2 + a * b * B
 end
