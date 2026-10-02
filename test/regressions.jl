@@ -11,6 +11,10 @@ function FinanceModels.Optimization.solve(
 end
 
 # Regression tests from the 2026-06 ecosystem audit
+# A contract defined through the documented `asfoldable` extension point
+struct AsfoldableContract <: FinanceCore.AbstractContract end
+Transducers.asfoldable(p::Projection{AsfoldableContract}) = [Cashflow(1.0, 1.0), Cashflow(2.0, 2.0)]
+
 @testset "audit regressions" begin
     @testset "fit(spline, quotes, Fit.Loss) uses the supplied loss" begin
         qs = ZCBPrice([0.9, 0.8, 0.7])
@@ -49,6 +53,107 @@ end
         # for a flat curve, shifting all cashflows by Δ scales the PV by discount(Δ)
         m = Yield.Constant(0.03)
         @test present_value(m, fwd) ≈ present_value(m, b) * discount(m, 1.0)
+    end
+
+    @testset "Forward contract reads its models on its own clock" begin
+        curve = ZeroRateCurve([0.02, 0.025, 0.03], [1.0, 2.0, 5.0], Spline.Linear())
+        # A one-year floater starting at 2 fixes on the index rate from 2 to 3; it read 0 to 1 and paid
+        # 1.0202 instead of 1.0305 here
+        floater = Bond.Floating(0.0, Periodic(1), 1.0, :index)
+        cfs = collect(Projection(Forward(2.0, floater), Dict(:index => curve)))
+        @test [cf.time for cf in cfs] == [3.0]
+        @test only(cfs).amount ≈ discount(curve, 2.0) / discount(curve, 3.0) rtol = 1.0e-14
+        # Projecting a future-starting contract is projecting it on the models seen from its start
+        # and shifting the cashflows
+        coupon_floater = Bond.Floating(0.004, Periodic(2), 3.0, :index)
+        for s in (0.0, 0.5, 2.0)
+            actual = collect(Projection(Forward(s, coupon_floater), Dict(:index => curve)))
+            relative = collect(Projection(coupon_floater, Dict(:index => Yield.ForwardStarting(curve, s))))
+            @test [cf.amount for cf in actual] ≈ [cf.amount for cf in relative] rtol = 1.0e-14
+            @test [cf.time for cf in actual] == [cf.time + s for cf in relative]
+        end
+        # An FX model is rebased with its forward rate at the start as spot, so a converted instrument
+        # converts at its shifted payment times
+        pair = FX.Pair(:EUR, :USD)
+        fx = FX.Forwards(pair, 1.08, curve, Yield.Constant(Continuous(0.01)))
+        @test forward(FinanceModels.__rebase(fx, 2.0), 1.0) ≈ forward(fx, 3.0) rtol = 1.0e-14
+        store = Dict(:index => curve, :fx => fx)
+        @test only(collect(Projection(Forward(2.0, FX.Converted(Cashflow(1.0, 1.0), pair, :fx)), store))).amount ≈
+            forward(fx, 3.0) rtol = 1.0e-14
+
+        # A model is rebased only when the projection reads it: a discount rate standing in for the
+        # model, a NamedTuple store and an unused entry all work as before rebasing existed
+        fixed = Bond.Fixed(0.05, Periodic(1), 2.0)
+        for r in (0.03, Continuous(0.03))
+            @test present_value(r, Forward(2.0, fixed)) ≈ present_value(r, fixed) * discount(r, 2.0) rtol = 1.0e-14
+        end
+        flows(c, models) = [(cf.amount, cf.time) for cf in collect(Projection(c, models))]
+        @test flows(Forward(2.0, floater), (index = curve,)) == flows(Forward(2.0, floater), Dict(:index => curve))
+        @test flows(Forward(2.0, floater), Dict(:index => curve, :equity => Equity.BlackScholesMerton(0.05, 0.02, 0.2))) ==
+            flows(Forward(2.0, floater), Dict(:index => curve))
+
+        # Time translation commutes with projection, and wrappers nest in any order: a forward at 0 is
+        # the contract, nested starts add, forwarding a composite forwards its parts, and conversion
+        # commutes with forwarding (each of these but the first threw a MethodError)
+        same(x, y) = length(x) == length(y) && all(isapprox(a[1], b[1]; rtol = 1.0e-14) && a[2] ≈ b[2] for (a, b) in zip(x, y))
+        @test same(flows(Forward(0.0, coupon_floater), store), flows(coupon_floater, store))
+        @test same(flows(Forward(1.0, Forward(1.5, coupon_floater)), store), flows(Forward(2.5, coupon_floater), store))
+        @test same(
+            flows(Forward(2.0, FinanceCore.Composite(fixed, coupon_floater)), store),
+            flows(FinanceCore.Composite(Forward(2.0, fixed), Forward(2.0, coupon_floater)), store)
+        )
+        @test same(
+            flows(FX.Converted(Forward(2.0, coupon_floater), pair, :fx), store),
+            flows(Forward(2.0, FX.Converted(coupon_floater, pair, :fx)), store)
+        )
+        @test same(
+            flows(Forward(1.0, FinanceCore.Composite(fixed, [coupon_floater, fixed])), store),
+            flows(FinanceCore.Composite(Forward(1.0, fixed), FinanceCore.Composite(Forward(1.0, coupon_floater), Forward(1.0, fixed))), store)
+        )
+        # A contract defined by `asfoldable` folds inside any wrapper, as alone (it threw inside a composite)
+        custom = [(1.0, 1.0), (2.0, 2.0)]
+        @test flows(AsfoldableContract(), NullModel()) == custom
+        @test flows(FinanceCore.Composite(AsfoldableContract(), Cashflow(3.0, 3.0)), NullModel()) == [custom; (3.0, 3.0)]
+        @test flows(Forward(1.0, AsfoldableContract()), NullModel()) == [(1.0, 2.0), (2.0, 3.0)]
+        @test flows([AsfoldableContract()], NullModel()) == custom
+        # A flat rate read as the index is the same from any start (a `Rate` store threw under `Forward`)
+        flat = Dict(:index => Continuous(0.03))
+        @test flows(Forward(2.0, floater), flat) == [(cf.amount, cf.time + 2.0) for cf in collect(Projection(floater, flat))]
+        # Wrappers fold early-terminating and stateful transducers like a materialized vector
+        nested = FinanceCore.Composite(Forward(1.0, fixed), FinanceCore.Composite(fixed, Forward(2.0, fixed)))
+        for c in (nested, Forward(2.0, nested), [nested, nested])
+            p = Projection(c)
+            all_flows = collect(p)
+            @test collect(p |> Transducers.Take(1)) == all_flows[1:1]
+            @test collect(p |> Transducers.Map(cf -> cf.amount) |> Transducers.Scan(+)) ==
+                collect(all_flows |> Transducers.Map(cf -> cf.amount) |> Transducers.Scan(+))
+        end
+        # A transducer over a contract applies in the order written, alone and inside every wrapper
+        # (a projection applied a chain in reverse: [2.1, 4.1] here)
+        bond = Bond.Fixed(0.05, Periodic(1), 2.0)
+        dbl = Transducers.Map(cf -> Cashflow(2cf.amount, cf.time))
+        inc = Transducers.Map(cf -> Cashflow(cf.amount + 1, cf.time))
+        amounts(c, models = NullModel()) = [cf.amount for cf in collect(Projection(c, models))]
+        @test amounts(bond |> dbl |> inc) == [1.1, 3.1] == [cf.amount for cf in collect(bond |> dbl |> inc)]
+        @test amounts(FinanceCore.Composite(bond |> dbl |> inc, Cashflow(1.0, 3.0))) == [1.1, 3.1, 1.0]
+        @test amounts([bond |> dbl |> inc, bond]) == [1.1, 3.1, 0.05, 1.05]
+        # stateful and early-terminating transducers over a contract (they threw inside a projection),
+        # and an outer stop after an inner one
+        @test amounts(bond |> Transducers.Take(1)) == [0.05]
+        @test amounts(FinanceCore.Composite(bond |> Transducers.Take(1), bond)) == [0.05, 0.05, 1.05]
+        @test collect(Projection(bond |> Transducers.Map(cf -> cf.amount) |> Transducers.Scan(+))) ≈ [0.05, 1.1]
+        two = Projection(FinanceCore.Composite(bond |> Transducers.Take(1), bond)) |> Transducers.Take(2)
+        @test [cf.amount for cf in collect(two)] == [0.05, 0.05]
+        @test [cf.amount for cf in collect(Projection(FinanceCore.Composite(bond, bond |> Transducers.Take(1))) |> Transducers.Take(1))] == [0.05]
+        # a contract defined by `asfoldable` behind a transducer
+        @test amounts(AsfoldableContract() |> Transducers.Map(cf -> Cashflow(-cf.amount, cf.time))) == [-1.0, -2.0]
+        @test amounts(FinanceCore.Composite(AsfoldableContract() |> Transducers.Take(1), AsfoldableContract())) == [1.0, 1.0, 2.0]
+        @test collect(AsfoldableContract() |> Transducers.Map(cf -> cf.amount)) == [1.0, 2.0]
+        # and its value
+        @test present_value(curve, Projection(bond |> dbl |> inc, curve, CashflowProjection())) ≈
+            1.1 * discount(curve, 1.0) + 3.1 * discount(curve, 2.0) rtol = 1.0e-14
+        # Its value is the floater's at the start, discounted to now
+        @test present_value(curve, Projection(Forward(2.0, floater), Dict(:index => curve))) ≈ discount(curve, 2.0) rtol = 1.0e-14
     end
 
     @testset "ParSwapYield" begin
