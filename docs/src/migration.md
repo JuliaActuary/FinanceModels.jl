@@ -35,6 +35,9 @@
   (Vasicek, CIR, Hull–White, Smith–Wilson, `ForwardStarting`, custom curves with
   `discount(curve, 0) == 1`), where it was `NaN`. Code that tested for that `NaN` should drop
   the check.
+- **Rate-valued results are typed.** `knot_rates`, a knot curve's `rates`,
+  `Yield.instantaneous_forward` and `short_rate` return `Continuous` rates; use `rate` for the
+  number. See [Typed rate results and inputs](@ref).
 - **Transducer chains apply in the order written.** Inside a projection or valuation,
   `c |> f |> g` applied `g` first; values of chains whose steps don't commute change.
 - **`RatePath` takes a `DataInterpolations.LinearInterpolation` only**, the interpolant
@@ -84,12 +87,12 @@ curves returned by spline `fit`s and `Fit.Bootstrap()`. All of them share one in
 | v6 | v7 |
 |:---|:---|
 | `zrc isa ZeroRateCurve`, `f(z::ZeroRateCurve)` | `zrc isa Yield.AbstractInterpolatedZeroCurve` (or `Yield.AbstractYieldModel` when only discounting) |
-| `zrc.rates`, `zrc.tenors`, `mc.times` | `knot_rates(curve)`, `knot_tenors(curve)` (read-only vectors) |
-| `@set zrc.rates[2] = 0.031` | `reconstruct(curve; rates = new_rates)` (`@set` on `rates`, `tenors`, `spline` or `extrapolation` still works and calls `reconstruct`) |
-| `ZeroRateCurve(dual_rates, zrc.tenors, zrc.spline)` in a gradient | `reconstruct(curve; rates = dual_rates)` |
+| `zrc.rates`, `zrc.tenors`, `mc.times` | `knot_rates(curve)` (read-only `Continuous` rates; `rate.(knot_rates(curve))` for the numbers) and `knot_tenors(curve)`; `curve.rates` is `knot_rates(curve)` |
+| `@set zrc.rates[2] = 0.031` | `reconstruct(curve; rates = new_rates)` (`@set` on `rates`, `tenors`, `spline` or `extrapolation` still works and calls `reconstruct`; a number is continuous, a `Rate` is converted) |
+| `ZeroRateCurve(dual_rates, zrc.tenors, zrc.spline)` in a gradient | `reconstruct(curve; rates = dual_rates)`, seeded with `rate.(knot_rates(curve))` |
 | `Yield.build_model(spline, tenors, rates; extrapolation)` | `ZeroRateCurve(rates, tenors, spline; extrapolation)` (note the argument order) |
 | `fit(Yield.MonotoneConvex(), quotes)` | `fit(Spline.MonotoneConvex(), quotes)` |
-| `mc.f`, `mc.fᵈ` | `Yield.instantaneous_forward(mc, t)`; the node forwards are internal |
+| `mc.f`, `mc.fᵈ` | `Yield.instantaneous_forward(mc, t)`, a `Continuous` rate; the node forwards are internal |
 | `Yield.Spline(fn)` for a callable zero-rate function | `Yield.Constant(0.0) + ((z, t) -> Continuous(fn(t)))` |
 
 - **`Yield.build_model` is removed**, and so are the `Yield.MonotoneConvex()` placeholder and
@@ -157,6 +160,44 @@ curves returned by spline `fit`s and `Fit.Bootstrap()`. All of them share one in
   and concave in the maturities, away from the interpolants' formula switches. Fits that
   converged before reach the same curve up to the optimizer's tolerance.
 
+### Typed rate results and inputs
+
+Rate-valued results are `Rate`s. Inputs that took a number still take it, with the same meaning,
+and also take a `Rate`; see [Rate conventions](@ref rate-conventions).
+
+| v6, and earlier 7.0 code | v7 |
+|:---|:---|
+| `Yield.instantaneous_forward(c, t)`, a number | a `Continuous` rate; `rate(Yield.instantaneous_forward(c, t))` is the number |
+| `short_rate(path, t)`, a number | a `Continuous` rate; `rate(short_rate(path, t))` is the number |
+| `knot_rates(c)` and `c.rates`, numbers | read-only `Continuous` rates; `rate.(knot_rates(c))` gives the numbers |
+| `ForwardDiff.gradient(f, collect(knot_rates(c)))` | `ForwardDiff.gradient(f, rate.(knot_rates(c)))` |
+| `knot_rates(c) == [0.02, 0.03]` | `knot_rates(c) == Continuous.([0.02, 0.03])` |
+| `Yield.instantaneous_forward(c::MyCurve, t) = …` (a closed form) | `Yield.__instantaneous_forward(c::MyCurve, t) = …`, returning the number |
+| `Bond.Fixed(rate(y), Periodic(2), T)` with `y = Periodic(r, 2)` | `Bond.Fixed(y, Periodic(2), T)` also works |
+| `Yield.SmithWilson(ufr = rate(Continuous(r)), α)` | `Yield.SmithWilson(ufr = r, α)` for any `Rate` `r` |
+
+- **Arithmetic on typed results.** Number arithmetic on these results throws a `MethodError`:
+  `-f`, `exp(f)`, `isfinite(f)`, `f < 0.04`, `f ≈ 0.04`, and ForwardDiff seeds or derivatives of a
+  function that returns a `Rate`. Use `rate` for the number. `Rate` arithmetic with a number keeps
+  the rate's convention: `knot_rates(c) .+ 0.001` adds 0.001 to each continuous rate, and
+  `knot_rates(c) .+ Periodic(0.001, 1)` adds log(1.001).
+- **`Rate == Real` is `false` without an error.** `knot_rates(c) == [0.02, 0.03]`,
+  `instantaneous_forward(c, t) == 0` and `x in knot_rates(c)` for a number `x` are always `false`.
+  Compare `Rate`s with `Rate`s, or numbers with numbers.
+- **The `rates` property is typed.** `c.rates` is `knot_rates(c)`. `@set c.rates[2] = 0.031` still
+  works, reading the number as continuous. Assigning into the view throws, as before; with a number
+  on the right (`knot_rates(c) .= 0.0`) the conversion to a `Rate` throws a `MethodError` first.
+- **Coupons, margins and interest-rate strikes** take a `Periodic` rate only at the contract's
+  frequency. Another frequency throws an `ArgumentError`, and a `Continuous` rate a `MethodError`.
+  Convert explicitly: `Bond.Fixed(Periodic(2)(y), Periodic(2), T)` for the yield-equivalent coupon,
+  or `rate(y)` for its nominal value. Numbers are unchanged.
+- **A closed-form forward for a custom curve** goes on `Yield.__instantaneous_forward(curve, t)`,
+  returning a number; `Yield.instantaneous_forward` wraps it, and FinanceModels' own consumers
+  (Hull–White, compositions, `ForwardStarting`) use the number. A curve that defines only
+  `discount` needs nothing: its forward is differentiated with ForwardDiff.
+- **`implied_quote` stays a number**, in its quote family's convention. Wrap it when that
+  convention is known, for example `Periodic(implied_quote(curve, OISYield, 7.0), 1)`.
+
 ### Flat short end
 
 !!! warning "Changed numbers: zero rates before the first knot"
@@ -200,7 +241,7 @@ curves returned by spline `fit`s and `Fit.Bootstrap()`. All of them share one in
 - **`Yield.FlatForwardAt(rate)` supplies an independent terminal forward.** It requires a `FinanceCore.Rate` such as `Continuous(0.035)` or `Periodic(0.035, 1)`; there is no method for a bare number (a `MethodError`), because `Yield.Constant(0.035)` reads a bare number as annual effective. The rate is stored continuously compounded and stays fixed through fitting and Accessors updates. It preserves the final-knot discount factor and usually introduces a forward jump.
 - **The policy is part of the curve.** It is preserved by `fit`, `reconstruct`, and `Accessors.@set`, compared by `==`, and readable as `curve.extrapolation`. The type parameters of `Yield.Spline` and `Yield.MonotoneConvex` are internal: dispatch on the type names or `Yield.AbstractInterpolatedZeroCurve`.
 - **MonotoneConvex supports the tail policies natively.** Direct construction and loss-fitting `Spline.MonotoneConvex()` return a native `Yield.MonotoneConvex` for `:flat_forward`, `:flat_zero`, `:linear`, and `Yield.FlatForwardAt(rate)`; `Fit.Bootstrap()` still rejects the descriptor.
-- **`instantaneous_forward` is right-continuous** for every knot curve: at a knot it is the forward of the piece that starts there, and from the final knot on the tail's. At the final knot of a `Spline.MonotoneConvex()` curve it now returns the tail's forward, not the interior (left) one; they differ only under tail policies other than `:flat_forward`.
+- **`instantaneous_forward` is right-continuous** for every knot curve: at a knot it is the forward of the piece that starts there, and from the final knot on the tail's. At the final knot of a `Spline.MonotoneConvex()` curve it now returns the tail's forward, not the interior (left) one; they differ only under tail policies other than `:flat_forward`. It returns a `Continuous` rate.
 
 ### Quote conventions
 

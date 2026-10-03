@@ -90,8 +90,8 @@ cashflow, or `pv_mc` with an explicit `horizon` shorter than the contract) throw
 DataInterpolations' `RightExtrapolationError` or `LeftExtrapolationError`. It used to extend the
 last simulated step silently, so a one-year simulation priced a payment at year 10. A path's
 instantaneous rate is right-continuous: at a grid time `short_rate` and
-`Yield.instantaneous_forward` both give the slope of the step that starts there, and the last
-step's at the path's end. `RatePath` takes a `DataInterpolations.LinearInterpolation` only, the
+`Yield.instantaneous_forward` both give the slope of the step that starts there, as a `Continuous`
+rate, and the last step's at the path's end. `RatePath` takes a `DataInterpolations.LinearInterpolation` only, the
 interpolant `simulate` builds: its rate is a step's slope, which another interpolant would get
 wrong.
 
@@ -99,7 +99,8 @@ wrong.
 
 `zero(curve, 0)` is the zero rate's limit, the short rate, for every curve with a discount factor
 of 1 at time 0: it was `NaN` for Vasicek, CIR, Hull–White, Smith–Wilson, `ForwardStarting` and
-custom curves. `Yield.instantaneous_forward(curve, t)` is defined for every curve: in closed form
+custom curves. `Yield.instantaneous_forward(curve, t)` is defined for every curve and returns a
+`Continuous` rate: in closed form
 for knot curves, Nelson–Siegel(–Svensson), Vasicek, CIR, Hull–White, `Constant`,
 `ForwardStarting`, and composite and scaled curves, and by differentiating the log-discount with
 ForwardDiff for any other. A yield shift's forward at 0 is its zero rate there. A knot curve's
@@ -110,6 +111,49 @@ bond price also uses its curve's log interval, so it no longer returns `NaN` onc
 factors underflow, and Float32 models stay Float32. Nelson–Siegel(–Svensson) zero rates near t = 0
 come from the loadings' Taylor series: at t = 1e-16 the closed form gave 2.5% for a curve whose
 short rate is 2%.
+
+### Explicit rate conventions: typed results and typed inputs
+
+Rate-valued results are `Rate`s, so their convention travels with them:
+
+- `knot_rates(curve)` and a knot curve's `rates` property return a read-only vector of
+  `Continuous` rates, a view of the curve's numeric knots: indexing allocates nothing, and `copy`
+  and `collect` give a `Vector` of rates. `rate.(knot_rates(curve))` gives the numbers, for
+  example to seed a ForwardDiff gradient.
+- `Yield.instantaneous_forward(curve, t)` and `short_rate(path, t)` return a `Continuous` rate. A
+  curve with a closed-form forward defines `Yield.__instantaneous_forward(curve, t)`, which returns
+  the number; a custom curve still needs only `discount`.
+
+FinanceCore reads a bare number as annual effective, so the continuous numbers these functions
+returned gave wrong values without an error: on a curve with zero rates of 2%, 3%, 3.5% and 4% at 1,
+2, 5 and 10 years, `discount(Yield.Constant(instantaneous_forward(c, 5)), 1)` was 0.96077 instead
+of 0.95999, and `ZCBYield(knot_rates(c)[3], 5)` priced at 0.84197 instead of 0.83946. The same code
+now gives the right values.
+
+Inputs that took a number also take a `Rate`; numbers keep their meaning:
+
+- **Knot rates** (`ZeroRateCurve`, `Yield.Spline`, `Yield.MonotoneConvex`, `reconstruct`,
+  `@set curve.rates`) take numbers (continuously compounded), `Rate`s, or a mixture. A `Rate` is
+  converted to its continuous value, so `reconstruct(curve; rates = knot_rates(curve) .+
+  Continuous.(shift))` shifts in a stated convention.
+- **Continuous inputs**: `Yield.SmithWilson`'s `ufr`, the short rate `r_t` of the Vasicek, CIR and
+  Hull–White conditional prices, and the `r` and `q` of `eurocall` and `europut` take a number
+  (continuously compounded) or a `Rate`, converted. A `Periodic` `ufr` gave a wrong `zero`, and
+  `discount` threw.
+- **Coupons, margins and interest-rate strikes** (`Bond.Fixed`, `Bond.Floating`,
+  `FX.ParBasisSwap`, and the `Option.Cap`, `Option.Floor` and `Option.Swaption` strikes) take a
+  `Periodic` rate of the contract's frequency and use its nominal rate: `Bond.Fixed(Periodic(0.05,
+  2), Periodic(2), 10)` is `Bond.Fixed(0.05, Periodic(2), 10)`. A rate of another frequency throws
+  an `ArgumentError`, because its nominal and its converted rate give different coupons (0.50 per
+  100 face for a 5% annual rate on a ten-year semiannual bond at 4%); a `Continuous` rate is a
+  `MethodError`. A typed coupon can differ from the number in the last bits, since a `Rate` stores
+  its continuous equivalent.
+- **Custom curves' zero rates**: composition and the long-run tail read a curve's `zero` in its own
+  convention; a `zero` that returned `Periodic(0.06, 1)` was read as 6% continuous.
+
+Model fields (volatilities, mean-reversion speeds, curve coefficients, the stored `ufr`), quote
+coordinates (`implied_quote`) and sensitivities stay numbers. The models guide has a table of the
+conventions. No value changes: the typed results hold the same numbers, bit for bit.
 
 ### Cashflow matrices keep the amounts' type; Smith–Wilson coupon sensitivities
 
@@ -270,7 +314,7 @@ migration guide.
 `ZeroRateCurve` is now a function returning a `Yield.MonotoneConvex` (for the default
 `Spline.MonotoneConvex()`) or a `Yield.Spline`. Both subtype the new
 `Yield.AbstractInterpolatedZeroCurve`, as do spline `fit` and bootstrap results. Read knots with
-`knot_rates`/`knot_tenors` and build a changed curve with `reconstruct(curve; rates, tenors,
+`knot_rates` (`Continuous` rates) and `knot_tenors` and build a changed curve with `reconstruct(curve; rates, tenors,
 spline, extrapolation)`, which also accepts dual numbers for knot-rate gradients. Knot curves copy
 and validate their inputs through one shared construction (unsorted, duplicate, negative or
 non-finite tenors, non-finite rates, and too few knots throw an `ArgumentError`), keep read-only
