@@ -131,6 +131,9 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
         @test discount(c, 0.0, 1.0) ≈ exp(-0.03) rtol = 1.0e-14
         @test discount(c, 2.0, 5.0) ≈ exp(-0.09) rtol = 1.0e-14
         @test rate(forward(c, 0.0, 1.0)) ≈ 0.03 rtol = 1.0e-12
+        # its zero rate at 0 is L(0)/0 (L(0) = log 2), not the forward there, so sampling it throws
+        @test rate(zero(c, 0.0)) == Inf
+        @test_throws ArgumentError ZeroRateCurve(c, [0.0, 1.0, 2.0])
         # Composed or scaled, the curve still has L(0) ≠ 0, so an interval from 0 keeps the ratio
         # and is continuous in its start.
         k = Yield.Constant(Continuous(0.01))

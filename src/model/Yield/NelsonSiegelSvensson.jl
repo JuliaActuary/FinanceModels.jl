@@ -56,8 +56,8 @@ function NelsonSiegel(τ₁ = 1.0)
 end
 
 # The loadings near t = 0, the decay (1 - e^{-q})/q and the hump decay - e^{-q}. Their closed forms
-# cancel there: at q = 5e-17, e^{-q} rounds to 1, so the decay is 0 instead of 1 (the zero rate jumped
-# by β₁). For |q| < 0.1 they come from their Taylor series instead,
+# cancel there: at q = 5e-17, e^{-q} rounds to 1, so the decay is 0 instead of 1 (the zero rate was off
+# by β₁ + β₂). For |q| < 0.1 they come from their Taylor series instead,
 #     decay = Σⱼ (-q)ʲ/(j + 1)!,   hump = q·Σⱼ (-q)ʲ (j + 1)/(j + 2)!,
 # whose omitted terms are below Float64 rounding there, and which are exact at q = 0 in value and in
 # their derivatives (a time derivative at t = 0). Out of line, so that `zero` stays small enough to

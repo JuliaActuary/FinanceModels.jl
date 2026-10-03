@@ -1,7 +1,6 @@
-# A curve view that evaluates without dual numbers, so internal derivatives never
-# mix a caller's ForwardDiff tag with an internal one. Like every curve that forwards to another,
-# it forwards both interval methods, `discount(c, from, to)` and `__log_interval`, so the wrapped
-# curve's own interval rule applies; `__log_native` only selects a leaf curve's default intervals.
+# A curve view that evaluates without dual numbers, so internal derivatives never mix a caller's
+# ForwardDiff tag with an internal one. Like `HullWhite`, it forwards every capability in
+# `__FORWARDED_CAPABILITIES`.
 struct __PrimalCurve{C} <: AbstractYieldModel
     curve::C
 end
@@ -117,7 +116,6 @@ function par(curve, time; frequency = 2)
     c = stub ? __par_coupon(curve, time, frequency) : r
 
     # Build cash flows: initial outflow of -1, then coupons, final coupon+principal 1+coupon
-    # Pre-allocate arrays for better performance
     n = length(coup_times)
     cfs = Vector{typeof(r)}(undef, n + 1)
     times = Vector{typeof(Δt)}(undef, n + 1)
@@ -132,7 +130,7 @@ function par(curve, time; frequency = 2)
     end
 
     r = FinanceCore.internal_rate_of_return(cfs, times)
-    frequency_inner = 1 / Δt  # Simplified from min(1 / Δt, max(1 / Δt, frequency))
+    frequency_inner = 1 / Δt
     if !isinteger(round(frequency_inner, digits = 8))
         throw(
             ArgumentError(

@@ -180,8 +180,7 @@ Yield.instantaneous_forward(m::ShortRate.Vasicek, T) = _vasicek_forward(m.a, m.b
 # The instantaneous forward f(τ) = d(-log P)/dτ from the Riccati equations B′ = 1 - aB and
 # (-log A)′ = abB - σ²B²/2: f = r·e^{-aτ} + b·(1 - e^{-aτ}) - σ²B²/2, with 1 - aB written as e^{-aτ}.
 function _vasicek_forward(a, b, σ, r, τ)
-    m = expm1(-a * τ)
-    return r * (1 + m) - b * m - σ^2 / 2 * _decay_integral(a, τ)^2
+    return r * exp(-a * τ) - b * expm1(-a * τ) - σ^2 / 2 * _decay_integral(a, τ)^2
 end
 
 # CIR ZCB price P = A(τ) exp(-B(τ) r), with γ = √(a² + 2σ²) (Cox, Ingersoll & Ross 1985):

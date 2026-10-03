@@ -318,18 +318,10 @@ __tail(mc::MonotoneConvex) = mc._tail
 __extends(::MonotoneConvex) = false
 function __interior_forward(mc::MonotoneConvex, t)
     f, fᵈ, times = mc._f, mc._fᵈ, mc.tenors
-    i_time = __i_time(t, times)
-    if i_time == 1
-        # First interval: from 0 to times[1]
-        x = t / times[1]
-        return fᵈ[1] + g(x, f[1], f[2], fᵈ[1], __mc_kink_tol(mc, 1))
-    else
-        # Interval from times[i_time-1] to times[i_time]
-        t_prev = times[i_time - 1]
-        t_curr = times[i_time]
-        x = (t - t_prev) / (t_curr - t_prev)
-        return fᵈ[i_time] + g(x, f[i_time], f[i_time + 1], fᵈ[i_time], __mc_kink_tol(mc, i_time))
-    end
+    i = __i_time(t, times)
+    t_prev = i == 1 ? zero(first(times)) : times[i - 1]   # the first interval starts at 0
+    x = (t - t_prev) / (times[i] - t_prev)
+    return fᵈ[i] + g(x, f[i], f[i + 1], fᵈ[i], __mc_kink_tol(mc, i))
 end
 
 """

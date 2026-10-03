@@ -50,7 +50,7 @@ struct Spline{S <: Sp.SplineCurve, R, T, E, I, X} <: AbstractInterpolatedZeroCur
 end
 
 # The knot-curve skeleton (InterpolatedCurves.jl) over the interpolant. The zero rate is a direct read
-# of it, without a `-log(discount)/t` round trip (and its 0/0 at t = 0). L is inlined, so that the
+# of it, with no L(t)/t round trip. L is inlined, so that the
 # interpolant is evaluated in the body of `discount` rather than behind a second call (which made
 # bond pricing on a Linear curve 40% slower). The forward is L's right-hand derivative: ForwardDiff's
 # dual time at a knot evaluates the piece that starts there (DataInterpolations' own `derivative`

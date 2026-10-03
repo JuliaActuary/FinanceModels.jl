@@ -92,8 +92,8 @@ end
 # Both wrappers work in log-discount space: a composite's `+` adds its components' cumulative
 # log-discounts (multiplying their discount factors) and `-` subtracts them (dividing), and scaling
 # multiplies the curve's by `factor` (raising its discount factor to that power); a single `exp` then
-# forms the discount factor. Zero rates, log-discounts, intervals and tails all combine this one
-# way, `__combine(w, f)` of the components' `f`.
+# forms the discount factor. Zero rates, log-discounts, forwards, intervals and tails all combine this
+# one way, `__combine(w, f)` of the components' `f`.
 const __CombinedYield = Union{CompositeYield, ScaledYield}
 @inline __combine(rc::CompositeYield, f::F) where {F} = rc.op(f(rc.r1), f(rc.r2))
 @inline __combine(sy::ScaledYield, f::F) where {F} = sy.factor * f(sy.curve)
@@ -112,6 +112,7 @@ function FinanceCore.discount(w::__CombinedYield, time)
     return exp(-__log_discount(w, time))
 end
 __log_tail(w::__CombinedYield) = __combine(w, __log_tail)
+instantaneous_forward(w::__CombinedYield, t) = __combine(w, c -> instantaneous_forward(c, t))
 
 # A wrapper's interval combines its components' intervals, so each keeps its own form: a log-native
 # curve's difference of log-discounts (L(to) alone from 0), Smith–Wilson's signed ratio, a rebased
@@ -119,7 +120,6 @@ __log_tail(w::__CombinedYield) = __combine(w, __log_tail)
 # need not be 1). Those stay finite where both of a wrapper's discount factors underflow. At an
 # infinite endpoint the components' limits alone lose information (flat forwards of 4% and −2% have
 # L = Inf and −Inf), so the wrapper's own L there comes from its combined tail.
-instantaneous_forward(w::__CombinedYield, t) = __combine(w, c -> instantaneous_forward(c, t))
 function __log_interval(w::__CombinedYield, from, to)
     (isinf(from) || isinf(to)) && return __log_discount(w, to) - __log_discount(w, from)
     return __combine(w, @inline(c -> __log_interval(c, from, to)))

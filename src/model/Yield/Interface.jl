@@ -9,6 +9,8 @@
 # | `__log_native(c)`          | L is direct, L(0) = 0, and D = exp(−L)         | `false`: the ratio D(b)/D(a)   |
 # | `__log_interval(c, a, b)`  | L(b) − L(a), real where the interval factor is positive | from `__log_native`   |
 # | `__log_tail(c)`            | the coefficients of L as t → ∞ (`__LogTail`)   | from `zero(c, Inf)`, below     |
+# | `zero(c, t)`               | continuous zero rate L(t)/t                    | L(t)/t; L′(0) at t = 0 if L(0) = 0 |
+# | `instantaneous_forward(c, t)` | right-hand derivative of L                  | ForwardDiff of L               |
 #
 # `__log_native` says that the log-difference route is valid for intervals: the curve's L is
 # computed directly, with L(0) = 0, and its discount factor is exp(-L), so positive. It doesn't just
@@ -134,15 +136,17 @@ end
     zero(curve,time)
 
 Return the zero rate for the curve at the given time. At `time = 0` it is the limit of the zero
-rate, the instantaneous forward rate at 0 (the short rate).
+rate, the instantaneous forward rate at 0 (the short rate), for a curve with `discount(curve, 0) == 1`.
 """
 function Base.zero(c::YC, time) where {YC <: AbstractYieldModel}
-    # L/t; for a curve that defines only `discount`, L is -log(discount(c, time)). At t = 0 that is
-    # 0/0, whose limit is L′(0), the instantaneous forward there. A time derivative at 0 would need
-    # L″(0) as well, so it throws instead of returning a NaN.
+    # L/t; for a curve that defines only `discount`, L is -log(discount(c, time)). At t = 0 with
+    # L(0) = 0 that is 0/0, whose limit is L′(0), the instantaneous forward there (a curve with
+    # D(0) ≠ 1 gets L(0)/0, as before). A time derivative at 0 would need L″(0) as well, so it throws
+    # instead of returning a NaN.
     __dual_at_origin(time) && __throw_zero_rate_derivative_at_origin(time)
-    iszero(time) && return Continuous(instantaneous_forward(c, time))
-    return Continuous(__log_discount(c, time) / time)
+    L = __log_discount(c, time)
+    iszero(time) && iszero(L) && return Continuous(instantaneous_forward(c, time))
+    return Continuous(L / time)
 end
 @noinline __throw_zero_rate_derivative_at_origin(t) = throw(
     DomainError(
@@ -157,8 +161,8 @@ end
 The instantaneous (continuously compounded) forward rate of `curve` at time `t`,
 ``f(t) = -\\frac{d}{dt} \\log D(t)``. At `t = 0` it is the curve's short rate.
 
-The built-in curves compute it in closed form. Any other curve differentiates its cumulative
-log-discount with ForwardDiff, which stays finite where its discount factors underflow.
+A curve with a closed form uses it. Other curves differentiate their cumulative log-discount with
+ForwardDiff, which stays finite where discount factors underflow.
 
 Note this is distinct from `forward(curve, from, to)`, which is the *discrete* forward `Rate`
 between two times.

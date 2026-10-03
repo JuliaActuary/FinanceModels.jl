@@ -102,8 +102,9 @@ derivative of `-log(discount(curve, t))`. At a knot where the interpolant's piec
 forward of the piece that starts there (`Spline.MonotoneConvex()`'s forward is continuous at its
 interior knots). From the last knot on it is the tail's forward, which follows `curve.extrapolation`:
 the default `:flat_forward` holds it constant, `:flat_zero` holds it at the last zero rate,
-`:linear` derives it from the linearly extended zero rate, and `FlatForwardAt(f)` holds it at `f`.
-At `t = Inf` it is the tail's limit.
+`:linear` derives it from the linearly extended zero rate, and `FlatForwardAt(f)` holds it at `f`;
+at `t = Inf` it is the tail's limit. Under `:extension` the last piece continues, and `t = Inf` is
+unsupported.
 
 Note this is distinct from `forward(curve, from, to)`, which is the *discrete* forward `Rate`
 between two times and is defined for every yield model.
