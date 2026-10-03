@@ -653,9 +653,8 @@ _frequency_value(f::Real) = f
 
 # The first caplet (reset at 0, pay at τ) is excluded: its rate is already known at valuation
 # (standard market convention; see Hull 2018, §32.3). For forward-starting caps, adjust the contract
-# maturity accordingly. A strip without a caplet (a maturity of one period or less) is worth 0: the
-# sum starts from `zero` of a caplet amount discounted at time zero, the type of a present value under
-# `m` with no dependence on its value, as FinanceCore values an empty collection.
+# maturity accordingly. A strip with no caplet (a maturity of zero or one period) is worth zero in the
+# type of a present value under `m`, as FinanceCore values an empty collection.
 function _caplet_strip(m, c, option, who)
     K = c.strike
     freq = _frequency_value(c.frequency)
