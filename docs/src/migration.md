@@ -42,8 +42,10 @@ asof(curve, c, t) = foldxl(+, Projection(c, curve) |> Filter(cf -> cf.time >= t)
     Map(cf -> cf.amount * discount(curve, t, cf.time)); init = zero(discount(curve, t, t)))
 ```
 
-Avoid `accumulation(curve, t) * present_value(curve, c)`: it is the same in exact arithmetic but
-overflows (`Inf * 0`) where the accumulation and the time-0 value leave the floating-point range.
+Don't accumulate a time-0 value instead. `accumulation(curve, t) * present_value(curve, c)` also
+counts the cashflows before `t`. Restricted to the cashflows at or after `t`, the product equals the
+reduction above in exact arithmetic, but it overflows (`Inf * 0`) where the accumulation and the
+time-0 value leave the floating-point range.
 Changed numbers: a collection of contracts (each contract valued on its own timing), a cashflow
 before time 0 (it accumulates), and a `Composite` (the sum of its parts, to the last bits).
 
