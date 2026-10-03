@@ -314,24 +314,27 @@ FinanceCore.discount(m::ShortRate.HullWhite, from, to) = FinanceCore.discount(m.
     discount(m::ShortRate.Vasicek, t, T, r_t)
 
 Conditional zero-coupon bond price ``P(t,T \\mid r(t) = r_t)`` under the Vasicek model.
-Since the model is time-homogeneous, ``P(t,T|r) = P(0, T-t | r)``.
+Since the model is time-homogeneous, ``P(t,T|r) = P(0, T-t | r)``. The short rate `r_t` is a
+number, read as continuously compounded, or a `Rate`, converted to its continuously compounded value.
 """
-FinanceCore.discount(m::ShortRate.Vasicek, t, T, r_t) = _vasicek_zcb(m.a, m.b, m.σ, r_t, T - t)
+FinanceCore.discount(m::ShortRate.Vasicek, t, T, r_t) = _vasicek_zcb(m.a, m.b, m.σ, __continuous(r_t), T - t)
 
 """
     discount(m::ShortRate.CoxIngersollRoss, t, T, r_t)
 
 Conditional zero-coupon bond price ``P(t,T \\mid r(t) = r_t)`` under the CIR model.
-Since the model is time-homogeneous, ``P(t,T|r) = P(0, T-t | r)``.
+Since the model is time-homogeneous, ``P(t,T|r) = P(0, T-t | r)``. The short rate `r_t` is a
+number, read as continuously compounded, or a `Rate`, converted to its continuously compounded value.
 """
-FinanceCore.discount(m::ShortRate.CoxIngersollRoss, t, T, r_t) = _cir_zcb(m.a, m.b, m.σ, r_t, T - t)
+FinanceCore.discount(m::ShortRate.CoxIngersollRoss, t, T, r_t) = _cir_zcb(m.a, m.b, m.σ, __continuous(r_t), T - t)
 
 """
     discount(m::ShortRate.HullWhite, t, T, r_t)
 
 Conditional zero-coupon bond price ``P(t,T \\mid r(t) = r_t)`` under the Hull-White model.
 Unlike Vasicek/CIR, this depends on `t` and `T` separately (not just `T-t`)
-because the model is calibrated to an initial term structure.
+because the model is calibrated to an initial term structure. The short rate `r_t` is a number,
+read as continuously compounded, or a `Rate`, converted to its continuously compounded value.
 
 Formula (Brigo & Mercurio 2006, Proposition 3.2.2):
 ```math
@@ -345,7 +348,7 @@ function FinanceCore.discount(m::ShortRate.HullWhite, t, T, r_t)
     # ln(P(0,T)/P(0,t)) is the curve's log-discount over [t, T], which stays finite where both factors
     # underflow; σ²/(4a)·(1 - e^{-2at}) = σ²/2 · ∫₀ᵗ e^{-2as} ds
     lnA = -Yield.__log_interval(m.curve, t, T) + B_tT * f0t - σ^2 / 2 * B_tT^2 * _decay_integral(2a, t)
-    return exp(lnA - B_tT * r_t)
+    return exp(lnA - B_tT * __continuous(r_t))
 end
 
 # ─── RatePath: a simulated scenario as a yield model ─────────────────────────

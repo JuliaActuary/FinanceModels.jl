@@ -1316,9 +1316,10 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
         # P(t, t | r) = 1
         @test discount(hw, 2.0, 2.0, 0.05) ≈ 1.0
         # P(0, T | f(0,0)) ≈ P(0, T)
-        f00 = rate(Yield.instantaneous_forward(curve, 0.0))
+        f00 = Yield.instantaneous_forward(curve, 0.0)
         for T in [1.0, 5.0, 10.0]
             @test discount(hw, 0.0, T, f00) ≈ discount(hw, T) rtol = 1.0e-8
+            @test discount(hw, 0.0, T, f00) == discount(hw, 0.0, T, rate(f00))
         end
         # The curve's log interval replaces log(P(0,T)/P(0,t)), and its forward no longer
         # differentiates log(discount): both were NaN once the point factors underflow
@@ -1336,6 +1337,19 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
         hw32 = ShortRate.HullWhite(0.1f0, 0.01f0, Yield.Constant(Continuous(0.04f0)))
         @test discount(hw32, 1.0f0, 2.0f0, 0.04f0) isa Float32
         @test Yield.instantaneous_forward(hw32, 0.0f0) isa Rate{Float32, Continuous}
+    end
+
+    @testset "conditional prices take the short rate as a number or a Rate" begin
+        curve = ZeroRateCurve([0.02, 0.03, 0.035], [1.0, 5.0, 10.0])
+        models = (
+            ShortRate.Vasicek(0.1, 0.03, 0.01, 0.02), ShortRate.CoxIngersollRoss(0.1, 0.03, 0.05, 0.02),
+            ShortRate.HullWhite(0.1, 0.01, curve),
+        )
+        p = Periodic(0.03, 2)
+        for m in models
+            @test discount(m, 1.0, 5.0, Continuous(0.03)) == discount(m, 1.0, 5.0, 0.03)
+            @test discount(m, 1.0, 5.0, p) == discount(m, 1.0, 5.0, rate(Continuous(p)))
+        end
     end
 
     # ──────────────────────────────────────────────────────────────────────────

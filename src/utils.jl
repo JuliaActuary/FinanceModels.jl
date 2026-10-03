@@ -27,6 +27,9 @@ Calculate the Black-Scholes implied option price for a european call, where:
 - `σ` is the (implied) volatility (can be typed with \\sigma[tab])
 - `q` is the continuously paid dividend rate
 
+`r` and `q` are numbers, read as continuously compounded, or `Rate`s, converted to their
+continuously compounded values.
+
 Rates should be input as rates (not percentages), e.g.: `0.05` instead of `5` for a rate of five percent.
 
 !!! warning "Experimental"
@@ -40,11 +43,12 @@ This is the same as the formulation presented in the [dividend extension of the 
 
 - Swap/OIS curves are generally better sources for `r` than government debt (e.g. US Treasury) due to the collateralized nature of swap instruments.
 - (Implied) volatility is characterized by a curve that is a function of the strike price (among other things), so take care when using
-- FinanceModels.jl can assist with converting rates to continuously compounded if you need to perform conversions (e.g. `convert(Continuous(), r)`).
+- A `Rate` in another convention is converted for you, e.g. `r = Periodic(0.05, 1)`.
 
 """
 function eurocall(; S = 1.0, K = 1.0, τ = 1, r, σ, q = 0.0)
     iszero(τ) && return max(zero(S), S - K)
+    r, q = __continuous(r), __continuous(q)
     d₁ = d1(S, K, τ, r, σ, q)
     d₂ = d2(S, K, τ, r, σ, q)
     return (N(d₁) * S * exp(τ * (r - q)) - N(d₂) * K) * exp(-r * τ)
@@ -62,6 +66,9 @@ Calculate the Black-Scholes implied option price for a european put, where:
 - `σ` is the (implied) volatility (can be typed with \\sigma[tab])
 - `q` is the continuously paid dividend rate
 
+`r` and `q` are numbers, read as continuously compounded, or `Rate`s, converted to their
+continuously compounded values.
+
 Rates should be input as rates (not percentages), e.g.: `0.05` instead of `5` for a rate of five percent.
 
 
@@ -76,11 +83,12 @@ This is the same as the formulation presented in the [dividend extension of the 
 
 - Swap/OIS curves are generally better sources for `r` than government debt (e.g. US Treasury) due to the collateralized nature of swap instruments.
 - (Implied) volatility is characterized by a curve that is a function of the strike price (among other things), so take care when using
-- FinanceModels.jl can assist with converting rates to continuously compounded if you need to perform conversions (e.g. `convert(Continuous(), r)`).
+- A `Rate` in another convention is converted for you, e.g. `r = Periodic(0.05, 1)`.
 
 """
 function europut(; S = 1.0, K = 1.0, τ = 1, r, σ, q = 0.0)
     iszero(τ) && return max(zero(S), K - S)
+    r, q = __continuous(r), __continuous(q)
     d₁ = d1(S, K, τ, r, σ, q)
     d₂ = d2(S, K, τ, r, σ, q)
     return (N(-d₂) * K - N(-d₁) * S * exp(τ * (r - q))) * exp(-r * τ)

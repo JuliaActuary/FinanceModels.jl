@@ -196,3 +196,25 @@ using ForwardDiff
         @test sw_eiopa_expected.qb ≈ sw_eiopa_actual.qb
     end
 end
+
+@testset "Smith-Wilson ufr: a continuous number or a Rate" begin
+    # a `Rate` is converted to its continuous value (a Periodic ufr gave a wrong zero rate, and
+    # discount threw)
+    times = [1.0, 2.5, 5.6]
+    qs = ZCBPrice.([0.9, 0.7, 0.5], times)
+    z = rate(Continuous(Periodic(0.03, 1)))
+    ref = fit(Yield.SmithWilson(ufr = z, α = 0.1), qs)
+    for ufr in (Periodic(0.03, 1), Continuous(z))
+        @test Yield.SmithWilson(ufr = ufr, α = 0.1).ufr === z
+        @test discount(Yield.SmithWilson(ufr = ufr, α = 0.1), 7.0) == exp(-7z)
+        fitted = fit(Yield.SmithWilson(ufr = ufr, α = 0.1), qs)
+        @test fitted.ufr === z && fitted.qb == ref.qb
+        @test zero(fitted, 30.0) == zero(ref, 30.0) && discount(fitted, 30.0) == discount(ref, 30.0)
+        @test Yield.SmithWilson(fitted.u, fitted.qb; ufr, α = 0.1).ufr === z
+    end
+    cm, ts = FinanceModels.cashflows_timepoints(qs)
+    prices = [q.price for q in qs]
+    @test Yield.SmithWilson(ts, cm, prices; ufr = Periodic(0.03, 1), α = 0.1).qb ==
+        Yield.SmithWilson(ts, cm, prices; ufr = z, α = 0.1).qb
+    @test rate(zero(Yield.SmithWilson(ufr = Periodic(0.03, 1), α = 0.1), 5.0)) ≈ log(1.03) rtol = 1.0e-14
+end
