@@ -374,16 +374,16 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
         @test discount(path, 0.0) == 1.0
         @test discount(path, 1.0) == exp(-last(path.interp.u))
         @test discount(path, 0.5, 1.0) ≈ discount(path, 1.0) / discount(path, 0.5)
-        @test short_rate(path, 0.0) ≈ 0.03 rtol = 0.02
-        @test short_rate(path, 1.0) ≈ 0.05 - 0.02 * exp(-0.1) rtol = 0.02
+        @test rate(short_rate(path, 0.0)) ≈ 0.03 rtol = 0.02
+        @test rate(short_rate(path, 1.0)) ≈ 0.05 - 0.02 * exp(-0.1) rtol = 0.02
         # One right-continuous rate: at a grid time the step that starts there, at the horizon the
         # last step, the same as the instantaneous forward (which threw at the horizon)
         ts, L = path.interp.t, path.interp.u
         slope(i) = (L[i + 1] - L[i]) / (ts[i + 1] - ts[i])
-        @test short_rate(path, ts[2]) == slope(2) == Yield.instantaneous_forward(path, ts[2])
-        @test short_rate(path, 1.0) == slope(length(ts) - 1) == Yield.instantaneous_forward(path, 1.0)
+        @test short_rate(path, ts[2]) == Continuous(slope(2)) == Yield.instantaneous_forward(path, ts[2])
+        @test short_rate(path, 1.0) == Continuous(slope(length(ts) - 1)) == Yield.instantaneous_forward(path, 1.0)
         @test ForwardDiff.derivative(s -> -log(discount(path, s)), ts[2]) ≈ slope(2) rtol = 1.0e-12
-        @test Yield.instantaneous_forward(path, 0.0) == rate(zero(path, 0.0))
+        @test Yield.instantaneous_forward(path, 0.0) == zero(path, 0.0)
         for t in (nextfloat(1.0), 2.0)
             @test_throws Right discount(path, t)
             @test_throws Right Yield.__log_discount(path, t)
@@ -1125,7 +1125,7 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             c = 0.05
             curve = Yield.Constant(Continuous(c))
             for t in [0.0, 1.0, 5.0, 10.0]
-                @test Yield.instantaneous_forward(curve, t) ≈ c atol = 1.0e-8
+                @test rate(Yield.instantaneous_forward(curve, t)) ≈ c atol = 1.0e-8
             end
         end
 
@@ -1135,7 +1135,7 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             m = fit(Spline.Linear(), quotes, Fit.Bootstrap())
             # Forward rate should be positive and finite at various points
             for t in [0.5, 1.0, 2.5, 5.0, 7.5, 10.0, 15.0]
-                f = Yield.instantaneous_forward(m, t)
+                f = rate(Yield.instantaneous_forward(m, t))
                 @test isfinite(f)
                 @test f > 0
             end
@@ -1316,7 +1316,7 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
         # P(t, t | r) = 1
         @test discount(hw, 2.0, 2.0, 0.05) ≈ 1.0
         # P(0, T | f(0,0)) ≈ P(0, T)
-        f00 = Yield.instantaneous_forward(curve, 0.0)
+        f00 = rate(Yield.instantaneous_forward(curve, 0.0))
         for T in [1.0, 5.0, 10.0]
             @test discount(hw, 0.0, T, f00) ≈ discount(hw, T) rtol = 1.0e-8
         end
@@ -1324,18 +1324,18 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
         # differentiates log(discount): both were NaN once the point factors underflow
         flat = ShortRate.HullWhite(0.1, 0.0, Yield.Constant(Continuous(0.04)))
         @test discount(flat, 20000.0, 20001.0, 0.04) ≈ exp(-0.04) rtol = 1.0e-12
-        @test Yield.instantaneous_forward(flat, 20000.0) == 0.04
+        @test Yield.instantaneous_forward(flat, 20000.0) == Continuous(0.04)
         # Through a shifted curve whose base has no zero rate of its own (it threw at t = 0)
         for base in (ShortRate.Vasicek(0.1, 0.03, 0.01, 0.04), Yield.SmithWilson(ufr = 0.03, α = 0.1))
             shifted = ShortRate.HullWhite(0.1, 0.01, Yield.TenorShift(base, (z, t) -> z))
             path = only(simulate(shifted; n_scenarios = 1, horizon = 1.0, rng = MersenneTwister(1)))
-            @test FinanceModels._sim_initial_rate(shifted) ≈ Yield.instantaneous_forward(base, 0.0) rtol = 1.0e-12
+            @test FinanceModels._sim_initial_rate(shifted) ≈ rate(Yield.instantaneous_forward(base, 0.0)) rtol = 1.0e-12
             @test 0 < discount(path, 1.0) < 1
         end
         # Float32 throughout: the forward at t = 0 floored t at the Float64 literal 1e-10
         hw32 = ShortRate.HullWhite(0.1f0, 0.01f0, Yield.Constant(Continuous(0.04f0)))
         @test discount(hw32, 1.0f0, 2.0f0, 0.04f0) isa Float32
-        @test Yield.instantaneous_forward(hw32, 0.0f0) isa Float32
+        @test Yield.instantaneous_forward(hw32, 0.0f0) isa Rate{Float32, Continuous}
     end
 
     # ──────────────────────────────────────────────────────────────────────────
@@ -1356,7 +1356,7 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             # when the auxiliary state goes negative
             @test discount(sc, 4.0) <= discount(sc, 3.0)
             # short_rate reports the observed (truncated) rate
-            @test short_rate(sc, 2.5) >= 0
+            @test rate(short_rate(sc, 2.5)) >= 0
         end
     end
 
@@ -1472,11 +1472,11 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
         rp = RatePath(interp)
 
         # In the first segment [0,1], slope = 0.03
-        @test short_rate(rp, 0.5) ≈ 0.03
+        @test short_rate(rp, 0.5) ≈ Continuous(0.03)
         # In the second segment [1,2], slope = 0.035
-        @test short_rate(rp, 1.5) ≈ 0.035
+        @test short_rate(rp, 1.5) ≈ Continuous(0.035)
         # In the third segment [2,3], slope = 0.035
-        @test short_rate(rp, 2.5) ≈ 0.035
+        @test short_rate(rp, 2.5) ≈ Continuous(0.035)
 
         # Test with simulated paths
         v = ShortRate.Vasicek(0.3, 0.05, 0.02, Continuous(0.03))
@@ -1485,7 +1485,7 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
         # short_rate should return finite positive-ish values (Vasicek can go negative)
         for sc in scenarios
             r = short_rate(sc, 2.5)
-            @test isfinite(r)
+            @test r isa Rate{Float64, Continuous} && isfinite(rate(r))
         end
     end
 end

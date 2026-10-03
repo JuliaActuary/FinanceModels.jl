@@ -181,7 +181,7 @@
         # MonotoneConvex keeps its native boundary instantaneous forward, so its forward
         # curve is continuous at the last knot.
         mc = Yield.MonotoneConvex(rates, tenors)
-        fₙ = Yield.instantaneous_forward(mc, 30.0)
+        fₙ = rate(Yield.instantaneous_forward(mc, 30.0))
         @test fₙ == last(mc._f)
         @test rate(forward(mc, 30.0, 100.0)) ≈ fₙ atol = 1.0e-14
         @test abs(fₙ - f) > 1.0e-4

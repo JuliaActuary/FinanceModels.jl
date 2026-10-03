@@ -55,7 +55,7 @@ using ForwardDiff
         # MonotoneConvex interpolates from t = 0 as part of the Hagan-West construction:
         # its zero rate at the origin is the instantaneous forward f(0), not z₁
         mc = ZeroRateCurve(rates, tenors)
-        @test rate(zero(mc, 0.0)) == Yield.instantaneous_forward(mc, 0.0)
+        @test zero(mc, 0.0) == Yield.instantaneous_forward(mc, 0.0)
         @test rate(zero(mc, 0.0)) != first(rates)
         @test rate(zero(mc, 1.0)) ≈ first(rates)
     end

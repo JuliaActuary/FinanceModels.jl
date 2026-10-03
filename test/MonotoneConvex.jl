@@ -154,22 +154,22 @@
 
         @testset "$name" for (name, c) in curves
             # Forward at t=0 should equal instantaneous forward f[1]
-            @test Yield.instantaneous_forward(c, 0.0) ≈ c._f[1] atol = 1.0e-10
+            @test rate(Yield.instantaneous_forward(c, 0.0)) ≈ c._f[1] atol = 1.0e-10
 
             # Forward at internal knot points equals the instantaneous forward f[i+1]
             # (at x=1 of the interval ending at that knot)
             @testset "forward at knot t=$t" for (i, t) in enumerate(times[1:(end - 1)])
-                @test Yield.instantaneous_forward(c, t) ≈ c._f[i + 1] atol = 1.0e-10
+                @test rate(Yield.instantaneous_forward(c, t)) ≈ c._f[i + 1] atol = 1.0e-10
             end
 
             # Forward at/beyond the last knot equals the boundary instantaneous
             # forward f[end], keeping the forward curve continuous at t_n
-            @test Yield.instantaneous_forward(c, times[end]) ≈ c._f[end] atol = 1.0e-10
+            @test rate(Yield.instantaneous_forward(c, times[end])) ≈ c._f[end] atol = 1.0e-10
 
             # Forward should be continuous and positive everywhere, including across the last knot
             @testset "forward positive and continuous" begin
                 ts = range(0.01, 6.0, 120)
-                fwds = [Yield.instantaneous_forward(c, t) for t in ts]
+                fwds = [rate(Yield.instantaneous_forward(c, t)) for t in ts]
                 @test all(fwds .> 0)
 
                 # Check continuity: adjacent forward values shouldn't jump excessively
@@ -179,26 +179,26 @@
             end
 
             # Extrapolation: flat at the boundary instantaneous forward
-            @test Yield.instantaneous_forward(c, 6.0) ≈ c._f[end] atol = 1.0e-10
-            @test Yield.instantaneous_forward(c, 10.0) ≈ c._f[end] atol = 1.0e-10
+            @test rate(Yield.instantaneous_forward(c, 6.0)) ≈ c._f[end] atol = 1.0e-10
+            @test rate(Yield.instantaneous_forward(c, 10.0)) ≈ c._f[end] atol = 1.0e-10
 
             # Continuity exactly at the last knot (this used to jump from f[end] to fᵈ[end])
             @testset "continuity at the last knot" begin
                 ε = 1.0e-9
-                @test Yield.instantaneous_forward(c, times[end] - ε) ≈
-                    Yield.instantaneous_forward(c, times[end] + ε) atol = 1.0e-6
+                @test rate(Yield.instantaneous_forward(c, times[end] - ε)) ≈
+                    rate(Yield.instantaneous_forward(c, times[end] + ε)) atol = 1.0e-6
                 @test rate(zero(c, times[end] + 1.0e-6)) ≈ rate(zero(c, times[end])) atol = 1.0e-6
             end
 
             # Mid-interval forwards should be bounded by fᵈ ± max deviation
             @testset "mid-interval forward bounds" begin
                 # First interval: t ∈ (0, 1)
-                f_mid = Yield.instantaneous_forward(c, 0.5)
+                f_mid = rate(Yield.instantaneous_forward(c, 0.5))
                 @test f_mid > 0  # Must be positive
                 @test abs(f_mid - c._fᵈ[1]) < max(abs(c._f[1] - c._fᵈ[1]), abs(c._f[2] - c._fᵈ[1])) + 0.001
 
                 # Second interval: t ∈ (1, 2)
-                f_mid = Yield.instantaneous_forward(c, 1.5)
+                f_mid = rate(Yield.instantaneous_forward(c, 1.5))
                 @test f_mid > 0  # Must be positive
                 @test abs(f_mid - c._fᵈ[2]) < max(abs(c._f[2] - c._fᵈ[2]), abs(c._f[3] - c._fᵈ[2])) + 0.001
             end
@@ -230,7 +230,7 @@
 
             c = Yield.MonotoneConvex(rates, times)
             # the collared interpolant keeps instantaneous forwards nonnegative...
-            @test minimum(Yield.instantaneous_forward(c, t) for t in range(1.0e-6, 4.0, 1001)) >= -1.0e-12
+            @test minimum(rate(Yield.instantaneous_forward(c, t)) for t in range(1.0e-6, 4.0, 1001)) >= -1.0e-12
             # ...without giving up exact knot repricing (the g construction always
             # integrates to the discrete forwards regardless of node values)
             for (i, t) in enumerate(times)
@@ -248,14 +248,14 @@
         end
         # negative rates imply discount factors above 1 and finite forwards everywhere
         @test discount(c, 1.0) > 1.0
-        @test all(isfinite(Yield.instantaneous_forward(c, t)) for t in range(0.01, 6.0, 200))
+        @test all(isfinite(rate(Yield.instantaneous_forward(c, t))) for t in range(0.01, 6.0, 200))
     end
 
     @testset "single knot" begin
         c = Yield.MonotoneConvex([0.03], [2.0])
         @test rate(zero(c, 2.0)) ≈ 0.03
         @test rate(zero(c, 1.0)) ≈ 0.03  # flat forward within the single interval
-        @test Yield.instantaneous_forward(c, 0.5) ≈ 0.03
+        @test rate(Yield.instantaneous_forward(c, 0.5)) ≈ 0.03
         @test rate(zero(c, 4.0)) ≈ 0.03  # constant-forward extrapolation
     end
 

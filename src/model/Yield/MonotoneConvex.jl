@@ -44,7 +44,7 @@ discount(c, 2.5)  # Get the discount factor at t=2.5
 validates its inputs like every knot curve (a single knot is allowed and gives a flat curve),
 its knots are read with [`knot_rates`](@ref)/[`knot_tenors`](@ref), and it changes only through
 [`reconstruct`](@ref), which recomputes the node forwards. [`Yield.instantaneous_forward`](@ref) gives
-the interpolated instantaneous forward.
+the interpolated instantaneous forward, as a `Continuous` rate.
 
 # Derivatives with respect to the knot rates
 

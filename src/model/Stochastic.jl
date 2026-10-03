@@ -176,7 +176,7 @@ function FinanceCore.discount(m::ShortRate.Vasicek, T)
 end
 Yield.__log_discount(m::ShortRate.Vasicek, T) = _vasicek_log_zcb(m.a, m.b, m.σ, _initial_rate(m), T)
 Yield.__log_native(::ShortRate.Vasicek) = true
-Yield.instantaneous_forward(m::ShortRate.Vasicek, T) = _vasicek_forward(m.a, m.b, m.σ, _initial_rate(m), T)
+Yield.__instantaneous_forward(m::ShortRate.Vasicek, T) = _vasicek_forward(m.a, m.b, m.σ, _initial_rate(m), T)
 
 # The instantaneous forward f(τ) = d(-log P)/dτ from the Riccati equations B′ = 1 - aB and
 # (-log A)′ = abB - σ²B²/2: f = r·e^{-aτ} + b·(1 - e^{-aτ}) - σ²B²/2, with 1 - aB written as e^{-aτ}.
@@ -293,7 +293,7 @@ function FinanceCore.discount(m::ShortRate.CoxIngersollRoss, T)
 end
 Yield.__log_discount(m::ShortRate.CoxIngersollRoss, T) = _cir_log_zcb(m.a, m.b, m.σ, _initial_rate(m), T)
 Yield.__log_native(::ShortRate.CoxIngersollRoss) = true
-Yield.instantaneous_forward(m::ShortRate.CoxIngersollRoss, T) = _cir_forward(m.a, m.b, m.σ, _initial_rate(m), T)
+Yield.__instantaneous_forward(m::ShortRate.CoxIngersollRoss, T) = _cir_forward(m.a, m.b, m.σ, _initial_rate(m), T)
 
 # Hull-White is calibrated to match the initial term structure exactly.
 # The model parameters (a, σ) affect derivative pricing and simulation,
@@ -304,7 +304,7 @@ end
 Yield.__log_discount(m::ShortRate.HullWhite, T) = Yield.__log_discount(m.curve, T)
 Yield.__log_interval(m::ShortRate.HullWhite, from, to) = Yield.__log_interval(m.curve, from, to)
 Yield.__log_tail(m::ShortRate.HullWhite) = Yield.__log_tail(m.curve)
-Yield.instantaneous_forward(m::ShortRate.HullWhite, T) = Yield.instantaneous_forward(m.curve, T)
+Yield.__instantaneous_forward(m::ShortRate.HullWhite, T) = Yield.__instantaneous_forward(m.curve, T)
 Base.zero(m::ShortRate.HullWhite, T) = Base.zero(m.curve, T)
 FinanceCore.discount(m::ShortRate.HullWhite, from, to) = FinanceCore.discount(m.curve, from, to)
 
@@ -341,7 +341,7 @@ Formula (Brigo & Mercurio 2006, Proposition 3.2.2):
 function FinanceCore.discount(m::ShortRate.HullWhite, t, T, r_t)
     a, σ = m.a, m.σ
     B_tT = _decay_integral(a, T - t)
-    f0t = Yield.instantaneous_forward(m.curve, t)
+    f0t = Yield.__instantaneous_forward(m.curve, t)
     # ln(P(0,T)/P(0,t)) is the curve's log-discount over [t, T], which stays finite where both factors
     # underflow; σ²/(4a)·(1 - e^{-2at}) = σ²/2 · ∫₀ᵗ e^{-2as} ds
     lnA = -Yield.__log_interval(m.curve, t, T) + B_tT * f0t - σ^2 / 2 * B_tT^2 * _decay_integral(2a, t)
@@ -479,7 +479,7 @@ end
 _sim_initial_rate(m::ShortRate.Vasicek) = _initial_rate(m)
 _sim_initial_rate(m::ShortRate.CoxIngersollRoss) = _initial_rate(m)
 function _sim_initial_rate(m::ShortRate.HullWhite)
-    return Yield.instantaneous_forward(m.curve, 0.0)
+    return Yield.__instantaneous_forward(m.curve, 0.0)
 end
 
 # Include every model parameter that can flow into a simulated state. Falling
@@ -535,7 +535,7 @@ end
 
 function _hw_alpha(m::ShortRate.HullWhite, t)
     a, σ = m.a, m.σ
-    f0t = Yield.instantaneous_forward(m.curve, t)
+    f0t = Yield.__instantaneous_forward(m.curve, t)
     return f0t + σ^2 / 2 * _decay_integral(a, t)^2
 end
 
@@ -755,7 +755,7 @@ end
 """
     short_rate(path::RatePath, t)
 
-The instantaneous short rate `r(t)` for a simulated scenario.
+The instantaneous short rate `r(t)` for a simulated scenario, as a `Continuous` rate.
 
 `RatePath` stores the cumulative integral `∫₀ᵗ r(s) ds` as a `LinearInterpolation`.
 The short rate is the derivative of this cumulative integral.
@@ -771,7 +771,7 @@ short_rate(path::RatePath, t) = Yield.instantaneous_forward(path, t)
 # The slope of L = ∫₀ᵗ r over the grid step that starts at `t` (the last step at the path's last time),
 # so the rate is right-continuous like a knot curve's forward. Outside its grid the interpolant's own
 # extrapolation decides: a simulated path throws, a path built with an extension extends.
-function Yield.instantaneous_forward(p::RatePath, t)
+function Yield.__instantaneous_forward(p::RatePath, t)
     ts, L = p.interp.t, p.interp.u
     first(ts) <= t <= last(ts) || return DataInterpolations.derivative(p.interp, t)
     i = min(searchsortedlast(ts, t), length(ts) - 1)

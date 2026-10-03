@@ -97,7 +97,7 @@ end
 """
     instantaneous_forward(curve::AbstractInterpolatedZeroCurve, t)
 
-The instantaneous (continuously compounded) forward rate of a knot curve at `t`: the right-hand
+The instantaneous forward rate of a knot curve at `t`, as a `Continuous` rate: the right-hand
 derivative of `-log(discount(curve, t))`. At a knot where the interpolant's pieces meet it is the
 forward of the piece that starts there (`Spline.MonotoneConvex()`'s forward is continuous at its
 interior knots). From the last knot on it is the tail's forward, which follows `curve.extrapolation`:
@@ -109,7 +109,9 @@ unsupported.
 Note this is distinct from `forward(curve, from, to)`, which is the *discrete* forward `Rate`
 between two times and is defined for every yield model.
 """
-function instantaneous_forward(c::AbstractInterpolatedZeroCurve, t)
+instantaneous_forward(::AbstractInterpolatedZeroCurve, t)
+
+function __instantaneous_forward(c::AbstractInterpolatedZeroCurve, t)
     __check_time(t, "instantaneous_forward")
     (__extends(c) || t < __tail(c).last_tenor) || return __tail_forward(__tail(c), t)
     return __interior_forward(c, t)

@@ -133,10 +133,10 @@ spline_zero_curve_with_policy(d, r, t, policy::Symbol) = ZeroRateCurve(r, t, d; 
                     rate(zero(curve, horizon - h))
             ) / (2h) atol = 1.0e-10
             if curve isa Yield.MonotoneConvex
-                @test Yield.instantaneous_forward(curve, horizon) ≈
+                @test rate(Yield.instantaneous_forward(curve, horizon)) ≈
                     rate(zero(curve, horizon)) + horizon * zdot atol = 1.0e-14
                 # right-continuous: from the last knot on, the tail's forward
-                @test Yield.instantaneous_forward(curve, tn) == FinanceModels.Yield.__tail_forward(curve._tail, tn)
+                @test rate(Yield.instantaneous_forward(curve, tn)) == FinanceModels.Yield.__tail_forward(curve._tail, tn)
             end
         end
         # Different fixed assumptions change only the tail and remain differentiable.
@@ -242,7 +242,7 @@ spline_zero_curve_with_policy(d, r, t, policy::Symbol) = ZeroRateCurve(r, t, d; 
                 @test c isa Yield.MonotoneConvex
                 @test c.rates == baseline.rates && c.tenors == baseline.tenors
                 @test c.extrapolation == policy
-                @test isfinite(Yield.instantaneous_forward(c, horizon))
+                @test isfinite(rate(Yield.instantaneous_forward(c, horizon)))
                 @test zero(c, horizon) == zero(
                     Yield.MonotoneConvex(
                         c.rates, c.tenors;
@@ -281,10 +281,10 @@ spline_zero_curve_with_policy(d, r, t, policy::Symbol) = ZeroRateCurve(r, t, d; 
         for policy in (:flat_forward, :flat_zero, fixed)
             c = Yield.MonotoneConvex(rates, times; extrapolation = policy)
             @test isfinite(rate(zero(c, Inf)))
-            @test rate(zero(c, Inf)) == Yield.instantaneous_forward(c, Inf)
+            @test zero(c, Inf) == Yield.instantaneous_forward(c, Inf)
         end
         c = Yield.MonotoneConvex(rates, times; extrapolation = :linear)
-        @test isfinite(Yield.instantaneous_forward(c, floatmax(Float64)))
+        @test isfinite(rate(Yield.instantaneous_forward(c, floatmax(Float64))))
 
         # Every policy at t = Inf. Bounded tails converge to their anchor; `:linear`
         # diverges with the sign of the boundary slope, or stays flat when the slope is
@@ -300,7 +300,7 @@ spline_zero_curve_with_policy(d, r, t, policy::Symbol) = ZeroRateCurve(r, t, d; 
                 elseif policy isa Yield.FlatForwardAt
                     policy.forward
                 elseif c isa Yield.MonotoneConvex
-                    Yield.instantaneous_forward(c, tn)
+                    rate(Yield.instantaneous_forward(c, tn))
                 else
                     (zn * tn - rates[end - 1] * times[end - 1]) / (tn - times[end - 1])
                 end
@@ -316,7 +316,7 @@ spline_zero_curve_with_policy(d, r, t, policy::Symbol) = ZeroRateCurve(r, t, d; 
                 @test rate(zero(flat, Inf)) ≈ expected_flat
                 @test !isnan(rate(zero(flat, Inf)))
                 if flat isa Yield.MonotoneConvex
-                    @test Yield.instantaneous_forward(flat, Inf) ≈ expected_flat
+                    @test rate(Yield.instantaneous_forward(flat, Inf)) ≈ expected_flat
                 end
             end
             if d != Spline.MonotoneConvex()
@@ -401,7 +401,7 @@ spline_zero_curve_with_policy(d, r, t, policy::Symbol) = ZeroRateCurve(r, t, d; 
         for T in (Float32, BigFloat)
             c = Yield.MonotoneConvex(T.(rates), T.(times); extrapolation = Yield.FlatForwardAt(Continuous(T(0.035))))
             @test rate(zero(c, T(horizon))) isa T
-            @test Yield.instantaneous_forward(c, T(horizon)) isa T
+            @test Yield.instantaneous_forward(c, T(horizon)) isa Rate{T, Continuous}
         end
         negative = Yield.MonotoneConvex(rates, times; extrapolation = Yield.FlatForwardAt(Continuous(-0.01)))
         @test rate(forward(negative, tn, horizon)) ≈ -0.01

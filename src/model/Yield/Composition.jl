@@ -112,7 +112,7 @@ function FinanceCore.discount(w::__CombinedYield, time)
     return exp(-__log_discount(w, time))
 end
 __log_tail(w::__CombinedYield) = __combine(w, __log_tail)
-instantaneous_forward(w::__CombinedYield, t) = __combine(w, c -> instantaneous_forward(c, t))
+__instantaneous_forward(w::__CombinedYield, t) = __combine(w, c -> __instantaneous_forward(c, t))
 
 # A wrapper's interval combines its components' intervals, so each keeps its own form: a log-native
 # curve's difference of log-discounts (L(to) alone from 0), Smith–Wilson's signed ratio, a rebased
@@ -173,7 +173,7 @@ function __log_discount(c::ForwardStarting, t)
     return __log_interval(c.curve, c.forwardstart, t + c.forwardstart)
 end
 __log_interval(c::ForwardStarting, from, to) = __log_interval(c.curve, from + c.forwardstart, to + c.forwardstart)
-instantaneous_forward(c::ForwardStarting, t) = instantaneous_forward(c.curve, t + c.forwardstart)
+__instantaneous_forward(c::ForwardStarting, t) = __instantaneous_forward(c.curve, t + c.forwardstart)
 __log_tail(c::ForwardStarting) = __shift_tail(__log_tail(c.curve), c.forwardstart, __log_discount(c.curve, c.forwardstart))
 
 """
