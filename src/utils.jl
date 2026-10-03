@@ -117,6 +117,6 @@ Base.@propagate_inbounds Base.getindex(v::ReadOnlyVector, i::Int) = getfield(v, 
 
 # The float element type of a collection of reals, for a copy or an accumulator that keeps the values'
 # numeric type (BigFloat, dual numbers): the declared element type when concrete, otherwise the
-# promotion of the values' types; `Bool`, which every real type absorbs, for an untyped empty
-# collection, so that it is `Float64`.
+# promotion of the values' types. An untyped empty collection gives `Float64`: the promotion starts
+# from `Bool`, which every real type absorbs.
 __float_eltype(v) = float(isconcretetype(eltype(v)) ? eltype(v) : mapreduce(typeof, promote_type, v; init = Bool))
