@@ -438,6 +438,12 @@ FinanceCore.present_value(ctx, leg::BasisSwapLeg) = __throw_unconverted(leg)
             "convert it with FX.Converted(leg, pair, key) under a context whose store holds the FX model."
     )
 )
+@noinline __throw_misconverted(c, paid, from) = throw(
+    ArgumentError(
+        "an FX.$(nameof(typeof(c))) on $(c.pair) pays in $(repr(paid)), but an enclosing FX.Converted converts " *
+            "cashflows paid in $(repr(from)) at its forward rate. Convert only the contracts that pay in $(repr(from))."
+    )
+)
 
 """
     FX.ParBasisSwap(pair, spread, maturity; reference, frequency=Periodic(4))

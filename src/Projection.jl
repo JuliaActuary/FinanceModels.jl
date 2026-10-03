@@ -239,15 +239,17 @@ __rebase(m::FX.Forwards, t) = FX.Forwards(m.pair, forward(m, t), __rebase(m.dome
     if fx.pair != p.contract.pair
         throw(ArgumentError("`FX.Converted` declared $(p.contract.pair) but the model under key $(repr(p.contract.key)) prices $(fx.pair)"))
     end
+    __check_paid_in(p.model, p.contract.pair.quote_currency, p.contract)
     inner = Projection(p.contract.contract, __InBase(p.model, p.contract.pair.base), p.kind)
     return __concat(Transducers.Reduction(Map(cf -> @set cf.amount *= forward(fx, cf.time)), rf), val, (inner,))
 end
 
-# The currency a projection's cashflows are declared in, for a contract denominated in a currency of
-# its own (`FX.BasisSwapLeg`): a plain yield curve is the contract's own (native) currency, an
-# `FX.Converted` projects its contract in the pair's base currency (`__InBase`), `Forward`'s rebased
-# store keeps its models' declaration, `NullModel` only lists cashflows, and any other context (an
-# `FX.Forwards`, `Models`, a store) declares none: its values are in its own reporting currency.
+# The currency a projection's cashflows are declared in, for a contract that pays in a currency of its
+# own (`FX.BasisSwapLeg` in its pair's base currency; `FX.Forward` and `FX.Converted` in their pair's
+# quote currency): a plain yield curve is the contract's own (native) currency, an `FX.Converted`
+# projects its contract in the pair's base currency (`__InBase`), `Forward`'s rebased store keeps its
+# models' declaration, `NullModel` only lists cashflows, and any other context (an `FX.Forwards`,
+# `Models`, a store) declares none: its values are in its own reporting currency.
 struct __Native end
 struct __Inspect end
 struct __InBase{S, B}
@@ -261,9 +263,16 @@ __denomination(m::__InBase) = m.base
 __denomination(m::__Rebased) = __denomination(m.models)
 __denomination(::NullModel) = __Inspect()
 __denomination(_) = nothing
+# Whether cashflows paid in `currency` may be projected under denomination `d`: a currency that an
+# enclosing `FX.Converted` declares must be that one, since the conversion multiplies every amount by
+# its forward rate.
+__admits(d, currency) = d === nothing || d isa __Native || d isa __Inspect || isequal(d, currency)
+__check_paid_in(model, currency, c) =
+    (d = __denomination(model); __admits(d, currency) || FX.__throw_misconverted(c, currency, d))
 
 # an `FX.Forward` is one quote-currency cashflow, read from the projection's valuation model
 @inline function Transducers.__foldl__(rf, val, p::Projection{C, M, K}) where {C <: FX.Forward, M, K <: CashflowProjection}
+    __check_paid_in(p.model, p.contract.pair.quote_currency, p.contract)
     val = @next(rf, val, FX.__forward_cashflow(valuation_model(p.model), p.contract))
     return complete(rf, val)
 end
@@ -272,7 +281,7 @@ end
 # (they need no model to resolve), in a projection declared in that currency only.
 @inline function Transducers.__foldl__(rf, val, p::Projection{C, M, K}) where {C <: FX.BasisSwapLeg, M, K}
     d = __denomination(p.model)
-    (d isa __Native || d isa __Inspect || isequal(d, p.contract.pair.base)) || FX.__throw_unconverted(p.contract)
+    (d !== nothing && __admits(d, p.contract.pair.base)) || FX.__throw_unconverted(p.contract)
     for cf in p.contract.cashflows
         val = @next(rf, val, cf)
     end

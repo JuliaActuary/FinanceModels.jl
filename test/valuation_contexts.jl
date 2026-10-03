@@ -170,6 +170,23 @@ Transducers.asfoldable(::Projection{TwoFlows}) = [Cashflow(1.0, 1.0), Cashflow(2
             @test present_value(fxctx, FinanceCore.Composite(fwd, conv(leg))) ≈ present_value(fx, fwd) + v rtol = 1.0e-12
             @test present_value(fxctx, FinanceCore.AbstractContract[fwd, conv(leg)]) ≈ present_value(fx, fwd) + v rtol = 1.0e-12
         end
+        # a contract that pays another currency inside FX.Converted throws: the conversion multiplies every
+        # amount by its forward, so a quote-currency FX.Forward or an already converted leg would be
+        # converted again (a mixed composite gave 1.0382 where converting only the leg gives 1.0454)
+        misconverted = "an enclosing FX.Converted converts cashflows paid in :EUR"
+        fxctx = Models(fx_explicit, Dict(:fx => fx_explicit))
+        for form in (
+                conv(fwd), conv(FinanceCore.Composite(fwd, leg)), conv(FinanceCore.AbstractContract[leg, fwd]),
+                conv(conv(leg)), conv(Forward(0.5, fwd)), conv(fwd |> Map(identity)),
+            )
+            @test_throws misconverted present_value(fxctx, form)
+        end
+        # a chain of conversions, each from its own pair's base currency, converts GBP to EUR to USD
+        gbpeur = FX.Pair(:GBP, :EUR)
+        fx_gbp = FX.Forwards(gbpeur, 1.15, fx_explicit.foreign, Yield.Constant(Continuous(0.04)))
+        chain = FX.Converted(FX.Converted(Cashflow(100.0, 2.0), gbpeur, :gbp), eurusd, :fx)
+        @test present_value(Models(usd, Dict(:fx => fx_explicit, :gbp => fx_gbp)), chain) ≈
+            100.0 * forward(fx_gbp, 2.0) * forward(fx_explicit, 2.0) * discount(usd, 2.0) rtol = 1.0e-12
         # cashflows can still be listed without a model
         @test length(collect(Projection(leg))) == length(leg.cashflows)
 

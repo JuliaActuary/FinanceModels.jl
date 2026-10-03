@@ -209,8 +209,11 @@ Every value under a valuation context is in that context's reporting currency (t
 currency for an `FX.Forwards` model, which discounts on its `domestic` curve), so values add. A
 base-currency contract is converted explicitly, by `FX.Converted` or by valuing it on a
 base-currency curve and converting at spot; an unconverted [`FX.BasisSwapLeg`](@ref) under a
-quote-currency context throws. The reporting currency is a unit of today's value, not the trade's
-collateral agreement, which the curves describe.
+quote-currency context throws. Inside `FX.Converted`, every contract with a currency of its own
+must pay in the pair's base currency: an `FX.Forward`, or another `FX.Converted` into a different
+currency, throws rather than being converted again. Convert only the base-currency contracts, as in
+`Composite(fwd, FX.Converted(leg, pair, key))`. The reporting currency is a unit of today's value,
+not the trade's collateral agreement, which the curves describe.
 
 Converting at forwards and discounting domestically is *identical* to discounting on the
 (basis-adjusted) foreign curve and converting at spot:
