@@ -356,6 +356,8 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
         @test discount(rp, 1.0) ≈ exp(-0.03)
         @test discount(rp, 2.0) ≈ exp(-0.065)
         @test zero(rp, 2.0) isa FinanceCore.Rate
+        # its short rate is the slope of a step, so it takes a linear interpolant only
+        @test_throws MethodError RatePath(DataInterpolations.CubicSpline(cum, ts))
     end
 
     @testset "simulated RatePath domain" begin
