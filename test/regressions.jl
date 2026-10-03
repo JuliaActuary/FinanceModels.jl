@@ -149,6 +149,12 @@ Transducers.asfoldable(p::Projection{AsfoldableContract}) = [Cashflow(1.0, 1.0),
         @test amounts(AsfoldableContract() |> Transducers.Map(cf -> Cashflow(-cf.amount, cf.time))) == [-1.0, -2.0]
         @test amounts(FinanceCore.Composite(AsfoldableContract() |> Transducers.Take(1), AsfoldableContract())) == [1.0, 1.0, 2.0]
         @test collect(AsfoldableContract() |> Transducers.Map(cf -> cf.amount)) == [1.0, 2.0]
+        # a projection that emits nothing collects to an empty vector (it threw)
+        for c in (Cashflow(1.0, 1.0), bond, FinanceCore.Composite(Cashflow(1.0, 1.0), bond))
+            @test isempty(amounts(c |> Transducers.Take(0)))
+            @test isempty(amounts(c |> Transducers.Filter(_ -> false)))
+        end
+        @test isempty(amounts(Cashflow{Float64, Float64}[]))
         # and its value
         @test present_value(curve, Projection(bond |> dbl |> inc, curve, CashflowProjection())) ≈
             1.1 * discount(curve, 1.0) + 3.1 * discount(curve, 2.0) rtol = 1.0e-14

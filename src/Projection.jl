@@ -59,10 +59,11 @@ A concrete subtype of `ProjectionKind` which is the projection which returns onl
 struct CashflowProjection <: ProjectionKind end
 
 # Collecting a Projection #######################
-# Map(identity) is a Transducer, for which `collect` is defined. More on Transducers below
 
-# collecting a Projection gives your the reducible defined below with __foldl__
-Base.collect(p::P) where {P <: AbstractProjection} = p |> Map(identity) |> collect
+# collecting a Projection folds the reducible defined below with __foldl__ into a vector, which widens
+# to the types it receives. One that emits nothing gives `Union{}[]`: a projection is not iterable, so
+# Transducers' `collect` cannot infer an element type for an empty one.
+Base.collect(p::P) where {P <: AbstractProjection} = foldl(push!!, Map(identity), p; init = Union{}[])
 # collecting a contract wraps the contract in with the default Projection, defined next
 Base.collect(c::C) where {C <: FinanceCore.AbstractContract} = Projection(c) |> collect
 
