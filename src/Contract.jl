@@ -7,6 +7,7 @@ The `Bond` module provide a number of fixed-income contracts and related methods
 """
 module Bond
     import ..FinanceCore: Cashflow, Quote, AbstractContract, maturity, Timepoint
+    import ..__nominal
     using ..FinanceCore
 
     using FinanceCore: Periodic, Continuous, Rate
@@ -85,6 +86,8 @@ module Bond
 
     An object representing a fixed coupon bond. `coupon_rate` / `frequency` is the actual payment amount for each whole coupon period. A maturity that is not a whole number of periods produces a *short first stub* (the schedule anchors at maturity and counts backward — see `Bond.coupon_times`) which accrues its actual length: the first coupon is `coupon_rate * t₁`.
 
+    `coupon_rate` is a number, the nominal annual rate, or a `Periodic` rate of the bond's frequency, whose nominal rate is used: `Bond.Fixed(Periodic(0.05, 2), Periodic(2), 10)` is `Bond.Fixed(0.05, Periodic(2), 10)`. A rate of another frequency throws an `ArgumentError`, because reading its nominal rate and converting it give different coupons: convert it explicitly. A `Continuous` rate is a `MethodError`. A typed coupon can differ from the number in the last bits, since a `Rate` stores its continuously compounded equivalent.
+
     Note that there are a number of convienience constructors which return a Quote for a `Bond.Fixed`: 
 
     - [`ParYield`](@ref)
@@ -121,6 +124,9 @@ module Bond
         maturity::M
     end
 
+    Fixed(coupon_rate::Rate{<:Any, Periodic}, frequency, maturity) =
+        Fixed(__nominal(coupon_rate, frequency), frequency, maturity)
+
     function Base.isapprox(a::Fixed, b::Fixed)
         return isapprox(a.coupon_rate, b.coupon_rate) && ==(a.frequency, b.frequency) && isapprox(a.maturity, b.maturity)
     end
@@ -129,6 +135,8 @@ module Bond
         Bond.Floating(coupon_rate,frequency<:FinanceCore.Frequency,maturity,model_key)
 
     An object representing a floating coupon bond. (`coupon_rate` + reference rate) / `frequency` is the actual payment amount for each whole coupon period, where the reference rate requires a `Projection` with a key/value pair where the key is the `model_key` argument and the value is the model which produces the reference rate. Coupons fix in advance over each accrual window. A maturity that is not a whole number of periods produces a *short first stub* (see `Bond.coupon_times`) which accrues its actual window `[0, t₁]`: the stub coupon is the reference curve's discount-factor ratio over the stub, minus one, plus `coupon_rate * t₁` — it never references a time before issue.
+
+    `coupon_rate`, the margin over the reference rate, is a number or a `Periodic` rate of the bond's frequency, as for [`Bond.Fixed`](@ref).
 
 
     See also [`FinanceCore.Quote`](@ref).
@@ -155,6 +163,9 @@ module Bond
         maturity::M
         key::K
     end
+
+    Floating(coupon_rate::Rate{<:Any, Periodic}, frequency, maturity, key) =
+        Floating(__nominal(coupon_rate, frequency), frequency, maturity, key)
 
     __coerce_periodic(y::Periodic) = y
     __coerce_periodic(y::T) where {T <: Int} = Periodic(y)
@@ -408,7 +419,8 @@ zero-coupon bond options, caps, and floors.
 See [`Option.EuroCall`](@ref) and [`Option.EuroPut`](@ref).
 """
 module Option
-    import ..FinanceCore: AbstractContract, Timepoint
+    import ..FinanceCore: AbstractContract, Timepoint, Rate, Periodic
+    import ..__nominal
 
 
     """
@@ -489,24 +501,30 @@ module Option
     where `L` is the simply-compounded forward rate and `τ = 1/frequency`.
 
     The first caplet resets at time `τ` (the first period's rate is known).
+
+    `frequency` is an integer or a `Periodic`. `strike` is a number or a `Periodic` rate of that
+    frequency, as for a [`Bond.Fixed`](@ref FinanceModels.Bond.Fixed) coupon.
     """
     struct Cap{K <: Real, F, M <: Real} <: AbstractContract
         strike::K
         frequency::F
         maturity::M
     end
+    Cap(strike::Rate{<:Any, Periodic}, frequency, maturity) = Cap(__nominal(strike, frequency), frequency, maturity)
 
     """
         Floor(strike, frequency, maturity)
 
     An interest rate floor — a portfolio of floorlets that pay
-    `max(strike - L(Tᵢ₋₁,Tᵢ), 0) · τ` at each payment date `Tᵢ`.
+    `max(strike - L(Tᵢ₋₁,Tᵢ), 0) · τ` at each payment date `Tᵢ`. `frequency` and `strike` are as
+    for a [`Option.Cap`](@ref).
     """
     struct Floor{K <: Real, F, M <: Real} <: AbstractContract
         strike::K
         frequency::F
         maturity::M
     end
+    Floor(strike::Rate{<:Any, Periodic}, frequency, maturity) = Floor(__nominal(strike, frequency), frequency, maturity)
 
     """
         Swaption(expiry, swap_maturity, strike, frequency; payer=true)
@@ -517,6 +535,9 @@ module Option
 
     - `payer=true` (default): right to pay fixed, receive floating
     - `payer=false`: right to receive fixed, pay floating
+
+    `frequency` is an integer or a `Periodic`. `strike` is a number or a `Periodic` rate of that
+    frequency, as for a [`Bond.Fixed`](@ref FinanceModels.Bond.Fixed) coupon.
     """
     struct Swaption{T <: Real, M <: Real, K <: Real, F} <: AbstractContract
         expiry::T
@@ -529,6 +550,8 @@ module Option
     function Swaption(expiry, swap_maturity, strike, frequency; payer = true)
         return Swaption(expiry, swap_maturity, strike, frequency, payer)
     end
+    Swaption(expiry, swap_maturity, strike::Rate{<:Any, Periodic}, frequency, payer::Bool) =
+        Swaption(expiry, swap_maturity, __nominal(strike, frequency), frequency, payer)
 
     import ..FinanceCore: maturity
     maturity(c::EuroCall) = c.maturity

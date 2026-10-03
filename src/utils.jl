@@ -133,6 +133,24 @@ __element(::Type{Rate{T, Continuous}}, x) where {T} = Rate{T, Continuous}(x, Con
 __continuous(x::Real) = x
 __continuous(x::Rate) = FinanceCore.rate(convert(Continuous(), x))
 
+# The number of payments per period of a contract's `frequency`, a `Periodic` or a number.
+_frequency_value(f::FinanceCore.Frequency) = f.frequency
+_frequency_value(f::Real) = f
+
+# The nominal rate of a coupon, margin, or interest-rate strike on a contract paid `frequency`
+# times per period: a number as it is, or a `Periodic` rate of that frequency. Reading the nominal
+# rate of another frequency and converting it give different coupons, so a mismatch throws.
+__nominal(x::Real, frequency) = x
+function __nominal(x::Rate{<:Any, Periodic}, frequency)
+    n = _frequency_value(frequency)
+    x.compounding.frequency == n || throw(
+        ArgumentError(
+            "rate $x has frequency $(x.compounding.frequency), but the contract's frequency is $n; convert it explicitly."
+        )
+    )
+    return FinanceCore.rate(x)
+end
+
 # The polynomial with exact (Rational) coefficients `cs` at `x`, each coefficient rounded once to
 # the precision of `x` (for a dual number, of its primal value): Float32 stays Float32 and BigFloat
 # keeps its precision. Inlined, so that for a concrete float type the rounding of a constant table

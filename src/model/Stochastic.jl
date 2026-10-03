@@ -645,9 +645,6 @@ function closed_form(m::_GaussianModel, c::Option.ZCBPut)
     return put
 end
 
-_frequency_value(f::FinanceCore.Frequency) = f.frequency
-_frequency_value(f::Real) = f
-
 # ─── present_value for Caps and Floors ───────────────────────────────────────
 #
 # A caplet paying max(L(T_{i-1},T_i) - K, 0)·τ at T_i is equivalent to

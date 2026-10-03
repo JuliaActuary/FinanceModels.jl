@@ -41,6 +41,7 @@ include("kinks.jl")
 
 include("extensions.jl")
 include("Stochastic.jl")
+include("rate_conventions.jl")
 #TODO EconomicScenarioGenerators.jl integration tests
 
 using Aqua

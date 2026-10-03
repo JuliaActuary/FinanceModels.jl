@@ -52,6 +52,7 @@ import ..AbstractModel
 import ..Bond
 import ..Yield
 import ..FinanceCore: Timepoint
+import ..__nominal
 using ..FinanceCore
 
 abstract type AbstractFXModel <: AbstractModel end
@@ -454,7 +455,8 @@ FinanceCore.maturity(c::BasisSwapLeg) = last(c.cashflows).time
 
 A `Quote` for a constant-notional cross-currency basis swap struck at par: receive the
 foreign (base-currency) leg paying `reference`-curve forwards plus the quoted basis
-`spread` (a decimal, e.g. `-0.0015` for −15bp) on a unit foreign notional, pay the
+`spread` (a decimal, e.g. `-0.0015` for −15bp, or a `Periodic` rate of `frequency`, as for a
+[`Bond.Fixed`](@ref FinanceModels.Bond.Fixed) coupon) on a unit foreign notional, pay the
 domestic (quote-currency) leg flat, with notionals exchanged at inception and
 `maturity`.
 
@@ -518,6 +520,7 @@ zero under deterministic curves — which is one reason the MTM *contract* is de
 not modeled yet; see the "Foreign Exchange" documentation page.
 """
 function ParBasisSwap(pair::Pair, spread, maturity; reference, frequency = Periodic(4))
+    spread = __nominal(spread, frequency)
     f = frequency.frequency
     ts = Bond.coupon_times(maturity, f)
     cfs = map(eachindex(ts)) do i
