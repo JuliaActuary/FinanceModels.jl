@@ -54,11 +54,6 @@ See also [`par`](@ref).
 function implied_quote(curve, family::F, maturity; guess = 0.0, bracket = (-0.5, 1.0)) where {F}
     primal = __PrimalCurve(curve)
     residual(c, x) = (q = family(x, maturity); FinanceCore.present_value(c, q.instrument) - q.price)
-    __ad_depth(residual(primal, float(guess))) == 0 || throw(
-        ArgumentError(
-            "implied_quote differentiates through the curve only; the quote family must not close over dual numbers"
-        )
-    )
     # the size of the quote's price and value, whatever its notional
     magnitude(x) = (q = family(x, maturity); max(abs(FinanceCore.present_value(primal, q.instrument)), abs(q.price)))
     # Solve relative to the quote's size at the guess, so the solvers' absolute tolerances do
@@ -69,5 +64,8 @@ function implied_quote(curve, family::F, maturity; guess = 0.0, bracket = (-0.5,
     g(x) = residual(curve, x) / σ
     g_primal(x) = residual(primal, x) / σ
     scale(x) = magnitude(x) / σ
-    return __implicit_root(g, g_primal, guess; bracket, who = "implied_quote", scale)
+    return __implicit_root(
+        g, g_primal, guess; bracket, scale, who = "implied_quote",
+        hint = "implied_quote differentiates through the curve only, not through `family` or `guess`."
+    )
 end

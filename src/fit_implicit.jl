@@ -74,9 +74,9 @@ end
 
 # Spline fits differentiate these positions; a dual number elsewhere reaches the primal solve,
 # which throws (`__foreign_dual`).
-const __SPLINE_FIT_HINT = "Spline fits differentiate quote prices and the rates and amounts of Cashflow, " *
-    "Composite, Bond.Fixed, Bond.Floating, and FX.BasisSwapLeg instruments; a dual number inside " *
-    "another contract type is not supported."
+const __SPLINE_FIT_HINT = "Spline fits differentiate quote prices, the coupon rates of Bond.Fixed and " *
+    "Bond.Floating, and the amounts of Cashflow and FX.BasisSwapLeg, also inside a Composite or a vector; " *
+    "a dual number inside another contract type is not supported."
 
 # The one dual type shared by `xs` (nothing when all are primal).
 function __common_dual_type(xs)

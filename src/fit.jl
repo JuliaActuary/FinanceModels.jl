@@ -192,24 +192,13 @@ __default_optim(::Spline.MonotoneConvex) = OptimizationOptimJL.LBFGS()
 
 __default_loss(m) = Fit.Loss(x -> x^2)
 
-# One AD backend for every `fit` loss function. `SecondOrder` serves both first-order
-# optimizers (LBFGS/Fminbox use the gradient, via the inner backend) and second-order
-# ones (Newton/IPNewton use the Hessian), so OptimizationBase never auto-promotes a
-# first-order declaration and warns. First-order paths never instantiate the Hessian,
-# so declaring it costs them nothing.
-# Its two ForwardDiff tags belong to this solve. ForwardDiff tells perturbations apart only by their
-# tags' types, so solves that overlap (a fit inside another fit's loss, or fits on several threads)
-# need tags of different types, also when a container such as `Any[]` hides from the loss's and the
-# quotes' types the dual number that reached them. Each running solve leases an owner number `O`,
-# part of its tags' types. The inner (gradient) tag is created second, so it nests inside the outer
-# (Hessian) one.
-struct __FitTagKey{O, L, Q, N} end
-function __fit_adtype(::Val{O}, loss, quotes, x0) where {O}
-    outer = ForwardDiff.Tag(__FitTagKey{O, typeof(loss), typeof(quotes), :outer}(), eltype(x0))
-    inner = ForwardDiff.Tag(__FitTagKey{O, typeof(loss), typeof(quotes), :inner}(), eltype(x0))
-    adtype = DifferentiationInterface.SecondOrder(AutoForwardDiff(; tag = outer), AutoForwardDiff(; tag = inner))
-    return adtype, Tuple{typeof(outer), typeof(inner)}
-end
+# The AD backend of one solve. `SecondOrder` serves both first-order optimizers (LBFGS/Fminbox use
+# the gradient, via the inner backend) and second-order ones (Newton/IPNewton use the Hessian), so
+# OptimizationBase never auto-promotes a first-order declaration and warns; first-order paths never
+# build the Hessian. ForwardDiff tells dual numbers apart only by their tags' types, so solves that
+# overlap (a fit inside another fit's loss, or fits on several threads) need tags of different types:
+# each running solve leases an owner number `O` and puts it in its tags.
+struct __FitTagKey{O, N} end
 
 # The owner numbers of the running solves. A solve leases the lowest free one and returns it when it
 # ends, so sequential fits reuse owner 1 and its compiled methods, and only overlapping solves add one.
@@ -260,10 +249,9 @@ end
 # (capturing them in `loss` made a Nelson-Siegel fit about 8% slower). Every optimizer-backed fit
 # either returns a successful solution or throws: a failed solve may leave the solution equal to
 # `x0`, and a model built from it would make optimizer failure look like a valid (but unfitted)
-# result. Every evaluation checks `x` before the loss is evaluated (SciMLBase promotes `x0` to the
-# type of a dual number it finds in the quotes) and the raw loss before it is converted to `x`'s
-# type, for a ForwardDiff tag that is not the solve's own; `who` and `hint` name the fit in the
-# error. The solve holds its owner number until it returns or throws.
+# result. Every evaluation runs through `__own_duals`; SciMLBase gives `x` the type of a dual number
+# it finds in the quotes, so that case throws at the first evaluation. `who` and `hint` name the fit
+# in the error. The solve holds its owner number until it returns or throws.
 function __minimize(loss, x0, quotes, optimizer, solve_kwargs; lb = nothing, ub = nothing, who, hint)
     owner = __lease_fit_owner()
     try
@@ -272,14 +260,12 @@ function __minimize(loss, x0, quotes, optimizer, solve_kwargs; lb = nothing, ub 
         __return_fit_owner(owner)
     end
 end
-function __minimize(owner::Val, loss, x0, quotes, optimizer, solve_kwargs; lb, ub, who, hint)
-    adtype, own = __fit_adtype(owner, loss, quotes, x0)
-    objective = function (x, qs)
-        __foreign_dual(eltype(x), own) && throw(__foreign_dual_error(who, hint))
-        v = loss(x, qs)
-        __foreign_dual(typeof(v), own) && throw(__foreign_dual_error(who, hint))
-        return convert(eltype(x), v)
-    end
+function __minimize(::Val{O}, loss, x0, quotes, optimizer, solve_kwargs; lb, ub, who, hint) where {O}
+    outer = ForwardDiff.Tag(__FitTagKey{O, :outer}(), eltype(x0))
+    inner = ForwardDiff.Tag(__FitTagKey{O, :inner}(), eltype(x0))  # created second, so it nests inside `outer`
+    own = Tuple{typeof(outer), typeof(inner)}
+    adtype = DifferentiationInterface.SecondOrder(AutoForwardDiff(; tag = outer), AutoForwardDiff(; tag = inner))
+    objective(x, qs) = convert(eltype(x), __own_duals(x -> loss(x, qs), x, eltype(x), own, who, hint))
     prob = Optimization.OptimizationProblem(Optimization.OptimizationFunction(objective, adtype), x0, quotes; lb, ub)
     sol = Optimization.solve(prob, optimizer; solve_kwargs...)
     Optimization.SciMLBase.successful_retcode(sol.retcode) || throw(
@@ -358,11 +344,10 @@ ForwardDiff.gradient(value, [0.03, 0.032, 0.035, 0.037])   # ∂value/∂quoted 
   distance to the exact solution.
 - A fitted `Spline.MonotoneConvex()`, `Spline.PCHIP()`, or `Spline.Akima()` curve that lies on a
   kink of its interpolation (flat quotes, for example) has no derivative there and throws.
-- Other models' `fit`s differentiate none of their inputs: a dual number in their quotes,
-  contracts, or fixed model fields throws an `ArgumentError`.
-- A dual number anywhere a fit does not differentiate (for example inside a contract type it does
-  not strip) throws an `ArgumentError` at the evaluation where it reaches the solve, rather than
-  differentiating the solver's iterations.
+- Other models' `fit`s differentiate none of their inputs. Every solve checks its parameters
+  and its loss (or residual) at each evaluation: a caller's dual number that reaches them, from
+  the quotes, a contract type the fit does not strip, or a fixed model field, throws an
+  `ArgumentError` instead of differentiating the solver's iterations.
 
 See [Sensitivities Through Calibration](@ref) for details.
 
@@ -464,9 +449,6 @@ function fit(
             end
         end
     end
-    # The AD backend is SecondOrder so a bounds-compatible second-order optimizer
-    # (e.g. `IPNewton()`) finds a Hessian; the default `Fminbox(LBFGS())` uses only the
-    # gradient (via the inner `AutoForwardDiff`) and is unaffected.
     loss(x, qs) = __quote_loss(build(x), method, qs)
     return build(
         __minimize(
@@ -527,9 +509,10 @@ function __fit_knot_rates(spline, tenors, quotes, primal_quotes, method, extrapo
     # Validate the policy and the knot grid once, up front (duplicate maturities, too few
     # knots for the interpolant, `:extension` with MonotoneConvex, …) with the same errors as
     # direct construction; trial curves reuse them.
-    grid0 = Yield.KnotGrid(__knot_fit_seed(spline, tenors), tenors, spline; who = "fit($(spline))")
+    who = "fit($(spline))"
+    grid0 = Yield.KnotGrid(__knot_fit_seed(spline, tenors), tenors, spline; who)
     loss(u, qs) = __quote_loss(__trial_curve(spline, u, grid0.tenors, primal_extrapolation), method, qs)
-    rates = __minimize(loss, grid0.rates, primal_quotes, optimizer, solve_kwargs; who = "fit($(spline))", hint = __SPLINE_FIT_HINT)
+    rates = __minimize(loss, grid0.rates, primal_quotes, optimizer, solve_kwargs; who, hint = __SPLINE_FIT_HINT)
     curve = Yield.ZeroRateCurve(rates, grid0.tenors, spline; extrapolation = primal_extrapolation)   # public result: validated (finite rates)
     return __implicit_knot_curve(curve, quotes, primal_quotes, extrapolation)
 end
@@ -584,10 +567,10 @@ function fit(
     # are `KnotGrid`'s: the returned curve's knots are exactly the quote maturities, validated
     # once, up front, with the same errors as direct construction.
     all(>(0), times) || throw(ArgumentError("bootstrap quote maturities must be positive; got $times"))
-    grid0 = Yield.KnotGrid(zeros(n), times, mod0; who = "fit($(mod0), Bootstrap)")
+    who = "fit($(mod0), Bootstrap)"
+    grid0 = Yield.KnotGrid(zeros(n), times, mod0; who)
     zs = zeros(n)
     scales = zeros(n)
-    who = "fit($(mod0), Bootstrap)"
 
     for i in eachindex(primal_quotes)
         q = primal_quotes[i]

@@ -24,24 +24,24 @@ __foreign_dual(::Type{ForwardDiff.Dual{T, V, N}}, ::Type{Own}) where {T, V, N, O
 __foreign_dual_error(who, hint) =
     ArgumentError(rstrip("$who: a ForwardDiff dual number reached the solve through data it does not differentiate. $hint"))
 
+# `f(x)` in a primal solve whose own tags are `Own`. `x` (element type `X`) is checked before `f`
+# runs, and the value after, before any conversion. A dual number captured untyped can carry a tag of
+# an own type, so the value also may not carry more dual levels than `x`.
+function __own_duals(f::F, x, ::Type{X}, ::Type{Own}, who, hint) where {F, X, Own <: Tuple}
+    __foreign_dual(X, Own) && throw(__foreign_dual_error(who, hint))
+    v = f(x)
+    (__foreign_dual(typeof(v), Own) || __ad_depth(v) > __ad_depth(X)) && throw(__foreign_dual_error(who, hint))
+    return v
+end
+
 # A primal residual: a bootstrap step, or an implicit root's `g_primal`. Its only own tag is the one
-# `ForwardDiff.derivative(r, x)` creates for the residual itself (the implicit slope), keyed by the
-# residual's type. That type does not record a dual number the residual holds in an `Any[]` vector
-# or captures untyped, which can therefore carry a tag of the same type. So the residual's value
-# also may not carry more dual levels than `x`: the root search evaluates it at primal points,
-# where its value must be primal.
+# `ForwardDiff.derivative(r, x)` creates for the implicit slope, keyed by the residual's type.
 struct __PrimalResidual{F}
     f::F
     who::String
     hint::String
 end
-function (r::__PrimalResidual)(x)
-    v = r.f(x)
-    own = Tuple{ForwardDiff.Tag{typeof(r), typeof(__primal(x))}}
-    (__foreign_dual(typeof(x), own) || __foreign_dual(typeof(v), own) || __ad_depth(v) > __ad_depth(x)) &&
-        throw(__foreign_dual_error(r.who, r.hint))
-    return v
-end
+(r::__PrimalResidual)(x) = __own_duals(r.f, x, typeof(x), Tuple{ForwardDiff.Tag{typeof(r), typeof(__primal(x))}}, r.who, r.hint)
 
 # The primal root search of `__implicit_root` and of each bootstrap step: the secant method from
 # `x0`, and only if it fails to converge a bracketed search over `bracket`. Errors raised while
@@ -57,7 +57,7 @@ function __solve_primal_root(g::G, x0, bracket) where {G}
 end
 
 """
-    __implicit_root(g, g_primal, x0; bracket = (-1.0, 1.0), who, slope = nothing, scale)
+    __implicit_root(g, g_primal, x0; bracket = (-1.0, 1.0), who, hint = "", slope = nothing, scale)
 
 Solve `g_primal(x) = 0` from `x0`, falling back to a bracketed solve on `bracket`,
 and return the root with first-order ForwardDiff partials of `g` propagated by the
@@ -65,19 +65,18 @@ implicit function theorem: `dx = -(∂g/∂θ) / (∂g/∂x)`.
 
 `g_primal` must be `g` evaluated without dual numbers, or `g` with its dual numbers
 stripped from the result. `slope(x)`, when given, is `∂g/∂x` on primal values in closed
-form; otherwise it is `ForwardDiff.derivative(g_primal, x)`, which requires `g_primal`
-to involve no dual numbers at all. `scale(x)` is the magnitude, free of units such as a
+form; otherwise it is the ForwardDiff derivative of `g_primal`. `scale(x)` is the magnitude, free of units such as a
 notional, that both checks at the solution use: the residual at an accepted root must be at
 most `sqrt(eps)` times it, and the slope must exceed `sqrt(eps)` times it. The caller chooses
 it for its residual: `implied_quote` passes the size of the quote's price and value, the
 swaption critical rate the size of the terms of its slope. The solvers stop on absolute
 tolerances, so `g` should already be expressed relative to such a scale. The value of the
 result is the primal root exactly; its partials come from one dual correction step. Nested
-dual numbers, a dual number reaching `g_primal`, a root that does not solve `g_primal`, and a
-vanishing slope throw an `ArgumentError` naming `who`.
+dual numbers, a dual number in `g_primal`'s argument or value, a root that does not solve
+`g_primal`, and a vanishing slope throw an `ArgumentError` naming `who` (and `hint`).
 """
-function __implicit_root(g::G, g_primal::P, x0; bracket = (-1.0, 1.0), who, slope::S = nothing, scale::C) where {G, P, S, C}
-    residual = __PrimalResidual(g_primal, who, "")
+function __implicit_root(g::G, g_primal::P, x0; bracket = (-1.0, 1.0), who, hint = "", slope::S = nothing, scale::C) where {G, P, S, C}
+    residual = __PrimalResidual(g_primal, who, hint)
     x = __solve_primal_root(residual, x0, bracket)
     # A solver can accept a point whose residual is small in absolute terms only.
     tol = sqrt(eps(float(typeof(x)))) * scale(x)

@@ -11,8 +11,9 @@ end
 FinanceCore.maturity(c::WrappedContract) = FinanceCore.maturity(c.inner)
 FinanceCore.present_value(m, c::WrappedContract, t = 0.0) = FinanceCore.present_value(m, c.inner, t)
 
-# Prices that depend on a dual number only in part of the parameter space, so it reaches a
-# solve after its first evaluation (an external review's counterexample and its spline analogue).
+# Prices that depend on a dual number only in part of the parameter space (an external review's
+# counterexample and its spline analogue). An optimizer fit's parameters take the dual number's type
+# from the start (SciMLBase promotes them); a bootstrap meets it mid-solve, in its residual.
 struct ConditionalPrice{T} <: FinanceCore.AbstractContract
     adjustment::T
 end
@@ -240,7 +241,7 @@ FinanceCore.present_value(m::Yield.Constant, c::NestedConditional{V}) where {V} 
         # solver's iterations (0.0 under NelderMead).
         provenance = "reached the solve through data it does not differentiate"
         NM = FinanceModels.OptimizationOptimJL.NelderMead
-        # its price depends on the dual number only once the rate reaches 10%, after the start
+        # its price depends on the dual number only once the rate reaches 10%
         conditional(a) = [Quote(0.3, ConditionalPrice(a))]
         @test_throws provenance ForwardDiff.derivative(a -> rate(fit(Yield.Constant(0.0), conditional(a); optimizer = NM()).rate), 0.1)
         @test_throws provenance ForwardDiff.derivative(a -> rate(fit(Yield.Constant(0.0), conditional(a)).rate), 0.1)
@@ -253,7 +254,7 @@ FinanceCore.present_value(m::Yield.Constant, c::NestedConditional{V}) where {V} 
         # a dual amount inside a wrapper the calibration does not strip
         ns(a) = [Quote(p, Forward(0.0, Cashflow(a, t))) for (p, t) in zip([0.97, 0.93, 0.86, 0.75], [1.0, 2.0, 4.0, 8.0])]
         @test_throws provenance ForwardDiff.derivative(a -> discount(fit(Yield.NelsonSiegel(), ns(a)), 3.0), 1.0)
-        # spline fits: the dual number appears only after the start, mid-solve
+        # spline fits: the loss fit through its parameters, the bootstrap mid-solve
         knot(a) = [Quote(0.9704, ConditionalZCB(a, 1.0)), ZCBPrice(0.94, 2.0)]
         @test_throws provenance ForwardDiff.derivative(a -> discount(fit(Spline.Linear(), knot(a)), 1.5), 0.01)
         @test_throws provenance ForwardDiff.derivative(a -> discount(fit(Spline.Linear(), knot(a), Fit.Bootstrap()), 1.5), 0.01)
@@ -264,10 +265,17 @@ FinanceCore.present_value(m::Yield.Constant, c::NestedConditional{V}) where {V} 
         # quotes' types (this fitted a 0% rate)
         @test_throws provenance fit(Yield.Constant(0.0), Any[Quote(0.94, NestedAny())])
         @test_throws provenance fit(Yield.Constant(0.0), Quote[Quote(0.94, NestedQuotes())])
-        # and when, in addition, the inner price depends on the outer fit only after the inner start
+        # and when, in addition, the inner price depends on the outer fit only away from the inner start
         for V in (Any, Quote), optimizer in (NM(), FinanceModels.OptimizationOptimJL.LBFGS())
             @test_throws provenance fit(Yield.Constant(0.0), V[Quote(0.2, NestedConditional{V}(optimizer))])
         end
+        # a dual number outside the quotes (a fixed model field, the loss function) leaves the
+        # parameters primal and reaches only the loss value
+        qbsm = [Quote(price, Option.EuroCall(CommonEquity(), 1.0, 1.0))]
+        @test_throws provenance ForwardDiff.derivative(r -> fit(Equity.BlackScholesMerton(r, 0.02, Volatility.Constant()), qbsm).σ.σ, 0.01)
+        @test_throws provenance ForwardDiff.derivative(
+            a -> discount(fit(Spline.Linear(), ZCBPrice.([0.97, 0.94, 0.9], [1.0, 2.0, 3.0]), Fit.Loss(x -> a * x^2)), 1.5), 1.0
+        )
         # every owner is returned, also by the fits that threw
         @test !any(FinanceModels.__FIT_OWNERS)
         # and in a primal residual whose untyped captured data holds a dual number of its own tag's type
