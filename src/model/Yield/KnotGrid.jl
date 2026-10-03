@@ -23,6 +23,15 @@ function __owned_float_vector(x)
     return Vector{__float_eltype(v)}(v)   # Array-from-AbstractArray always allocates a fresh copy
 end
 
+# Knot rates as continuously compounded numbers: a number is taken as continuous and a `Rate` is
+# converted. A `knot_rates` view gives its stored numbers directly, so `reconstruct(c)` makes no
+# extra pass. Other inputs that are not all real numbers are converted element by element.
+__continuous_knot_rates(x::ReadOnlyVector{<:FinanceCore.Rate{<:Any, Continuous}}) = getfield(x, :_data)
+function __continuous_knot_rates(x)
+    v = x isa AbstractVector ? x : collect(x)
+    return eltype(v) <: Real ? v : map(__continuous, v)
+end
+
 # Marker for the internal, unvalidated `KnotGrid` construction used by optimizer trial curves.
 struct Unchecked end
 
@@ -31,10 +40,12 @@ struct Unchecked end
 
 Internal. The owned, validated knot data behind every `AbstractInterpolatedZeroCurve`
 (`Yield.Spline`, `Yield.MonotoneConvex`). `rates` and `tenors` are each
-copied from any iterable of reals (a `Vector` is copied too, so no curve aliases caller-owned
+copied from any iterable (a `Vector` is copied too, so no curve aliases caller-owned
 memory) and promoted **independently** to one concrete floating-point element type
 (`Int` → `Float64`, `Float32` + `BigFloat` → `BigFloat`, `Float64` + `ForwardDiff.Dual` →
-`Dual`, never narrowed).
+`Dual`, never narrowed). Each rate is a number, read as continuously compounded, or a `Rate`,
+converted to its continuously compounded value; a mixture is allowed. This is the one place
+where knot rates are normalized.
 
 Throws an `ArgumentError` (prefixed with `who`, the public constructor's name) when:
 
@@ -43,8 +54,8 @@ Throws an `ArgumentError` (prefixed with `who`, the public constructor's name) w
 - any tenor is negative, or the tenors are not strictly increasing (unsorted or duplicated);
 - there are fewer knots than `spline` needs (`__min_knots`).
 
-Inputs that are not real numbers fail where they are converted to floats (a `MethodError` such as
-`float(::Type{String})`).
+Other inputs fail where they are converted (a `MethodError` such as `float(::Type{String})` for a
+tenor, or a rate that is neither a number nor a `Rate`).
 
 A curve built from a grid takes ownership of the grid's vectors. The grid is a construction
 input, not a container to keep and modify.
@@ -64,7 +75,7 @@ KnotGrid(u::Unchecked, rates::AbstractVector, tenors::AbstractVector) =
     KnotGrid(u, convert(Vector, rates), convert(Vector, tenors))
 
 function KnotGrid(rates, tenors, spline::Sp.SplineCurve; who = "KnotGrid")
-    r = __owned_float_vector(rates)
+    r = __owned_float_vector(__continuous_knot_rates(rates))
     t = __owned_float_vector(tenors)
     length(r) == length(t) || throw(
         ArgumentError(

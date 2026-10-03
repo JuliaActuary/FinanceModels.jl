@@ -1505,7 +1505,7 @@ end
         q0 = [0.1, 0.01]
         @test ForwardDiff.gradient(hull_white, q0) ≈ central(hull_white, q0) rtol = 1.0e-7
         knots(z) = pv(ShortRate.HullWhite(0.1, 0.01, reconstruct(curve; rates = z)), sw)
-        z0 = collect(knot_rates(curve))
+        z0 = rate.(knot_rates(curve))
         @test ForwardDiff.gradient(knots, z0) ≈ central(knots, z0) atol = 1.0e-7
         # the value is the primal price exactly
         d = pv(ShortRate.Vasicek(ForwardDiff.Dual(0.15, 1.0), 0.04, 0.01, Continuous(0.03)), sw)

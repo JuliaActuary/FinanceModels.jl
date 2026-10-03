@@ -333,8 +333,8 @@
         # reconstructable via Accessors, and the cached f/fᵈ stay consistent with
         # the updated rates (the struct caches derived fields but had no 4-arg ctor)
         c2 = Accessors.@set c.rates[2] = 0.05
-        @test c2.rates[2] == 0.05
-        f, fᵈ = Yield.__monotone_convex_fs(c2.rates, c2.tenors)
+        @test c2.rates[2] == Continuous(0.05)
+        f, fᵈ = Yield.__monotone_convex_fs(rate.(c2.rates), c2.tenors)
         @test c2._f == f
         @test c2._fᵈ == fᵈ
 
@@ -375,22 +375,22 @@
             r[1] = 0.2; t[1] = 0.5; push!(r, 1.0)
             @test zero(c, 3.0) == z3
             @test c._f == f0
-            @test c.rates == rates && c.tenors == times
+            @test c.rates == Continuous.(rates) && c.tenors == times
         end
 
         @testset "read-only fields" begin
             c = Yield.MonotoneConvex(rates, times)
-            for v in (knot_rates(c), knot_tenors(c))
-                @test v isa AbstractVector{Float64}
-                @test_throws Base.CanonicalIndexError v[1] = 0.2
-                @test_throws Base.CanonicalIndexError v .= 0.0
+            for (v, T) in ((knot_rates(c), Rate{Float64, Continuous}), (knot_tenors(c), Float64))
+                @test v isa AbstractVector{T}
+                @test_throws Base.CanonicalIndexError v[1] = v[2]
+                @test_throws Base.CanonicalIndexError v .= v[2]
                 @test_throws Base.CanonicalIndexError sort!(v; rev = true)
-                @test copy(v) isa Vector{Float64}
+                @test copy(v) isa Vector{T}
             end
             @test zero(c, 3.0) == zero(Yield.MonotoneConvex(rates, times), 3.0)
             # reads used by tests/internals still work
             @test searchsortedlast(c.tenors, 3.0) == 2
-            @test Yield.__monotone_convex_fs(c.rates, c.tenors)[1] == c._f
+            @test Yield.__monotone_convex_fs(rate.(c.rates), c.tenors)[1] == c._f
             # the cached forwards are internal: hidden from the public listing, readable as fields
             @test propertynames(c) == (:spline, :rates, :tenors, :extrapolation)
             @test propertynames(c, true) == (:spline, :rates, :tenors, :extrapolation, :_f, :_fᵈ, :_tail)
@@ -411,7 +411,7 @@
             @test ci isa Yield.MonotoneConvex{Float64, Float64}
             @test ci.tenors == [1.0, 2.0, 3.0, 4.0]
             cb = Yield.MonotoneConvex((0.02, 0.03), (1.0f0, big"2.0"))
-            @test eltype(cb.tenors) == BigFloat && eltype(cb.rates) == Float64
+            @test eltype(cb.tenors) == BigFloat && eltype(cb.rates) == Rate{Float64, Continuous}
             @test isfinite(discount(cb, 1.5))
             # a single knot is a flat curve
             c1 = Yield.MonotoneConvex([0.03], [1.0])
@@ -425,12 +425,12 @@
         @testset "Accessors rebuild the forwards; cache is not settable" begin
             c = Yield.MonotoneConvex(rates, times)
             c2 = @set c.rates[2] = 0.05
-            @test c2.rates == [0.02, 0.05, 0.035, 0.04]
-            @test c2._f == Yield.__monotone_convex_fs(c2.rates, c2.tenors)[1]
+            @test c2.rates == Continuous.([0.02, 0.05, 0.035, 0.04])
+            @test c2._f == Yield.__monotone_convex_fs(rate.(c2.rates), c2.tenors)[1]
             @test rate(zero(c2, 2.0)) ≈ 0.05
-            @test c.rates == rates                               # original untouched
+            @test c.rates == Continuous.(rates)                  # original untouched
             c3 = @set c.tenors = [1.0, 3.0, 6.0, 12.0]
-            @test c3.tenors == [1.0, 3.0, 6.0, 12.0] && c3._f == Yield.__monotone_convex_fs(c3.rates, c3.tenors)[1]
+            @test c3.tenors == [1.0, 3.0, 6.0, 12.0] && c3._f == Yield.__monotone_convex_fs(rate.(c3.rates), c3.tenors)[1]
             @test_throws ArgumentError (@set c.tenors[2] = 0.5)   # breaks ordering → re-validated
             @test_throws ArgumentError (@set c.rates = [NaN, 0.0, 0.0, 0.0])
             # derived caches and unknown keys are not `reconstruct` keywords
@@ -455,8 +455,8 @@
             qs = ZCBYield.(Continuous.(target), times)
             fitted = fit(c, qs)
             @test fitted isa Yield.MonotoneConvex
-            @test collect(fitted.rates) ≈ target atol = 1.0e-6
-            @test fitted._f == Yield.__monotone_convex_fs(fitted.rates, fitted.tenors)[1]
+            @test rate.(fitted.rates) ≈ target atol = 1.0e-6
+            @test fitted._f == Yield.__monotone_convex_fs(rate.(fitted.rates), fitted.tenors)[1]
         end
 
         @testset "fit validates the knot grid up front" begin

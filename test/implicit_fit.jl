@@ -77,7 +77,7 @@ FinanceCore.present_value(m::Yield.Constant, c::NestedConditional{V}) where {V} 
     # (residuals near 1e-11), which is noise of order 1e-4 in a difference quotient, so each
     # refit is polished to an exact solve of the repricing conditions with Newton's method.
     function exact(curve, qs)
-        z = collect(knot_rates(curve))
+        z = rate.(knot_rates(curve))
         R(z) = [pv(reconstruct(curve; rates = z), q.instrument) - q.price for q in qs]
         for _ in 1:10
             r = R(z)
@@ -92,15 +92,15 @@ FinanceCore.present_value(m::Yield.Constant, c::NestedConditional{V}) where {V} 
         dual_qs = CMTYield.(ForwardDiff.Dual{ImplicitFitTestTag}.(rates, 1.0), tenors)
         c, cd = fitter(qs), fitter(dual_qs)
         @test typeof(c) != typeof(cd)
-        @test ForwardDiff.value.(knot_rates(cd)) == knot_rates(c)
+        @test ForwardDiff.value.(rate.(knot_rates(cd))) == rate.(knot_rates(c))
         @test knot_tenors(cd) == knot_tenors(c) && cd.spline == c.spline
         # primal quotes take the primal path and return a primal curve
-        @test eltype(knot_rates(c)) === Float64
+        @test eltype(knot_rates(c)) === Rate{Float64, Continuous}
     end
 
     @testset "zero-coupon quotes: ∂zᵢ/∂pⱼ = -δᵢⱼ/(tᵢpᵢ): $name" for (name, fitter) in fitters
         prices = exp.(-rates .* tenors)
-        J = ForwardDiff.jacobian(p -> collect(knot_rates(fitter(ZCBPrice.(p, tenors)))), prices)
+        J = ForwardDiff.jacobian(p -> rate.(knot_rates(fitter(ZCBPrice.(p, tenors)))), prices)
         @test J ≈ [i == j ? -1 / (tenors[i] * prices[i]) : 0.0 for i in eachindex(tenors), j in eachindex(tenors)] rtol = rtol(name)
     end
 
@@ -166,7 +166,7 @@ FinanceCore.present_value(m::Yield.Constant, c::NestedConditional{V}) where {V} 
             Spline.Linear(), CMTYield.(rates, tenors), Fit.Bootstrap();
             extrapolation = Yield.FlatForwardAt(Continuous(ForwardDiff.Dual{ImplicitFitTestTag}(0.04, 1.0)))
         )
-        @test all(z -> ForwardDiff.partials(z, 1) == 0, knot_rates(c))
+        @test all(z -> ForwardDiff.partials(z, 1) == 0, rate.(knot_rates(c)))
         @test ForwardDiff.partials(rate(zero(c, 30.0)), 1) > 0
     end
 
@@ -225,7 +225,7 @@ FinanceCore.present_value(m::Yield.Constant, c::NestedConditional{V}) where {V} 
         # and it says how to tighten the fit
         @test_throws "solve_kwargs" FinanceModels.__implicit_knot_curve(off_curve, dual_pair, pair(px...), off_curve.extrapolation)
         exact_curve = ZeroRateCurve(zx, [1.0, 2.0], Spline.Linear())
-        @test Yield.knot_rates(FinanceModels.__implicit_knot_curve(exact_curve, dual_pair, pair(px...), exact_curve.extrapolation)) isa AbstractVector{<:ForwardDiff.Dual}
+        @test Yield.knot_rates(FinanceModels.__implicit_knot_curve(exact_curve, dual_pair, pair(px...), exact_curve.extrapolation)) isa AbstractVector{<:Rate{<:ForwardDiff.Dual, Continuous}}
         # quote prices that do not determine a knot
         free = [ZCBPrice(ForwardDiff.Dual{ImplicitFitTestTag}(0.97, 1.0), 1.0), Quote(0.0, Cashflow(0.0, 2.0))]
         @test_throws "singular" fit(Spline.Linear(), free, Fit.Bootstrap())

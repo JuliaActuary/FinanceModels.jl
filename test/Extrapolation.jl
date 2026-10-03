@@ -264,7 +264,7 @@ spline_zero_curve_with_policy(d, r, t, policy::Symbol) = ZeroRateCurve(r, t, d; 
                 )
                 fitted = fit(c, qs)
                 @test fitted.extrapolation == policy
-                @test fitted.rates ≈ rates atol = 1.0e-6
+                @test rate.(fitted.rates) ≈ rates atol = 1.0e-6
                 @test zero(fitted, horizon) == zero(
                     Yield.MonotoneConvex(
                         fitted.rates, times;

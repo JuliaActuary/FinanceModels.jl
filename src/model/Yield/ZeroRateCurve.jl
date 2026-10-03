@@ -6,7 +6,8 @@
 Build a yield curve that interpolates continuously-compounded zero `rates` at `tenors` with the
 interpolation method `spline`: `Spline.MonotoneConvex()` (the default), `Spline.PCHIP()`,
 `Spline.Akima()`, `Spline.Linear()`, `Spline.Quadratic()`, `Spline.Cubic()`, or
-`Spline.BSpline(n)`.
+`Spline.BSpline(n)`. Each rate is a number, read as continuously compounded, or a `Rate` in any
+convention, which is converted to its continuously compounded value; `rates` may mix the two.
 
 The result is a [`Yield.AbstractInterpolatedZeroCurve`](@ref): a [`Yield.MonotoneConvex`](@ref)
 for `Spline.MonotoneConvex()`, and a [`Yield.Spline`](@ref) otherwise. `ZeroRateCurve` is a
@@ -47,10 +48,11 @@ zrc = ZeroRateCurve(rates, tenors)                              # Yield.Monotone
 zrc_pchip = ZeroRateCurve(rates, tenors, Spline.PCHIP())        # Yield.Spline (PCHIP)
 zrc_lin = ZeroRateCurve(rates, tenors, Spline.Linear())         # Yield.Spline (linear)
 zrc_flat_zero = ZeroRateCurve(rates, tenors, Spline.Cubic(); extrapolation=:flat_zero)
+zrc_annual = ZeroRateCurve(Periodic.(rates, 1), tenors)        # annual-effective inputs
 
 discount(zrc, 1.0)   # exp(-0.02 * 1.0)
 zero(zrc, 5.0)       # Continuous(0.035)
-knot_rates(zrc)      # the rates, read-only
+knot_rates(zrc)      # the rates as Continuous rates, read-only
 reconstruct(zrc; rates = rates .+ 0.001)   # a new curve, 10bp higher at every knot
 
 # From a NelsonSiegel model:

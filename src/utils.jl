@@ -88,6 +88,7 @@ end
 
 """
     ReadOnlyVector(v::Vector)
+    ReadOnlyVector{Rate{T, Continuous}, T}(v::Vector{T})
 
 Internal read-only view over an owned `Vector`. It defines no `setindex!`, so indexed assignment
 — and therefore `.=`, `fill!`, `sort!`, `reverse!`, and writes through `view` — throws Base's
@@ -96,18 +97,28 @@ Internal read-only view over an owned `Vector`. It defines no `setindex!`, so in
 `copy`/`collect` return a mutable `Vector`. To change a curve's knots, use
 `Accessors.@set curve.rates[i] = x` or `reconstruct`, which rebuild it.
 
+The second form reads each stored number as a `Continuous` rate, without a copy: indexing builds
+the rate, and `copy`/`collect` return a `Vector` of rates. [`knot_rates`](@ref) views a curve's
+numeric knot rates this way.
+
 Used by the knot curves (`Yield.Spline`, `Yield.MonotoneConvex`), which cache state derived
 from their knot vectors, so that ordinary array operations on the public fields cannot
 desynchronise the cache. This is Julia's conventional privacy, not literal immutability: the
 backing `Vector` is the internal field `_data`, and code that mutates it is unsupported.
 """
-struct ReadOnlyVector{T} <: AbstractVector{T}
-    _data::Vector{T}
+struct ReadOnlyVector{T, S} <: AbstractVector{T}
+    _data::Vector{S}
 end
+ReadOnlyVector(v::Vector{T}) where {T} = ReadOnlyVector{T, T}(v)
 
 Base.size(v::ReadOnlyVector) = size(getfield(v, :_data))
 Base.IndexStyle(::Type{<:ReadOnlyVector}) = IndexLinear()
-Base.@propagate_inbounds Base.getindex(v::ReadOnlyVector, i::Int) = getfield(v, :_data)[i]
+Base.@propagate_inbounds Base.getindex(v::ReadOnlyVector{T}, i::Int) where {T} = __element(T, getfield(v, :_data)[i])
+
+# A stored value as an element of a `ReadOnlyVector` with element type `T`: the value itself, or a
+# stored number read as a continuous rate.
+__element(::Type, x) = x
+__element(::Type{Rate{T, Continuous}}, x) where {T} = Rate{T, Continuous}(x, Continuous())
 
 # The continuously compounded value of a rate input: a number is taken as continuous, and a `Rate`
 # is converted from its own convention.
