@@ -24,9 +24,11 @@ Return the quote `x` for which `family(x, maturity)` reprices on `curve`, so tha
 `family` is a quote constructor taking `(quote, maturity)`, such as
 [`CMTYield`](@ref FinanceModels.Bond.CMTYield), [`OISYield`](@ref FinanceModels.Bond.OISYield),
 [`ZCBYield`](@ref FinanceModels.Bond.ZCBYield), [`ZCBPrice`](@ref FinanceModels.Bond.ZCBPrice),
-or a closure like `(r, t) -> ParYield(r, t; frequency = 1)`. The result is expressed in
-the family's own convention: for example an annual-effective rate for `ZCBYield`,
-a semiannual par yield for `CMTYield` beyond one year, or a price for `ZCBPrice`.
+or a closure like `(r, t) -> ParYield(r, t; frequency = 1)`. The result is a number in the
+family's own convention: for example an annual-effective rate for `ZCBYield`,
+a semiannual par yield for `CMTYield` beyond one year, or a price for `ZCBPrice`. Wrap it
+when that convention is known, for example `Periodic(implied_quote(curve, CMTYield, 10.0), 2)`.
+See [Rate conventions](@ref rate-conventions).
 
 The solve starts from `guess` and falls back to a bracketed search on `bracket`.
 First-order ForwardDiff derivatives with respect to curve parameters are exact:

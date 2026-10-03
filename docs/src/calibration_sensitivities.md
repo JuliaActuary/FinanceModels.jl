@@ -185,7 +185,9 @@ ActuaryUtilities' `KeyRates`) are smooth: they do not re-interpolate the knots.
 ## Implied quotes
 
 [`implied_quote`](@ref FinanceModels.Yield.implied_quote) inverts a quote constructor on a curve:
-it returns the rate (or price) at which the quote reprices, in the constructor's own convention.
+it returns the rate (or price) at which the quote reprices, as a number in the constructor's own
+convention. Wrap it when that convention is known, for example
+`Periodic(implied_quote(curve, OISYield, 7.0), 1)` for an annual OIS rate.
 
 ```julia
 curve = fit(Spline.Linear(), OISYield.(rates, tenors), Fit.Bootstrap())
@@ -210,9 +212,10 @@ ForwardDiff.derivative(s -> implied_quote(bumped(s), OISYield, 7.0), 0.0)
 
 To differentiate with respect to a fitted curve's own knot rates, rather than the quotes behind
 them, rebuild the curve with dual rates using [`reconstruct`](@ref FinanceModels.Yield.reconstruct)
-(see [Kinks](@ref calibration-kinks) for the shape-preserving interpolations):
+(see [Kinks](@ref calibration-kinks) for the shape-preserving interpolations). `knot_rates`
+returns `Continuous` rates, so seed the gradient with their numbers:
 
 ```julia
-z = collect(knot_rates(curve))
+z = rate.(knot_rates(curve))
 ForwardDiff.gradient(z -> pv(reconstruct(curve; rates = z), liability), z)
 ```

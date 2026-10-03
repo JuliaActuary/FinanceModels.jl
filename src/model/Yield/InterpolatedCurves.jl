@@ -34,7 +34,7 @@ for a mutable `Vector` of rates, and `rate.(knot_rates(curve))` for the numbers,
 the input of a ForwardDiff gradient. `curve.rates` is the same vector.
 
 Note that a `Rate` never equals a number: `knot_rates(curve) == [0.02, 0.03]` is `false`. Compare
-with `Continuous.([0.02, 0.03])`, or compare the numbers.
+with `Continuous.([0.02, 0.03])`, or compare the numbers. See [Rate conventions](@ref rate-conventions).
 
 See also [`knot_tenors`](@ref), [`reconstruct`](@ref).
 """

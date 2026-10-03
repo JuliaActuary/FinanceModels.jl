@@ -48,8 +48,8 @@ with an `AbstractYieldModel` and a two-argument function:
 ```julia
 base = Yield.Constant(0.05)
 
-# Parallel shift (+100 bp)
-base + (z, t) -> z + Periodic(0.01, 1)
+# Parallel shift of +100 bp annual effective
+base + (z, t) -> Continuous(Periodic(1)(z) + 0.01)
 
 # Tenor-dependent twist (steepener that fades at 30y)
 base + (z, t) -> z + Continuous(0.02 * max(0.0, 1.0 - t/30.0))

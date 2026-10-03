@@ -2,7 +2,7 @@
 
 We should first discuss `Rate`s, which are reexported from [`FinanceCore.jl`](https://github.com/JuliaActuary/FinanceCore.jl)
 
-Rates are types that wrap scalar values to provide information about how to determine `discount` and `accumulation` factors. These allow for explicit handling of rate compounding conventions which, if not explicit, is often a source of errors in practice.
+Rates are types that wrap scalar values to provide information about how to determine `discount` and `accumulation` factors. These allow for explicit handling of rate compounding conventions which, if not explicit, is often a source of errors in practice. See [Rate conventions](@ref rate-conventions) for how FinanceModels reads a bare number and which results are `Rate`s.
 
 There are two `Frequency` types:
 

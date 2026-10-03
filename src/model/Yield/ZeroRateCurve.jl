@@ -7,7 +7,8 @@ Build a yield curve that interpolates continuously-compounded zero `rates` at `t
 interpolation method `spline`: `Spline.MonotoneConvex()` (the default), `Spline.PCHIP()`,
 `Spline.Akima()`, `Spline.Linear()`, `Spline.Quadratic()`, `Spline.Cubic()`, or
 `Spline.BSpline(n)`. Each rate is a number, read as continuously compounded, or a `Rate` in any
-convention, which is converted to its continuously compounded value; `rates` may mix the two.
+convention, which is converted to its continuously compounded value; `rates` may mix the two. See
+[Rate conventions](@ref rate-conventions).
 
 The result is a [`Yield.AbstractInterpolatedZeroCurve`](@ref): a [`Yield.MonotoneConvex`](@ref)
 for `Spline.MonotoneConvex()`, and a [`Yield.Spline`](@ref) otherwise. `ZeroRateCurve` is a

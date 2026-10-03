@@ -112,7 +112,7 @@ After simulation, you can extract the instantaneous short rate `r(t)` from a
 
 ```julia
 scenarios = simulate(v; n_scenarios=10, timestep=1/12, horizon=10.0)
-short_rate(scenarios[1], 5.0)  # r(5) for the first scenario
+short_rate(scenarios[1], 5.0)  # r(5) for the first scenario, a Continuous rate
 ```
 
 ### Valuing Fixed-Income Contracts
@@ -400,4 +400,4 @@ mean_pv = sum(pvs) / length(pvs)
 | `fit(model, quotes)` | Calibrate to market data |
 | `simulate(model; ...)` | Generate `Vector{RatePath}` scenarios |
 | `pv_mc(model, contract; ...)` | Monte Carlo expected present value |
-| `short_rate(path, t)` | Extract `r(t)` from a simulated `RatePath` |
+| `short_rate(path, t)` | Extract `r(t)`, a `Continuous` rate, from a simulated `RatePath` |

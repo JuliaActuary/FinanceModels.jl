@@ -171,7 +171,7 @@ ForwardDiff, which stays finite where discount factors underflow. A custom curve
 which returns the continuously compounded forward as a number.
 
 Note this is distinct from `forward(curve, from, to)`, which is the *discrete* forward `Rate`
-between two times.
+between two times. See [Rate conventions](@ref rate-conventions).
 """
 instantaneous_forward(c::AbstractYieldModel, t) = Continuous(__instantaneous_forward(c, t))
 

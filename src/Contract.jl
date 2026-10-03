@@ -86,7 +86,7 @@ module Bond
 
     An object representing a fixed coupon bond. `coupon_rate` / `frequency` is the actual payment amount for each whole coupon period. A maturity that is not a whole number of periods produces a *short first stub* (the schedule anchors at maturity and counts backward — see `Bond.coupon_times`) which accrues its actual length: the first coupon is `coupon_rate * t₁`.
 
-    `coupon_rate` is a number, the nominal annual rate, or a `Periodic` rate of the bond's frequency, whose nominal rate is used: `Bond.Fixed(Periodic(0.05, 2), Periodic(2), 10)` is `Bond.Fixed(0.05, Periodic(2), 10)`. A rate of another frequency throws an `ArgumentError`, because reading its nominal rate and converting it give different coupons: convert it explicitly. A `Continuous` rate is a `MethodError`. A typed coupon can differ from the number in the last bits, since a `Rate` stores its continuously compounded equivalent.
+    `coupon_rate` is a number, the nominal annual rate, or a `Periodic` rate of the bond's frequency, whose nominal rate is used: `Bond.Fixed(Periodic(0.05, 2), Periodic(2), 10)` is `Bond.Fixed(0.05, Periodic(2), 10)`. A rate of another frequency throws an `ArgumentError`, because reading its nominal rate and converting it give different coupons: convert it explicitly. A `Continuous` rate is a `MethodError`. A typed coupon can differ from the number in the last bits, since a `Rate` stores its continuously compounded equivalent. See [Rate conventions](@ref rate-conventions).
 
     Note that there are a number of convienience constructors which return a Quote for a `Bond.Fixed`: 
 

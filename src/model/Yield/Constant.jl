@@ -1,7 +1,8 @@
 """
     Constant(rate)
 
-A yield curve representing a flat term structure. `rate` can be a [`Rate`](@ref) object or a `Real` object.
+A yield curve representing a flat term structure. `rate` can be a [`Rate`](@ref) object or a `Real`
+object; a `Real` is an annual effective rate, `Periodic(rate, 1)`. See [Rate conventions](@ref rate-conventions).
 
 
 If [`fit`](@ref FinanceModels.fit)ing with the default FinanceModels.jl settings, the solver will attempt to fit a discount rate with the range of: `-1.0 .. 1.0`
