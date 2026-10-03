@@ -256,7 +256,7 @@ pv(Models(usd9, Dict("JPYUSD" => fx)), swap) # ≈ 1.5430 ($ millions)
 
 Hull values this swap both as a portfolio of forward contracts (his Table 7.9: forwards
 0.009557, 0.010047, 0.010562 — compare `forward(fx, 1.0)` etc.) and as two bonds
-converted at spot (``1{,}230.55/110 - 9.6439 = 1.543``). The projection above *is* the
+converted at spot (``1{,}230.55/110 - 9.6439 = 1.543``). The valuation above *is* the
 forward-portfolio route; the two-bond route is
 `1200 * pv(jpy4, yen_bond) / 110 - 10 * pv(usd9, usd_bond)`; both give \$1.543M, and the
 test suite asserts they agree to numerical precision.
@@ -319,9 +319,10 @@ quotes = [
 m = fit(FX.Forwards(eurusd, 1.10, sofr, Spline.Linear()), quotes, Fit.Bootstrap())
 ```
 
-Every quote — outright or swap — reprices under the fitted model, and the composite
-basis swap from the previous section values to zero against it (the test suite asserts
-both). Two practical notes:
+Every quote reprices: an outright under the fitted model (`present_value(m, q.instrument) ≈ 0`),
+a basis-swap leg on its foreign curve (`present_value(m.foreign, q.instrument) ≈ 1`). The composite
+basis swap from the previous section values to zero under a context whose store holds the fitted
+model (the test suite asserts both). Practical notes:
 
 - Bootstrapping requires `Spline.Linear`: with smoother interpolation, adding a knot
   reshapes earlier segments and drifts already-solved swaps off par, so `Fit.Bootstrap`

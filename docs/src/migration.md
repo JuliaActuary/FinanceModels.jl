@@ -30,10 +30,16 @@
 - **Forward-starting floating instruments change value.** `Forward(s, floater)` now
   fixes the floater's coupons on the index rates from `s` on; it read them from
   time 0. Fixed instruments are unchanged. ActuaryUtilities' `locked_floater`
-  builds on `Forward`.
+  builds on `Forward`, so its values change too.
 - **`zero(curve, 0)` is the short rate** for curves without their own zero rate
-  (Vasicek, CIR, Hull–White, Smith–Wilson, `ForwardStarting`), where it was `NaN`.
-  Code that tested for that `NaN` should drop the check.
+  (Vasicek, CIR, Hull–White, Smith–Wilson, `ForwardStarting`, custom curves with
+  `discount(curve, 0) == 1`), where it was `NaN`. Code that tested for that `NaN` should drop
+  the check.
+- **Transducer chains apply in the order written.** Inside a projection or valuation,
+  `c |> f |> g` applied `g` first; values of chains whose steps don't commute change.
+- **`RatePath` takes a `DataInterpolations.LinearInterpolation` only**, the interpolant
+  `simulate` builds. Its short rate is the slope of a step, which another interpolant would get
+  wrong.
 - **Optimization 5 is required** (with OptimizationOptimJL 0.4.6 and AccessibleModels
   0.1.14); environments pinned to Optimization 4 must upgrade it together with
   FinanceModels. Under Optim 2 (OptimizationOptimJL 0.4.9 and later) a loss fit
@@ -104,7 +110,7 @@ curves returned by spline `fit`s and `Fit.Bootstrap()`. All of them share one in
 - **Knot curves change only through `reconstruct`.** The knot vectors are read-only (indexed
   assignment, `.=`, `sort!`, and writes through `view` throw). `reconstruct` and `Accessors.@set`
   revalidate and rebuild every derived cache, so two curves can no longer compare `==` yet price
-  differently. Setting a derived cache (`_f`, `_fn`, `_tail`, …) throws.
+  differently. Setting a derived cache (`_f`, `_interp`, `_tail`, …) throws.
 - **Equality is structural for every knot curve.** `==`, `isequal`, and `hash` compare the knot
   rates, knot tenors, interpolation method, and extrapolation policy, so independently built
   curves from equal inputs are equal and work as `Dict` keys. `isequal` keeps the signed-zero
@@ -126,7 +132,7 @@ curves returned by spline `fit`s and `Fit.Bootstrap()`. All of them share one in
   grid, and samples through `zero(curve, t)` instead of `-log(discount(curve, t))/t`, which is
   numerically stable at very small and very large tenors. The sampled grid is validated like any
   other knot grid. A tenor of `0` (previously rejected) takes the source curve's zero-rate limit
-  there; a source curve without one gives a non-finite rate, which throws.
+  there, its short rate; a non-finite limit throws.
 - **Refitting a knot curve is the spline fit on its knots.** `fit(curve, quotes)` works for any
   knot curve: it fits new knot rates at the curve's tenors with its interpolation method and
   extrapolation policy, by the same solve as `fit(spline, quotes)`. It starts from the same rates
@@ -228,8 +234,8 @@ curves' zero rates in some other way, define a small curve type with its own `ze
 
 For the built-in curves, `discount(curve, from, to)`, `accumulation(curve, from, to)` and
 `forward(curve, from, to)` are computed from the log-discount at each endpoint rather than as a
-ratio of discount factors. `discount(curve, 0, t)` is unchanged bit for bit, and so is every
-`present_value` of a contract. Intervals that start later can move by a few units in the last
+ratio of discount factors. `discount(curve, 0, t)` is unchanged bit for bit, so this change leaves
+every contract's `present_value` unchanged. Intervals that start later can move by a few units in the last
 place, and intervals far in the tail are finite where they were `NaN`. Tests that compare such
 intervals exactly should allow for rounding. A custom curve that defines only `discount` keeps the
 ratio D(to)/D(from).
@@ -242,9 +248,9 @@ ends it now returns the rate of the positive interval factor instead of throwing
 Time derivatives at exactly `t = 0` of `Yield.MonotoneConvex`, `NelsonSiegel`,
 `NelsonSiegelSvensson` and curves built on them are exact where they were `NaN`. `MonotoneConvex`
 now computes its log-discount directly, so some of its discount factors move in the last bit. For a
-curve without its own `zero` (Smith–Wilson, the short-rate models, `ForwardStarting`, custom curves)
-the zero rate at 0 is the 0/0 of L(t)/t, so its time derivative there, and that of a yield shift
-over such a curve, throws a `DomainError`.
+curve without its own `zero` (Smith–Wilson, Vasicek, CIR, `ForwardStarting`, custom curves) the zero
+rate at 0 is the limit of L(t)/t, but its time derivative there, and that of a yield shift over such
+a curve, throws a `DomainError`.
 
 ### Derivatives through fits and knot curves
 

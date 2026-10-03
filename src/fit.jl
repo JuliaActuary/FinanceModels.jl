@@ -64,69 +64,22 @@ end
 """
     __default_optic(model)
 
- Returns the variables to optimize over for the given model. This is an optic/lens specifying which parameters of the model can vary. See extended help for more.
-An optic argument is a tuple of optic => interval pairs specifying which model parameters to optimize and their bounds.
-
-# Examples
-
-We might have a model as follows where we want `fit` to optize parameters `a` and `b`:
+The parameters `fit` optimizes for `model`: a tuple of optic => interval pairs (or 1-tuples of an
+optic, for an unbounded parameter). For example, to optimize `a` and `b` of a custom model:
 
 ```julia
-struct MyModel <:FinanceModels.AbstractModel
-        a 
-        b 
+struct MyModel <: FinanceModels.AbstractModel
+    a
+    b
 end
 
-__default_optic(m::MyModel) = (
+FinanceModels.__default_optic(m::MyModel) = (
     @optic(_.a) => 0.0 .. 100.0,
     @optic(_.b) => -10.0 .. 10.0,
 )
 ```
 
-# Extended help
-
-An arbitrarily complex model may be the object we intend to fit - how does `fit` know what free variables are able to be solved for within the given model?
-`variables` is a tuple of optic => interval pairs. What does this mean?
-- An optic (or "lens") is a way to define an accessor to a given object. Example:
-
-```julia-repl
-julia> using Accessors, AccessibleModels, IntervalSets
-
-julia> obj = (a = "AA", b = "BB");
-
-julia> lens = @optic _.a
-(@optic _.a)
-
-julia> lens(obj)
-"AA"
-```
-An optic argument is a tuple of optic => interval pairs. For example, we might have a model as follows where we want 
-`fit` to optize parameters `a` and `b`:
-
-```julia
-struct MyModel <:FinanceModels.AbstractModel
-        a 
-        b 
-end
-
-__default_optic(m::MyModel) = (
-    @optic(_.a) => 0.0 .. 100.0,
-    @optic(_.b) => -10.0 .. 10.0,
-)
-```
-In this way, fit know which arbitrary parameters in a given object may be modified. Technically, we are not modifying the immutable `MyModel`, but instead efficiently creating a new instance. This is enabled by [AccessibleModels.jl](https://github.com/JuliaAPlavin/AccessibleModels.jl).
-
-Note that not all optimization algorithms want a bounded interval. In that case, simply leave off the paired range. The prior example would then become:
-
-```julia
-__default_optic(m::MyModel) = (
-    (@optic(_.a),),
-    (@optic(_.b),),
-)
-```
-
-    
-
+See [`fit`](@ref FinanceModels.fit), "Defining the variables".
 """
 __default_optic(m::Yield.Constant) = ((@optic(_.rate.continuous_value) => -1.0 .. 1.0),)
 __default_optic(m::Yield.NelsonSiegel) = (
@@ -412,7 +365,7 @@ __default_optic(m::MyModel) = (
     @optic(_.b) => -10.0 .. 10.0,
 )
 ```
-In this way, fit know which arbitrary parameters in a given object may be modified. Technically, we are not modifying the immutable `MyModel`, but instead efficiently creating a new instance. This is enabled by [AccessibleModels.jl](https://github.com/JuliaAPlavin/AccessibleModels.jl).
+In this way, `fit` knows which arbitrary parameters in a given object may be modified. Technically, we are not modifying the immutable `MyModel`, but instead efficiently creating a new instance. This is enabled by [AccessibleModels.jl](https://github.com/JuliaAPlavin/AccessibleModels.jl).
 
 Note that not all optimization algorithms want a bounded interval. In that case, simply leave off the paired range. The prior example would then become:
 
