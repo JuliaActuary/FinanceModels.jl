@@ -187,7 +187,7 @@ Yield.__log_native(::ShortRate.Vasicek) = true
 # Both reach the deterministic price continuously as σ → 0, and σ = 0 needs no case of its own: the
 # smaller factor is then 0 and they give the deterministic (volatility-free Vasicek) price. For small γτ,
 # where the divisions by γ, s and σ² are near 0/0 (exactly so at a = σ = 0, leaving derivatives NaN),
-# B and G come from series in γ² instead (`_cir_series`); outside that band only a = σ = 0 remains,
+# B and the log A term come from series in X = (γτ/2)² (`_cir_series`); outside that band only a = σ = 0 remains,
 # at τ = ∞, where γτ is 0·∞ and the rate stays constant.
 function _cir_pieces(a, σ, τ)
     γ = hypot(a, σ, σ)
