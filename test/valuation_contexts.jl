@@ -170,17 +170,23 @@ Transducers.asfoldable(::Projection{TwoFlows}) = [Cashflow(1.0, 1.0), Cashflow(2
             @test present_value(fxctx, FinanceCore.Composite(fwd, conv(leg))) ≈ present_value(fx, fwd) + v rtol = 1.0e-12
             @test present_value(fxctx, FinanceCore.AbstractContract[fwd, conv(leg)]) ≈ present_value(fx, fwd) + v rtol = 1.0e-12
         end
-        # a contract that pays another currency inside FX.Converted throws: the conversion multiplies every
-        # amount by its forward, so a quote-currency FX.Forward or an already converted leg would be
-        # converted again (a mixed composite gave 1.0382 where converting only the leg gives 1.0454)
-        misconverted = "an enclosing FX.Converted converts cashflows paid in :EUR"
+        # an already converted leg inside FX.Converted throws: the conversion multiplies every amount by
+        # its forward, so it would be converted again
         fxctx = Models(fx_explicit, Dict(:fx => fx_explicit))
+        @test_throws "an enclosing FX.Converted converts cashflows paid in :EUR" present_value(fxctx, conv(conv(leg)))
+        # an FX.Forward prices on the context's own FX model, which a conversion does not have (a mixed
+        # composite gave 1.0382 where converting only the leg gives 1.0454)
         for form in (
                 conv(fwd), conv(FinanceCore.Composite(fwd, leg)), conv(FinanceCore.AbstractContract[leg, fwd]),
-                conv(conv(leg)), conv(Forward(0.5, fwd)), conv(fwd |> Map(identity)),
+                conv(Forward(0.5, fwd)), conv(fwd |> Map(identity)),
             )
-            @test_throws misconverted present_value(fxctx, form)
+            @test_throws MethodError present_value(fxctx, form)
         end
+        # also when the conversion pays in the forward's quote currency (this discounted JPY on the USD
+        # curve: 11.677 where the JPY value is 12.879)
+        usdjpy = FX.Pair(:USD, :JPY)
+        fx_uj = FX.Forwards(usdjpy, 150.0, Yield.Constant(Continuous(0.001)), usd)
+        @test_throws MethodError present_value(Models(fx_explicit, Dict(:uj => fx_uj)), FX.Converted(fwd, usdjpy, :uj))
         # a chain of conversions, each from its own pair's base currency, converts GBP to EUR to USD
         gbpeur = FX.Pair(:GBP, :EUR)
         fx_gbp = FX.Forwards(gbpeur, 1.15, fx_explicit.foreign, Yield.Constant(Continuous(0.04)))

@@ -2,14 +2,14 @@
     Models(model, store)
     Models(model; index)
 
-A valuation context that holds the models a contract observes as well as the model that values it.
+A valuation context: the model that values contracts, and the models they read by key.
 `model` discounts (`discount(ctx, t)`) and prices (`valuation_model(ctx)`); the models a contract
 reads by key, such as the index curve of a `Bond.Floating` or the FX model of an `FX.Converted` leg,
 come from `store` (`ctx[key]`), any collection indexed by key (a `Dict` or a `NamedTuple`).
-`Models(model; index)` reads `index` under every key.
+`Models(model; index)` returns `index` for every key.
 
 Any model is a valuation context of its own: `present_value(curve, bond)` discounts on `curve`, and
-`present_value(bsm, call)` prices on `bsm`. `Models` adds the observed models:
+`present_value(bsm, call)` prices on `bsm`. `Models` adds the models read by key:
 
 ```julia
 curve = Yield.Constant(0.04)

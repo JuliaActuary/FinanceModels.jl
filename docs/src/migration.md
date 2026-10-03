@@ -34,20 +34,21 @@
 | `present_value(fx, leg::FX.BasisSwapLeg)` (base-currency units) | `present_value(fx.foreign, leg)`, or `FX.Converted(leg, pair, key)` under `Models(fx, store)` (quote currency) |
 | `collect(Projection(c, store))` | unchanged |
 
-The value as of `t` of a contract's cashflows at or after `t`, on a deterministic curve, applies the
-interval discount to each retained cashflow (inclusive at `t`, as `cur_time` was):
+To value, as of `t`, a contract's cashflows at or after `t` on a deterministic curve, discount each
+from `t` (a cashflow at `t` counts, as under `cur_time`):
 
 ```julia
 asof(curve, c, t) = foldxl(+, Projection(c, curve) |> Filter(cf -> cf.time >= t) |>
     Map(cf -> cf.amount * discount(curve, t, cf.time)); init = zero(discount(curve, t, t)))
 ```
 
-Don't accumulate a time-0 value instead. `accumulation(curve, t) * present_value(curve, c)` also
-counts the cashflows before `t`. Restricted to the cashflows at or after `t`, the product equals the
-reduction above in exact arithmetic, but it overflows (`Inf * 0`) where the accumulation and the
-time-0 value leave the floating-point range.
+Don't roll a time-0 value forward instead: `accumulation(curve, t) * present_value(curve, c)` also
+counts the cashflows before `t`. Even restricted to the later cashflows, it gives `NaN`
+(`Inf * 0`) once the accumulation overflows and the time-0 value underflows.
+
 Changed numbers: a collection of contracts (each contract valued on its own timing), a cashflow
-before time 0 (it accumulates), and a `Composite` (the sum of its parts, to the last bits).
+before time 0 (it accumulates), and a `Composite` (the sum of its parts' values, which can differ
+from v6 in the last bits).
 
 ### `ZeroRateCurve` returns the curve it builds
 

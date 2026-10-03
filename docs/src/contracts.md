@@ -147,27 +147,28 @@ end
 
 ##### Cashflows are model dependent
 
-A contract that observes models, such as a floating bond reading its index curve, reads them by
-key from the valuation context. [`Models`](@ref) holds the model that discounts and the models a
-contract reads; `Models(model; index)` reads `index` under every key. Value a contract under a
-context, and list its cashflows by projecting it against the same context:
+A contract whose cashflows depend on other models, such as a floating bond's index curve, reads them
+by key from the valuation context. [`Models`](@ref) holds the model that discounts and the models a
+contract reads; `Models(model; index)` returns `index` for every key. Value a contract under a
+context, and list its cashflows by projecting it against the same context. For how a floating bond
+projects its coupons from forward rates, see [this section in the overview](@ref Contracts-that-depend-on-the-model-(or-multiple-models)).
 
 ```julia
 curve = Yield.Constant(0.04)
 swap = InterestRateSwap(curve, 5.0; frequency = 1)
-value(index, credit) = present_value(Models(credit; index), swap)
+value(index, disc) = present_value(Models(disc; index), swap)
 value(curve, curve) # approximately zero
 collect(Projection(swap, Models(curve; index = curve)))
 ```
 
-Valuation is linear: a `Composite` is worth the sum of its parts and a collection of contracts the
+Values add under one context: a `Composite` is worth the sum of its parts and a collection of contracts the
 sum of its contracts' values. For multiple index curves or combined yield and FX models, use an
 explicit store, for example `Models(ois, Dict("SOFR" => sofr, "EURUSD" => fx))`.
 
 A contract with a closed-form value defines `present_value` on the contract, reading the models it
 needs from the context: `discount(ctx, t)` for discounting, `ctx[key]` for an observed model, and
 [`valuation_model(ctx)`](@ref valuation_model) for the model whose formula prices it. It then
-composes with every other contract:
+values inside a `Composite` or a portfolio:
 
 ```julia
 struct OnePeriodFloater <: FinanceCore.AbstractContract
@@ -180,9 +181,7 @@ present_value(Models(ois, Dict("SOFR" => sofr)), [OnePeriodFloater("SOFR"), Bond
 ```
 
 Wrappers that act on the cashflow stream (`Forward`, `FX.Converted`, `contract |> Map(f)`) need the
-contract's projection, so a contract with only a closed form cannot be placed inside them.
-
-An example of this is a floating bond where the coupon paid depends on a view of forward rates. See [this section in the overview](@ref Contracts-that-depend-on-the-model-(or-multiple-models)) on projections for how this is handled.
+contract's projection, so a contract with only a closed form cannot be valued inside them.
 
 ## Quote conventions
 

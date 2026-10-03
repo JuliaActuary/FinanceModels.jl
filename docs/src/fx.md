@@ -208,10 +208,12 @@ collect(p)  # USD cashflows: each EUR amount × forward(m, t)
 Every value under a valuation context is in that context's reporting currency (the quote
 currency for an `FX.Forwards` model, which discounts on its `domestic` curve), so values add. A
 base-currency contract is converted explicitly, by `FX.Converted` or by valuing it on a
-base-currency curve and converting at spot; an unconverted [`FX.BasisSwapLeg`](@ref) under a
-quote-currency context throws. Inside `FX.Converted`, every contract with a currency of its own
-must pay in the pair's base currency: an `FX.Forward`, or another `FX.Converted` into a different
-currency, throws rather than being converted again. Convert only the base-currency contracts, as in
+base-currency curve and converting at spot. FinanceModels checks only contracts that carry a
+currency: an unconverted [`FX.BasisSwapLeg`](@ref) throws under any context that is not a yield
+curve, while a plain bond carries none and is valued in the context's currency. Inside
+`FX.Converted`, a leg must pay in the pair's base currency and a nested `FX.Converted` must convert
+into it; otherwise it throws rather than being converted again. An `FX.Forward`, which prices on the
+context's own FX model, is not supported there. Convert only the base-currency contracts, as in
 `Composite(fwd, FX.Converted(leg, pair, key))`. The reporting currency is a unit of today's value,
 not the trade's collateral agreement, which the curves describe.
 
