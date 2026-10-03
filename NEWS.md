@@ -40,7 +40,8 @@ A chain of transducers over a contract applied in reverse inside a projection: `
 add1` projected as [2.1, 4.1] instead of [1.1, 3.1] (`collect(bond |> double |> add1)` was right),
 so its present value was wrong too. The chain now applies in the order written, inside every
 wrapper, and stateful and early-terminating transducers (`Take`, `Scan`) work over a contract inside
-a projection, a portfolio or a `Composite`; they threw.
+a projection, a portfolio or a `Composite`; they threw. A projection that emits nothing (`Take(0)`,
+a `Filter` that drops everything, an empty portfolio) collects to an empty vector; it threw.
 
 ### Simulated paths are defined only on their simulated grid
 
@@ -131,8 +132,10 @@ a yield curve or rate, a model with a closed form for the contract, or `Models(m
   its quote currency, and `FX.Forward` is one quote-currency cashflow. A base-currency
   `FX.BasisSwapLeg` is valued on a base-currency curve (`present_value(m.foreign, leg)`) or
   converted with `FX.Converted`; under a quote-currency context it throws (it was valued in
-  base-currency units, so a `Composite` would have added EUR to USD). Par basis-swap quotes stay
-  native in calibration.
+  base-currency units, so a `Composite` would have added EUR to USD). Inside `FX.Converted`, every
+  contract with a currency of its own must pay in the pair's base currency: an `FX.Forward`, or a
+  nested `FX.Converted` into another currency, throws instead of being converted again. Par
+  basis-swap quotes stay native in calibration.
 
 ### `implied_quote`
 
