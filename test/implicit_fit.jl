@@ -32,6 +32,25 @@ FinanceCore.present_value(m::Yield.Constant, ::NestedConstant) =
 struct NestedSpline <: FinanceCore.AbstractContract end
 FinanceCore.present_value(m::Yield.Constant, ::NestedSpline) =
     discount(fit(Spline.Linear(), [ZCBPrice(discount(m, 1.0), 1.0), ZCBPrice(discount(m, 3.0), 3.0)]), 2.0)
+# The same inner fit on quote vectors whose element type hides the dual number.
+struct NestedAny <: FinanceCore.AbstractContract end
+FinanceCore.present_value(m::Yield.Constant, ::NestedAny) =
+    discount(fit(Yield.Constant(0.0), Any[ZCBPrice(discount(m, 1.0), 1.0)]), 2.0)
+struct NestedQuotes <: FinanceCore.AbstractContract end
+FinanceCore.present_value(m::Yield.Constant, ::NestedQuotes) =
+    discount(fit(Yield.Constant(0.0), Quote[ZCBPrice(discount(m, 1.0), 1.0)]), 2.0)
+# An inner fit on a `V[...]` quote vector whose price depends on the outer candidate only once the
+# inner rate reaches 10%, after the inner fit's start.
+struct NestedConditional{V, O} <: FinanceCore.AbstractContract
+    optimizer::O
+end
+NestedConditional{V}(optimizer) where {V} = NestedConditional{V, typeof(optimizer)}(optimizer)
+FinanceCore.present_value(m::Yield.Constant, c::NestedConditional{V}) where {V} = rate(
+    fit(
+        Yield.Constant(0.0), V[Quote(0.3, ConditionalPrice(rate(m.rate)))];
+        optimizer = c.optimizer, solve_kwargs = (; g_tol = 1.0e-20, maxiters = 10_000)
+    ).rate
+)
 
 @testset "differentiable fits" begin
     tenors = [1.0, 2.0, 3.0, 5.0, 10.0]
@@ -239,8 +258,23 @@ FinanceCore.present_value(m::Yield.Constant, ::NestedSpline) =
         @test_throws provenance ForwardDiff.derivative(a -> discount(fit(Spline.Linear(), knot(a)), 1.5), 0.01)
         @test_throws provenance ForwardDiff.derivative(a -> discount(fit(Spline.Linear(), knot(a), Fit.Bootstrap()), 1.5), 0.01)
         # nested fits with the same loss type: the inner fit cannot take the outer fit's dual
-        # number for its own (the tags are keyed by the solve's data as well as its loss)
+        # number for its own (overlapping fits lease different owners, part of their tags' types)
         @test_throws provenance fit(Yield.Constant(0.0), [Quote(0.94, NestedConstant())])
+        # also when the quote vectors' element type hides the dual number from the loss's and the
+        # quotes' types (this fitted a 0% rate)
+        @test_throws provenance fit(Yield.Constant(0.0), Any[Quote(0.94, NestedAny())])
+        @test_throws provenance fit(Yield.Constant(0.0), Quote[Quote(0.94, NestedQuotes())])
+        # and when, in addition, the inner price depends on the outer fit only after the inner start
+        for V in (Any, Quote), optimizer in (NM(), FinanceModels.OptimizationOptimJL.LBFGS())
+            @test_throws provenance fit(Yield.Constant(0.0), V[Quote(0.2, NestedConditional{V}(optimizer))])
+        end
+        # every owner is returned, also by the fits that threw
+        @test !any(FinanceModels.__FIT_OWNERS)
+        # and in a primal residual whose untyped captured data holds a dual number of its own tag's type
+        hidden = Ref{Any}(0.0)
+        residual = FinanceModels.__PrimalResidual(x -> x - hidden[], "residual", "")
+        hidden[] = ForwardDiff.Dual{ForwardDiff.Tag{typeof(residual), Float64}}(0.5, 1.0)
+        @test_throws provenance residual(0.25)
         # a legitimate nesting: an inner spline fit, differentiated implicitly, inside a generic fit
         outer = fit(Yield.Constant(0.0), [Quote(0.94, NestedSpline())])
         inner(m) = fit(Spline.Linear(), [ZCBPrice(discount(m, 1.0), 1.0), ZCBPrice(discount(m, 3.0), 3.0)])
@@ -251,6 +285,27 @@ FinanceCore.present_value(m::Yield.Constant, ::NestedSpline) =
         h = 1.0e-6
         iq(r) = implied_quote(Yield.Constant(Continuous(r)), ZCBYield, 5.0)
         @test ForwardDiff.derivative(iq, 0.03) ≈ (iq(0.03 + h) - iq(0.03 - h)) / 2h rtol = 1.0e-6
+    end
+
+    @testset "fit owners: distinct while solves overlap, reused afterwards" begin
+        ready, release = Channel{Int}(4), Channel{Nothing}(4)
+        tasks = map(1:4) do _
+            Threads.@spawn begin
+                owner = FinanceModels.__lease_fit_owner()
+                try
+                    put!(ready, owner)
+                    take!(release)
+                finally
+                    FinanceModels.__return_fit_owner(owner)
+                end
+            end
+        end
+        @test allunique([take!(ready) for _ in 1:4])
+        foreach(_ -> put!(release, nothing), 1:4)
+        foreach(wait, tasks)
+        @test !any(FinanceModels.__FIT_OWNERS)
+        @test FinanceModels.__lease_fit_owner() == 1
+        FinanceModels.__return_fit_owner(1)
     end
 
     @testset "refitting a knot curve" begin

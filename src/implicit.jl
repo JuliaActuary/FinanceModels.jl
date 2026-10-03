@@ -25,8 +25,11 @@ __foreign_dual_error(who, hint) =
     ArgumentError(rstrip("$who: a ForwardDiff dual number reached the solve through data it does not differentiate. $hint"))
 
 # A primal residual: a bootstrap step, or an implicit root's `g_primal`. Its only own tag is the one
-# `ForwardDiff.derivative(r, x)` creates for the residual itself (the implicit slope). The residual's
-# type contains everything it captures, so a caller's dual number cannot carry that tag.
+# `ForwardDiff.derivative(r, x)` creates for the residual itself (the implicit slope), keyed by the
+# residual's type. That type does not record a dual number the residual holds in an `Any[]` vector
+# or captures untyped, which can therefore carry a tag of the same type. So the residual's value
+# also may not carry more dual levels than `x`: the root search evaluates it at primal points,
+# where its value must be primal.
 struct __PrimalResidual{F}
     f::F
     who::String
@@ -35,7 +38,8 @@ end
 function (r::__PrimalResidual)(x)
     v = r.f(x)
     own = Tuple{ForwardDiff.Tag{typeof(r), typeof(__primal(x))}}
-    (__foreign_dual(typeof(x), own) || __foreign_dual(typeof(v), own)) && throw(__foreign_dual_error(r.who, r.hint))
+    (__foreign_dual(typeof(x), own) || __foreign_dual(typeof(v), own) || __ad_depth(v) > __ad_depth(x)) &&
+        throw(__foreign_dual_error(r.who, r.hint))
     return v
 end
 

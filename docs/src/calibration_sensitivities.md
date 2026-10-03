@@ -130,9 +130,10 @@ when:
   calls;
 - a dual number reaches the solve through data the fit does not differentiate: inside a contract
   type `fit` does not know how to strip, in a model field it does not optimize, or in any input
-  of a non-spline fit. Each solve checks every evaluation for dual numbers that are not its own,
-  so a dual number that appears only partway through the solve (a price that depends on it in
-  part of the parameter space) throws as well;
+  of a non-spline fit. Each solve checks its parameters and its loss at every evaluation for
+  ForwardDiff tags that are not its own (overlapping fits, such as a fit inside another's loss,
+  have tags of different types), so a dual number that reaches the loss only partway through the
+  solve (a price that depends on it in part of the parameter space) throws as well;
 - a loss fit does not reprice its quotes (for example with a loss function whose minimum is not
   at zero residual);
 - the quote prices do not determine the knot rates (a singular or ill-conditioned repricing

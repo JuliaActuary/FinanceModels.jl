@@ -197,17 +197,31 @@ __default_loss(m) = Fit.Loss(x -> x^2)
 # ones (Newton/IPNewton use the Hessian), so OptimizationBase never auto-promotes a
 # first-order declaration and warns. First-order paths never instantiate the Hessian,
 # so declaring it costs them nothing.
-# Its two ForwardDiff tags belong to this solve: they are keyed by the loss's type and the
-# quotes' type. A dual number that reaches the solve's data puts its own tag into that data's
-# type, so it can never carry one of these, even inside an enclosing fit with the same loss.
-# The inner (gradient) tag is created second, so it nests inside the outer (Hessian) one.
-struct __FitTagKey{L, Q, N} end
-function __fit_adtype(loss, quotes, x0)
-    outer = ForwardDiff.Tag(__FitTagKey{typeof(loss), typeof(quotes), :outer}(), eltype(x0))
-    inner = ForwardDiff.Tag(__FitTagKey{typeof(loss), typeof(quotes), :inner}(), eltype(x0))
+# Its two ForwardDiff tags belong to this solve. ForwardDiff tells perturbations apart only by their
+# tags' types, so solves that overlap (a fit inside another fit's loss, or fits on several threads)
+# need tags of different types, also when a container such as `Any[]` hides from the loss's and the
+# quotes' types the dual number that reached them. Each running solve leases an owner number `O`,
+# part of its tags' types. The inner (gradient) tag is created second, so it nests inside the outer
+# (Hessian) one.
+struct __FitTagKey{O, L, Q, N} end
+function __fit_adtype(::Val{O}, loss, quotes, x0) where {O}
+    outer = ForwardDiff.Tag(__FitTagKey{O, typeof(loss), typeof(quotes), :outer}(), eltype(x0))
+    inner = ForwardDiff.Tag(__FitTagKey{O, typeof(loss), typeof(quotes), :inner}(), eltype(x0))
     adtype = DifferentiationInterface.SecondOrder(AutoForwardDiff(; tag = outer), AutoForwardDiff(; tag = inner))
     return adtype, Tuple{typeof(outer), typeof(inner)}
 end
+
+# The owner numbers of the running solves. A solve leases the lowest free one and returns it when it
+# ends, so sequential fits reuse owner 1 and its compiled methods, and only overlapping solves add one.
+const __FIT_OWNERS = Bool[]
+const __FIT_OWNERS_LOCK = ReentrantLock()
+function __lease_fit_owner()
+    return lock(__FIT_OWNERS_LOCK) do
+        i = findfirst(!, __FIT_OWNERS)
+        i === nothing ? (push!(__FIT_OWNERS, true); length(__FIT_OWNERS)) : (__FIT_OWNERS[i] = true; i)
+    end
+end
+__return_fit_owner(i) = lock(() -> (__FIT_OWNERS[i] = false), __FIT_OWNERS_LOCK)
 
 # The fitting loss: `loss_method.fn` summed over the price residuals of `quotes` under `model`.
 __quote_loss(model, loss_method, quotes) = mapreduce(+, quotes) do q
@@ -246,14 +260,24 @@ end
 # (capturing them in `loss` made a Nelson-Siegel fit about 8% slower). Every optimizer-backed fit
 # either returns a successful solution or throws: a failed solve may leave the solution equal to
 # `x0`, and a model built from it would make optimizer failure look like a valid (but unfitted)
-# result. Every evaluation checks `x` and the raw loss for a dual number that is not the solve's
-# own (SciMLBase promotes `x0` to the type of a dual number found in the quotes) before the loss
-# is converted to `x`'s type; `who` and `hint` name the fit in the error.
+# result. Every evaluation checks `x` before the loss is evaluated (SciMLBase promotes `x0` to the
+# type of a dual number it finds in the quotes) and the raw loss before it is converted to `x`'s
+# type, for a ForwardDiff tag that is not the solve's own; `who` and `hint` name the fit in the
+# error. The solve holds its owner number until it returns or throws.
 function __minimize(loss, x0, quotes, optimizer, solve_kwargs; lb = nothing, ub = nothing, who, hint)
-    adtype, own = __fit_adtype(loss, quotes, x0)
+    owner = __lease_fit_owner()
+    try
+        return __minimize(Val(owner), loss, x0, quotes, optimizer, solve_kwargs; lb, ub, who, hint)
+    finally
+        __return_fit_owner(owner)
+    end
+end
+function __minimize(owner::Val, loss, x0, quotes, optimizer, solve_kwargs; lb, ub, who, hint)
+    adtype, own = __fit_adtype(owner, loss, quotes, x0)
     objective = function (x, qs)
+        __foreign_dual(eltype(x), own) && throw(__foreign_dual_error(who, hint))
         v = loss(x, qs)
-        (__foreign_dual(eltype(x), own) || __foreign_dual(typeof(v), own)) && throw(__foreign_dual_error(who, hint))
+        __foreign_dual(typeof(v), own) && throw(__foreign_dual_error(who, hint))
         return convert(eltype(x), v)
     end
     prob = Optimization.OptimizationProblem(Optimization.OptimizationFunction(objective, adtype), x0, quotes; lb, ub)
