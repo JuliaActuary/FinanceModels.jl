@@ -16,7 +16,8 @@ module ShortRate
     import ..Yield
     import ..AbstractStochasticModel
     import ..FinanceCore
-    using ..FinanceCore: Continuous, Rate, rate
+    import ..__continuous
+    using ..FinanceCore: Continuous, Rate
 
     """
         Vasicek(a, b, σ, initial)
@@ -52,7 +53,7 @@ module ShortRate
 
     # Store the long-term mean as a continuous scalar, regardless of the input
     # compounding convention.
-    Vasicek(a, b::Rate, σ, initial) = Vasicek(a, rate(Continuous(b)), σ, initial)
+    Vasicek(a, b::Rate, σ, initial) = Vasicek(a, __continuous(b), σ, initial)
 
     """
         CoxIngersollRoss(a, b, σ, initial)
@@ -82,7 +83,7 @@ module ShortRate
         initial::T
         function CoxIngersollRoss(a::A, b::B, σ::S, initial::T) where {A, B, S, T}
             σ >= 0 || throw(ArgumentError("volatility σ must be non-negative, got $σ"))
-            initial_value = rate(Continuous(initial))
+            initial_value = __continuous(initial)
             initial_value >= 0 || throw(ArgumentError("initial rate must be non-negative for CIR, got $initial"))
             return new{A, B, S, T}(a, b, σ, initial)
         end
@@ -95,7 +96,7 @@ module ShortRate
     # Store the long-term mean as a continuous scalar, regardless of the input
     # compounding convention.
     CoxIngersollRoss(a, b::Rate, σ, initial) =
-        CoxIngersollRoss(a, rate(Continuous(b)), σ, initial)
+        CoxIngersollRoss(a, __continuous(b), σ, initial)
 
     """
         HullWhite(a, σ, curve)
@@ -126,11 +127,11 @@ end # module ShortRate
 # ─── Closed-form discount (zero-coupon bond prices) ──────────────────────────
 
 function _initial_rate(m::ShortRate.Vasicek)
-    return rate(Continuous(m.initial))
+    return __continuous(m.initial)
 end
 
 function _initial_rate(m::ShortRate.CoxIngersollRoss)
-    return rate(Continuous(m.initial))
+    return __continuous(m.initial)
 end
 
 # The affine short-rate models' factor ∫₀^τ e^{-as} ds = (1 - e^{-aτ})/a: the bond sensitivity

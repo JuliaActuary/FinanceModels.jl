@@ -127,3 +127,17 @@
         @test rate(zero(floored, 10.0)) ≈ rate(zero(a, 10.0))
     end
 end
+
+# A custom curve whose own zero rate is quoted annually
+struct __AnnualZeroCurve <: Yield.AbstractYieldModel end
+FinanceCore.discount(::__AnnualZeroCurve, t) = 1.06^-t
+Base.zero(::__AnnualZeroCurve, t) = Periodic(0.06, 1)
+
+@testset "a component's zero rate in another convention" begin
+    # composition reads each zero rate as continuous (a Periodic one was read as 6% continuous)
+    w = __AnnualZeroCurve() + Yield.Constant(Continuous(0.0))
+    @test rate(zero(w, 5.0)) ≈ log(1.06) rtol = 1.0e-14
+    @test rate(zero(w, 5.0)) ≈ -log(discount(w, 5.0)) / 5 rtol = 1.0e-14
+    # so does the long-run tail of a curve without its own
+    @test FinanceModels.Yield.__log_tail(__AnnualZeroCurve()).a1 ≈ log(1.06) rtol = 1.0e-14
+end

@@ -63,7 +63,7 @@ end
 # is NaN (0·Inf). An infinite zero rate means L grows faster than t, at an order the curve doesn't
 # say; the forward slot then holds ±Inf, which the limit reads as that unknown growth.
 function __log_tail(c)
-    z = FinanceCore.rate(Base.zero(c, Inf))
+    z = __continuous(Base.zero(c, Inf))
     return __LogTail(zero(z), z, oftype(z, NaN))
 end
 
@@ -87,7 +87,7 @@ __dual_at_origin(t::ForwardDiff.Dual) = iszero(__primal(t)) && !iszero(t)
 # needs the zero rate's limit at 0 and its derivatives: the built-in curves' own `zero` is exact
 # there, and the generic `zero` of a curve that defines only its discount factor or L throws.
 function __zero_log_discount(c, t)
-    L = FinanceCore.rate(Base.zero(c, t)) * t
+    L = __continuous(Base.zero(c, t)) * t
     return iszero(t) ? zero(L) : L
 end
 

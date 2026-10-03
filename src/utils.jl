@@ -109,6 +109,11 @@ Base.size(v::ReadOnlyVector) = size(getfield(v, :_data))
 Base.IndexStyle(::Type{<:ReadOnlyVector}) = IndexLinear()
 Base.@propagate_inbounds Base.getindex(v::ReadOnlyVector, i::Int) = getfield(v, :_data)[i]
 
+# The continuously compounded value of a rate input: a number is taken as continuous, and a `Rate`
+# is converted from its own convention.
+__continuous(x::Real) = x
+__continuous(x::Rate) = FinanceCore.rate(convert(Continuous(), x))
+
 # The polynomial with exact (Rational) coefficients `cs` at `x`, each coefficient rounded once to
 # the precision of `x` (for a dual number, of its primal value): Float32 stays Float32 and BigFloat
 # keeps its precision. Inlined, so that for a concrete float type the rounding of a constant table

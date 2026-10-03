@@ -26,7 +26,7 @@ forward(curve, 40.0, 60.0)  # Continuous(0.035), up to rounding
 struct FlatForwardAt{F <: Real}
     forward::F   # continuously compounded
     function FlatForwardAt(forward::FinanceCore.Rate)
-        f = float(FinanceCore.rate(convert(Continuous(), forward)))
+        f = float(__continuous(forward))
         isfinite(f) || throw(ArgumentError("FlatForwardAt requires a finite forward rate (got $forward)."))
         return new{typeof(f)}(f)
     end

@@ -12,10 +12,7 @@ function __log_tail(c::__PrimalCurve)
     t = __log_tail(c.curve)
     return __LogTail(__primal(t.a2), __primal(t.a1), __primal(t.a0))
 end
-function Base.zero(c::__PrimalCurve, t)
-    z = convert(Continuous(), Base.zero(c.curve, t))
-    return Continuous(__primal(FinanceCore.rate(z)))
-end
+Base.zero(c::__PrimalCurve, t) = Continuous(__primal(__continuous(Base.zero(c.curve, t))))
 instantaneous_forward(c::__PrimalCurve, t) = __primal(instantaneous_forward(c.curve, t))
 
 """

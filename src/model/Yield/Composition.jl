@@ -98,7 +98,7 @@ const __CombinedYield = Union{CompositeYield, ScaledYield}
 @inline __combine(rc::CompositeYield, f::F) where {F} = rc.op(f(rc.r1), f(rc.r2))
 @inline __combine(sy::ScaledYield, f::F) where {F} = sy.factor * f(sy.curve)
 
-Base.zero(w::__CombinedYield, time) = Continuous(__combine(w, @inline(c -> FinanceCore.rate(Base.zero(c, time)))))
+Base.zero(w::__CombinedYield, time) = Continuous(__combine(w, @inline(c -> __continuous(Base.zero(c, time)))))
 # At t = Inf the components' tails are combined before the limit is taken. The components' L is
 # inlined at these calls: a wrapper inlined into a loop (`pv`'s `map`) otherwise copies each
 # component onto the stack for every call. Inlining a Spline's L into every caller instead makes
@@ -186,8 +186,8 @@ function Base.:+(a::AbstractYieldModel, b::AbstractYieldModel)
 end
 
 function Base.:+(a::Constant, b::Constant)
-    z_a = FinanceCore.rate(convert(Continuous(), a.rate))
-    z_b = FinanceCore.rate(convert(Continuous(), b.rate))
+    z_a = __continuous(a.rate)
+    z_b = __continuous(b.rate)
     return Constant(Continuous(z_a + z_b))
 end
 
@@ -243,8 +243,8 @@ function Base.:-(a::AbstractYieldModel, b::AbstractYieldModel)
 end
 
 function Base.:-(a::Constant, b::Constant)
-    z_a = FinanceCore.rate(convert(Continuous(), a.rate))
-    z_b = FinanceCore.rate(convert(Continuous(), b.rate))
+    z_a = __continuous(a.rate)
+    z_b = __continuous(b.rate)
     return Constant(Continuous(z_a - z_b))
 end
 

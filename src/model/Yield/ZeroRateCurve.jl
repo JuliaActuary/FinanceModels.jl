@@ -106,7 +106,7 @@ function ZeroRateCurve(
     # is numerically unstable at extreme tenors (for a flat 5% curve it gives -0.0 at
     # t = 1e-20 and Inf at t = 2e4) and would trip the finite-rate validation on curves
     # that are mathematically fine.
-    rates = [FinanceCore.rate(convert(Continuous(), Base.zero(curve, tᵢ))) for tᵢ in t]
+    rates = [__continuous(Base.zero(curve, tᵢ)) for tᵢ in t]
     return ZeroRateCurve(rates, t, spline; extrapolation)
 end
 
