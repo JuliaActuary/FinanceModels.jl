@@ -23,13 +23,16 @@ function __owned_float_vector(x)
     return Vector{__float_eltype(v)}(v)   # Array-from-AbstractArray always allocates a fresh copy
 end
 
-# Knot rates as continuously compounded numbers: a number is taken as continuous and a `Rate` is
-# converted. A `knot_rates` view gives its stored numbers directly, so `reconstruct(c)` makes no
-# extra pass. Other inputs that are not all real numbers are converted element by element.
-__continuous_knot_rates(x::ReadOnlyVector{<:FinanceCore.Rate{<:Any, Continuous}}) = getfield(x, :_data)
-function __continuous_knot_rates(x)
+# Knot rates as an owned vector of continuously compounded numbers: a number is taken as continuous
+# and a `Rate` is converted. A `knot_rates` view gives its stored numbers directly, so
+# `reconstruct(c)` makes no extra pass. Other inputs that are not all real numbers are converted
+# element by element, into a fresh vector that is copied again only to promote its element type.
+__owned_knot_rates(x::ReadOnlyVector{<:FinanceCore.Rate{<:Any, Continuous}}) = __owned_float_vector(getfield(x, :_data))
+function __owned_knot_rates(x)
     v = x isa AbstractVector ? x : collect(x)
-    return eltype(v) <: Real ? v : map(__continuous, v)
+    eltype(v) <: Real && return __owned_float_vector(v)
+    r = map(__continuous, v)
+    return r isa Vector{__float_eltype(r)} ? r : __owned_float_vector(r)
 end
 
 # Marker for the internal, unvalidated `KnotGrid` construction used by optimizer trial curves.
@@ -75,7 +78,7 @@ KnotGrid(u::Unchecked, rates::AbstractVector, tenors::AbstractVector) =
     KnotGrid(u, convert(Vector, rates), convert(Vector, tenors))
 
 function KnotGrid(rates, tenors, spline::Sp.SplineCurve; who = "KnotGrid")
-    r = __owned_float_vector(__continuous_knot_rates(rates))
+    r = __owned_knot_rates(rates)
     t = __owned_float_vector(tenors)
     length(r) == length(t) || throw(
         ArgumentError(
