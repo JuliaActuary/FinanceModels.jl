@@ -14,7 +14,7 @@ end
 
 # The closed-form value of a contract under the model that prices it (see `valuation_model`): the
 # model files below add their formulas as methods.
-function __closed_form end
+function closed_form end
 
 include("Spline.jl")
 include("Yield.jl")

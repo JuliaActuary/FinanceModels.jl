@@ -55,8 +55,8 @@ A context whose model does not price the contract fails in the formula, with a `
 valuation_model(m::Models) = m.model
 valuation_model(m) = m
 
-# FinanceModels' closed-form contracts, valued by the context's model (`__closed_form`).
+# FinanceModels' closed-form contracts, valued by the context's model (`closed_form`).
 const __ClosedFormContract = Union{
     Option.EuroCall, Option.EuroPut, Option.ZCBCall, Option.ZCBPut, Option.Cap, Option.Floor, Option.Swaption,
 }
-FinanceCore.present_value(ctx, c::__ClosedFormContract) = __closed_form(valuation_model(ctx), c)
+FinanceCore.present_value(ctx, c::__ClosedFormContract) = closed_form(valuation_model(ctx), c)
