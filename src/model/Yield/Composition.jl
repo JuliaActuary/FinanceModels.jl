@@ -27,11 +27,12 @@ factor — it no longer pays the `log`/`exp` round-trip that earlier versions di
 many curves in a hot loop is still marginally slower than pre-fitting a single combined
 curve, but the gap is small.
 
-Curves can be added or subtracted together, but note that this is not always the same thing
-as adding or subtracting spreads with rates. If spreads and base rates are expressed as zero
-rates, then the curve addition/subtraction has the same effect as re-fitting the yield model
-with the rate+spread inputs added together first. Non-zero rates (e.g. par rates) do not have
-this same property.
+Curves can be added or subtracted together, but this is not always the same as adding or
+subtracting spreads to rates. Adding two curves adds their continuously compounded zero rates. So
+it equals fitting a curve to the summed zero rates only when those are continuously compounded and
+the curves share knots and an interpolation that preserves addition, such as linear interpolation
+on the same knots (the example below). Other quotes (annual-effective or par rates) and other
+interpolations (PCHIP, MonotoneConvex) do not have this property.
 
 ## Examples
 
@@ -43,15 +44,15 @@ mats = [1 / 12, 2 / 12, 3 / 12, 6 / 12, 1, 2, 3, 5, 7, 10, 20, 30]
 
 ### Zero coupon rates/spreads
 
-q_rf_z = ZCBYield.(rates,mats)
-q_s_z = ZCBYield.(spreads,mats)
-q_y_z = ZCBYield.(rates + spreads,mats)
+q_rf_z = ZCBYield.(Continuous.(rates),mats)
+q_s_z = ZCBYield.(Continuous.(spreads),mats)
+q_y_z = ZCBYield.(Continuous.(rates + spreads),mats)
 
 c_rf_z = fit(Spline.Linear(),q_rf_z,Fit.Bootstrap())
 c_s_z = fit(Spline.Linear(),q_s_z,Fit.Bootstrap())
 c_y_z = fit(Spline.Linear(),q_y_z,Fit.Bootstrap())
 
-# adding curves when the spreads were zero spreads works
+# adding linear curves on the same knots, fitted to continuous zero rates and spreads, works
 @test discount(c_rf_z+c_s_z,20) ≈ discount(c_y_z,20)
 
 

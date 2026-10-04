@@ -141,3 +141,12 @@ Base.zero(::__AnnualZeroCurve, t) = Periodic(0.06, 1)
     # so does the long-run tail of a curve without its own
     @test FinanceModels.Yield.__log_tail(__AnnualZeroCurve()).a1 ≈ log(1.06) rtol = 1.0e-14
 end
+
+@testset "yield-shift rules receive a Continuous zero rate" begin
+    # the base curve's zero rate is converted before the rule sees it (a Periodic one was passed on,
+    # so `z + Continuous(0.01)` added in its periodic convention)
+    shifted = __AnnualZeroCurve() + ((z, t) -> z + Continuous(0.01))
+    @test rate(zero(shifted, 5.0)) ≈ log(1.06) + 0.01 rtol = 1.0e-14
+    projected = Yield.ProjectedShift(__AnnualZeroCurve(), (τ, z, t) -> z + Continuous(0.01), 0.0)
+    @test rate(zero(projected, 5.0)) ≈ log(1.06) + 0.01 rtol = 1.0e-14
+end

@@ -80,7 +80,7 @@ struct TenorShift{C <: AbstractYieldModel, F} <: AbstractYieldShift
 end
 
 function Base.zero(s::TenorShift, t)
-    z = Base.zero(s.base, t)
+    z = convert(Continuous(), Base.zero(s.base, t))   # the rule receives a Continuous rate
     return convert(Continuous(), s.rule(z, t)::FinanceCore.Rate)
 end
 
@@ -136,7 +136,7 @@ struct ProjectedShift{C <: AbstractYieldModel, F, T} <: AbstractYieldShift
 end
 
 function Base.zero(s::ProjectedShift, t)
-    z = Base.zero(s.base, t)
+    z = convert(Continuous(), Base.zero(s.base, t))   # the rule receives a Continuous rate
     return convert(Continuous(), s.rule(s.time, z, t)::FinanceCore.Rate)
 end
 FinanceCore.discount(s::AbstractYieldShift, t) = _discount_from_zero(s, t)
