@@ -358,6 +358,10 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
         @test zero(rp, 2.0) isa FinanceCore.Rate
         # its short rate is the slope of a step, so it takes a linear interpolant only
         @test_throws MethodError RatePath(DataInterpolations.CubicSpline(cum, ts))
+        # its grid starts at t = 0, where ∫₀ᵗ r = 0: discount(path, 0) is 1 and an interval from 0
+        # is the point discount factor
+        @test_throws ArgumentError RatePath(DataInterpolations.LinearInterpolation(cum, ts .+ 0.1))
+        @test_throws ArgumentError RatePath(DataInterpolations.LinearInterpolation(cum .+ 0.01, ts))
     end
 
     @testset "simulated RatePath domain" begin
@@ -1588,4 +1592,34 @@ end
     @test ForwardDiff.derivative(b -> L(ShortRate.Vasicek(a, b, 0.0, Continuous(0.03))), 0.0) ≈ (x + m) / a rtol = 1.0e-12
     @test ForwardDiff.derivative(s -> ForwardDiff.derivative(σ -> L(ShortRate.Vasicek(a, 0.0, σ, Continuous(0.03))), s), 0.0) ≈
         (-(x + m) + m^2 / 2) / a^3 rtol = 1.0e-10
+end
+
+@testset "simulation_steps: the grid of a simulation" begin
+    # roundoff does not add a step: 0.07 / 0.01 is 7.000000000000001
+    @test FinanceModels.simulation_steps(0.07, 0.01) == (; nsteps = 7, aligned = true)
+    @test FinanceModels.simulation_steps(1.0, 1 / 12) == (; nsteps = 12, aligned = true)
+    @test FinanceModels.simulation_steps(0.7f0, 0.1f0) == (; nsteps = 7, aligned = true)
+    # an unaligned horizon takes the first grid point beyond it
+    @test FinanceModels.simulation_steps(0.9, 0.5) == (; nsteps = 2, aligned = false)
+    for (h, dt) in ((0.0, 0.1), (-1.0, 0.1), (Inf, 0.1), (1.0, 0.0), (1.0, NaN))
+        @test_throws ArgumentError FinanceModels.simulation_steps(h, dt)
+    end
+    # simulate uses that grid: 7 steps to 0.07, and the path ends there
+    v = ShortRate.Vasicek(0.1, 0.03, 0.01, Continuous(0.03))
+    p = only(simulate(v; n_scenarios = 1, timestep = 0.01, horizon = 0.07))
+    @test length(p.interp.t) == 8
+    @test last(p.interp.t) ≈ 0.07
+    @test discount(p, 0.07) isa Real
+    @test_throws FinanceModels.DataInterpolations.RightExtrapolationError discount(p, 0.08)
+    # a payment at the horizon is accepted, and one beyond it throws
+    @test present_value(p, Cashflow(1.0, 0.07)) == discount(p, 0.07)
+    @test_throws FinanceModels.DataInterpolations.RightExtrapolationError present_value(p, Cashflow(1.0, 0.08))
+    # Float32 inputs give the same grid
+    p32 = only(simulate(v; n_scenarios = 1, timestep = 0.1f0, horizon = 0.7f0))
+    @test length(p32.interp.t) == 8
+    @test present_value(p32, Cashflow(1.0, 0.7f0)) isa Real
+    # an unaligned horizon is covered by the extra step
+    q = only(simulate(v; n_scenarios = 1, timestep = 0.5, horizon = 0.9))
+    @test last(q.interp.t) == 1.0
+    @test length(q.interp.t) == FinanceModels.simulation_steps(0.9, 0.5).nsteps + 1
 end

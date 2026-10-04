@@ -354,11 +354,18 @@ end
 
 A simulated interest-rate path wrapped as an `AbstractYieldModel`. `interp` interpolates the
 cumulative integral ∫₀ᵗ r(s) ds linearly over the path's time grid, so
-`discount(path, t) = exp(-interp(t))` and the short rate is constant on each step. The path is
+`discount(path, t) = exp(-interp(t))` and the short rate is constant on each step. The grid starts
+at `t = 0`, where the integral is 0; otherwise construction throws an `ArgumentError`. The path is
 defined where `interp` is; `simulate` builds paths that throw outside their time grid.
 """
 struct RatePath{I <: DataInterpolations.LinearInterpolation} <: Yield.AbstractYieldModel
     interp::I
+    function RatePath(interp::I) where {I <: DataInterpolations.LinearInterpolation}
+        t0, L0 = first(interp.t), first(interp.u)
+        (iszero(t0) && iszero(L0)) ||
+            throw(ArgumentError("a RatePath's grid must start at t = 0 with value 0, got $L0 at t = $t0"))
+        return new{I}(interp)
+    end
 end
 
 function FinanceCore.discount(p::RatePath, t)
@@ -370,6 +377,26 @@ Yield.__log_native(::RatePath) = true
 # ─── simulate: path generation ───────────────────────────────────────────────
 
 """
+    simulation_steps(horizon, timestep) -> (; nsteps, aligned)
+
+The number of `timestep`-long steps a simulation to `horizon` takes, and whether `horizon` lies on
+that grid. With `r = horizon / timestep`, `horizon` is aligned when `r` is within `8eps(r)` of an
+integer `n`, and the grid has `nsteps = n` steps: roundoff (`0.07 / 0.01` is `7.000000000000001`)
+adds no step. Otherwise `nsteps = ceil(r)`, the first grid point beyond `horizon`, and
+`aligned = false`. `horizon` and `timestep` must be finite and positive.
+
+[`simulate`](@ref) covers an unaligned horizon with the extra step.
+"""
+function simulation_steps(horizon::Real, timestep::Real)
+    (isfinite(horizon) && horizon > 0) || throw(ArgumentError("horizon must be finite and positive, got $horizon"))
+    (isfinite(timestep) && timestep > 0) || throw(ArgumentError("timestep must be finite and positive, got $timestep"))
+    r = float(horizon) / float(timestep)
+    n = round(r)
+    abs(r - n) <= 8eps(r) && return (; nsteps = Int(n), aligned = true)
+    return (; nsteps = ceil(Int, r), aligned = false)
+end
+
+"""
     simulate(model::AbstractStochasticModel;
              n_scenarios=1000, timestep=1/12, horizon=30.0,
              rng=Random.default_rng())
@@ -377,8 +404,9 @@ Yield.__log_native(::RatePath) = true
 Generate `n_scenarios` interest-rate paths.
 Each path is returned as a `RatePath` (an `AbstractYieldModel`) so it plugs
 directly into `present_value`, `discount`, etc. A path is defined on its time
-grid, from 0 to the first grid point at or beyond `horizon`; evaluating it outside
-that range throws rather than extending the path.
+grid of [`simulation_steps`](@ref)`(horizon, timestep).nsteps` steps, from 0 to
+`horizon` (or the first grid point beyond an unaligned `horizon`); evaluating it
+outside that range throws rather than extending the path.
 
 Discretisation schemes:
 - **Vasicek / Hull-White**: the exact Gaussian transition density, so the
@@ -400,9 +428,8 @@ function simulate(
         horizon::Real = 30.0,
         rng::Random.AbstractRNG = Random.default_rng()
     )
-    timestep > 0 || throw(ArgumentError("timestep must be positive, got $timestep"))
+    n_steps = simulation_steps(horizon, timestep).nsteps
     dt = Float64(timestep)
-    n_steps = ceil(Int, horizon / dt)
     sqrt_dt = sqrt(dt)
 
     cache = _sim_cache(model, dt, n_steps)
