@@ -27,12 +27,14 @@ valuation context, is a yield curve or rate, a model with a closed form for the 
   context, and use `collect(Projection(contract, ctx))` for its cashflows.
 - **One reporting currency per context.** An `FX.Forwards` model discounts in its quote currency,
   and `FX.Forward` is one quote-currency cashflow. A base-currency `FX.BasisSwapLeg` is valued on a
-  base-currency curve (`present_value(m.foreign, leg)`) or converted with `FX.Converted`. Under any
-  other context (an `FX.Forwards` model, `Models`, a `Rate`) it throws: it was valued in
-  base-currency units, so a `Composite` would have added EUR to USD. Only contracts that carry a
-  currency are checked; a plain bond carries none and is valued in the context's currency. Inside
-  `FX.Converted`, a leg must pay in the pair's base currency and a nested `FX.Converted` must
-  convert into it; otherwise it throws instead of being converted again. An `FX.Forward`, which
+  base-currency curve (`present_value(m.foreign, leg)`), converted with `FX.Converted`, or under a
+  context that reports in its base currency. Under any other context (an FX model in another
+  currency, `Models` over a plain curve, a `Rate`) it throws: it was valued in base-currency units,
+  so a `Composite` would have added EUR to USD. An `FX.Converted` under an FX model's context (or
+  `Models` over one) must convert into its reporting currency: a GBP→EUR conversion under a EURUSD
+  model was discounted on the USD curve. Inside `FX.Converted`, a leg must pay in the pair's base
+  currency and a nested `FX.Converted` must convert into it; otherwise it throws instead of being
+  converted again. A plain bond carries no currency and is valued in the context's currency. An `FX.Forward`, which
   prices on the context's own FX model, is not supported there. Fitting an `FX.Forwards` model
   still values par basis-swap quotes on its foreign curve.
 
@@ -149,7 +151,8 @@ Inputs that took a number also take a `Rate`; numbers keep their meaning:
   `MethodError`. A typed coupon can differ from the number in the last bits, since a `Rate` stores
   its continuous equivalent.
 - **Custom curves' zero rates**: composition and the long-run tail read a curve's `zero` in its own
-  convention; a `zero` that returned `Periodic(0.06, 1)` was read as 6% continuous.
+  convention, and `TenorShift`/`ProjectedShift` rules receive it as a `Continuous` rate; a `zero` that
+  returned `Periodic(0.06, 1)` was read as 6% continuous, and passed to a rule as periodic.
 
 Model fields (volatilities, mean-reversion speeds, curve coefficients, the stored `ufr`), quote
 coordinates (`implied_quote`) and sensitivities stay numbers. The models guide has a table of the
@@ -215,6 +218,8 @@ derivatives in `a` vanished there (a swaption's `∂/∂a` at a = 0 was 0) and t
 above the switch. Both models now evaluate these factors to within a few units of Float64
 rounding for every mean reversion, zero and negative included, with exact ForwardDiff
 derivatives. Prices change by the former errors; away from small aτ, only in the last bits.
+Vasicek's discount factor at τ = ∞ with mean reversion a > 0 and no drift term (b = σ²/(2a²)) is its
+limit, exp(−r/a − σ²/(4a³)); it was `NaN`.
 
 ### Differentiable spline fits
 
