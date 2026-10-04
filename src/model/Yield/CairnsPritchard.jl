@@ -54,7 +54,7 @@ function Base.zero(cp::CairnsPritchard, t)
     # At t=0 the formula is already well-defined: exp(0) = 1, so z(0) = b₀ + b₁ + b₂
     return Continuous(cp.b₀ + cp.b₁ * exp(-cp.c₁ * t) + cp.b₂ * exp(-cp.c₂ * t))
 end
-FinanceCore.discount(cp::CairnsPritchard, t) = _discount_from_zero(cp, t)
+FinanceCore.discount(cp::CairnsPritchard, t) = __discount_from_zero(cp, t)
 __log_discount(cp::CairnsPritchard, t) = __zero_log_discount(cp, t)
 __log_native(::CairnsPritchard) = true
 
@@ -117,6 +117,6 @@ function Base.zero(cp::CairnsPritchardExtended, t)
     # At t=0 the formula is already well-defined: exp(0) = 1, so z(0) = b₀ + b₁ + b₂ + b₃
     return Continuous(cp.b₀ + cp.b₁ * exp(-cp.c₁ * t) + cp.b₂ * exp(-cp.c₂ * t) + cp.b₃ * exp(-cp.c₃ * t))
 end
-FinanceCore.discount(cp::CairnsPritchardExtended, t) = _discount_from_zero(cp, t)
+FinanceCore.discount(cp::CairnsPritchardExtended, t) = __discount_from_zero(cp, t)
 __log_discount(cp::CairnsPritchardExtended, t) = __zero_log_discount(cp, t)
 __log_native(::CairnsPritchardExtended) = true

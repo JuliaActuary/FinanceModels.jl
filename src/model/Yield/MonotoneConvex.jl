@@ -111,7 +111,7 @@ end
 # Deviations within `16 eps` of the discrete forward are treated as zero: a flat interval (both
 # negligible) takes the linear fallback, avoiding the 0/0 of the sector formulas.
 __mc_tol(fᵈ) = 16 * eps(float(fᵈ))
-_mc_negligible(g0, g1, fᵈ) = abs(g0) <= __mc_tol(fᵈ) && abs(g1) <= __mc_tol(fᵈ)
+__mc_negligible(g0, g1, fᵈ) = abs(g0) <= __mc_tol(fᵈ) && abs(g1) <= __mc_tol(fᵈ)
 
 # ── Hagan-West sector formulas ─────────────────────────────────────────────────────────
 # On an interval with boundary deviations g0 = g(0) and g1 = g(1) from the discrete forward,
@@ -198,7 +198,7 @@ function __mc_sector(k, x, g0, g1)
     end
 end
 
-__mc_kernel(k, x, g0, g1, fᵈ) = _mc_negligible(g0, g1, fᵈ) ? k.flat(x, g0, g1) : __mc_sector(k, x, g0, g1)
+__mc_kernel(k, x, g0, g1, fᵈ) = __mc_negligible(g0, g1, fᵈ) ? k.flat(x, g0, g1) : __mc_sector(k, x, g0, g1)
 
 # ── Derivatives at kinks ───────────────────────────────────────────────────────────────
 # The interpolant is piecewise smooth in the knot rates: it has kinks where a boundary

@@ -96,7 +96,7 @@ function force_of_interest(ns::NelsonSiegel, t)
     e = exp(-q)
     return ns.β₀ + ns.β₁ * e + ns.β₂ * q * e
 end
-FinanceCore.discount(ns::NelsonSiegel, t) = _discount_from_zero(ns, t)
+FinanceCore.discount(ns::NelsonSiegel, t) = __discount_from_zero(ns, t)
 __log_discount(ns::NelsonSiegel, t) = __zero_log_discount(ns, t)
 __log_native(::NelsonSiegel) = true
 Base.zero(ns::NelsonSiegel, ts::AbstractArray) = zero.(Ref(ns), ts)
@@ -175,7 +175,7 @@ function Base.zero(nss::NelsonSiegelSvensson, t)
     e₂ = exp(-q₂)
     return Continuous(nss.β₀ + nss.β₁ * (1 - e₁) / q₁ + nss.β₂ * ((1 - e₁) / q₁ - e₁) + nss.β₃ * ((1 - e₂) / q₂ - e₂))
 end
-FinanceCore.discount(nss::NelsonSiegelSvensson, t) = _discount_from_zero(nss, t)
+FinanceCore.discount(nss::NelsonSiegelSvensson, t) = __discount_from_zero(nss, t)
 __log_discount(nss::NelsonSiegelSvensson, t) = __zero_log_discount(nss, t)
 __log_native(::NelsonSiegelSvensson) = true
 function force_of_interest(nss::NelsonSiegelSvensson, t)

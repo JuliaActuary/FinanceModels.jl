@@ -98,7 +98,7 @@ end
 # CairnsPritchard, the yield shifts), shared through the one-line `discount`
 # stubs at each curve definition. `exp(-L)` gives DF(0) = 1 exactly and keeps the promoted
 # curve/time numeric type.
-_discount_from_zero(c, t) = exp(-__zero_log_discount(c, t))
+__discount_from_zero(c, t) = exp(-__zero_log_discount(c, t))
 
 # Generic callable fallback: `curve(t) ≡ discount(curve, t)`. Covers every
 # AbstractYieldModel subtype (Constant, Spline, CompositeYield, ScaledYield,
