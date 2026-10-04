@@ -658,7 +658,7 @@ end
 # type of a present value under `m`, as FinanceCore values an empty collection.
 function _caplet_strip(m, c, option, who)
     K = c.strike
-    freq = _frequency_value(c.frequency)
+    freq = c.frequency.frequency
     τ = 1.0 / freq
     n_periods = _check_integer_periods(c.maturity, freq, who)
     K_bond = 1.0 / (1.0 + K * τ)
@@ -693,7 +693,7 @@ closed_form(m::_GaussianModel, c::Option.Floor) = _caplet_strip(m, c, first, "Fl
 
 function closed_form(m::_GaussianModel, c::Option.Swaption)
     T0 = c.expiry
-    freq = _frequency_value(c.frequency)
+    freq = c.frequency.frequency
     τ = 1.0 / freq
     coupon = c.strike
 

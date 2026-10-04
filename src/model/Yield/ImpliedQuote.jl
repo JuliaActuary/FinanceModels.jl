@@ -72,7 +72,7 @@ end
 """
     par(curve,time;frequency=2)
 
-Calculate the par yield for maturity `time` for the given `curve` and `frequency`. Returns a `Rate` object with periodicity corresponding to the `frequency`.
+Calculate the par yield for maturity `time` for the given `curve` and `frequency`, an integer or a `Periodic`. Returns a `Rate` object with periodicity corresponding to the `frequency`.
 
 If `time` is shorter than one regular coupon period (e.g. `time=0.5` with `frequency=1`), the single stub payment implies a compounding frequency of `1/time`: the result is quoted as `Periodic(1/time)` when `1/time` is a (near-)integer, and otherwise an `ArgumentError` is thrown because the implied frequency cannot be represented as a `Periodic` rate.
 
@@ -100,6 +100,7 @@ Periodic(0.03960780543711406, 2)
 ```
 """
 function par(curve, time; frequency = 2)
+    frequency = __frequency(frequency).frequency
     coup_times = coupon_times(time, frequency)
     mat_disc = discount(curve, time)
     coupon_pv = sum(discount(curve, t) for t in coup_times)

@@ -96,7 +96,8 @@ Each of these inputs also takes a `Rate`:
   compounded equivalent.
 
 A few quantities stay numbers: raw model fields (volatilities, mean-reversion speeds, curve
-coefficients, the stored `ufr` and long-run means), quote coordinates, and sensitivities.
+coefficients, the stored `ufr` and long-run means), quote coordinates, and sensitivities. Vasicek's
+and CIR's `initial` short rate is a `Rate`: a number is stored as `Continuous`.
 [`implied_quote`](@ref FinanceModels.Yield.implied_quote) returns a number in its quote family's
 convention; wrap it when that convention is known, for example
 `Periodic(implied_quote(curve, OISYield, 7.0), 1)`.
