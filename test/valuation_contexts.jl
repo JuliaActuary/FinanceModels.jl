@@ -9,6 +9,16 @@ end
 FinanceCore.present_value(ctx, c::OnePeriodFloater) = discount(ctx, 2.0) / discount(ctx[c.key], 1.0, 2.0)
 FinanceCore.maturity(::OnePeriodFloater) = 2.0
 
+# A closed form that depends on the pricing model: it calls the model kernel `closed_form`, as the
+# docs show. It pays S_T - K at T on a unit stock.
+struct EquityForward <: FinanceCore.AbstractContract
+    strike::Float64
+    maturity::Float64
+end
+FinanceCore.present_value(ctx, c::EquityForward) = FinanceModels.closed_form(valuation_model(ctx), c)
+FinanceModels.closed_form(m::Equity.BlackScholesMerton, c::EquityForward) =
+    exp(-m.q * c.maturity) - c.strike * exp(-m.r * c.maturity)
+
 # A contract defined by its projection (`asfoldable`).
 struct TwoFlows <: FinanceCore.AbstractContract end
 Transducers.asfoldable(::Projection{TwoFlows}) = [Cashflow(1.0, 1.0), Cashflow(2.0, 2.0)]
@@ -105,6 +115,18 @@ Transducers.asfoldable(::Projection{TwoFlows}) = [Cashflow(1.0, 1.0), Cashflow(2
         @test present_value(ctx, FinanceCore.Composite(floater, fixed)) ≈ present_value(ctx, floater) + present_value(ctx, fixed)
         # transformers act on cashflow streams, and a closed-form-only contract has none
         @test_throws MethodError present_value(bsm, Forward(1.0, call))
+        # a custom contract on the model kernel: under the model, under `Models`, in a portfolio
+        # and in a composite; its value is the call less the put (put-call parity)
+        m = Equity.BlackScholesMerton(0.03, 0.01, 0.2)
+        fwd = EquityForward(1.0, 2.0)
+        call2, put2 = Option.EuroCall(CommonEquity(), 1.0, 2.0), Option.EuroPut(CommonEquity(), 1.0, 2.0)
+        v = present_value(m, fwd)
+        @test v ≈ present_value(m, call2) - present_value(m, put2) rtol = 1.0e-12
+        @test present_value(Models(m; index = curve), fwd) == v
+        @test present_value(m, [fwd, call2]) == v + present_value(m, call2)
+        @test present_value(m, FinanceCore.Composite(fwd, call2)) == v + present_value(m, call2)
+        # a model without a kernel method for it fails there
+        @test_throws MethodError present_value(curve, fwd)
     end
 
     @testset "value as of t: an explicit reduction" begin

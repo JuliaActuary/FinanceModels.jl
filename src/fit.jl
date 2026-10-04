@@ -138,7 +138,17 @@ __fx_foreign_optic(o::Base.Pair) = Accessors.opcompose(@optic(_.foreign), o.firs
 __fx_foreign_optic(o::Tuple) = (Accessors.opcompose(@optic(_.foreign), only(o)),)
 __fx_foreign_optic(o) = Accessors.opcompose(@optic(_.foreign), o)
 
+"""
+    default_optimizer(model)
 
+The optimizer [`fit`](@ref FinanceModels.fit) uses for `model` when none is given:
+`OptimizationOptimJL.LBFGS()`, and `OptimizationOptimJL.Newton()` for a spline other than
+`Spline.MonotoneConvex()`. To change a custom model's default:
+
+```julia
+FinanceModels.default_optimizer(m::MyModel) = OptimizationOptimJL.NelderMead()
+```
+"""
 default_optimizer(m) = OptimizationOptimJL.LBFGS()
 default_optimizer(m::T) where {T <: Spline.SplineCurve} = OptimizationOptimJL.Newton()
 default_optimizer(::Spline.MonotoneConvex) = OptimizationOptimJL.LBFGS()

@@ -39,6 +39,20 @@ valuation context, is a yield curve or rate, a model with a closed form for the 
   prices on the context's own FX model, is not supported there. Fitting an `FX.Forwards` model
   still values par basis-swap quotes on its foreign curve.
 
+### Public extension hooks
+
+The hooks for extending FinanceModels are public (Julia 1.11 `public`; FinanceModels now depends on
+Compat), not exported. Two are renamed from 6.x:
+
+- `FinanceModels.default_variables(model)`, was `__default_optic`: the parameters `fit` varies;
+- `FinanceModels.default_optimizer(model)`, was `__default_optim`: `fit`'s default optimizer.
+
+Two are new: `Yield.force_of_interest(curve, t)`, a curve's closed-form instantaneous forward as a
+number, and `FinanceModels.closed_form(model, contract)`, the model kernel behind the values of
+options, caps, floors and swaptions. A custom contract whose formula depends on the pricing model
+defines `present_value(ctx, c) = FinanceModels.closed_form(valuation_model(ctx), c)`.
+`FinanceModels.simulation_steps` is public too.
+
 ### Stable CIR bond prices (changed numbers)
 
 The textbook Cox–Ingersoll–Ross price broke down at small volatility and long maturities: it raises

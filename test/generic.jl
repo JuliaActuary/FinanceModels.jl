@@ -22,7 +22,11 @@ end
 
 # the extension hooks and helpers that are part of the API without being exported
 @testset "public, not exported" begin
-    for (mod, name) in ((FinanceModels, :simulation_steps),)
+    hooks = (
+        (FinanceModels, :simulation_steps), (FinanceModels, :default_variables), (FinanceModels, :default_optimizer),
+        (FinanceModels, :closed_form), (FinanceModels.Yield, :force_of_interest),
+    )
+    for (mod, name) in hooks
         @test isdefined(mod, name)
         @test !Base.isexported(mod, name)
         VERSION >= v"1.11" && @test Base.ispublic(mod, name)

@@ -166,10 +166,10 @@ Values add under one context: a `Composite` is worth the sum of its parts and a 
 sum of its contracts' values. For multiple index curves or combined yield and FX models, use an
 explicit store, for example `Models(ois, Dict("SOFR" => sofr, "EURUSD" => fx))`.
 
-A contract with a closed-form value defines `present_value` on the contract, reading the models it
-needs from the context: `discount(ctx, t)` for discounting, `ctx[key]` for an observed model, and
-[`valuation_model(ctx)`](@ref valuation_model) for the model whose formula prices it. It then
-values inside a `Composite` or a portfolio:
+A contract with a closed-form value defines `present_value(ctx, contract)`, the one extension point
+for a contract's value. It reads the models it needs from the context: `discount(ctx, t)` for
+discounting, `ctx[key]` for an observed model, and [`valuation_model(ctx)`](@ref valuation_model)
+for the model whose formula prices it. It then values inside a `Composite` or a portfolio:
 
 ```julia
 struct OnePeriodFloater <: FinanceCore.AbstractContract
@@ -180,6 +180,32 @@ FinanceCore.present_value(ctx, c::OnePeriodFloater) = discount(ctx, 2.0) / disco
 
 present_value(Models(ois, Dict("SOFR" => sofr)), [OnePeriodFloater("SOFR"), Bond.Fixed(0.04, Periodic(2), 5.0)])
 ```
+
+When the formula depends on the type of the pricing model, `present_value` hands the context's
+model to the model kernel [`FinanceModels.closed_form(model, contract)`](@ref FinanceModels.closed_form),
+and each model that prices the contract adds a method for it. FinanceModels' options, caps, floors
+and swaptions are valued this way. A custom contract opts in with one line:
+
+```julia
+# pays S_T - K at T on a unit stock
+struct EquityForward <: FinanceCore.AbstractContract
+    strike::Float64
+    maturity::Float64
+end
+FinanceCore.present_value(ctx, c::EquityForward) = FinanceModels.closed_form(valuation_model(ctx), c)
+FinanceModels.closed_form(m::Equity.BlackScholesMerton, c::EquityForward) =
+    exp(-m.q * c.maturity) - c.strike * exp(-m.r * c.maturity)
+
+m = Equity.BlackScholesMerton(0.03, 0.01, 0.2)
+fwd = EquityForward(1.0, 2.0)
+call = Option.EuroCall(CommonEquity(), 1.0, 2.0)
+present_value(m, fwd)
+present_value(Models(m; index = Yield.Constant(0.03)), fwd)   # the same value
+present_value(m, [fwd, call])                                 # the sum of the two values
+present_value(m, Composite(fwd, call))                        # the same sum
+```
+
+A model without a `closed_form` method for the contract throws a `MethodError`.
 
 Wrappers that act on the cashflow stream (`Forward`, `FX.Converted`, `contract |> Map(f)`) need the
 contract's projection, so a contract with only a closed form cannot be valued inside them.

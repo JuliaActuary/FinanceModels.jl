@@ -167,15 +167,30 @@ is the number, for example to differentiate it with ForwardDiff.
 
 A curve with a closed form uses it. Other curves differentiate their cumulative log-discount with
 ForwardDiff, which stays finite where discount factors underflow. A custom curve needs only
-`discount`; to supply a closed-form forward, define `Yield.force_of_interest(curve, t)`,
-which returns the continuously compounded forward as a number.
+`discount`; to supply a closed-form forward, define [`Yield.force_of_interest(curve, t)`](@ref
+FinanceModels.Yield.force_of_interest), which returns the continuously compounded forward as a
+number.
 
 Note this is distinct from `forward(curve, from, to)`, which is the *discrete* forward `Rate`
 between two times. See [Rate conventions](@ref rate-conventions).
 """
 instantaneous_forward(c::AbstractYieldModel, t) = Continuous(force_of_interest(c, t))
 
-# The forward as a continuously compounded number: the hook a curve with a closed form defines.
+"""
+    Yield.force_of_interest(curve, t)
+
+The instantaneous forward rate of `curve` at `t` as a continuously compounded number:
+``f(t) = -\\frac{d}{dt} \\log D(t)``, from the right. [`instantaneous_forward`](@ref) wraps it
+as a `Continuous` rate, and FinanceModels' own consumers of the forward (Hull–White,
+compositions, `ForwardStarting`) use the number.
+
+It differentiates the curve's cumulative log-discount with ForwardDiff. A curve with a closed-form
+forward defines a method:
+
+```julia
+Yield.force_of_interest(c::MyCurve, t) = c.r0 + c.slope * t
+```
+"""
 force_of_interest(c::AbstractYieldModel, t) = __log_discount_derivative(c, t)
 __log_discount_derivative(c, t) = ForwardDiff.derivative(s -> __log_discount(c, s), t)
 

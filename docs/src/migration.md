@@ -81,6 +81,19 @@ Changed numbers: a collection of contracts (each contract valued on its own timi
 before time 0 (it accumulates), and a `Composite` (the sum of its parts' values, which can differ
 from v6 in the last bits).
 
+### Extension hooks
+
+The hooks are public, not exported, so qualify them when you add methods:
+
+| v6 | v7 |
+|---|---|
+| `FinanceModels.__default_optic(m::MyModel) = …` | `FinanceModels.default_variables(m::MyModel) = …` |
+| `FinanceModels.__default_optim(m::MyModel) = …` | `FinanceModels.default_optimizer(m::MyModel) = …` |
+| a closed form whose formula depends on the model | `present_value(ctx, c::MyContract) = FinanceModels.closed_form(valuation_model(ctx), c)`, with `FinanceModels.closed_form(m::MyModel, c::MyContract) = …` |
+
+A closed-form forward for a custom curve goes on `Yield.force_of_interest`; see [Typed rate results
+and inputs](@ref).
+
 ### `ZeroRateCurve` returns the curve it builds
 
 `ZeroRateCurve` is now a construction function rather than a type. It returns a
