@@ -627,8 +627,8 @@ function __zcb_option_price(m::__GaussianModel, T, S, K)
 
     h = (1 / σ_P) * log(P0S / (K * P0T)) + σ_P / 2
 
-    call = P0S * N(h) - K * P0T * N(h - σ_P)
-    put = K * P0T * N(-h + σ_P) - P0S * N(-h)
+    call = P0S * __N(h) - K * P0T * __N(h - σ_P)
+    put = K * P0T * __N(-h + σ_P) - P0S * __N(-h)
     return (call, put)
 end
 

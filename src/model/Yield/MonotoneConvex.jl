@@ -100,7 +100,7 @@ end
 # formula assumes within [0, 1] does not exist, so ∫₀¹ g ≠ 0 and the interval
 # fails to reprice its right knot (a small zero-rate discontinuity). For g0 != 0
 # the bounds are unchanged. (The η == 1 singularity at x == 1 is handled by the
-# boundary guard in `g`/`g_rate`.)
+# boundary guard in `__g`/`__g_rate`.)
 function __issector2(g0, g1)
     a = (g0 >= 0) && (g1 < -2 * g0)
     b = (g0 <= 0) && (g1 > -2 * g0)
@@ -262,14 +262,14 @@ __mc_kink_error(why) = ArgumentError(
 )
 
 """
-    g(x, f⁻, f, fᵈ)
+    __g(x, f⁻, f, fᵈ)
 
 Compute the deviation of the instantaneous forward rate from the discrete forward
 rate at normalized position x ∈ [0, 1] within an interval. Following Hagan-West,
 g(x) = f(x) - fᵈ with boundary conditions g₀ = f⁻ - fᵈ and g₁ = f - fᵈ that determine
 the sector-specific polynomial used for interpolation.
 """
-function g(x, f⁻, f, fᵈ, ktol = nothing)
+function __g(x, f⁻, f, fᵈ, ktol = nothing)
     g0 = f⁻ - fᵈ
     g1 = f - fᵈ
     # Interval-boundary deviations are exact: g(0) = g0 and g(1) = g1. Returning
@@ -286,28 +286,28 @@ function g(x, f⁻, f, fᵈ, ktol = nothing)
 end
 
 """
-    g_rate(x, f⁻, f, fᵈ)
+    __g_rate(x, f⁻, f, fᵈ)
 
 Compute the integrated deviation G(x) = ∫₀ˣ g(u) du, which captures how the
 instantaneous forward curve deviates from the discrete forward across an interval.
 This quantity feeds into the zero-rate relation r(t) = fᵈ + (Δt / t) ⋅ G(x) used by
 the Hagan-West construction.
 """
-function g_rate(x, f⁻, f, fᵈ, ktol = nothing)
+function __g_rate(x, f⁻, f, fᵈ, ktol = nothing)
     g0 = f⁻ - fᵈ
     g1 = f - fᵈ
     # G(0) = ∫₀⁰ g = 0 and G(1) = ∫₀¹ g = 0 are both identities (the interpolated
     # forward integrates to the discrete forward over each interval). Returning
     # zero directly avoids the 0/0 the sector formulas produce at a degenerate η:
     # sector (iii) `/η²` is singular at g1 == 0 (η == 0, interior knots, x == 0),
-    # sector (ii) `/(1-η)²` at g0 == 0 (η == 1, last knot, x == 1). See `g` for why
+    # sector (ii) `/(1-η)²` at g0 == 0 (η == 1, last knot, x == 1). See `__g` for why
     # an `iszero(η)` guard is unsafe under ForwardDiff and `x` is the discriminator.
     (iszero(x) || isone(x)) && return zero(g0 * x)
     return __mc_kernel(__MC_INTEGRAL, x, g0, g1, fᵈ, ktol)
 end
 
-# The mean deviation G(x)/x over [0, x] (`__MC_MEAN`). Its boundary values are exact, as in `g`
-# and `g_rate`: g(0) = g0 at x = 0, and G(1) = 0 at x = 1.
+# The mean deviation G(x)/x over [0, x] (`__MC_MEAN`). Its boundary values are exact, as in `__g`
+# and `__g_rate`: g(0) = g0 at x = 0, and G(1) = 0 at x = 1.
 function __mc_mean_deviation(x, f⁻, f, fᵈ, ktol)
     g0 = f⁻ - fᵈ
     g1 = f - fᵈ
@@ -325,7 +325,7 @@ function __interior_forward(mc::MonotoneConvex, t)
     i = __i_time(t, times)
     t_prev = i == 1 ? zero(first(times)) : times[i - 1]   # the first interval starts at 0
     x = (t - t_prev) / (times[i] - t_prev)
-    return fᵈ[i] + g(x, f[i], f[i + 1], fᵈ[i], __mc_kink_tol(mc, i))
+    return fᵈ[i] + __g(x, f[i], f[i + 1], fᵈ[i], __mc_kink_tol(mc, i))
 end
 
 """
@@ -477,7 +477,7 @@ end
     f, fᵈ, rates, times = mc._f, mc._fᵈ, getfield(mc, :_rates), mc.tenors
     t_prev = times[i - 1]
     x = (t - t_prev) / (times[i] - t_prev)
-    G = g_rate(x, f[i], f[i + 1], fᵈ[i], __mc_kink_tol(mc, i))
+    G = __g_rate(x, f[i], f[i + 1], fᵈ[i], __mc_kink_tol(mc, i))
     return t_prev * rates[i - 1] + (t - t_prev) * fᵈ[i] + (times[i] - t_prev) * G
 end
 

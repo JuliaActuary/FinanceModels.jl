@@ -1,18 +1,18 @@
 # all we need is cumulative normal, so avoid Distributions.jl dependency
 # https://www.johndcook.com/blog/cpp_phi/
 
-function ϕ(x)
+function __ϕ(x)
     return 0.5 * SpecialFunctions.erfc(-x * √(0.5))
 end
 
-N(x) = ϕ(x)
+__N(x) = __ϕ(x)
 
-function d1(S, K, τ, r, σ, q)
+function __d1(S, K, τ, r, σ, q)
     return (log(S / K) + (r - q + σ^2 / 2) * τ) / (σ * √(τ))
 end
 
-function d2(S, K, τ, r, σ, q)
-    return d1(S, K, τ, r, σ, q) - σ * √(τ)
+function __d2(S, K, τ, r, σ, q)
+    return __d1(S, K, τ, r, σ, q) - σ * √(τ)
 end
 
 """
@@ -49,9 +49,9 @@ This is the same as the formulation presented in the [dividend extension of the 
 function eurocall(; S = 1.0, K = 1.0, τ = 1, r, σ, q = 0.0)
     iszero(τ) && return max(zero(S), S - K)
     r, q = __continuous(r), __continuous(q)
-    d₁ = d1(S, K, τ, r, σ, q)
-    d₂ = d2(S, K, τ, r, σ, q)
-    return (N(d₁) * S * exp(τ * (r - q)) - N(d₂) * K) * exp(-r * τ)
+    d₁ = __d1(S, K, τ, r, σ, q)
+    d₂ = __d2(S, K, τ, r, σ, q)
+    return (__N(d₁) * S * exp(τ * (r - q)) - __N(d₂) * K) * exp(-r * τ)
 end
 
 """
@@ -89,9 +89,9 @@ This is the same as the formulation presented in the [dividend extension of the 
 function europut(; S = 1.0, K = 1.0, τ = 1, r, σ, q = 0.0)
     iszero(τ) && return max(zero(S), K - S)
     r, q = __continuous(r), __continuous(q)
-    d₁ = d1(S, K, τ, r, σ, q)
-    d₂ = d2(S, K, τ, r, σ, q)
-    return (N(-d₂) * K - N(-d₁) * S * exp(τ * (r - q))) * exp(-r * τ)
+    d₁ = __d1(S, K, τ, r, σ, q)
+    d₂ = __d2(S, K, τ, r, σ, q)
+    return (__N(-d₂) * K - __N(-d₁) * S * exp(τ * (r - q))) * exp(-r * τ)
 end
 
 """

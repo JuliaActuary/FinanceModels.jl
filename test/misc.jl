@@ -27,7 +27,7 @@ end
         0.982135579437,
     ]
     @testset "confirm accuracy" for i in 1:5
-        @test isapprox(FinanceModels.ϕ(x[i]), target[i], atol = 1.0e-12)
+        @test isapprox(FinanceModels.__ϕ(x[i]), target[i], atol = 1.0e-12)
     end
 
 end
