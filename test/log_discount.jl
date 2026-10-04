@@ -474,9 +474,11 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
         lin = ZeroRateCurve([0.02, 0.03, 0.035], [1.0, 5.0, 10.0], Spline.Linear())
         hw = ShortRate.HullWhite(0.1, 0.01, lin)
         primal = FinanceModels.Yield.__PrimalCurve(lin)
+        # the method a curve with only the generic methods gets, if any (`discount(c, t)` has none)
+        generic(f, args) = (T = Tuple{GenericOnlyCurve, args...}; hasmethod(f, T) ? which(f, T) : nothing)
         for c in (hw, primal), (f, n) in FinanceModels.Yield.__FORWARDED_CAPABILITIES
             args = ntuple(_ -> Float64, n)
-            @test which(f, Tuple{typeof(c), args...}) !== which(f, Tuple{GenericOnlyCurve, args...})
+            @test which(f, Tuple{typeof(c), args...}) !== generic(f, args)
         end
         # with the wrapped curve's values, including its right-continuous forward at a knot
         for t in (0.0, 0.5, 1.0, 3.0, 5.0, 12.0, Inf)
