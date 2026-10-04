@@ -139,9 +139,9 @@ __fx_foreign_optic(o::Tuple) = (Accessors.opcompose(@optic(_.foreign), only(o)),
 __fx_foreign_optic(o) = Accessors.opcompose(@optic(_.foreign), o)
 
 
-__default_optim(m) = OptimizationOptimJL.LBFGS()
-__default_optim(m::T) where {T <: Spline.SplineCurve} = OptimizationOptimJL.Newton()
-__default_optim(::Spline.MonotoneConvex) = OptimizationOptimJL.LBFGS()
+default_optimizer(m) = OptimizationOptimJL.LBFGS()
+default_optimizer(m::T) where {T <: Spline.SplineCurve} = OptimizationOptimJL.Newton()
+default_optimizer(::Spline.MonotoneConvex) = OptimizationOptimJL.LBFGS()
 
 __default_loss(m) = Fit.Loss(x -> x^2)
 
@@ -239,7 +239,7 @@ end
         quotes, 
         method=Fit.Loss(x -> x^2);
         variables=default_variables(model),
-        optimizer=__default_optim(model),
+        optimizer=default_optimizer(model),
         solve_kwargs=(;)
         )
 
@@ -251,7 +251,7 @@ Fit a model to a collection of quotes using a loss function and optimization met
 - `method::F=Fit.Loss(x -> x^2)`: The loss function to use for fitting the model. Defaults to the squared loss function. 
   - `method` can also be `Bootstrap()` with `Spline.Linear()`. Other interpolation strategies require a full-curve `Fit.Loss`.
 - `variables=default_variables(model)`: The variables to optimize over. This is a tuple of optic => interval pairs specifying which parameters of the model can vary. See extended help for more. Spline and knot-curve fits vary the knot rates and do not take `variables`.
-- `optimizer=__default_optim(model)`: The optimization algorithm to use. The default optimization for a given model is `LBFGS()` from Optim.jl (via OptimizationOptimJL), a quasi-Newton method with automatic differentiation via ForwardDiff. See extended help for more on customizing the solver.
+- `optimizer=default_optimizer(model)`: The optimization algorithm to use. The default optimization for a given model is `LBFGS()` from Optim.jl (via OptimizationOptimJL), a quasi-Newton method with automatic differentiation via ForwardDiff. See extended help for more on customizing the solver.
 - `solve_kwargs=(;)`: Keyword arguments passed to `Optimization.solve` with the optimizer, such as
   `(; maxiters = 10_000, abstol = 1e-12)` or Optim.jl's `g_tol`. Use them to tighten a loss fit.
 - `extrapolation=:flat_forward`: For `Spline.SplineCurve` fits (including
@@ -386,7 +386,7 @@ function fit(
         quotes,
         method::F = __default_loss(mod0);
         variables = default_variables(mod0),
-        optimizer = __default_optim(mod0),
+        optimizer = default_optimizer(mod0),
         solve_kwargs = (;)
     ) where
     {F <: Fit.Loss}
@@ -437,7 +437,7 @@ __knot_fit_seed(::Union{Spline.PCHIP, Spline.Akima}, tenors) = 0.05 .- 0.01 .* e
 # A spline fit places its knots at the sorted quote maturities. (`fit(spline, quotes; kwargs...)`
 # reaches it through the generic method's default loss, which passes the keywords on.)
 function fit(
-        mod0::T, quotes, method::F; optimizer = __default_optim(mod0), solve_kwargs = (;),
+        mod0::T, quotes, method::F; optimizer = default_optimizer(mod0), solve_kwargs = (;),
         extrapolation = :flat_forward
     ) where {T <: Spline.SplineCurve, F <: Fit.Loss}
     quotes, primal_quotes = __calibration_quotes(quotes)
@@ -451,7 +451,7 @@ end
 # accept the unfitted start.
 function fit(
         c::Yield.AbstractInterpolatedZeroCurve, quotes, method::Fit.Loss;
-        optimizer = __default_optim(c.spline), solve_kwargs = (;)
+        optimizer = default_optimizer(c.spline), solve_kwargs = (;)
     )
     quotes, primal_quotes = __calibration_quotes(quotes)
     return __fit_knot_rates(c.spline, Yield.knot_tenors(c), quotes, primal_quotes, method, c.extrapolation; optimizer, solve_kwargs)

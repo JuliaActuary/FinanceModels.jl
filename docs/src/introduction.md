@@ -197,7 +197,7 @@ Model fitting can be customized:
 - The **loss function** (least squares, absolute difference, etc.) via the third argument to `fit`:
   - e.g. `fit(ABDiscountLine(), quotes, Fit.Loss(x -> abs(x)))`
   - the default is `Fit.Loss(x->x^2)`
-- the **optimization algorithm** by defining a method `FinanceModels.__default_optim(m::ABDiscountLine) = OptimizationOptimJL.Newton()`
+- the **optimization algorithm** by defining a method `FinanceModels.default_optimizer(m::ABDiscountLine) = OptimizationOptimJL.Newton()`
   - you may need to change the `default_variables` to be unbounded (simply omit the `=>` and subsequent bounds)
   - The default is `OptimizationOptimJL.LBFGS()` (spline least-squares fits default to `OptimizationOptimJL.Newton()`)
 - The **general algorithm** can be customized by creating a new method for fit:
