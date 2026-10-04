@@ -1508,3 +1508,17 @@ end
         @test FinanceModels._vasicek_log_zcb(big(0.0), big"0.05", big(0.0), big"0.03", big(10.0)) ≈ big"0.3" rtol = 4eps(BigFloat)
     end
 end
+
+@testset "Vasicek at an infinite horizon without drift" begin
+    # with b = σ²/(2a²) the drift term vanishes; it was 0·∞ = NaN at τ = ∞ (a > 0)
+    @test discount(ShortRate.Vasicek(0.1, 0.0, 0.0, Continuous(0.03)), Inf) ≈ exp(-0.3) rtol = 1.0e-14
+    a, σ = 0.1, 0.01
+    @test discount(ShortRate.Vasicek(a, σ^2 / (2a^2), σ, Continuous(0.03)), Inf) ≈ exp(-(0.03 / a + σ^2 / (4a^3))) rtol = 1.0e-14
+    # at a finite horizon, derivatives through a coefficient whose value is zero keep its term
+    τ = 10.0
+    x, m = a * τ, expm1(-a * τ)
+    L(v) = -log(discount(v, τ))
+    @test ForwardDiff.derivative(b -> L(ShortRate.Vasicek(a, b, 0.0, Continuous(0.03))), 0.0) ≈ (x + m) / a rtol = 1.0e-12
+    @test ForwardDiff.derivative(s -> ForwardDiff.derivative(σ -> L(ShortRate.Vasicek(a, 0.0, σ, Continuous(0.03))), s), 0.0) ≈
+        (-(x + m) + m^2 / 2) / a^3 rtol = 1.0e-10
+end

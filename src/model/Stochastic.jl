@@ -162,7 +162,11 @@ function _vasicek_log_zcb(a, b, σ, r, τ)
         return τ * (1 - p) * r + b * τ * p - σ^2 * τ^3 / 2 * __evalpoly_exact(x, _VASICEK_H_COEFFS)
     end
     m = expm1(-x)
-    return -m / a * r + (x + m) / a * (b - σ^2 / (2a^2)) + σ^2 * m^2 / (4a^3)
+    # The drift term vanishes with its coefficient. Skipping it then keeps τ = ∞ finite for a > 0
+    # (it is 0·∞ otherwise); `iszero` of a dual number also requires zero partials.
+    c = b - σ^2 / (2a^2)
+    drift = iszero(c) ? zero(c) : (x + m) / a * c
+    return -m / a * r + drift + σ^2 * m^2 / (4a^3)
 end
 _vasicek_zcb(a, b, σ, r, τ) = exp(-_vasicek_log_zcb(a, b, σ, r, τ))
 
