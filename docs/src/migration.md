@@ -188,9 +188,10 @@ and also take a `Rate`; see [Rate conventions](@ref rate-conventions).
 - **`Rate == Real` is `false` without an error.** `knot_rates(c) == [0.02, 0.03]`,
   `instantaneous_forward(c, t) == 0` and `x in knot_rates(c)` for a number `x` are always `false`.
   Compare `Rate`s with `Rate`s, or numbers with numbers.
-- **The `rates` property is typed.** `c.rates` is `knot_rates(c)`. `@set c.rates[2] = 0.031` still
-  works, reading the number as continuous. Assigning into the view throws, as before; with a number
-  on the right (`knot_rates(c) .= 0.0`) the conversion to a `Rate` throws a `MethodError` first.
+- **The `rates` property is typed.** `c.rates` is `knot_rates(c)`, and the numbers are stored in the
+  private field `_rates`. `@set c.rates[2] = 0.031` still works, reading the number as continuous.
+  Assigning into the view throws, as before; with a number on the right (`knot_rates(c) .= 0.0`) the
+  conversion to a `Rate` throws a `MethodError` first.
 - **Coupons, margins and interest-rate strikes** take a `Periodic` rate only at the contract's
   frequency. Another frequency throws an `ArgumentError`, and a `Continuous` rate a `MethodError`.
   Convert explicitly: `Bond.Fixed(Periodic(2)(y), Periodic(2), T)` for the yield-equivalent coupon,
