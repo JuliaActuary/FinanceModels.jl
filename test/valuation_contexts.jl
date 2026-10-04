@@ -39,6 +39,12 @@ Transducers.asfoldable(::Projection{TwoFlows}) = [Cashflow(1.0, 1.0), Cashflow(2
             @test ForwardDiff.derivative(auto, 0.04) ≈ ForwardDiff.derivative(explicit, 0.04)
         end
         @test present_value(Models(curve; index = curve), swap) ≈ 0.0 atol = 1.0e-12
+        # the single-curve case: `Models(curve)` reads `curve` under every key
+        single = Models(curve)
+        @test single[:anything] === curve
+        @test valuation_model(single) === curve
+        @test present_value(single, swap) == present_value(Models(curve; index = curve), swap)
+        @test collect(Projection(swap, single)) == collect(Projection(swap, Models(curve; index = curve)))
         @test present_value(Models(credit, (index = curve,)), floating) == present_value(ctx, floating)
         # a floater reads its index from the context: a plain curve holds none
         @test_throws MethodError present_value(curve, floating)

@@ -27,7 +27,7 @@
 | v6 | v7 |
 |---|---|
 | `present_value(model, contract, t)` | an explicit reduction (below); there is no valuation-time argument |
-| `present_value(d, Projection(c; index = i))` | `present_value(Models(d; index = i), c)` |
+| `present_value(d, Projection(c; index = i))` | `present_value(Models(d; index = i), c)`, or `present_value(Models(d), c)` when `i` is `d` |
 | `present_value(d, Projection(c, store))` | `present_value(Models(d, store), c)` |
 | `present_value(m, ::Projection{MyContract})` (a closed form) | `present_value(ctx, ::MyContract)`, with `discount(ctx, t)`, `ctx[key]`, `valuation_model(ctx)` |
 | `model_requirements(contract)` | removed: a contract reads its models from the context by key |

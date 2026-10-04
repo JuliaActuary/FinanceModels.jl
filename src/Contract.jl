@@ -613,7 +613,7 @@ The notional is a unit (1.0) amount, and both legs settle `frequency` times per 
 
 
 A swap reads its index curve under `model_key`: value it with
-`present_value(Models(curve; index = curve), swap)`, and list its cashflows with
+`present_value(Models(curve), swap)`, and list its cashflows with
 `collect(Projection(swap, Dict("OIS" => curve)))`.
 
 # Examples

@@ -149,7 +149,8 @@ end
 
 A contract whose cashflows depend on other models, such as a floating bond's index curve, reads them
 by key from the valuation context. [`Models`](@ref) holds the model that discounts and the models a
-contract reads; `Models(model; index)` returns `index` for every key. Value a contract under a
+contract reads; `Models(model; index)` returns `index` for every key, and `Models(curve)` is its
+single-curve case, `index = curve`. Value a contract under a
 context, and list its cashflows by projecting it against the same context. For how a floating bond
 projects its coupons from forward rates, see [this section in the overview](@ref Contracts-that-depend-on-the-model-(or-multiple-models)).
 
@@ -158,7 +159,7 @@ curve = Yield.Constant(0.04)
 swap = InterestRateSwap(curve, 5.0; frequency = 1)
 value(index, disc) = present_value(Models(disc; index), swap)
 value(curve, curve) # approximately zero
-collect(Projection(swap, Models(curve; index = curve)))
+collect(Projection(swap, Models(curve)))
 ```
 
 Values add under one context: a `Composite` is worth the sum of its parts and a collection of contracts the

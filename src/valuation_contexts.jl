@@ -1,12 +1,13 @@
 """
     Models(model, store)
-    Models(model; index)
+    Models(model; index = model)
 
 A valuation context: the model that values contracts, and the models they read by key.
 `model` discounts (`discount(ctx, t)`) and prices (`valuation_model(ctx)`); the models a contract
 reads by key, such as the index curve of a `Bond.Floating` or the FX model of an `FX.Converted` leg,
 come from `store` (`ctx[key]`), any collection indexed by key (a `Dict` or a `NamedTuple`).
-`Models(model; index)` returns `index` for every key.
+`Models(model; index)` returns `index` for every key. `Models(curve)` is its single-curve case, with
+`index = curve`.
 
 Any model is a valuation context of its own: `present_value(curve, bond)` discounts on `curve`, and
 `present_value(bsm, call)` prices on `bsm`. `Models` adds the models read by key:
@@ -14,16 +15,17 @@ Any model is a valuation context of its own: `present_value(curve, bond)` discou
 ```julia
 curve = Yield.Constant(0.04)
 swap = InterestRateSwap(curve, 5.0; frequency = 1)
-present_value(Models(curve; index = curve), swap)   # approximately zero
+present_value(Models(curve), swap)   # approximately zero
+present_value(Models(ois; index = sofr), swap)
 present_value(Models(ois, Dict("SOFR" => sofr, "EURUSD" => fx)), portfolio)
-collect(Projection(swap, Models(curve; index = curve)))   # its cashflows
+collect(Projection(swap, Models(curve)))   # its cashflows
 ```
 """
 struct Models{M, S} <: AbstractModel
     model::M
     store::S
 end
-Models(model; index) = Models(model, __EveryKey(index))
+Models(model; index = model) = Models(model, __EveryKey(index))
 
 # The store of `Models(model; index)`: `index` under every key.
 struct __EveryKey{I}

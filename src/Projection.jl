@@ -8,7 +8,7 @@ The set of `contract`s and assumptions (`model`) to project the `kind` of output
 If attempting to `collect` or otherwise reduce a contract (`<:AbstractContract`), by default it will get wrapped into a `Projection(contract,NullModel(),CashflowProjection())`
 
 `Projection(contract, models)` projects against a valuation context such as
-[`Models`](@ref), whose models the contract reads by key: `collect(Projection(swap, Models(curve; index = curve)))`.
+[`Models`](@ref), whose models the contract reads by key: `collect(Projection(swap, Models(curve)))`.
 """
 struct Projection{C, M, K} <: AbstractProjection
     contract::C
