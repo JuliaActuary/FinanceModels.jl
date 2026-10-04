@@ -61,7 +61,7 @@ from those points; at them, each partial is the limit of a centered bump in its 
 """
 struct MonotoneConvex{T, U, P, E} <: AbstractInterpolatedZeroCurve
     spline::Sp.MonotoneConvex    # stored so every knot curve has the same public properties
-    rates::ReadOnlyVector{T, T}  # continuously-compounded zero rates at the knots; property `rates` is `knot_rates`
+    _rates::ReadOnlyVector{T, T} # continuously-compounded zero rates at the knots; property `rates` is `knot_rates`
     tenors::ReadOnlyVector{U, U} # finite, ≥ 0, strictly increasing
     extrapolation::P             # validated long-end policy
     _f::Vector{T}                # node instantaneous forwards, derived from (rates, tenors)
@@ -251,7 +251,7 @@ function __mc_kink_tol(rates, times, i)
     return 16 * eps(s)
 end
 function __mc_kink_tol(mc, i)
-    rates = getfield(mc, :rates)
+    rates = getfield(mc, :_rates)
     return eltype(rates) <: ForwardDiff.Dual ? __mc_kink_tol(rates, mc.tenors, i) : nothing
 end
 
@@ -474,7 +474,7 @@ end
 # L over an interval after a knot: the knot's t·z, plus the discrete forward and the integrated
 # deviation accumulated since.
 @inline function __mc_knot_log_discount(mc::MonotoneConvex, t, i)
-    f, fᵈ, rates, times = mc._f, mc._fᵈ, getfield(mc, :rates), mc.tenors
+    f, fᵈ, rates, times = mc._f, mc._fᵈ, getfield(mc, :_rates), mc.tenors
     t_prev = times[i - 1]
     x = (t - t_prev) / (times[i] - t_prev)
     G = g_rate(x, f[i], f[i + 1], fᵈ[i], __mc_kink_tol(mc, i))

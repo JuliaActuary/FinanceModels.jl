@@ -103,7 +103,7 @@
         # a curve's typed knot view gives its numbers, copied
         c = ZeroRateCurve([0.02, 0.03], [1.0, 2.0], Spline.Linear())
         gv = KG(knot_rates(c), knot_tenors(c), Spline.Linear())
-        @test gv.rates == [0.02, 0.03] && gv.rates !== getfield(getfield(c, :rates), :_data)
+        @test gv.rates == [0.02, 0.03] && gv.rates !== getfield(getfield(c, :_rates), :_data)
         # a rate that is neither a number nor a `Rate` fails where it is converted
         @test_throws MethodError KG(["0.02", "0.03"], [1.0, 2.0], Spline.Linear())
     end

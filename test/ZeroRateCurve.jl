@@ -234,7 +234,7 @@ using ForwardDiff
             zrc = ZeroRateCurve([0.02, 0.03, 0.04], [1.0, 2.0, 5.0], spl)
             df1, h1 = discount(zrc, 1.0), hash(zrc)
             @test zrc.rates isa AbstractVector{Rate{Float64, Continuous}}
-            @test getfield(zrc, :rates) isa AbstractVector{Float64}   # numeric storage
+            @test getfield(zrc, :_rates) isa AbstractVector{Float64}   # numeric storage
             @test zrc.tenors isa AbstractVector{Float64}
             # every mutation path throws: the vectors have no setindex!
             @test_throws Base.CanonicalIndexError zrc.rates[1] = Continuous(0.2)
@@ -246,7 +246,7 @@ using ForwardDiff
             @test_throws Base.CanonicalIndexError view(zrc.rates, :) .= Continuous(0.0)
             # derived caches are listed only as private properties
             @test propertynames(zrc) == (:spline, :rates, :tenors, :extrapolation)
-            @test propertynames(zrc, true) == fieldnames(typeof(zrc))
+            @test Set(propertynames(zrc, true)) == Set([propertynames(zrc)..., fieldnames(typeof(zrc))...])
             @test all(p -> startswith(String(p), "_"), setdiff(propertynames(zrc, true), propertynames(zrc)))
             @test knot_rates(zrc) === zrc.rates && knot_tenors(zrc) === zrc.tenors
             @test_throws Base.CanonicalIndexError knot_rates(zrc)[1] = Continuous(0.2)

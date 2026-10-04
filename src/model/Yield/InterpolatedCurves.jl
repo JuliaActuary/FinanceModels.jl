@@ -39,7 +39,7 @@ with `Continuous.([0.02, 0.03])`, or compare the numbers. See [Rate conventions]
 See also [`knot_tenors`](@ref), [`reconstruct`](@ref).
 """
 function knot_rates(c::AbstractInterpolatedZeroCurve)
-    v = getfield(getfield(c, :rates), :_data)
+    v = getfield(getfield(c, :_rates), :_data)
     return ReadOnlyVector{FinanceCore.Rate{eltype(v), Continuous}, eltype(v)}(v)
 end
 
@@ -165,19 +165,20 @@ __log_native(::AbstractInterpolatedZeroCurve) = true
 # (`[-0.0] == [0.0]` but `!isequal([-0.0], [0.0])`).
 Base.:(==)(a::AbstractInterpolatedZeroCurve, b::AbstractInterpolatedZeroCurve) =
     a.spline == b.spline && a.extrapolation == b.extrapolation && a.tenors == b.tenors &&
-    getfield(a, :rates) == getfield(b, :rates)
+    getfield(a, :_rates) == getfield(b, :_rates)
 Base.isequal(a::AbstractInterpolatedZeroCurve, b::AbstractInterpolatedZeroCurve) =
     isequal(a.spline, b.spline) && isequal(a.extrapolation, b.extrapolation) &&
-    isequal(a.tenors, b.tenors) && isequal(getfield(a, :rates), getfield(b, :rates))
+    isequal(a.tenors, b.tenors) && isequal(getfield(a, :_rates), getfield(b, :_rates))
 Base.hash(c::AbstractInterpolatedZeroCurve, h::UInt) =
-    hash(getfield(c, :rates), hash(c.tenors, hash(c.extrapolation, hash(c.spline, hash(:AbstractInterpolatedZeroCurve, h)))))
+    hash(getfield(c, :_rates), hash(c.tenors, hash(c.extrapolation, hash(c.spline, hash(:AbstractInterpolatedZeroCurve, h)))))
 
-# The `rates` property is the typed view `knot_rates`; the field holds the numbers, which internal
-# code reads with `getfield`. Base's convention: the derived caches are listed only with
-# `propertynames(c, true)`.
+# The `rates` property is the typed view `knot_rates`; the field `_rates` holds the numbers, which
+# internal code reads. Base's convention: the private fields (`_rates` and the derived caches) are
+# listed only with `propertynames(c, true)`.
 Base.getproperty(c::AbstractInterpolatedZeroCurve, s::Symbol) = s === :rates ? knot_rates(c) : getfield(c, s)
 Base.propertynames(c::AbstractInterpolatedZeroCurve, private::Bool = false) =
-    private ? fieldnames(typeof(c)) : (:spline, :rates, :tenors, :extrapolation)
+    private ? (:spline, :rates, :tenors, :extrapolation, filter(n -> startswith(String(n), "_"), fieldnames(typeof(c)))...) :
+    (:spline, :rates, :tenors, :extrapolation)
 
 # ConstructionBase protocol, whose derived caches must follow their inputs:
 #  * the properties are (spline, rates, tenors, extrapolation); `getproperties` excludes caches;
@@ -197,7 +198,7 @@ Accessors.ConstructionBase.constructorof(::Type{<:AbstractInterpolatedZeroCurve}
 # Print the construction call, which rebuilds an equal curve.
 function Base.show(io::IO, c::AbstractInterpolatedZeroCurve)
     print(io, "ZeroRateCurve(")
-    show(io, collect(getfield(c, :rates)))
+    show(io, collect(getfield(c, :_rates)))
     print(io, ", ")
     show(io, collect(c.tenors))
     print(io, ", ")

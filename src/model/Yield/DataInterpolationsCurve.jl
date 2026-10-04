@@ -38,7 +38,7 @@ its knots with [`knot_rates`](@ref)/[`knot_tenors`](@ref) and change it with
 """
 struct Spline{S <: Sp.SplineCurve, R, T, E, I, X} <: AbstractInterpolatedZeroCurve
     spline::S                     # the requested method (not the order reduced for short grids)
-    rates::ReadOnlyVector{R, R}   # continuously-compounded zero rates at the knots; property `rates` is `knot_rates`
+    _rates::ReadOnlyVector{R, R}  # continuously-compounded zero rates at the knots; property `rates` is `knot_rates`
     tenors::ReadOnlyVector{T, T}  # finite, ≥ 0, strictly increasing
     extrapolation::E              # validated long-end policy
     _interp::I                    # t -> continuous zero rate through the last knot (and the flat short end)

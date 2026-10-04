@@ -393,7 +393,7 @@
             @test Yield.__monotone_convex_fs(rate.(c.rates), c.tenors)[1] == c._f
             # the cached forwards are internal: hidden from the public listing, readable as fields
             @test propertynames(c) == (:spline, :rates, :tenors, :extrapolation)
-            @test propertynames(c, true) == (:spline, :rates, :tenors, :extrapolation, :_f, :_fᵈ, :_tail)
+            @test propertynames(c, true) == (:spline, :rates, :tenors, :extrapolation, :_rates, :_f, :_fᵈ, :_tail)
             @test c.spline == Spline.MonotoneConvex()
         end
 
