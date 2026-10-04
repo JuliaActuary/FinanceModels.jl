@@ -617,9 +617,9 @@ function _zcb_option_price(m::_GaussianModel, T, S, K)
 
     if σ_P < 1.0e-15
         # Degenerate case: no vol → intrinsic value
-        call = max(P0S - K * P0T, 0.0)
-        put = max(K * P0T - P0S, 0.0)
-        return (call, put)
+        call = P0S - K * P0T
+        put = K * P0T - P0S
+        return (max(call, zero(call)), max(put, zero(put)))
     end
 
     h = (1 / σ_P) * log(P0S / (K * P0T)) + σ_P / 2
@@ -706,10 +706,11 @@ function FinanceCore.present_value(m::_GaussianModel, c::Option.Swaption)
     # Each bond price is affine in r, P(T0,Ti;r) = Aᵢ e^{-Bᵢ r}, so V is increasing in r
     # with the closed-form slope ∑ wᵢ Bᵢ P(T0,Ti;r) (wᵢ the coupon and principal weights).
     weight(i) = coupon * τ + (i == n_payments ? 1 : 0)
+    # 1 - Σ wᵢ P(T0,Tᵢ;r), term by term, in the terms' type
     function swap_value(r)
-        total = 1.0
-        for (i, Ti) in enumerate(payment_times)
-            total -= weight(i) * FinanceCore.discount(m, T0, Ti, r)
+        total = 1 - weight(1) * FinanceCore.discount(m, T0, payment_times[1], r)
+        for i in 2:n_payments
+            total -= weight(i) * FinanceCore.discount(m, T0, payment_times[i], r)
         end
         return total
     end
@@ -730,12 +731,10 @@ function FinanceCore.present_value(m::_GaussianModel, c::Option.Swaption)
     # Step 2: Compute strike prices Ki = P(T0, Ti; r*)
     # Step 3: Sum ZCB options, weighted like the swap's payments: a payer swaption is a
     # portfolio of ZCB puts, a receiver swaption of ZCB calls
-    price = 0.0
-    for (i, Ti) in enumerate(payment_times)
+    return sum(enumerate(payment_times)) do (i, Ti)
         call, put = _zcb_option_price(m, T0, Ti, FinanceCore.discount(m, T0, Ti, r_star))
-        price += weight(i) * (c.payer ? put : call)
+        weight(i) * (c.payer ? put : call)
     end
-    return price
 end
 
 # Validate that a value is an integer multiple of the period length

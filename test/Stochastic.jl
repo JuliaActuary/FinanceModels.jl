@@ -1510,6 +1510,10 @@ end
         # the value is the primal price exactly
         d = pv(ShortRate.Vasicek(ForwardDiff.Dual(0.15, 1.0), 0.04, 0.01, Continuous(0.03)), sw)
         @test ForwardDiff.value(d) == vasicek(p0)
+        # the critical-rate residual and the price accumulate in the model's number type
+        a = ForwardDiff.Dual(0.15, 1.0)
+        @test (@inferred pv(ShortRate.Vasicek(a, 0.04, 0.01, Continuous(0.03)), sw)) isa ForwardDiff.Dual
+        @test (@inferred pv(ShortRate.HullWhite(a, 0.01, curve), sw)) isa ForwardDiff.Dual
     end
     # a small mean reversion uses the series form of B in both price and slope
     small(a) = pv(ShortRate.Vasicek(a, 0.04, 0.01, Continuous(0.03)), Option.Swaption(1.0, 6.0, 0.035, 1))
