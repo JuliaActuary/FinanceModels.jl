@@ -437,7 +437,7 @@ Note that `SmithWilson` is not exported at the top level (qualify it as `Yield.S
 
 Previously the kind of contract, the implied quotes, the type of model, and how the fitting process worked were all combined into a single call (`Yields.Par`). This minimized the amount of code needed to construct a yield curve, but left it fairly cumbersome to extend the package. For example, for every new yield curve model, methods for `Par`, `CMT`, `OIS`, `Zero`, ... had to be defined. Additionally, all of the inputs needed to be yields - specifying a price was not available as an argument to fit.
 
-With the new design of the package, creating a completely new model is much easier, as only the model itself and the valuation primitives need to be defined. For example, defining a new yield curve type that works to value contracts instrument quotes only requires defining the `discount` method. To allow the model to be `fit` requires only defining a default set of parameters to optimize with `__default_optic`:
+With the new design of the package, creating a completely new model is much easier, as only the model itself and the valuation primitives need to be defined. For example, defining a new yield curve type that works to value contracts instrument quotes only requires defining the `discount` method. To allow the model to be `fit` requires only defining a default set of parameters to optimize with `default_variables`:
 
 ```julia
  using FinanceModels, FinanceCore
@@ -460,7 +460,7 @@ end
 
 # `@optic` indicates what in our model variables needs to be updated (from AccessibleModels.jl)
 # `-1.0 .. 1.0` says to bound the search from negative to positive one (from IntervalSets.jl)
-FinanceModels.__default_optic(m::ABDiscountLine) = (
+FinanceModels.default_variables(m::ABDiscountLine) = (
     @optic(_.a) => -1.0 .. 1.0,
     @optic(_.b) => -1.0 .. 1.0,
 )

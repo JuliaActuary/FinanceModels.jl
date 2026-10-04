@@ -147,7 +147,7 @@ end
 
 # `@optic` indicates what in our model variables needs to be updated (from AccessibleModels.jl)
 # `-1.0 .. 1.0` says to bound the search from negative to positive one (from IntervalSets.jl)
-FinanceModels.__default_optic(m::ABDiscountLine) = (
+FinanceModels.default_variables(m::ABDiscountLine) = (
     @optic(_.a) => -1.0 .. 1.0,
     @optic(_.b) => -1.0 .. 1.0,
 )
@@ -198,7 +198,7 @@ Model fitting can be customized:
   - e.g. `fit(ABDiscountLine(), quotes, Fit.Loss(x -> abs(x)))`
   - the default is `Fit.Loss(x->x^2)`
 - the **optimization algorithm** by defining a method `FinanceModels.__default_optim(m::ABDiscountLine) = OptimizationOptimJL.Newton()`
-  - you may need to change the `__default_optic` to be unbounded (simply omit the `=>` and subsequent bounds)
+  - you may need to change the `default_variables` to be unbounded (simply omit the `=>` and subsequent bounds)
   - The default is `OptimizationOptimJL.LBFGS()` (spline least-squares fits default to `OptimizationOptimJL.Newton()`)
 - The **general algorithm** can be customized by creating a new method for fit:
 

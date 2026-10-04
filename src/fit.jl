@@ -62,7 +62,7 @@ module Fit
 end
 
 """
-    __default_optic(model)
+    default_variables(model)
 
 The parameters `fit` optimizes for `model`: a tuple of optic => interval pairs (or 1-tuples of an
 optic, for an unbounded parameter). For example, to optimize `a` and `b` of a custom model:
@@ -73,7 +73,7 @@ struct MyModel <: FinanceModels.AbstractModel
     b
 end
 
-FinanceModels.__default_optic(m::MyModel) = (
+FinanceModels.default_variables(m::MyModel) = (
     @optic(_.a) => 0.0 .. 100.0,
     @optic(_.b) => -10.0 .. 10.0,
 )
@@ -81,14 +81,14 @@ FinanceModels.__default_optic(m::MyModel) = (
 
 See [`fit`](@ref FinanceModels.fit), "Defining the variables".
 """
-__default_optic(m::Yield.Constant) = ((@optic(_.rate.continuous_value) => -1.0 .. 1.0),)
-__default_optic(m::Yield.NelsonSiegel) = (
+default_variables(m::Yield.Constant) = ((@optic(_.rate.continuous_value) => -1.0 .. 1.0),)
+default_variables(m::Yield.NelsonSiegel) = (
     @optic(_.τ₁) => 0.0 .. 100.0,
     @optic(_.β₀) => -10.0 .. 10.0,
     @optic(_.β₁) => -10.0 .. 10.0,
     @optic(_.β₂) => -10.0 .. 10.0,
 )
-__default_optic(m::Yield.NelsonSiegelSvensson) = (
+default_variables(m::Yield.NelsonSiegelSvensson) = (
     @optic(_.τ₁) => 0.0 .. 100.0,
     @optic(_.τ₂) => 0.0 .. 100.0,
     @optic(_.β₀) => -10.0 .. 10.0,
@@ -96,14 +96,14 @@ __default_optic(m::Yield.NelsonSiegelSvensson) = (
     @optic(_.β₂) => -10.0 .. 10.0,
     @optic(_.β₃) => -10.0 .. 10.0,
 )
-__default_optic(m::Yield.CairnsPritchard) = (
+default_variables(m::Yield.CairnsPritchard) = (
     @optic(_.c₁) => 0.001 .. 10.0,
     @optic(_.c₂) => 0.001 .. 10.0,
     @optic(_.b₀) => -1.0 .. 1.0,
     @optic(_.b₁) => -10.0 .. 10.0,
     @optic(_.b₂) => -10.0 .. 10.0,
 )
-__default_optic(m::Yield.CairnsPritchardExtended) = (
+default_variables(m::Yield.CairnsPritchardExtended) = (
     @optic(_.c₁) => 0.001 .. 10.0,
     @optic(_.c₂) => 0.001 .. 10.0,
     @optic(_.c₃) => 0.001 .. 10.0,
@@ -112,28 +112,28 @@ __default_optic(m::Yield.CairnsPritchardExtended) = (
     @optic(_.b₂) => -10.0 .. 10.0,
     @optic(_.b₃) => -10.0 .. 10.0,
 )
-__default_optic(m::Equity.BlackScholesMerton{T, U, V}) where {T, U, V <: Volatility.Constant} = ((@optic(_.σ.σ) => 0.0 .. 10.0),)
-__default_optic(m::Volatility.Constant) = ((@optic(_.σ) => 0.0 .. 10.0),)
-__default_optic(m::ShortRate.Vasicek) = (
+default_variables(m::Equity.BlackScholesMerton{T, U, V}) where {T, U, V <: Volatility.Constant} = ((@optic(_.σ.σ) => 0.0 .. 10.0),)
+default_variables(m::Volatility.Constant) = ((@optic(_.σ) => 0.0 .. 10.0),)
+default_variables(m::ShortRate.Vasicek) = (
     @optic(_.a) => 0.0 .. 5.0,
     @optic(_.b) => -0.1 .. 0.5,
     @optic(_.σ) => 0.0 .. 1.0,
     @optic(_.initial.continuous_value) => -0.05 .. 0.2,
 )
-__default_optic(m::ShortRate.CoxIngersollRoss) = (
+default_variables(m::ShortRate.CoxIngersollRoss) = (
     @optic(_.a) => 0.0 .. 5.0,
     @optic(_.b) => 0.0 .. 0.5,
     @optic(_.σ) => 0.0 .. 1.0,
     @optic(_.initial.continuous_value) => 0.0 .. 0.2,
 )
-__default_optic(m::ShortRate.HullWhite) = (
+default_variables(m::ShortRate.HullWhite) = (
     @optic(_.a) => 0.0 .. 5.0,
     @optic(_.σ) => 0.0 .. 1.0,
 )
 # FX.Forwards: the free variables live on the base-currency (`foreign`) curve — spot and
 # the domestic curve are calibration inputs — so compose the foreign curve's own optics
 # through the `foreign` field.
-__default_optic(m::FX.Forwards) = map(o -> __fx_foreign_optic(o), __default_optic(m.foreign))
+default_variables(m::FX.Forwards) = map(o -> __fx_foreign_optic(o), default_variables(m.foreign))
 __fx_foreign_optic(o::Base.Pair) = Accessors.opcompose(@optic(_.foreign), o.first) => o.second
 __fx_foreign_optic(o::Tuple) = (Accessors.opcompose(@optic(_.foreign), only(o)),)
 __fx_foreign_optic(o) = Accessors.opcompose(@optic(_.foreign), o)
@@ -238,7 +238,7 @@ end
         model, 
         quotes, 
         method=Fit.Loss(x -> x^2);
-        variables=__default_optic(model), 
+        variables=default_variables(model),
         optimizer=__default_optim(model),
         solve_kwargs=(;)
         )
@@ -250,7 +250,7 @@ Fit a model to a collection of quotes using a loss function and optimization met
 - `quotes`: A collection of quotes to fit the model to.
 - `method::F=Fit.Loss(x -> x^2)`: The loss function to use for fitting the model. Defaults to the squared loss function. 
   - `method` can also be `Bootstrap()` with `Spline.Linear()`. Other interpolation strategies require a full-curve `Fit.Loss`.
-- `variables=__default_optic(model)`: The variables to optimize over. This is a tuple of optic => interval pairs specifying which parameters of the model can vary. See extended help for more. Spline and knot-curve fits vary the knot rates and do not take `variables`.
+- `variables=default_variables(model)`: The variables to optimize over. This is a tuple of optic => interval pairs specifying which parameters of the model can vary. See extended help for more. Spline and knot-curve fits vary the knot rates and do not take `variables`.
 - `optimizer=__default_optim(model)`: The optimization algorithm to use. The default optimization for a given model is `LBFGS()` from Optim.jl (via OptimizationOptimJL), a quasi-Newton method with automatic differentiation via ForwardDiff. See extended help for more on customizing the solver.
 - `solve_kwargs=(;)`: Keyword arguments passed to `Optimization.solve` with the optimizer, such as
   `(; maxiters = 10_000, abstol = 1e-12)` or Optim.jl's `g_tol`. Use them to tighten a loss fit.
@@ -360,7 +360,7 @@ struct MyModel <:FinanceModels.AbstractModel
      b 
 end
 
-__default_optic(m::MyModel) = (
+FinanceModels.default_variables(m::MyModel) = (
     @optic(_.a) => 0.0 .. 100.0,
     @optic(_.b) => -10.0 .. 10.0,
 )
@@ -370,7 +370,7 @@ In this way, `fit` knows which arbitrary parameters in a given object may be mod
 Note that not all optimization algorithms want a bounded interval. In that case, simply leave off the paired range. The prior example would then become:
 
 ```julia
-__default_optic(m::MyModel) = (
+FinanceModels.default_variables(m::MyModel) = (
     (@optic(_.a),),
     (@optic(_.b),),
 )
@@ -385,7 +385,7 @@ function fit(
         mod0,
         quotes,
         method::F = __default_loss(mod0);
-        variables = __default_optic(mod0),
+        variables = default_variables(mod0),
         optimizer = __default_optim(mod0),
         solve_kwargs = (;)
     ) where
