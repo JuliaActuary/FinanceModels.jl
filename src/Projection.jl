@@ -65,6 +65,11 @@ struct CashflowProjection <: ProjectionKind end
 Base.collect(p::P) where {P <: AbstractProjection} = foldxl(push!!, p; init = Union{}[])
 # collecting a contract wraps the contract in with the default Projection, defined next
 Base.collect(c::C) where {C <: FinanceCore.AbstractContract} = Projection(c) |> collect
+# Transducers over a projection or a contract (`Projection(c) |> Take(2)`) collect the same way.
+# Transducers' own `collect` infers the element type of an empty result from an iterable, which
+# neither is.
+Base.collect(e::Transducers.Eduction{<:Any, <:Union{AbstractProjection, FinanceCore.AbstractContract}}) =
+    foldxl(push!!, e; init = Union{}[])
 
 # Default Projections ##########################
 
@@ -124,8 +129,11 @@ end
     xf = Transducers.Reduction(Transducers.Transducer(p.contract), Transducers.BottomRF(Transducers.Completing(__Emit(rf))))
     child = Projection(p.contract.coll, p.model, p.kind)
     acc = Transducers.foldl_nocomplete(Transducers.Reduction(Cat(), xf), Transducers.start(xf, val), (child,))
-    # a stop arrives already completed; otherwise `xf` completes (and may still emit) here
-    u = acc isa Transducers.Reduced ? Transducers.unreduced(acc) : complete(xf, acc)
+    # A stop arrives with `xf` already completed. Otherwise `xf` completes here, and may still emit
+    # (a flushed `Partition`, the last group of `PartitionBy`) and so stop `rf`.
+    acc isa Transducers.Reduced || (acc = complete(xf, acc))
+    # Either way the result is `rf`'s: stopped and completed by `rf` itself, or to complete here.
+    u = Transducers.unreduced(acc)
     return u isa __OuterStop ? Transducers.reduced(u.acc) : complete(rf, u)
 end
 

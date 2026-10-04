@@ -155,6 +155,37 @@ Transducers.asfoldable(p::Projection{AsfoldableContract}) = [Cashflow(1.0, 1.0),
             @test isempty(amounts(c |> Transducers.Filter(_ -> false)))
         end
         @test isempty(amounts(Cashflow{Float64, Float64}[]))
+        # also under transducers applied to the projection or the contract (Transducers' `collect`
+        # threw: it infers an empty result's element type from an iterable)
+        @test collect(Projection(bond) |> Transducers.Take(0)) == Union{}[]
+        @test collect(Projection(bond) |> Transducers.Take(0)) isa Vector{Union{}}
+        @test collect(Projection(bond) |> Transducers.Filter(_ -> false)) isa Vector{Union{}}
+        @test collect(bond |> Transducers.Take(0)) isa Vector{Union{}}
+        @test collect(bond |> Transducers.Take(1)) == collect(bond)[1:1]
+        @test collect(Projection(bond) |> Transducers.Map(cf -> cf.amount) |> Transducers.Take(1)) == [0.05]
+        # Transducers inside the projection (over the contract) and outside it (over the projection)
+        # give the same stream, also when a completion emits (a flushed `Partition`, the last group of
+        # `PartitionBy`) under an outer `Take`: that threw, and the stop must end the whole fold.
+        # `Partition` and `PartitionBy` emit views of a reused buffer, hence `Map(copy)`.
+        semi = Bond.Fixed(0.05, Periodic(2), 3.0)   # coupons at 0.5, 1.0, …, 3.0
+        windows = Transducers.opcompose(Transducers.Partition(4; flush = true), Transducers.Map(copy))
+        groups = Transducers.opcompose(Transducers.PartitionBy(cf -> cf.time > 1.0), Transducers.Map(copy))
+        times(ws) = [[cf.time for cf in w] for w in ws]
+        w1, w2 = [0.5, 1.0, 1.5, 2.0], [2.5, 3.0]
+        g1, g2 = [0.5, 1.0], [1.5, 2.0, 2.5, 3.0]
+        for (xf, a, b) in ((windows, w1, w2), (groups, g1, g2))
+            for n in 1:3
+                @test times(collect(Projection(semi |> xf) |> Transducers.Take(n))) == [a, b][1:min(n, 2)]
+                @test times(collect(Projection(semi) |> xf |> Transducers.Take(n))) == [a, b][1:min(n, 2)]
+            end
+            @test times(collect(Projection(semi |> xf |> Transducers.Take(2)))) == [a, b]
+            # the stop at the first contract's completion ends the portfolio and the composite
+            @test times(collect(Projection([semi |> xf, semi |> xf]) |> Transducers.Take(2))) == [a, b]
+            @test times(collect(Projection([semi |> xf, semi |> xf]) |> Transducers.Take(3))) == [a, b, a]
+            @test times(collect(Projection(FinanceCore.Composite(semi |> xf, semi |> xf)) |> Transducers.Take(2))) == [a, b]
+        end
+        # an inner `Take` completes the partition, whose flush then meets the outer stop
+        @test times(collect(Projection(semi |> Transducers.Take(5) |> windows) |> Transducers.Take(2))) == [w1, [2.5]]
         # and its value
         @test present_value(curve, Projection(bond |> dbl |> inc, curve, CashflowProjection())) ≈
             1.1 * discount(curve, 1.0) + 3.1 * discount(curve, 2.0) rtol = 1.0e-14
