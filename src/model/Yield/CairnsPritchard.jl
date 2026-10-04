@@ -35,7 +35,7 @@ struct CairnsPritchard{T} <: AbstractYieldModel
     b₂::T
 
     function CairnsPritchard(c₁::T, c₂::T, b₀::T, b₁::T, b₂::T) where {T}
-        (c₁ <= 0 || c₂ <= 0) && throw(DomainError("Decay parameters c must be positive"))
+        (c₁ <= 0 || c₂ <= 0) && throw(DomainError((c₁, c₂), "the decay parameters c₁ and c₂ must be positive"))
         return new{T}(c₁, c₂, b₀, b₁, b₂)
     end
 end
@@ -98,7 +98,7 @@ struct CairnsPritchardExtended{T} <: AbstractYieldModel
     b₃::T
 
     function CairnsPritchardExtended(c₁::T, c₂::T, c₃::T, b₀::T, b₁::T, b₂::T, b₃::T) where {T}
-        (c₁ <= 0 || c₂ <= 0 || c₃ <= 0) && throw(DomainError("Decay parameters c must be positive"))
+        (c₁ <= 0 || c₂ <= 0 || c₃ <= 0) && throw(DomainError((c₁, c₂, c₃), "the decay parameters c₁, c₂ and c₃ must be positive"))
         return new{T}(c₁, c₂, c₃, b₀, b₁, b₂, b₃)
     end
 end

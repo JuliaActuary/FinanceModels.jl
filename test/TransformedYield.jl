@@ -1,4 +1,4 @@
-@testset "TransformedYield" begin
+@testset "TenorShift" begin
     base = Yield.Constant(Continuous(0.05))
 
     @testset "parallel shift via Rate arithmetic" begin
@@ -139,9 +139,8 @@
         @test (base + (z, t) -> z) isa Yield.TenorShift
     end
 
-    @testset "TransformedYield alias" begin
-        # TransformedYield is a @deprecate_binding alias for TenorShift.
-        @test Yield.TransformedYield === Yield.TenorShift
+    @testset "the TransformedYield alias is removed" begin
+        @test !isdefined(Yield, :TransformedYield)
         ts = Yield.TenorShift(base, (z, t) -> z + Continuous(0.01))
         @test ts isa Yield.AbstractYieldShift
     end

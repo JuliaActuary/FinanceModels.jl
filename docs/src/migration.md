@@ -27,6 +27,9 @@
   DataInterpolations' `RightExtrapolationError` instead of extending the last
   simulated step. **Migration:** pass a `horizon` that covers your last cashflow,
   to `simulate` and to `pv_mc` (whose default, the contract's maturity plus one, already does).
+  A horizon a whole number of steps away up to roundoff no longer gets an extra step
+  (`horizon = 0.07, timestep = 0.01` took 8 steps; see `FinanceModels.simulation_steps`), so those
+  paths change.
 - **Forward-starting floating instruments change value.** `Forward(s, floater)` now
   fixes the floater's coupons on the index rates from `s` on; it read them from
   time 0. Fixed instruments are unchanged. ActuaryUtilities' `locked_floater`
@@ -42,7 +45,8 @@
   `c |> f |> g` applied `g` first; values of chains whose steps don't commute change.
 - **`RatePath` takes a `DataInterpolations.LinearInterpolation` only**, the interpolant
   `simulate` builds. Its short rate is the slope of a step, which another interpolant would get
-  wrong.
+  wrong. Its grid must start at t = 0 with the value 0 (an `ArgumentError` otherwise).
+- **`TransformedYield` is removed.** The alias deprecated in v6.1 is gone; use `Yield.TenorShift`.
 - **Optimization 5 is required** (with OptimizationOptimJL 0.4.6 and AccessibleModels
   0.1.14); environments pinned to Optimization 4 must upgrade it together with
   FinanceModels. Under Optim 2 (OptimizationOptimJL 0.4.9 and later) a loss fit
@@ -259,6 +263,10 @@ and also take a `Rate`; see [Rate conventions](@ref rate-conventions).
 - **`ParYield` rejects a conflicting `frequency`.** A `Periodic` rate sets its own
   frequency; passing a different `frequency` now throws an `ArgumentError` instead
   of being silently ignored. Convert the rate first, e.g. `Periodic(1)(r)`.
+- **Every `frequency` is an integer or a `Periodic`.** Contracts store it as a `Periodic`:
+  `Option.Cap(0.03, 4, 5.0).frequency` is `Periodic(4)`, not `4`. `Option.Cap`, `Option.Floor`
+  and `Option.Swaption` reject a non-integer number (a `MethodError`), and `Bond.Fixed` and
+  `Bond.Floating` reject `Continuous()`; pass the integer or `Periodic(n)`.
 
 ### `CompositeYield` accepts only `+` and `-`
 

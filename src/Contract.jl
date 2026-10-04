@@ -24,7 +24,7 @@ module Bond
 
     Takes spot/zero discount factors and returns a `Quote` for the cashflow occuring at the given `maturity`.
 
-    Use broadcasting to create a set of quotes given a collection of prices and maturities, e.g. `ZCBPrice.(FinanceModels,maturities)`.
+    Use broadcasting to create a set of quotes given a collection of prices and maturities, e.g. `ZCBPrice.(prices, maturities)`.
 
     See also [`ZCBYield`](@ref)
 
@@ -55,7 +55,7 @@ module Bond
 
     Takes zero (sometimes called "spot") rates. Assumes annual effective compounding (`Periodic(1)``) unless given a `Rate` with a different compounding frequency.
 
-    Use broadcasting to create a set of quotes given a collection of FinanceModels and maturities, e.g. `ZCBYield.(FinanceModels,maturities)`.
+    Use broadcasting to create a set of quotes given a collection of yields and maturities, e.g. `ZCBYield.(yields, maturities)`.
 
     See also [`ZCBPrice`](@ref)
 
@@ -238,7 +238,7 @@ module Bond
 
     Returns a `Quote` for the correpsonding bond implied by the given bond equivalent `yield`, and assumes that instruments <= one year `maturity`` pay no coupons and that the rest pay semi-annual.
 
-    Use broadcasting to create a set of quotes given a collection of FinanceModels and maturities, e.g. `CMTYield.(FinanceModels,maturities)`.
+    Use broadcasting to create a set of quotes given a collection of yields and maturities, e.g. `CMTYield.(yields, maturities)`.
 
     See also [`FinanceCore.Quote`](@ref), [`Bond.Fixed`](@ref)
 
@@ -274,7 +274,7 @@ module Bond
     maturities under one year with simple interest, `1 / (1 + yield * maturity)`. The two agree at one
     year. Pass an equivalent annual-effective rate for shorter maturities if the difference matters.
 
-    Use broadcasting to create a set of quotes given a collection of FinanceModels and maturities, e.g. `OISYield.(FinanceModels,maturities)`.
+    Use broadcasting to create a set of quotes given a collection of yields and maturities, e.g. `OISYield.(yields, maturities)`.
 
     See also [`FinanceCore.Quote`](@ref), [`Bond.Fixed`](@ref)
 
@@ -437,12 +437,6 @@ module Option
      - contract::AbstractContract -  The underlying contract.
      - strike::Real -  The strike price.
      - maturity::Union{Real,Date} -  The maturity of the option.
-
-     Supertype Hierarchy
-    ≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡
-
-        EuroCall{S,K,M} <: FinanceCore.AbstractContract <: Any
-
     """
     struct EuroCall{S <: AbstractContract, K <: Real, M <: Timepoint} <: AbstractContract
         underlying::S
@@ -459,12 +453,6 @@ module Option
      - contract::AbstractContract -  The underlying contract.
      - strike::Real -  The strike price.
      - maturity::Union{Real,Date} -  The maturity of the option.
-
-     Supertype Hierarchy
-    ≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡≡
-
-        EuroPut{S,K,M} <: FinanceCore.AbstractContract <: Any
-
     """
     struct EuroPut{S <: AbstractContract, K <: Real, M <: Timepoint} <: AbstractContract
         underlying::S

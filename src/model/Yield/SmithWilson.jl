@@ -51,7 +51,7 @@ struct SmithWilson{TU <: AbstractVector, TQb <: AbstractVector, U, A} <: Abstrac
     # Inner constructor ensures that vector lengths match, and stores the ufr as a continuous number
     function SmithWilson(u::TU, qb::TQb, ufr, α::A) where {TU <: AbstractVector, TQb <: AbstractVector, A}
         if length(u) != length(qb)
-            throw(DomainError("Vectors u and qb in SmithWilson must have equal length"))
+            throw(ArgumentError("SmithWilson: u and qb must have equal lengths, got $(length(u)) and $(length(qb))"))
         end
         z = __continuous(ufr)
         return new{TU, TQb, typeof(z), A}(u, qb, z, α)
@@ -141,7 +141,6 @@ end
 
 H(α, t1, t2) = H(α, promote(t1, t2)...)
 
-H(α, t1vec::AbstractVector, t2) = [H(α, t1, t2) for t1 in t1vec]
 H(α, t1vec::AbstractVector, t2vec::AbstractVector) = [H(α, t1, t2) for t1 in t1vec, t2 in t2vec]
 # This can be optimized by going to H_ordered directly, but it might be a bit cumbersome
 H(α, tvec::AbstractVector) = H(α, tvec, tvec)

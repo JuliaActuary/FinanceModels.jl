@@ -1,16 +1,15 @@
 """
-Stochastic short-rate models (Vasicek, Cox-Ingersoll-Ross, Hull-White) that
-implement the `AbstractYieldModel` interface via closed-form zero-coupon bond
-prices.  They also support Monte Carlo simulation via `simulate` and `pv_mc`.
-"""
-
-"""
     AbstractStochasticModel <: Yield.AbstractYieldModel
 
 Abstract supertype for stochastic short-rate models.
 """
 abstract type AbstractStochasticModel <: Yield.AbstractYieldModel end
 
+"""
+Stochastic short-rate models (Vasicek, Cox-Ingersoll-Ross, Hull-White) that
+implement the `AbstractYieldModel` interface via closed-form zero-coupon bond
+prices.  They also support Monte Carlo simulation via `simulate` and `pv_mc`.
+"""
 module ShortRate
 
     import ..Yield

@@ -19,3 +19,12 @@
 
     @test FinanceModels.par(my, 1) |> FinanceModels.rate > 0
 end
+
+# the extension hooks and helpers that are part of the API without being exported
+@testset "public, not exported" begin
+    for (mod, name) in ((FinanceModels, :simulation_steps),)
+        @test isdefined(mod, name)
+        @test !Base.isexported(mod, name)
+        VERSION >= v"1.11" && @test Base.ispublic(mod, name)
+    end
+end

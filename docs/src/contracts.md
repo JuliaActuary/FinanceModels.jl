@@ -133,17 +133,17 @@ julia> Bond.Fixed(0.05,Periodic(1),3) |> Map(-) |> Map(x->x*2) |> collect
  Cashflow{Float64, Float64}(-2.1, 3.0)
 ```
 
-Another example of this is how [`InterestRateSwap`](@ref) is implemented. It's simply a `Composite` contract of a positive fixed rate bond and a negative floating rate bond:
+Another example of this is [`InterestRateSwap`](@ref). It's simply a `Composite` contract of a positive fixed rate bond and a negative floating rate bond. For a tenor of whole coupon periods, whose par coupon is the par yield, it is:
 
 ```julia
-function InterestRateSwap(curve, tenor; frequency, model_key="OIS")
-    frequency = Bond.__coerce_periodic(frequency)
-    fixed_rate = Bond.__par_coupon(curve, tenor, frequency.frequency) # the schedule's annualized par coupon
-    fixed_leg = Bond.Fixed(fixed_rate, frequency, tenor)
+function my_swap(curve, tenor; frequency, model_key = "OIS")
+    fixed_leg = Bond.Fixed(par(curve, tenor; frequency), frequency, tenor)
     float_leg = Bond.Floating(0.0, frequency, tenor, model_key) |> Map(-)
     return Composite(fixed_leg, float_leg)
 end
 ```
+
+`InterestRateSwap` also solves the par coupon of a tenor with a short first stub.
 
 ##### Cashflows are model dependent
 

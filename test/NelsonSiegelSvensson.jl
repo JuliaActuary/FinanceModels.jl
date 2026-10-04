@@ -96,4 +96,16 @@
         @test FinanceCore.rate(FinanceModels.zero(nss, 1.0e-10)) ≈ FinanceCore.rate(FinanceModels.zero(nss, 0.0)) atol = 1.0e-6
     end
 
+    @testset "a nonpositive τ is a DomainError carrying it" begin
+        thrown(f) = try
+            f()
+        catch e
+            e
+        end
+        e = thrown(() -> Yield.NelsonSiegel(0.0, 0.04, -0.02, 0.01))
+        @test e isa DomainError && e.val == 0.0
+        e = thrown(() -> Yield.NelsonSiegelSvensson(2.5, -3.0, 0.04, -0.02, 0.01, -0.005))
+        @test e isa DomainError && e.val == (2.5, -3.0)
+    end
+
 end

@@ -7,6 +7,7 @@
 `present_value(ctx, contract)` is the single valuation entry point. Its first argument, the
 valuation context, is a yield curve or rate, a model with a closed form for the contract, or
 `Models(model, store)` / `Models(model; index)`, which also holds the models a contract reads by key.
+`Models(curve)` is the single-curve case, `index = curve`.
 
 - **Portfolios are correct.** FinanceCore passed each element's index of a collection as a third
   argument, which FinanceModels read as a valuation time: a 3-year zero-coupon bond at a
@@ -80,13 +81,15 @@ A chain of transducers over a contract applied in reverse inside a projection: `
 add1` projected as [2.1, 4.1] instead of [1.1, 3.1] (`collect(bond |> double |> add1)` was right),
 so its present value was wrong too. The chain now applies in the order written, inside every
 wrapper, and stateful and early-terminating transducers (`Take`, `Scan`) work over a contract inside
-a projection, a portfolio or a `Composite`; they threw. A projection that emits nothing (`Take(0)`,
-a `Filter` that drops everything, an empty portfolio) collects to an empty vector; it threw.
+a projection, a portfolio or a `Composite`; they threw. A transducer that emits when it completes
+(`Partition(n; flush = true)`, `PartitionBy`) works under an outer `Take`; it threw. A projection that
+emits nothing (`Take(0)`, a `Filter` that drops everything, an empty portfolio) collects to an empty
+vector, also with transducers applied to it (`collect(Projection(c) |> Take(0))`); it threw.
 
 ### Simulated paths are defined only on their simulated grid
 
-A `RatePath` from `simulate` covers times from 0 to the first grid point at or beyond `horizon`
-(or `horizon` itself where `n · timestep` rounds just below it). Evaluating it outside that range
+A `RatePath` from `simulate` covers times from 0 to `horizon`, or to the first grid point beyond an
+unaligned `horizon`. Evaluating it outside that range
 (`discount`, interval discounts, `zero`, `forward`, `short_rate`, the present value of a later
 cashflow, or `pv_mc` with an explicit `horizon` shorter than the contract) throws
 DataInterpolations' `RightExtrapolationError` or `LeftExtrapolationError`. It used to extend the
@@ -95,7 +98,13 @@ instantaneous rate is right-continuous: at a grid time `short_rate` and
 `Yield.instantaneous_forward` both give the slope of the step that starts there, as a `Continuous`
 rate, and the last step's at the path's end. `RatePath` takes a `DataInterpolations.LinearInterpolation` only, the
 interpolant `simulate` builds: its rate is a step's slope, which another interpolant would get
-wrong.
+wrong. Its grid must start at t = 0 with the value 0, or construction throws an `ArgumentError`.
+With UnicodePlots loaded, a path displays up to its last grid time (at most 30); it threw.
+
+`simulate` takes its number of steps from `FinanceModels.simulation_steps(horizon, timestep)`, which
+returns `(; nsteps, aligned)`. A horizon within `8eps` of a whole number of steps is aligned, so
+roundoff adds no step: `horizon = 0.07, timestep = 0.01` took 8 steps and now takes 7, which changes
+those paths. An unaligned horizon takes the first grid point beyond it, and `aligned` is `false`.
 
 ### Short-end limits and instantaneous forwards
 
@@ -155,7 +164,8 @@ Inputs that took a number also take a `Rate`; numbers keep their meaning:
   returned `Periodic(0.06, 1)` was read as 6% continuous, and passed to a rule as periodic.
 
 Model fields (volatilities, mean-reversion speeds, curve coefficients, the stored `ufr`), quote
-coordinates (`implied_quote`) and sensitivities stay numbers. The models guide has a table of the
+coordinates (`implied_quote`) and sensitivities stay numbers. Vasicek's and CIR's `initial` short
+rate is a `Rate`, as in 6.x: a number is stored as `Continuous`. The models guide has a table of the
 conventions. No value changes: the typed results hold the same numbers, bit for bit.
 
 ### Cashflow matrices keep the amounts' type; Smith–Wilson coupon sensitivities
@@ -380,8 +390,24 @@ migration guide.
 - `ParSwapYield` and `InterestRateSwap` require an explicit `frequency`.
 - `ParYield` throws an `ArgumentError` when an explicit `frequency` conflicts with a
   `Periodic` rate's own compounding; previously the keyword was ignored.
+- Every `frequency` input (`par`, `ParYield`, `ParSwapYield`, `InterestRateSwap`, `FX.ParBasisSwap`,
+  `Bond.Fixed`, `Bond.Floating`, `Option.Cap`, `Option.Floor`, `Option.Swaption`) takes an integer
+  or a `Periodic`. `par` threw for a `Periodic`, `FX.ParBasisSwap` for an integer, and the bonds took
+  no integer. Contracts store a `Periodic`. A non-integer number, which `Cap`, `Floor` and
+  `Swaption` accepted, and a `Continuous` bond frequency are a `MethodError`.
 
 See the migration guide for upgrade steps.
+
+### `TransformedYield` removed
+
+The `Yield.TransformedYield` alias, deprecated in 6.1, is removed. Use `Yield.TenorShift`.
+
+### Constructor errors
+
+`Yield.NelsonSiegel`, `Yield.NelsonSiegelSvensson`, `Yield.CairnsPritchard` and
+`Yield.CairnsPritchardExtended` throw a `DomainError` whose value is the offending parameters; the
+message was passed as the value. `Yield.SmithWilson` with `u` and `qb` of different lengths throws an
+`ArgumentError` (was a `DomainError`).
 
 ### `CompositeYield` accepts only `+` and `-`
 

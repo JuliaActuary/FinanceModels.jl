@@ -69,8 +69,6 @@ constructor: `TenorShift(base, my_callable)`.
 ForwardDiff propagates correctly through the transform for sensitivity analysis,
 but the rule function itself should be differentiable if used in an AD context.
 
-`TransformedYield` is retained as a deprecated alias for `TenorShift`.
-
 See also: [`ProjectedShift`](@ref), [`AbstractYieldShift`](@ref),
 [`CompositeYield`](@ref), [`ScaledYield`](@ref).
 """
@@ -147,6 +145,3 @@ force_of_interest(s::AbstractYieldShift, t) =
     iszero(t) ? FinanceCore.rate(Base.zero(s, t)) : __log_discount_derivative(s, t)
 __log_discount(s::AbstractYieldShift, t) = __zero_log_discount(s, t)
 __log_native(::AbstractYieldShift) = true
-
-# Deprecated alias for the previous name. Slated for removal one minor release after introduction.
-Base.@deprecate_binding TransformedYield TenorShift

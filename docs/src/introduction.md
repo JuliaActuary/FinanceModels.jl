@@ -120,7 +120,7 @@ A number of convenience functions are included to construct a `Quote`:
 ## 4. **Models** - Not just yield curves anymore
 
 - **Yield Curves**: all of Yields.jl yield models are included in the initial FinanceModels.jl release
-- **Equities and Options**: The initial release includes `BlackScholesMerton` option pricing and one can use constant or spline volatility models
+- **Equities and Options**: The initial release includes `BlackScholesMerton` option pricing with a constant volatility model (`Volatility.Constant`)
 - **Others** more to come in the future
 
 ### Creating a new model

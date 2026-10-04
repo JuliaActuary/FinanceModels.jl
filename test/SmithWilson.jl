@@ -13,7 +13,7 @@ using ForwardDiff
     @test sw.α == α
     @test sw.u == u
     @test sw.qb == qb
-    @test_throws DomainError Yield.SmithWilson(u, [2.4, -3.4, 8.9], ufr = ufr, α = α)
+    @test_throws ArgumentError Yield.SmithWilson(u, [2.4, -3.4, 8.9], ufr = ufr, α = α)
 
     # Empty u and Qb should result in a flat yield curve
     # Use this to test methods expected from <:AbstractYieldCurve
