@@ -143,7 +143,7 @@ FinanceCore.discount(s::AbstractYieldShift, t) = _discount_from_zero(s, t)
 # At t = 0 the forward is the zero rate's limit: the rule applied to the base curve's `zero(base, 0)`,
 # with every parameter's derivative. Differentiating L there would need the base's zero rate at a dual
 # time of 0, which a curve without its own zero rate refuses. Elsewhere, the derivative of L.
-__instantaneous_forward(s::AbstractYieldShift, t) =
+force_of_interest(s::AbstractYieldShift, t) =
     iszero(t) ? FinanceCore.rate(Base.zero(s, t)) : __log_discount_derivative(s, t)
 __log_discount(s::AbstractYieldShift, t) = __zero_log_discount(s, t)
 __log_native(::AbstractYieldShift) = true

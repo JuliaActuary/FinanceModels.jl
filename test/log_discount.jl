@@ -16,7 +16,7 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
 # A curve with a closed-form forward, given through the numeric hook
 struct __ClosedFormForwardCurve <: Yield.AbstractYieldModel end
 FinanceCore.discount(::__ClosedFormForwardCurve, t) = exp(-0.03 * t - 0.001 * t^2)
-FinanceModels.Yield.__instantaneous_forward(::__ClosedFormForwardCurve, t) = 0.03 + 0.002 * t
+FinanceModels.Yield.force_of_interest(::__ClosedFormForwardCurve, t) = 0.03 + 0.002 * t
 
 @testset "Interval factors from cumulative log-discounts" begin
     rates, tenors = [0.02, 0.03, 0.035, 0.04], [1.0, 2.0, 5.0, 10.0]
@@ -510,7 +510,7 @@ end
     for c in curves, t in (0.0, 2.5, 5.0, 12.0)
         f = Yield.instantaneous_forward(c, t)
         @test f isa FinanceCore.Rate{Float64, Continuous}
-        @test rate(f) === FinanceModels.Yield.__instantaneous_forward(c, t)
+        @test rate(f) === FinanceModels.Yield.force_of_interest(c, t)
     end
     # a custom curve's closed form is used, directly and inside wrappers
     c = __ClosedFormForwardCurve()

@@ -126,7 +126,7 @@ between two times and is defined for every yield model.
 """
 instantaneous_forward(::AbstractInterpolatedZeroCurve, t)
 
-function __instantaneous_forward(c::AbstractInterpolatedZeroCurve, t)
+function force_of_interest(c::AbstractInterpolatedZeroCurve, t)
     __check_time(t, "instantaneous_forward")
     (__extends(c) || t < __tail(c).last_tenor) || return __tail_forward(__tail(c), t)
     return __interior_forward(c, t)

@@ -13,7 +13,7 @@ function __log_tail(c::__PrimalCurve)
     return __LogTail(__primal(t.a2), __primal(t.a1), __primal(t.a0))
 end
 Base.zero(c::__PrimalCurve, t) = Continuous(__primal(__continuous(Base.zero(c.curve, t))))
-__instantaneous_forward(c::__PrimalCurve, t) = __primal(__instantaneous_forward(c.curve, t))
+force_of_interest(c::__PrimalCurve, t) = __primal(force_of_interest(c.curve, t))
 
 """
     implied_quote(curve, family, maturity; guess = 0.0, bracket = (-0.5, 1.0))
