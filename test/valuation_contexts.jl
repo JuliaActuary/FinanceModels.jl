@@ -146,7 +146,7 @@ Transducers.asfoldable(::Projection{TwoFlows}) = [Cashflow(1.0, 1.0), Cashflow(2
         @test present_value(fx_explicit.foreign, Forward(0.0, leg)) ≈ native
         @test present_value(fx_explicit.foreign, Forward(0.5, leg)) ≈
             sum(cf.amount * discount(fx_explicit.foreign, cf.time + 0.5) for cf in leg.cashflows)
-        # an FX model or Models context reports in its own currency: an unconverted leg throws
+        # a EUR leg throws under the USD-reporting FX model, Models over it, and Models over a plain curve
         for c in (fx_explicit, Models(fx_explicit, Dict(:fx => fx_explicit)), Models(usd, Dict(:fx => fx_explicit)))
             for form in (
                     leg, FinanceCore.AbstractContract[leg], FinanceCore.Composite(leg, Forward(1.0, leg)),
@@ -173,7 +173,7 @@ Transducers.asfoldable(::Projection{TwoFlows}) = [Cashflow(1.0, 1.0), Cashflow(2
         # an already converted leg inside FX.Converted throws: the conversion multiplies every amount by
         # its forward, so it would be converted again
         fxctx = Models(fx_explicit, Dict(:fx => fx_explicit))
-        @test_throws "an enclosing FX.Converted converts cashflows paid in :EUR" present_value(fxctx, conv(conv(leg)))
+        @test_throws "pays in :USD, but its context is in :EUR" present_value(fxctx, conv(conv(leg)))
         # an FX.Forward prices on the context's own FX model, which a conversion does not have (a mixed
         # composite gave 1.0382 where converting only the leg gives 1.0454)
         for form in (
@@ -182,17 +182,30 @@ Transducers.asfoldable(::Projection{TwoFlows}) = [Cashflow(1.0, 1.0), Cashflow(2
             )
             @test_throws MethodError present_value(fxctx, form)
         end
-        # also when the conversion pays in the forward's quote currency (this discounted JPY on the USD
-        # curve: 11.677 where the JPY value is 12.879)
+        # a conversion into JPY under a USD context throws before the forward is reached (this
+        # discounted JPY on the USD curve: 11.677 where the JPY value is 12.879)
         usdjpy = FX.Pair(:USD, :JPY)
         fx_uj = FX.Forwards(usdjpy, 150.0, Yield.Constant(Continuous(0.001)), usd)
-        @test_throws MethodError present_value(Models(fx_explicit, Dict(:uj => fx_uj)), FX.Converted(fwd, usdjpy, :uj))
+        @test_throws "pays in :JPY, but its context is in :USD" present_value(Models(fx_explicit, Dict(:uj => fx_uj)), FX.Converted(fwd, usdjpy, :uj))
         # a chain of conversions, each from its own pair's base currency, converts GBP to EUR to USD
         gbpeur = FX.Pair(:GBP, :EUR)
         fx_gbp = FX.Forwards(gbpeur, 1.15, fx_explicit.foreign, Yield.Constant(Continuous(0.04)))
         chain = FX.Converted(FX.Converted(Cashflow(100.0, 2.0), gbpeur, :gbp), eurusd, :fx)
         @test present_value(Models(usd, Dict(:fx => fx_explicit, :gbp => fx_gbp)), chain) ≈
             100.0 * forward(fx_gbp, 2.0) * forward(fx_explicit, 2.0) * discount(usd, 2.0) rtol = 1.0e-12
+        # under an FX model's context a conversion must pay in its reporting currency: a GBP→EUR
+        # conversion under the USD context was discounted on the USD curve (1.0643, where GBP→EUR→USD
+        # is 1.2185), also beside a USD-paying forward
+        store = Dict(:fx => fx_explicit, :gbp => fx_gbp)
+        gbp_eur = FX.Converted(Cashflow(100.0, 2.0), gbpeur, :gbp)
+        @test_throws "pays in :EUR, but its context is in :USD" present_value(Models(fx_explicit, store), gbp_eur)
+        @test_throws "pays in :EUR, but its context is in :USD" present_value(Models(fx_explicit, store), FinanceCore.Composite(fwd, gbp_eur))
+        @test present_value(Models(fx_explicit, store), chain) ≈
+            100.0 * forward(fx_gbp, 2.0) * forward(fx_explicit, 2.0) * discount(usd, 2.0) rtol = 1.0e-12
+        # a leg that pays in the context's reporting currency is valued in it
+        usd_leg = FX.ParBasisSwap(usdjpy, -0.001, 3.0; reference = usd).instrument
+        @test present_value(fx_explicit, usd_leg) ≈ present_value(fx_explicit.domestic, usd_leg) rtol = 1.0e-14
+        @test present_value(Models(fx_explicit, store), usd_leg) ≈ present_value(fx_explicit.domestic, usd_leg) rtol = 1.0e-14
         # cashflows can still be listed without a model
         @test length(collect(Projection(leg))) == length(leg.cashflows)
 

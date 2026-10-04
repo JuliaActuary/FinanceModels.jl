@@ -20,9 +20,12 @@ reporting currency, the *quote* currency for an [`FX.Forwards`](@ref) model (it 
 `domestic` curve), so values add. An [`FX.Forward`](@ref) settles in quote-currency units. A
 base-currency contract is converted explicitly: wrap it in [`FX.Converted`](@ref), which converts
 each cashflow at its forward, or value it on a base-currency curve, such as the model's `foreign`
-curve, and convert that value at spot. Only contracts that carry a currency are checked: an
-unconverted [`FX.BasisSwapLeg`](@ref) throws under any context that is not a yield curve, while a
-plain bond carries none and is valued in the context's currency. The reporting currency is a unit of today's value only: it is not
+curve, and convert that value at spot. Contracts that carry a currency are checked against the
+context's currency where it is known: an FX model's quote currency (also as the model of `Models`),
+or, inside an `FX.Converted`, its pair's base currency. An `FX.Converted` must convert into that
+currency. An unconverted [`FX.BasisSwapLeg`](@ref) is valued in it, or under a plain yield curve,
+which carries no currency and is taken to be the leg's; it throws under any other context. A plain
+bond carries no currency and is valued in the context's currency. The reporting currency is a unit of today's value only: it is not
 the trade's collateral agreement, which the model's curves describe (the `foreign` curve of a model
 fitted to market forwards is the base-currency curve under the domestic collateral).
 
@@ -349,7 +352,8 @@ used by [`Bond.Floating`](@ref FinanceModels.Bond.Floating) for its reference ra
 `pair` declares the conversion the wrapper expects: if the model found under `key` is
 for a different pair — including the *inverted* one — projection throws an
 `ArgumentError` naming both pairs, rather than silently converting at a crossed or
-reciprocal rate. An [`FX.BasisSwapLeg`](@ref) inside must pay in the pair's base currency,
+reciprocal rate. Under an FX model's context (or `Models` over one), the wrapper must convert into
+its reporting currency. An [`FX.BasisSwapLeg`](@ref) inside must pay in the pair's base currency,
 and a nested `FX.Converted` must convert into it. Other contracts carry no currency, so
 `pair` is your declaration that their cashflows are base-currency amounts. An
 [`FX.Forward`](@ref) prices on the context's own FX model and is not supported inside.
@@ -418,9 +422,10 @@ standard curve-fitting machinery. Its value comes by one of two explicit routes:
 - `present_value(Models(m, Dict(key => m)), FX.Converted(leg, pair, key))`, in quote-currency
   units, converting each cashflow at its forward.
 
-Under any other context (an `FX.Forwards` model, `Models`, a `Rate` or a number), an unconverted
-leg throws an `ArgumentError`, also inside a portfolio, a `Composite`, a `Forward` or a
-transducer. A curve carries no currency, so a curve passed to the
+An unconverted leg is also valued under a context that reports in its base currency (an
+`FX.Forwards` model whose quote currency it is, or `Models` over one). Under any other context (an
+FX model in another currency, `Models` over a plain curve, a `Rate` or a number) it throws an
+`ArgumentError`, also inside a portfolio, a `Composite`, a `Forward` or a transducer. A curve carries no currency, so a curve passed to the
 first route is taken to be a base-currency curve.
 """
 struct BasisSwapLeg{P <: Pair, C} <: FinanceCore.AbstractContract
@@ -439,8 +444,8 @@ FinanceCore.maturity(c::BasisSwapLeg) = last(c.cashflows).time
 )
 @noinline __throw_misconverted(c, paid, from) = throw(
     ArgumentError(
-        "an FX.$(nameof(typeof(c))) on $(c.pair) pays in $(repr(paid)), but an enclosing FX.Converted converts " *
-            "cashflows paid in $(repr(from)) at its forward rate. Convert only the contracts that pay in $(repr(from))."
+        "an FX.$(nameof(typeof(c))) on $(c.pair) pays in $(repr(paid)), but its context is in $(repr(from)) " *
+            "(its reporting currency, or an enclosing FX.Converted's base). Convert into $(repr(from))."
     )
 )
 

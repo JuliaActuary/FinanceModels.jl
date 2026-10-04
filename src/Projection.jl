@@ -234,7 +234,7 @@ __rebase(m::FX.Forwards, t) = FX.Forwards(m.pair, forward(m, t), __rebase(m.dome
     if fx.pair != p.contract.pair
         throw(ArgumentError("`FX.Converted` declared $(p.contract.pair) but the model under key $(repr(p.contract.key)) prices $(fx.pair)"))
     end
-    # a context that reports in its own currency admits it; an enclosing conversion must convert from it
+    # its output must be in the context's currency, where that is known
     q = p.contract.pair.quote_currency
     d = __denomination(p.model)
     d === nothing || __admits(d, q) || FX.__throw_misconverted(p.contract, q, d)
@@ -242,9 +242,11 @@ __rebase(m::FX.Forwards, t) = FX.Forwards(m.pair, forward(m, t), __rebase(m.dome
     return __concat(Transducers.Reduction(Map(cf -> @set cf.amount *= forward(fx, cf.time)), rf), val, (inner,))
 end
 
-# The currency a projection's cashflows are declared in: any, under a curve or a listing (`NullModel`);
-# an enclosing `FX.Converted`'s base currency (`__InBase`), kept through `Forward`; `nothing` under any
-# other context, which reports in its own currency.
+# The currency a projection's cashflows are declared in. Any, under an untagged curve or a listing
+# (`NullModel`): the currency is the user's word. The context's reporting currency, where it is known:
+# an FX model's quote currency (also as the model of `Models`, in valuation_contexts.jl), and an
+# enclosing `FX.Converted`'s base currency (`__InBase`), kept through `Forward`. `nothing` under any
+# other context.
 struct __AnyCurrency end
 struct __InBase{S, B}
     store::S
@@ -252,6 +254,7 @@ struct __InBase{S, B}
 end
 Base.getindex(m::__InBase, key) = m.store[key]
 __denomination(::Union{Yield.AbstractYieldModel, NullModel}) = __AnyCurrency()
+__denomination(m::FX.Forwards) = m.pair.quote_currency
 __denomination(m::__InBase) = m.base
 __denomination(m::__Rebased) = __denomination(m.models)
 __denomination(_) = nothing
@@ -265,7 +268,8 @@ __admits(d, currency) = d isa __AnyCurrency || isequal(d, currency)
 end
 
 # An `FX.BasisSwapLeg` is a strip of base-currency cashflows, projected only where that currency is
-# admitted: under a curve (its native route) or inside an `FX.Converted` from it.
+# admitted: under a curve (its native route), inside an `FX.Converted` from it, or under a context
+# that reports in it.
 @inline function Transducers.__foldl__(rf, val, p::Projection{C, M, K}) where {C <: FX.BasisSwapLeg, M, K}
     __admits(__denomination(p.model), p.contract.pair.base) || FX.__throw_unconverted(p.contract)
     return Transducers.__foldl__(rf, val, p.contract.cashflows)

@@ -32,6 +32,8 @@ end
 Base.getindex(s::__EveryKey, key) = s.index
 
 Base.getindex(m::Models, key) = m.store[key]
+# An FX model reports in its quote currency, also as the model of `Models` (see `__denomination`)
+__denomination(m::Models{<:FX.Forwards}) = __denomination(m.model)
 FinanceCore.discount(m::Models, t...) = FinanceCore.discount(m.model, t...)
 
 """
