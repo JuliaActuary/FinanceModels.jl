@@ -132,7 +132,7 @@ Rate-valued results are `Rate`s, so their convention travels with them:
   and `collect` give a `Vector` of rates. `rate.(knot_rates(curve))` gives the numbers, for
   example to seed a ForwardDiff gradient.
 - `Yield.instantaneous_forward(curve, t)` and `short_rate(path, t)` return a `Continuous` rate. A
-  curve with a closed-form forward defines `Yield.__instantaneous_forward(curve, t)`, which returns
+  curve with a closed-form forward defines `Yield.force_of_interest(curve, t)`, which returns
   the number; a custom curve still needs only `discount`.
 
 FinanceCore reads a bare number as annual effective, so the continuous numbers these functions

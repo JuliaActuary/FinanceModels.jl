@@ -176,7 +176,7 @@ and also take a `Rate`; see [Rate conventions](@ref rate-conventions).
 | `knot_rates(c)` and `c.rates`, numbers | read-only `Continuous` rates; `rate.(knot_rates(c))` gives the numbers |
 | `ForwardDiff.gradient(f, collect(knot_rates(c)))` | `ForwardDiff.gradient(f, rate.(knot_rates(c)))` |
 | `knot_rates(c) == [0.02, 0.03]` | `knot_rates(c) == Continuous.([0.02, 0.03])` |
-| `Yield.instantaneous_forward(c::MyCurve, t) = …` (a closed form) | `Yield.__instantaneous_forward(c::MyCurve, t) = …`, returning the number |
+| `Yield.instantaneous_forward(c::MyCurve, t) = …` (a closed form) | `Yield.force_of_interest(c::MyCurve, t) = …`, returning the number |
 | `Bond.Fixed(rate(y), Periodic(2), T)` with `y = Periodic(r, 2)` | `Bond.Fixed(y, Periodic(2), T)` also works |
 | `Yield.SmithWilson(ufr = rate(Continuous(r)), α)` | `Yield.SmithWilson(ufr = r, α)` for any `Rate` `r` |
 
@@ -195,7 +195,7 @@ and also take a `Rate`; see [Rate conventions](@ref rate-conventions).
   frequency. Another frequency throws an `ArgumentError`, and a `Continuous` rate a `MethodError`.
   Convert explicitly: `Bond.Fixed(Periodic(2)(y), Periodic(2), T)` for the yield-equivalent coupon,
   or `rate(y)` for its nominal value. Numbers are unchanged.
-- **A closed-form forward for a custom curve** goes on `Yield.__instantaneous_forward(curve, t)`,
+- **A closed-form forward for a custom curve** goes on `Yield.force_of_interest(curve, t)`,
   returning a number; `Yield.instantaneous_forward` wraps it, and FinanceModels' own consumers
   (Hull–White, compositions, `ForwardStarting`) use the number. A curve that defines only
   `discount` needs nothing: its forward is differentiated with ForwardDiff.
