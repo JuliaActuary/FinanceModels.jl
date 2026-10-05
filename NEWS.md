@@ -118,7 +118,9 @@ With UnicodePlots loaded, a path displays up to its last grid time (at most 30);
 `simulate` takes its number of steps from `FinanceModels.simulation_steps(horizon, timestep)`, which
 returns `(; nsteps, aligned)`. A horizon within `8eps` of a whole number of steps is aligned, so
 roundoff adds no step: `horizon = 0.07, timestep = 0.01` took 8 steps and now takes 7, which changes
-those paths. An unaligned horizon takes the first grid point beyond it, and `aligned` is `false`.
+those paths. An aligned path ends at the horizon itself: `horizon = 0.3, timestep = 0.1` ended at
+`0.30000000000000004`, so a payment just past the horizon was valued. An unaligned horizon takes
+the first grid point beyond it, and `aligned` is `false`.
 
 ### Short-end limits and instantaneous forwards
 

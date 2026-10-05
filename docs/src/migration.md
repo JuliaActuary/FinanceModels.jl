@@ -29,7 +29,7 @@
   to `simulate` and to `pv_mc` (whose default, the contract's maturity plus one, already does).
   A horizon a whole number of steps away up to roundoff no longer gets an extra step
   (`horizon = 0.07, timestep = 0.01` took 8 steps; see `FinanceModels.simulation_steps`), so those
-  paths change.
+  paths change, and such a path ends at the horizon itself.
 - **Forward-starting floating instruments change value.** `Forward(s, floater)` now
   fixes the floater's coupons on the index rates from `s` on; it read them from
   time 0. Fixed instruments are unchanged. ActuaryUtilities' `locked_floater`
