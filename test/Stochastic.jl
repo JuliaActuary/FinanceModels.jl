@@ -1608,7 +1608,7 @@ end
     v = ShortRate.Vasicek(0.1, 0.03, 0.01, Continuous(0.03))
     p = only(simulate(v; n_scenarios = 1, timestep = 0.01, horizon = 0.07))
     @test length(p.interp.t) == 8
-    @test last(p.interp.t) ≈ 0.07
+    @test last(p.interp.t) == 0.07
     @test discount(p, 0.07) isa Real
     @test_throws FinanceModels.DataInterpolations.RightExtrapolationError discount(p, 0.08)
     # a payment at the horizon is accepted, and one beyond it throws
@@ -1618,6 +1618,21 @@ end
     p32 = only(simulate(v; n_scenarios = 1, timestep = 0.1f0, horizon = 0.7f0))
     @test length(p32.interp.t) == 8
     @test present_value(p32, Cashflow(1.0, 0.7f0)) isa Real
+    # an aligned path ends at its horizon, whichever side n·dt rounds to (3 · 0.1 is
+    # 0.30000000000000004, 3 · 0.3 is 0.8999999999999999): a payment at the horizon is valued, and
+    # one at the next representable time throws
+    for (h, dt) in ((0.3, 0.1), (0.9, 0.3), (0.07, 0.01), (0.3f0, 0.1f0), (0.9f0, 0.3f0))
+        ph = only(simulate(v; n_scenarios = 1, timestep = dt, horizon = h))
+        @test last(ph.interp.t) == h
+        @test length(ph.interp.t) == FinanceModels.simulation_steps(h, dt).nsteps + 1
+        @test present_value(ph, Cashflow(1.0, h)) > 0
+        @test_throws FinanceModels.DataInterpolations.RightExtrapolationError present_value(ph, Cashflow(1.0, nextfloat(h)))
+    end
+    # only the endpoint moves: the steps and the draws are those of a longer simulation's start
+    p3 = only(simulate(v; n_scenarios = 1, timestep = 0.1, horizon = 0.3, rng = Random.MersenneTwister(7)))
+    p5 = only(simulate(v; n_scenarios = 1, timestep = 0.1, horizon = 0.5, rng = Random.MersenneTwister(7)))
+    @test p3.interp.u == p5.interp.u[1:4]
+    @test p3.interp.t[1:3] == p5.interp.t[1:3]
     # an unaligned horizon is covered by the extra step
     q = only(simulate(v; n_scenarios = 1, timestep = 0.5, horizon = 0.9))
     @test last(q.interp.t) == 1.0

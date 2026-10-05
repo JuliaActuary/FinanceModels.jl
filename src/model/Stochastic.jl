@@ -385,7 +385,8 @@ integer `n`, and the grid has `nsteps = n` steps: roundoff (`0.07 / 0.01` is `7.
 adds no step. Otherwise `nsteps = ceil(r)`, the first grid point beyond `horizon`, and
 `aligned = false`. `horizon` and `timestep` must be finite and positive.
 
-[`simulate`](@ref) covers an unaligned horizon with the extra step.
+[`simulate`](@ref) ends an aligned grid at `horizon` itself, and covers an unaligned horizon with
+the extra step.
 """
 function simulation_steps(horizon::Real, timestep::Real)
     (isfinite(horizon) && horizon > 0) || throw(ArgumentError("horizon must be finite and positive, got $horizon"))
@@ -428,7 +429,8 @@ function simulate(
         horizon::Real = 30.0,
         rng::Random.AbstractRNG = Random.default_rng()
     )
-    n_steps = simulation_steps(horizon, timestep).nsteps
+    grid = simulation_steps(horizon, timestep)
+    n_steps = grid.nsteps
     dt = Float64(timestep)
     sqrt_dt = sqrt(dt)
 
@@ -443,9 +445,10 @@ function simulate(
     for j in 1:n_steps
         times[j + 1] = j * dt
     end
-    # n_steps·dt can round below the horizon (three steps of 0.3 end at 0.8999999999999999, short of 0.9); the path
-    # covers the horizon it was asked for, and still nothing beyond its last step
-    times[end] = max(times[end], horizon)
+    # An aligned grid ends at the horizon itself: n_steps·dt can round to either side of it (three
+    # steps of 0.3 end at 0.8999999999999999, three of 0.1 at 0.30000000000000004), and the path
+    # covers exactly the horizon it was asked for. An unaligned grid ends at its extra step.
+    grid.aligned && (times[end] = horizon)
 
     # `map` (rather than filling a Vector{RatePath}, a UnionAll eltype) infers the
     # concrete RatePath{...} element type, so downstream pricing loops dispatch
