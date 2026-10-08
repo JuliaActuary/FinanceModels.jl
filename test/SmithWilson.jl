@@ -1,3 +1,5 @@
+using ForwardDiff
+
 @testset "SmithWilson" begin
 
     ufr = 0.03
@@ -77,6 +79,32 @@
 
     sw_swq = fit(Yield.SmithWilson(ufr = ufr, α = α), qs)
     swq_payments, swq_times = FinanceModels.cashflows_timepoints(qs)
+    # rows are the sorted payment times across contracts; one contract's payments at a time are summed
+    mixed_payments, mixed_times = FinanceModels.cashflows_timepoints([[Cashflow(0.5, 2.0), Cashflow(1.0, 1.0), Cashflow(0.25, 2.0)], [Cashflow(3.0, 3.0), Cashflow(2.0, 1.0)]])
+    @test mixed_times == [1.0, 2.0, 3.0]
+    @test mixed_payments isa Matrix{Float64}
+    @test mixed_payments == [1.0 2.0; 0.75 0.0; 0.0 3.0]
+    big_payments, _ = FinanceModels.cashflows_timepoints([Cashflow(big"1.000000000000000000000000000001", 1.0)])
+    @test eltype(big_payments) == BigFloat
+    @test big_payments[1] == big"1.000000000000000000000000000001"
+    dual_amount = ForwardDiff.Dual(1.0, 1.0)
+    dual_payments, _ = FinanceModels.cashflows_timepoints([Cashflow(dual_amount, 1.0)])
+    @test dual_payments[1] == dual_amount
+    # amounts at the same time are summed in floating point, keeping their numeric type
+    int_payments, _ = FinanceModels.cashflows_timepoints([[Cashflow(Int8(100), 1.0), Cashflow(Int8(100), 1.0)]])
+    @test eltype(int_payments) == Float64
+    @test int_payments == fill(200.0, 1, 1)
+    big_sum, _ = FinanceModels.cashflows_timepoints([[Cashflow(big"0.1", 1.0), Cashflow(big"0.2", 1.0)]])
+    @test eltype(big_sum) == BigFloat
+    @test big_sum[1] == big"0.1" + big"0.2"
+    dual_sum, _ = FinanceModels.cashflows_timepoints([[Cashflow(dual_amount, 1.0), Cashflow(dual_amount, 1.0)]])
+    @test dual_sum[1] == 2 * dual_amount
+    # an empty quote set keeps a concrete amount type; an untyped one has none and gives Float64
+    @test eltype(first(FinanceModels.cashflows_timepoints(Cashflow{Float32, Float64}[]))) == Float32
+    @test eltype(first(FinanceModels.cashflows_timepoints(Cashflow{BigFloat, Float64}[]))) == BigFloat
+    @test eltype(first(FinanceModels.cashflows_timepoints(Any[]))) == Float64
+    # payments at -0.0 and 0.0 are at the same instant, so they share a row
+    @test FinanceModels.cashflows_timepoints([[Cashflow(1.0, 0.0), Cashflow(2.0, -0.0)]]) == (fill(3.0, 1, 1), [0.0])
     @testset "SwapQuotes round-trip" for swapIdx in 1:length(coupon)
         @test sum(discount.(sw_swq, swq_times) .* swq_payments[:, swapIdx]) ≈ 1.0
     end
@@ -96,6 +124,32 @@
     sw_bbq = fit(Yield.SmithWilson(ufr = ufr, α = α), qs)
     @testset "BulletBondQuotes round-trip" for bondIdx in 1:length(bbq_prices)
         @test sum(discount.(sw_bbq, swq_times) .* swq_payments[:, bondIdx]) ≈ bbq_prices[bondIdx]
+    end
+
+    @testset "coupon sensitivities" begin
+        # the closed-form fit carries dual coupon amounts through the cashflow matrix
+        coupon_curve(x) = fit(Yield.SmithWilson(ufr = ufr, α = α), [Quote(1.0, Bond.Fixed(x, Periodic(2), 2.0))])
+        coupon_discount(x) = discount(coupon_curve(x), 3.0)
+        d = ForwardDiff.derivative(coupon_discount, 0.04)
+        @test ForwardDiff.value(coupon_discount(ForwardDiff.Dual(0.04, 1.0))) ≈ coupon_discount(0.04) rtol = 1.0e-14
+        @test d ≈ (coupon_discount(0.04 + 1.0e-6) - coupon_discount(0.04 - 1.0e-6)) / 2.0e-6 rtol = 1.0e-8
+        # at 256 bits a BigFloat central difference is exact far below Float64 precision
+        big_d = setprecision(BigFloat, 256) do
+            x, h = big(0.04), big"1e-30"
+            (coupon_discount(x + h) - coupon_discount(x - h)) / 2h
+        end
+        @test d ≈ big_d rtol = 1.0e-12
+
+        # each quote's coupon moves its own column of the matrix
+        swap_discount(c) = discount(fit(Yield.SmithWilson(ufr = ufr, α = α), Quote.(1.0, Bond.Fixed.(c, frequency, maturities))), 5.0)
+        big_grad = setprecision(BigFloat, 256) do
+            c, h = big.(coupon), big"1e-30"
+            map(eachindex(c)) do i
+                e = h .* (eachindex(c) .== i)
+                (swap_discount(c .+ e) - swap_discount(c .- e)) / 2h
+            end
+        end
+        @test ForwardDiff.gradient(swap_discount, coupon) ≈ big_grad rtol = 1.0e-11
     end
 
 
