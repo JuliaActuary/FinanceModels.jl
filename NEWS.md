@@ -49,6 +49,18 @@ calibration from the implicit function theorem; their values are the primal fit,
 Dual maturities, nested dual numbers, dual numbers from two differentiations, loss fits that
 do not reprice their quotes, and other models' fits throw an `ArgumentError` (#290).
 
+Optimizer-backed fits tell their own ForwardDiff tags apart from any other, including an enclosing
+fit's: the tags of each running fit carry an owner number of their own. A parameter vector or raw
+loss value carrying another tag throws an `ArgumentError` before it is converted. So a caller's
+dual number that reaches the loss (inside a contract type `fit` does not strip, such as an option
+strike or a `Forward`-wrapped amount, or in any input of a non-spline fit) throws at the first
+evaluation where it appears in the loss. Previously some reached the optimizer, and ForwardDiff
+returned the derivative of its iterations: `0.0` under `NelderMead`. This includes nested fits
+whose quote vectors (`Any[]`, `Quote[]`) hide their element types and whose dependence on the
+enclosing fit appears only after the starting point. Bootstrap steps and implicit roots check their
+residuals' values likewise. Supported spline calibration sensitivities still use implicit
+differentiation.
+
 ### Derivatives at interpolation kinks
 
 `Spline.MonotoneConvex()`, `Spline.PCHIP()`, and `Spline.Akima()` are only piecewise smooth in

@@ -124,7 +124,6 @@ __default_optic(m::MyModel) = (
     (@optic(_.b),),
 )
 ```
-```
 
     
 
@@ -193,12 +192,25 @@ __default_optim(::Spline.MonotoneConvex) = OptimizationOptimJL.LBFGS()
 
 __default_loss(m) = Fit.Loss(x -> x^2)
 
-# One AD backend for every `fit` loss function. `SecondOrder` serves both first-order
-# optimizers (LBFGS/Fminbox use the gradient, via the inner backend) and second-order
-# ones (Newton/IPNewton use the Hessian), so OptimizationBase never auto-promotes a
-# first-order declaration and warns. First-order paths never instantiate the Hessian,
-# so declaring it costs them nothing.
-const __FIT_ADTYPE = DifferentiationInterface.SecondOrder(AutoForwardDiff(), AutoForwardDiff())
+# The AD backend of one solve. `SecondOrder` serves both first-order optimizers (LBFGS/Fminbox use
+# the gradient, via the inner backend) and second-order ones (Newton/IPNewton use the Hessian), so
+# OptimizationBase never auto-promotes a first-order declaration and warns; first-order paths never
+# build the Hessian. ForwardDiff tells dual numbers apart only by their tags' types, so solves that
+# overlap (a fit inside another fit's loss, or fits on several threads) need tags of different types:
+# each running solve leases an owner number `O` and puts it in its tags.
+struct __FitTagKey{O, N} end
+
+# The owner numbers of the running solves. A solve leases the lowest free one and returns it when it
+# ends, so sequential fits reuse owner 1 and its compiled methods, and only overlapping solves add one.
+const __FIT_OWNERS = Bool[]
+const __FIT_OWNERS_LOCK = ReentrantLock()
+function __lease_fit_owner()
+    return lock(__FIT_OWNERS_LOCK) do
+        i = findfirst(!, __FIT_OWNERS)
+        i === nothing ? (push!(__FIT_OWNERS, true); length(__FIT_OWNERS)) : (__FIT_OWNERS[i] = true; i)
+    end
+end
+__return_fit_owner(i) = lock(() -> (__FIT_OWNERS[i] = false), __FIT_OWNERS_LOCK)
 
 # The fitting loss: `loss_method.fn` summed over the price residuals of `quotes` under `model`.
 __quote_loss(model, loss_method, quotes) = mapreduce(+, quotes) do q
@@ -237,9 +249,24 @@ end
 # (capturing them in `loss` made a Nelson-Siegel fit about 8% slower). Every optimizer-backed fit
 # either returns a successful solution or throws: a failed solve may leave the solution equal to
 # `x0`, and a model built from it would make optimizer failure look like a valid (but unfitted)
-# result.
-function __minimize(loss, x0, quotes, optimizer, solve_kwargs; lb = nothing, ub = nothing)
-    prob = Optimization.OptimizationProblem(Optimization.OptimizationFunction(loss, __FIT_ADTYPE), x0, quotes; lb, ub)
+# result. Every evaluation runs through `__own_duals`; SciMLBase gives `x` the type of a dual number
+# it finds in the quotes, so that case throws at the first evaluation. `who` and `hint` name the fit
+# in the error. The solve holds its owner number until it returns or throws.
+function __minimize(loss, x0, quotes, optimizer, solve_kwargs; lb = nothing, ub = nothing, who, hint)
+    owner = __lease_fit_owner()
+    try
+        return __minimize(Val(owner), loss, x0, quotes, optimizer, solve_kwargs; lb, ub, who, hint)
+    finally
+        __return_fit_owner(owner)
+    end
+end
+function __minimize(::Val{O}, loss, x0, quotes, optimizer, solve_kwargs; lb, ub, who, hint) where {O}
+    outer = ForwardDiff.Tag(__FitTagKey{O, :outer}(), eltype(x0))
+    inner = ForwardDiff.Tag(__FitTagKey{O, :inner}(), eltype(x0))  # created second, so it nests inside `outer`
+    own = Tuple{typeof(outer), typeof(inner)}
+    adtype = DifferentiationInterface.SecondOrder(AutoForwardDiff(; tag = outer), AutoForwardDiff(; tag = inner))
+    objective(x, qs) = convert(eltype(x), __own_duals(x -> loss(x, qs), x, eltype(x), own, who, hint))
+    prob = Optimization.OptimizationProblem(Optimization.OptimizationFunction(objective, adtype), x0, quotes; lb, ub)
     sol = Optimization.solve(prob, optimizer; solve_kwargs...)
     Optimization.SciMLBase.successful_retcode(sol.retcode) || throw(
         FitConvergenceError(sol.retcode, "model fitting did not converge")
@@ -317,7 +344,10 @@ ForwardDiff.gradient(value, [0.03, 0.032, 0.035, 0.037])   # ∂value/∂quoted 
   distance to the exact solution.
 - A fitted `Spline.MonotoneConvex()`, `Spline.PCHIP()`, or `Spline.Akima()` curve that lies on a
   kink of its interpolation (flat quotes, for example) has no derivative there and throws.
-- Other models' `fit`s throw an `ArgumentError` when given dual quotes.
+- Other models' `fit`s differentiate none of their inputs. Every solve checks its parameters
+  and its loss (or residual) at each evaluation: a caller's dual number that reaches them, from
+  the quotes, a contract type the fit does not strip, or a fixed model field, throws an
+  `ArgumentError` instead of differentiating the solver's iterations.
 
 See [Sensitivities Through Calibration](@ref) for details.
 
@@ -386,7 +416,6 @@ __default_optic(m::MyModel) = (
     (@optic(_.b),),
 )
 ```
-```
 
 
 ## Additional Examples
@@ -402,14 +431,7 @@ function fit(
         solve_kwargs = (;)
     ) where
     {F <: Fit.Loss}
-    quotes = collect(quotes)   # read by the check below and by every loss evaluation
-    __quotes_carry_ad(quotes) && throw(
-        ArgumentError(
-            "fit does not differentiate through the calibration of $(nameof(typeof(mod0))) models; " *
-                "spline fits such as fit(Spline.Linear(), quotes) do. To differentiate a valuation with " *
-                "respect to a fitted curve's knot rates, use reconstruct(curve; rates = dual_rates)."
-        )
-    )
+    quotes = collect(quotes)   # read by every loss evaluation
     # AccessibleModels parameterizes the model: the transformed vector the optimizer moves, its
     # bounds, and the model rebuilt from a candidate.
     params = AccessibleModel(mod0, variables)
@@ -427,11 +449,16 @@ function fit(
             end
         end
     end
-    # `__FIT_ADTYPE` is SecondOrder so a bounds-compatible second-order optimizer
-    # (e.g. `IPNewton()`) finds a Hessian; the default `Fminbox(LBFGS())` uses only the
-    # gradient (via the inner `AutoForwardDiff`) and is unaffected.
-    loss(x, qs) = convert(eltype(x), __quote_loss(build(x), method, qs))
-    return build(__minimize(loss, x0, quotes, optimizer, solve_kwargs; lb, ub))
+    loss(x, qs) = __quote_loss(build(x), method, qs)
+    return build(
+        __minimize(
+            loss, x0, quotes, optimizer, solve_kwargs; lb, ub,
+            who = "fit($(nameof(typeof(mod0))))",
+            hint = "This fit does not differentiate its inputs; spline fits such as fit(Spline.Linear(), quotes) " *
+                "differentiate quote prices. To differentiate a valuation with respect to a fitted curve's " *
+                "knot rates, use reconstruct(curve; rates = dual_rates).",
+        )
+    )
 
 end
 
@@ -482,10 +509,10 @@ function __fit_knot_rates(spline, tenors, quotes, primal_quotes, method, extrapo
     # Validate the policy and the knot grid once, up front (duplicate maturities, too few
     # knots for the interpolant, `:extension` with MonotoneConvex, …) with the same errors as
     # direct construction; trial curves reuse them.
-    grid0 = Yield.KnotGrid(__knot_fit_seed(spline, tenors), tenors, spline; who = "fit($(spline))")
-    __check_primal_quotes(Yield.__build(spline, grid0; extrapolation = primal_extrapolation), primal_quotes)
+    who = "fit($(spline))"
+    grid0 = Yield.KnotGrid(__knot_fit_seed(spline, tenors), tenors, spline; who)
     loss(u, qs) = __quote_loss(__trial_curve(spline, u, grid0.tenors, primal_extrapolation), method, qs)
-    rates = __minimize(loss, grid0.rates, primal_quotes, optimizer, solve_kwargs)
+    rates = __minimize(loss, grid0.rates, primal_quotes, optimizer, solve_kwargs; who, hint = __SPLINE_FIT_HINT)
     curve = Yield.ZeroRateCurve(rates, grid0.tenors, spline; extrapolation = primal_extrapolation)   # public result: validated (finite rates)
     return __implicit_knot_curve(curve, quotes, primal_quotes, extrapolation)
 end
@@ -540,8 +567,8 @@ function fit(
     # are `KnotGrid`'s: the returned curve's knots are exactly the quote maturities, validated
     # once, up front, with the same errors as direct construction.
     all(>(0), times) || throw(ArgumentError("bootstrap quote maturities must be positive; got $times"))
-    grid0 = Yield.KnotGrid(zeros(n), times, mod0; who = "fit($(mod0), Bootstrap)")
-    __check_primal_quotes(Yield.__build(mod0, grid0; extrapolation = primal_extrapolation), primal_quotes)
+    who = "fit($(mod0), Bootstrap)"
+    grid0 = Yield.KnotGrid(zeros(n), times, mod0; who)
     zs = zeros(n)
     scales = zeros(n)
 
@@ -553,11 +580,13 @@ function fit(
         # AD-traced evaluation. The trial curve is the returned curve truncated at
         # this knot, and (for local interpolants) later knots leave it unchanged up
         # to this maturity, so the final curve reprices every quote to root precision.
-        f = function (z)
-            zs[i] = z
-            c = __trial_curve(mod0, zs[1:i], times[1:i], primal_extrapolation)
-            return present_value(c, q.instrument) - q.price
-        end
+        f = __PrimalResidual(
+            function (z)
+                zs[i] = z
+                c = __trial_curve(mod0, zs[1:i], times[1:i], primal_extrapolation)
+                return present_value(c, q.instrument) - q.price
+            end, who, __SPLINE_FIT_HINT
+        )
         seed = i == 1 ? 0.0 : zs[i - 1] # seed with the previous zero rate
         # Solve the residual relative to the quote's size (its price, or its value at the seed
         # for a zero-price quote), so the root's precision does not depend on its notional.

@@ -25,7 +25,7 @@ end
 # Primal copy of a contract: dual numbers in prices, rates, and amounts are replaced by their
 # values. A contract that carries none is returned itself (`===`), so primal calibrations
 # take exactly their former path. Unknown contract types are returned unchanged; a dual
-# number hidden in one is caught when the fit checks its primal residuals.
+# number hidden in one reaches the primal solve, which throws (`__foreign_dual`).
 __primal_contract(x) = x
 function __primal_contract(c::FinanceCore.Cashflow)
     __no_dual_time(c.time)
@@ -72,23 +72,11 @@ function __calibration_quotes(quotes)
     return qs, map(__primal_quote, qs)
 end
 
-__quotes_carry_ad(quotes) = any(q -> __primal_quote(q) !== q, quotes)
-
-# Before solving: a dual number that survived `__primal_contract` (inside a contract type it
-# does not know) would reach the solver and mix with its internal derivatives.
-function __check_primal_quotes(curve, quotes)
-    for q in quotes
-        r = present_value(curve, q.instrument) - q.price
-        __ad_depth(r) == 0 || throw(
-            ArgumentError(
-                "fit cannot differentiate through a quote on $(nameof(typeof(q.instrument))): dual numbers are " *
-                    "supported in quote prices and in the rates and amounts of Cashflow, Composite, Bond.Fixed, " *
-                    "Bond.Floating, and FX.BasisSwapLeg instruments."
-            )
-        )
-    end
-    return nothing
-end
+# Spline fits differentiate these positions; a dual number elsewhere reaches the primal solve,
+# which throws (`__foreign_dual`).
+const __SPLINE_FIT_HINT = "Spline fits differentiate quote prices, the coupon rates of Bond.Fixed and " *
+    "Bond.Floating, and the amounts of Cashflow and FX.BasisSwapLeg, also inside a Composite or a vector; " *
+    "a dual number inside another contract type is not supported."
 
 # The one dual type shared by `xs` (nothing when all are primal).
 function __common_dual_type(xs)
