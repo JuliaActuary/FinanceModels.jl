@@ -531,6 +531,8 @@ module Option
     end
 
     import ..FinanceCore: maturity
+    maturity(c::EuroCall) = c.maturity
+    maturity(c::EuroPut) = c.maturity
     maturity(c::ZCBCall) = c.bond_maturity
     maturity(c::ZCBPut) = c.bond_maturity
     maturity(c::Cap) = c.maturity
@@ -552,6 +554,8 @@ struct Forward{T <: FinanceCore.Timepoint, I <: FinanceCore.AbstractContract} <:
     time::T
     instrument::I
 end
+
+FinanceCore.maturity(c::Forward) = c.time + FinanceCore.maturity(c.instrument)
 
 
 """
