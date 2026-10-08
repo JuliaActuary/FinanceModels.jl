@@ -145,9 +145,10 @@ using ForwardDiff
             # a knot at t = 0 takes the source curve's zero-rate limit there
             z0 = ZeroRateCurve(c, [0.0, 1.0, 2.0])
             @test knot_tenors(z0) == [0.0, 1.0, 2.0] && all(r -> r ≈ log(1.05), knot_rates(z0))
-            # a source with no zero-rate limit at 0 (its generic zero rate is 0/0) gives a
-            # non-finite rate, which the knot grid rejects
-            @test_throws "rates must be finite" ZeroRateCurve(Yield.SmithWilson(ufr = 0.03, α = 0.1), [0.0, 1.0])
+            # a source without its own zero rate also has the limit, its short rate (the generic
+            # zero rate L/t was 0/0 there, which the knot grid rejected)
+            sw = Yield.SmithWilson(ufr = 0.03, α = 0.1)
+            @test knot_rates(ZeroRateCurve(sw, [0.0, 1.0])) ≈ [0.03, 0.03] rtol = 1.0e-14
             @test_throws ArgumentError ZeroRateCurve(c, [-1.0, 1.0, 2.0])
         end
     end
@@ -361,7 +362,7 @@ using ForwardDiff
         # the derived caches cannot be patched: they are not `reconstruct` keywords
         @test_throws MethodError (Accessors.@set zrc._f = Float64[])
         @test_throws MethodError CB.setproperties(zrc, (_tail = nothing,))
-        @test_throws MethodError CB.setproperties(lin, (_fn = nothing,))
+        @test_throws MethodError CB.setproperties(lin, (_interp = nothing,))
         @test_throws MethodError CB.setproperties(zrc, (foo = 1,))
         # ConstructionBase reconstruction preserves the public policy and rebuilds the cache.
         sp = CB.setproperties(zrc, (rates = [0.03, 0.04, 0.05],))
@@ -374,7 +375,7 @@ using ForwardDiff
         @test ForwardDiff.partials(discount(dz, 1.0), 1) ≈ -1.0 * exp(-0.02 * 1.0) atol = 1.0e-12
         # The policy is keyword-only and there is no public positional cache constructor.
         @test_throws MethodError ZeroRateCurve(r, t, Spline.Linear(), :flat_zero)
-        @test_throws MethodError ZeroRateCurve(r, t, Spline.Linear(), getfield(lin, :_fn))
+        @test_throws MethodError ZeroRateCurve(r, t, Spline.Linear(), getfield(lin, :_interp))
     end
 
     # ─── Validation ───────────────────────────────────────────────────────────

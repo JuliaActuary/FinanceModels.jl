@@ -1064,13 +1064,13 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
     # AD forward rate correctness
     # ──────────────────────────────────────────────────────────────────────────
 
-    @testset "AD forward rate" begin
+    @testset "Hull-White initial-curve forward rate" begin
         @testset "Flat curve: f(0,t) = constant" begin
             # For a flat continuous rate c, f(0,t) = c for all t
             c = 0.05
             curve = Yield.Constant(Continuous(c))
             for t in [0.0, 1.0, 5.0, 10.0]
-                @test FinanceModels._hw_forward_rate(curve, t) ≈ c atol = 1.0e-8
+                @test Yield.instantaneous_forward(curve, t) ≈ c atol = 1.0e-8
             end
         end
 
@@ -1080,7 +1080,7 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             m = fit(Spline.Linear(), quotes, Fit.Bootstrap())
             # Forward rate should be positive and finite at various points
             for t in [0.5, 1.0, 2.5, 5.0, 7.5, 10.0, 15.0]
-                f = FinanceModels._hw_forward_rate(m, t)
+                f = Yield.instantaneous_forward(m, t)
                 @test isfinite(f)
                 @test f > 0
             end
@@ -1261,10 +1261,26 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
         # P(t, t | r) = 1
         @test discount(hw, 2.0, 2.0, 0.05) ≈ 1.0
         # P(0, T | f(0,0)) ≈ P(0, T)
-        f00 = FinanceModels._hw_forward_rate(curve, 0.0)
+        f00 = Yield.instantaneous_forward(curve, 0.0)
         for T in [1.0, 5.0, 10.0]
             @test discount(hw, 0.0, T, f00) ≈ discount(hw, T) rtol = 1.0e-8
         end
+        # The curve's log interval replaces log(P(0,T)/P(0,t)), and its forward no longer
+        # differentiates log(discount): both were NaN once the point factors underflow
+        flat = ShortRate.HullWhite(0.1, 0.0, Yield.Constant(Continuous(0.04)))
+        @test discount(flat, 20000.0, 20001.0, 0.04) ≈ exp(-0.04) rtol = 1.0e-12
+        @test Yield.instantaneous_forward(flat, 20000.0) == 0.04
+        # Through a shifted curve whose base has no zero rate of its own (it threw at t = 0)
+        for base in (ShortRate.Vasicek(0.1, 0.03, 0.01, 0.04), Yield.SmithWilson(ufr = 0.03, α = 0.1))
+            shifted = ShortRate.HullWhite(0.1, 0.01, Yield.TenorShift(base, (z, t) -> z))
+            path = only(simulate(shifted; n_scenarios = 1, horizon = 1.0, rng = MersenneTwister(1)))
+            @test FinanceModels._sim_initial_rate(shifted) ≈ Yield.instantaneous_forward(base, 0.0) rtol = 1.0e-12
+            @test 0 < discount(path, 1.0) < 1
+        end
+        # Float32 throughout: the forward at t = 0 floored t at the Float64 literal 1e-10
+        hw32 = ShortRate.HullWhite(0.1f0, 0.01f0, Yield.Constant(Continuous(0.04f0)))
+        @test discount(hw32, 1.0f0, 2.0f0, 0.04f0) isa Float32
+        @test Yield.instantaneous_forward(hw32, 0.0f0) isa Float32
     end
 
     # ──────────────────────────────────────────────────────────────────────────

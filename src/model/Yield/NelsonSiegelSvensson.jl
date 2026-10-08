@@ -55,31 +55,46 @@ function NelsonSiegel(τ₁ = 1.0)
     return NelsonSiegel(τ₁, 1.0, 0.0, 0.0)
 end
 
-# The zero rates for a time derivative at t = 0 (see `__dual_at_origin`), where the closed form's
-# decay (1 - e^{-q})/q is 0/0: the decay comes from its Taylor series, exact at 0 through the eighth
-# derivative. They are out of line, so that `zero` stays small enough to inline.
-const __NS_DECAY_COEFFS = ntuple(k -> 1 // factorial(k), 9)
-__ns_decay_at_origin(q) = __evalpoly_exact(-q, __NS_DECAY_COEFFS)
-@noinline function __ns_zero_at_origin(ns, t)
-    q = t / ns.τ₁
-    d = __ns_decay_at_origin(q)
-    return Continuous(ns.β₀ + ns.β₁ * d + ns.β₂ * (d - exp(-q)))
+# The loadings near t = 0, the decay (1 - e^{-q})/q and the hump decay - e^{-q}. Their closed forms
+# cancel there: at q = 5e-17, e^{-q} rounds to 1, so the decay is 0 instead of 1 (the zero rate was off
+# by β₁ + β₂). For |q| < 0.1 they come from their Taylor series instead,
+#     decay = Σⱼ (-q)ʲ/(j + 1)!,   hump = q·Σⱼ (-q)ʲ (j + 1)/(j + 2)!,
+# whose omitted terms are below Float64 rounding there, and which are exact at q = 0 in value and in
+# their derivatives (a time derivative at t = 0). Out of line, so that `zero` stays small enough to
+# inline; beyond the band the closed form is unchanged.
+const __NS_SERIES_Q = 0.1
+const __NS_DECAY_COEFFS = ntuple(k -> 1 // factorial(k), 12)
+const __NS_HUMP_COEFFS = ntuple(k -> k // factorial(k + 1), 12)
+__ns_short(q) = abs(q) < __NS_SERIES_Q
+function __ns_loadings(q)
+    __ns_short(q) && return (__evalpoly_exact(-q, __NS_DECAY_COEFFS), q * __evalpoly_exact(-q, __NS_HUMP_COEFFS))
+    d = -expm1(-q) / q
+    return (d, d - exp(-q))
 end
-@noinline function __nss_zero_at_origin(nss, t)
-    q₁, q₂ = t / nss.τ₁, t / nss.τ₂
-    d₁, d₂ = __ns_decay_at_origin(q₁), __ns_decay_at_origin(q₂)
-    return Continuous(nss.β₀ + nss.β₁ * d₁ + nss.β₂ * (d₁ - exp(-q₁)) + nss.β₃ * (d₂ - exp(-q₂)))
+@noinline function __ns_zero_short(ns, q)
+    d, h = __ns_loadings(q)
+    return Continuous(ns.β₀ + ns.β₁ * d + ns.β₂ * h)
+end
+@noinline function __nss_zero_short(nss, q₁, q₂)
+    (d₁, h₁), (_, h₂) = __ns_loadings(q₁), __ns_loadings(q₂)
+    return Continuous(nss.β₀ + nss.β₁ * d₁ + nss.β₂ * h₁ + nss.β₃ * h₂)
 end
 
 function Base.zero(ns::NelsonSiegel, t)
-    iszero(t) && return Continuous(ns.β₀ + ns.β₁)  # lim_{t→0}: decay → 1, hump → 0
-    __dual_at_origin(t) && return __ns_zero_at_origin(ns, t)
+    q = t / ns.τ₁
+    __ns_short(q) && return __ns_zero_short(ns, q)
     # Bind leaf subexpressions (q, e) only — do NOT combine into `decay = (1-e)/q` and
     # write `β·decay`: that reassociates `(β·(1-e))/q → β·((1-e)/q)`, and the sub-ULP
     # gradient shift tips the (documented, highly sensitive) NSS calibration into NaN.
-    q = t / ns.τ₁
     e = exp(-q)
     return Continuous(ns.β₀ + ns.β₁ * (1 - e) / q + ns.β₂ * ((1 - e) / q - e))
+end
+# f = (z·t)′ = β₀ + β₁e^{-q} + β₂qe^{-q}: no cancellation, and β₀ at t = ∞
+function instantaneous_forward(ns::NelsonSiegel, t)
+    __at_infinity(t) && return ns.β₀ + zero(t)
+    q = t / ns.τ₁
+    e = exp(-q)
+    return ns.β₀ + ns.β₁ * e + ns.β₂ * q * e
 end
 FinanceCore.discount(ns::NelsonSiegel, t) = _discount_from_zero(ns, t)
 __log_discount(ns::NelsonSiegel, t) = __zero_log_discount(ns, t)
@@ -150,13 +165,12 @@ end
 NelsonSiegelSvensson(τ₁ = 1.0, τ₂ = 1.0) = NelsonSiegelSvensson(τ₁, τ₂, 0.0, 0.0, 0.0, 0.0)
 
 function Base.zero(nss::NelsonSiegelSvensson, t)
-    iszero(t) && return Continuous(nss.β₀ + nss.β₁)  # lim_{t→0}: same as NelsonSiegel; β₂, β₃ vanish
-    __dual_at_origin(t) && return __nss_zero_at_origin(nss, t)
+    q₁ = t / nss.τ₁
+    q₂ = t / nss.τ₂
+    (__ns_short(q₁) || __ns_short(q₂)) && return __nss_zero_short(nss, q₁, q₂)
     # Bind leaf subexpressions (q, e) only — see the NelsonSiegel `zero` above. Do NOT
     # combine into shared `decay = (1-e)/q` intermediates: reassociating the `β·(1-e)/q`
     # products shifts ForwardDiff gradients enough to tip the sensitive NSS fit into NaN.
-    q₁ = t / nss.τ₁
-    q₂ = t / nss.τ₂
     e₁ = exp(-q₁)
     e₂ = exp(-q₂)
     return Continuous(nss.β₀ + nss.β₁ * (1 - e₁) / q₁ + nss.β₂ * ((1 - e₁) / q₁ - e₁) + nss.β₃ * ((1 - e₂) / q₂ - e₂))
@@ -164,5 +178,11 @@ end
 FinanceCore.discount(nss::NelsonSiegelSvensson, t) = _discount_from_zero(nss, t)
 __log_discount(nss::NelsonSiegelSvensson, t) = __zero_log_discount(nss, t)
 __log_native(::NelsonSiegelSvensson) = true
+function instantaneous_forward(nss::NelsonSiegelSvensson, t)
+    __at_infinity(t) && return nss.β₀ + zero(t)
+    q₁, q₂ = t / nss.τ₁, t / nss.τ₂
+    e₁, e₂ = exp(-q₁), exp(-q₂)
+    return nss.β₀ + nss.β₁ * e₁ + nss.β₂ * q₁ * e₁ + nss.β₃ * q₂ * e₂
+end
 Base.zero(nss::NelsonSiegelSvensson, ts::AbstractArray) = zero.(Ref(nss), ts)
 FinanceCore.discount(nss::NelsonSiegelSvensson, ts::AbstractArray) = discount.(Ref(nss), ts)

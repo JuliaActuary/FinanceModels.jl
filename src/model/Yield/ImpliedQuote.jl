@@ -1,7 +1,6 @@
-# A curve view that evaluates without dual numbers, so internal derivatives never
-# mix a caller's ForwardDiff tag with an internal one. Like every curve that forwards to another,
-# it forwards both interval methods, `discount(c, from, to)` and `__log_interval`, so the wrapped
-# curve's own interval rule applies; `__log_native` only selects a leaf curve's default intervals.
+# A curve view that evaluates without dual numbers, so internal derivatives never mix a caller's
+# ForwardDiff tag with an internal one. Like `HullWhite`, it forwards every capability in
+# `__FORWARDED_CAPABILITIES`.
 struct __PrimalCurve{C} <: AbstractYieldModel
     curve::C
 end
@@ -17,6 +16,7 @@ function Base.zero(c::__PrimalCurve, t)
     z = convert(Continuous(), Base.zero(c.curve, t))
     return Continuous(__primal(FinanceCore.rate(z)))
 end
+instantaneous_forward(c::__PrimalCurve, t) = __primal(instantaneous_forward(c.curve, t))
 
 """
     implied_quote(curve, family, maturity; guess = 0.0, bracket = (-0.5, 1.0))
@@ -68,4 +68,76 @@ function implied_quote(curve, family::F, maturity; guess = 0.0, bracket = (-0.5,
         g, g_primal, guess; bracket, scale, who = "implied_quote",
         hint = "implied_quote differentiates through the curve only, not through `family` or `guess`."
     )
+end
+
+"""
+    par(curve,time;frequency=2)
+
+Calculate the par yield for maturity `time` for the given `curve` and `frequency`. Returns a `Rate` object with periodicity corresponding to the `frequency`.
+
+If `time` is shorter than one regular coupon period (e.g. `time=0.5` with `frequency=1`), the single stub payment implies a compounding frequency of `1/time`: the result is quoted as `Periodic(1/time)` when `1/time` is a (near-)integer, and otherwise an `ArgumentError` is thrown because the implied frequency cannot be represented as a `Periodic` rate.
+
+If `time` is longer than one coupon period but not a whole number of periods, the schedule has a short first stub which accrues its actual length (see `Bond.coupon_times`); the result is the internal rate of return of the par-priced true-accrual schedule, quoted as `Periodic(frequency)` — so `par` of a flat curve recovers the curve's rate at any maturity. On such stub schedules this yield quote differs from the annualized par *coupon* `c` solving `c·Σᵢ δᵢ·DF(tᵢ) + DF(T) = 1`, which is what `InterestRateSwap` uses for its fixed leg.
+
+# Examples
+
+```julia-repl
+julia> c = Yield.Constant(0.04);
+
+julia> par(c,4)
+Periodic(0.03960780543711406, 2)
+
+julia> par(c,4;frequency=1)
+Periodic(0.040000000000000036, 1)
+
+julia> par(c,0.6;frequency=4)
+Periodic(0.039413626195875295, 4)
+
+julia> par(c,0.2;frequency=4)
+Periodic(0.039374942589460726, 5)
+
+julia> par(c,2.5)
+Periodic(0.03960780543711406, 2)
+```
+"""
+function par(curve, time; frequency = 2)
+    coup_times = coupon_times(time, frequency)
+    mat_disc = discount(curve, time)
+    coupon_pv = sum(discount(curve, t) for t in coup_times)
+    Δt = step(coup_times)
+    r = (1 - mat_disc) / coupon_pv
+
+    # A maturity that is not a whole number of periods leaves a short first stub
+    # which accrues its actual length: such schedules pay `c·δᵢ` with the
+    # annualized coupon `c` solving the true-accrual par condition, so the IRR
+    # below is that of the correctly-accrued par-priced bond. Whole-period
+    # schedules pay `r` every period (the historical construction, unchanged).
+    stub = length(coup_times) > 1 && !__regular_schedule(time, frequency)
+    c = stub ? __par_coupon(curve, time, frequency) : r
+
+    # Build cash flows: initial outflow of -1, then coupons, final coupon+principal 1+coupon
+    n = length(coup_times)
+    cfs = Vector{typeof(r)}(undef, n + 1)
+    times = Vector{typeof(Δt)}(undef, n + 1)
+
+    cfs[1] = -one(r)
+    times[1] = zero(Δt)
+
+    @inbounds for i in 1:n
+        coup = stub ? c * (i == 1 ? first(coup_times) : 1 / frequency) : r
+        cfs[i + 1] = i == n ? 1 + coup : coup
+        times[i + 1] = coup_times[i]
+    end
+
+    r = FinanceCore.internal_rate_of_return(cfs, times)
+    frequency_inner = 1 / Δt
+    if !isinteger(round(frequency_inner, digits = 8))
+        throw(
+            ArgumentError(
+                "par(curve, $time; frequency=$frequency) implies a coupon period of $Δt and a compounding frequency of 1/Δt = $frequency_inner, which is not an integer and cannot be represented as a `Periodic` rate. Choose a maturity commensurate with the coupon frequency."
+            )
+        )
+    end
+    r = convert(Periodic(frequency_inner), r)
+    return r
 end
