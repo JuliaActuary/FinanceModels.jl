@@ -486,8 +486,12 @@ end
 
 
     @testset "short curve" begin
+        # exact to 1e-12 only when asked: the default stopping rule (gradient norm 1e-8)
+        # leaves about 1e-9 in the zero rate, and where in that band a solve stops
+        # depends on the optimizer's iterates
+        tight = (; g_tol = 1.0e-14)
         zs = ZCBYield.([0.0, 0.05], [1, 2])
-        z = fit(Spline.Cubic(), zs)
+        z = fit(Spline.Cubic(), zs; solve_kwargs = tight)
 
         @test isapprox(zero(z, 1), Periodic(0.0, 1); atol = 1.0e-12)
         @test discount(z, 1) ≈ 1.0
@@ -495,7 +499,7 @@ end
 
         # test no times constructor
         zs = ZCBYield([0.0, 0.05])
-        z = fit(Spline.Cubic(), zs)
+        z = fit(Spline.Cubic(), zs; solve_kwargs = tight)
         @test isapprox(zero(z, 1), Periodic(0.0, 1); atol = 1.0e-12)
         @test discount(z, 1) ≈ 1.0
         @test zero(z, 2) ≈ Periodic(0.05, 1)
