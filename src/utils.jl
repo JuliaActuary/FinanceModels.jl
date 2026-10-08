@@ -157,6 +157,18 @@ end
 # folds at compile time.
 @inline __evalpoly_exact(x, cs) = evalpoly(x, map(c -> convert(typeof(float(__primal(x))), c), cs))
 
+# x·y where an exact zero factor gives zero even when the other is infinite or NaN ("strong zero"),
+# applied to each product of the product rule, so a dual number's partials of every order follow the
+# same rule: a term whose weight is zero contributes nothing when its other factor, or a derivative
+# of it, has overflowed. Other products are x·y.
+__strong_zero_mul(x, y) = __strong_zero_mul(promote(x, y)...)
+__strong_zero_mul(x::T, y::T) where {T <: Real} = iszero(x) || iszero(y) ? zero(T) : x * y
+function __strong_zero_mul(x::D, y::D) where {D <: ForwardDiff.Dual}
+    vx, vy = ForwardDiff.value(x), ForwardDiff.value(y)
+    p = map((dx, dy) -> __strong_zero_mul(vx, dy) + __strong_zero_mul(dx, vy), ForwardDiff.partials(x).values, ForwardDiff.partials(y).values)
+    return D(__strong_zero_mul(vx, vy), ForwardDiff.Partials(p))
+end
+
 # The float element type of a collection of reals, for a copy or an accumulator that keeps the values'
 # numeric type (BigFloat, dual numbers): the declared element type when concrete, otherwise the
 # promotion of the values' types. An untyped empty collection gives `Float64`: the promotion starts

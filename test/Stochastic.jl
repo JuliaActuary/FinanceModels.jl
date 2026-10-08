@@ -1622,6 +1622,15 @@ end
             dr = ForwardDiff.derivative(y -> logP(a, b, σ, y, τ), r)
             @test dr ≈ B rtol = 1.0e-14
         end
+        # Second derivatives keep the partials of a zero weight: with σ = 0 and r = b, ∂²P/∂σ² > 0
+        # comes from σ's partials alone.
+        for (a, τ) in ((-1.0, 300.0), (-0.1, 500.0))
+            p = [a, 0.03, 0.0, 0.03]
+            H = ForwardDiff.hessian(q -> discount(ShortRate.Vasicek(q[1], q[2], q[3], Continuous(q[4])), τ), p)
+            R = ForwardDiff.hessian(q -> exp(-ref(q..., big(τ))), big.(p))
+            @test H[3, 3] > 0
+            @test all(map((h, r) -> abs(h - r) <= 1.0e-13 * abs(r), H, R))
+        end
     end
     # A constant short rate prices like a constant curve, whatever the mean reversion.
     for a in (-1.0, -0.1, 0.1)
@@ -1629,6 +1638,24 @@ end
         @test discount(m, 500) ≈ exp(-15) rtol = 1.0e-12
         @test rate(Yield.instantaneous_forward(m, 500)) ≈ 0.03 rtol = 1.0e-12
         @test rate(zero(m, 500)) ≈ 0.03 rtol = 1.0e-12
+    end
+    # Also where e^{|a|τ} overflows (at a = -1, from τ ≈ 88.7 in Float32 and 709.8 in Float64) or its
+    # derivative in a does (from τ ≈ 84.3 and 703): the terms with zero weights are zero.
+    for T in (Float32, Float64), τ in T.((85, 100, 709, 710, 1000, Inf))
+        m = ShortRate.Vasicek(-one(T), T(0.03), zero(T), Continuous(T(0.03)))
+        @test discount(m, τ) isa T
+        @test discount(m, τ) ≈ exp(-T(0.03) * τ)
+        @test rate(Yield.instantaneous_forward(m, τ)) == T(0.03)
+        isfinite(τ) && @test rate(zero(m, τ)) ≈ T(0.03)
+        @test ForwardDiff.derivative(a -> discount(ShortRate.Vasicek(a, T(0.03), zero(T), Continuous(T(0.03))), τ), -one(T)) == 0
+    end
+    # The gradient in (a, b, σ, r) is (0, P·(B - τ), 0, -P·B), also where B is finite but ∂B/∂a is not.
+    for (T, τ) in ((Float32, 85), (Float64, 709))
+        P, B = exp(-big(T(0.03)) * τ), expm1(big(τ))
+        g = ForwardDiff.gradient(q -> discount(ShortRate.Vasicek(q[1], q[2], q[3], Continuous(q[4])), T(τ)), T[-1, 0.03, 0, 0.03])
+        @test g[1] == g[3] == 0
+        @test g[2] ≈ P * (B - τ) rtol = 8eps(T)
+        @test g[4] ≈ -P * B rtol = 8eps(T)
     end
 end
 

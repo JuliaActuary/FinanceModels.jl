@@ -234,22 +234,32 @@ Hull–White swaptions silently dropped every `∂Kᵢ/∂r*·dr*/dθ` term: on 
 swaption, Vasicek's `∂/∂a` had the wrong sign and vega was 9% too high. `r*` now carries
 its implicit-function derivatives; prices are unchanged up to root-finder precision (#290).
 
-### Vasicek and Hull–White near zero mean reversion (changed numbers)
+### Vasicek and Hull–White near zero and negative mean reversion (changed numbers)
 
 Vasicek bond prices used a truncated Taylor expansion below |aτ| = 0.02 and, above it, a closed
 form whose variance terms cancel: `-log P` was off by up to 4.5e-7 (a = 0.001, τ = 19.9), a
 Vasicek swaption by up to 8e-8, and the bond price's derivative in `a` by 6e-5 relative at
 a = 0.001. Hull–White's closed forms switched to their a = 0 limits below |a| = 1e-12, so their
 derivatives in `a` vanished there (a swaption's `∂/∂a` at a = 0 was 0) and they lost digits just
-above the switch. Both models now evaluate these factors to within a few units of Float64
-rounding for every mean reversion, zero and negative included, with exact ForwardDiff
-derivatives. Prices change by the former errors; away from small aτ, only in the last bits.
+above the switch. Near a = 0, both models now evaluate these factors to within a few units of
+Float64 rounding, and their ForwardDiff derivatives in `a` neither vanish nor cancel. Prices there
+change by the former errors.
 Vasicek's discount factor at τ = ∞ with mean reversion a > 0 and no drift term (b = σ²/(2a²)) is its
 limit, exp(−r/a − σ²/(4a³)); it was `NaN`.
-With explosive mean reversion (aτ < −1), Vasicek's bond price and forward group the terms that grow
-like e^{|a|τ}: they cancelled when the short rate was near its long-run level, so a constant 3% rate
-(σ = 0, r = b, a = −0.1) priced its 500-year bond at 1 instead of e^{−15}, and its forward was wrong
-the same way. Prices and forwards for aτ ≥ −1 are bitwise unchanged.
+
+Under explosive mean reversion (aτ < −1), Vasicek's `-log P` and forward have terms that grow like
+e^{|a|τ}, and prices there change by more than rounding:
+- The terms cancelled when the short rate was near its long-run level: a constant 3% rate (σ = 0,
+  r = b, a = −0.1) priced its 500-year bond at 1 instead of e^{−15}, and a = −0.2 was 86% off at
+  200 years. They are now grouped, and accurate to a few units of rounding relative to their size.
+- Where e^{|a|τ} overflowed, a term with a zero weight was 0·∞ = `NaN`. At a = −1 the same rate's
+  price, forward and zero rate were `NaN` from τ ≈ 709.8 in Float64 (88.7 in Float32), and the
+  price's derivative in `a` from τ ≈ 703 (84.3). Such a term is now zero at every derivative order,
+  so a constant rate prices exactly at every horizon, with a forward of b at τ = ∞.
+
+A price or derivative that does not fit the working precision still overflows, to 0, ±Inf or `NaN`
+(where infinite terms meet). So can a derivative with an overflowing factor: ∂²P/∂a∂b at a = −1,
+τ = 85 in Float32 is −Inf, where the exact value is −5.4e37. The grouping applies only for aτ < −1.
 
 ### Differentiable spline fits
 
