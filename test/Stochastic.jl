@@ -380,6 +380,21 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             end
             @test discount(cir_det(1.0e-300, 1.0e16), 10.0) ≈ exp(-0.3) rtol = 4eps()
             @test discount(cir_det(0.5, 0.05), Inf) == 0.0
+            # σ = 0 is not a case of its own: at τ = ∞ with b = 0 the price is exp(-r/a) for a > 0
+            # (it was NaN), the explosive a < 0 rate prices to 0 (it was NaN), and σ → 0 is continuous
+            @test discount(cir_det(0.1, 0.0), Inf) ≈ exp(-0.3) rtol = 4eps()
+            @test discount(cir_det(0.1, -0.05), Inf) == Inf
+            @test discount(cir_det(-0.1, 0.0), Inf) == 0.0
+            @test discount(cir_det(-0.1, 0.0), 1.0e4) == 0.0
+            # (an explosive a < 0 with b ≠ 0 over thousands of years prices outside Float64's range,
+            # the documented limit, so it is checked at τ = 10 only)
+            cases = [
+                ((0.1, 0.0), (10.0, 1.0e4, Inf)), ((0.1, 0.05), (10.0, 1.0e4, Inf)), ((0.1, -0.05), (10.0, 1.0e4, Inf)),
+                ((-0.1, 0.0), (10.0, 1.0e4, Inf)), ((-0.1, 0.02), (10.0,)),
+            ]
+            for ((a, b), τs) in cases, τ in τs
+                @test discount(cir_det(a, b), τ) ≈ discount(ShortRate.CoxIngersollRoss(a, b, 1.0e-300, Continuous(0.03)), τ) rtol = 4eps()
+            end
             # against ∫₀ᵗ (b + (r - b)e^{-as}) ds in high precision, across the series threshold
             det_ref(a, b, r, τ) = exp(-(b * τ + (r - b) * (a == 0 ? τ : -expm1(-a * τ) / a)))
             for a in (1.0e-300, 1.0e-8, 1.0e-3, 0.019, 0.021, 0.05, 1.0), τ in (0.5, 10.0), b in (0.05, -0.01)
@@ -629,6 +644,117 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             γ_hi = sqrt(a^2 + 2 * 0.5^2)
             R_inf_hi = 2a * b / (a + γ_hi)
             @test R_inf_hi < R_inf
+        end
+
+        @testset "CIR prices against high precision" begin
+            # the textbook formula in 4096-bit BigFloat, where neither e^{γτ} nor the power 2ab/σ²
+            # loses anything; -log P for the derivatives
+            quiet(f) = Base.CoreLogging.with_logger(f, Base.CoreLogging.NullLogger())
+            cir(a, b, σ, r = 0.04) = quiet(() -> ShortRate.CoxIngersollRoss(a, b, σ, r))
+            function log_reference(a, b, σ, r, τ)
+                return setprecision(BigFloat, 8192) do
+                    a, b, σ, r, τ = big.((a, b, σ, r, τ))
+                    iszero(σ) && return b * τ + (r - b) * (iszero(a) ? τ : -expm1(-a * τ) / a)
+                    γ = sqrt(a^2 + 2σ^2)
+                    D = (γ + a) * expm1(γ * τ) + 2γ
+                    B = 2expm1(γ * τ) / D
+                    iszero(a * b) && return B * r
+                    return B * r - 2a * b / σ^2 * log(2γ * exp((a + γ) * τ / 2) / D)
+                end
+            end
+            reference(a, b, σ, r, τ) = Float64(exp(-log_reference(a, b, σ, r, τ)))
+            # σ from 0 through values whose σ² underflows; negative, zero and positive mean reversion;
+            # maturities to 10,000 years; b = 0 drops log A. Compared in -log P, wherever that is finite
+            # in Float64 (the explosive a < 0 can push the price itself out of range at 10,000 years).
+            L(a, b, σ, τ) = FinanceModels._cir_log_zcb(a, b, σ, 0.04, τ)
+            for a in (-0.3, -0.1, -1.0e-3, 0.0, 1.0e-6, 1.0e-3, 0.1, 1.0),
+                    σ in (0.0, 1.0e-300, 1.0e-200, 1.0e-150, 1.0e-12, 1.0e-10, 1.0e-8, 1.0e-4, 0.01, 0.1, 1.0),
+                    τ in (0.5, 10.0, 100.0, 1.0e3, 1.0e4), b in (0.03, 0.0, -0.01)
+                ref = Float64(log_reference(a, b, σ, 0.04, τ))
+                isfinite(ref) || continue
+                @test L(a, b, σ, τ) ≈ ref rtol = 1.0e-12 atol = 1.0e-14
+            end
+            # the explosive branch at 10,000 years, where e^{γτ} overflowed to NaN
+            @test discount(cir(-0.1, 0.0, 0.1), 1.0e4) ≈ 0.3352695905014037 rtol = 1.0e-13
+            # No drift towards b (a = 0): r is a martingale absorbed at 0, so P(∞) = exp(-2r/γ) > 0
+            # (0·∞ in the log A term was NaN). And a σ whose σ² underflows, with a = 0.
+            @test discount(cir(0.0, 0.03, 0.1), Inf) ≈ exp(-2 * 0.04 / (sqrt(2) * 0.1)) rtol = 1.0e-14
+            @test discount(cir(0.0, 0.03, 1.0e-200), 10.0) ≈ exp(-0.4) rtol = 1.0e-15
+            # σ = 1e-10 gave 5.6e57 and σ = 1e-12 Inf; 1e4 years at σ = 0.01 gave NaN
+            for σ in (1.0e-4, 1.0e-6, 1.0e-8, 1.0e-10, 1.0e-12, 1.0e-14)
+                @test discount(cir(0.1, 0.03, σ), 10.0) ≈ reference(0.1, 0.03, σ, 0.04, 10.0) rtol = 1.0e-14
+            end
+            @test discount(cir(0.1, 0.03, 0.01), 1.0e4) ≈ reference(0.1, 0.03, 0.01, 0.04, 1.0e4) rtol = 1.0e-12
+            # the inner exponential of the direct formula underflowed here, and it returned 0.0
+            @test discount(cir(0.001, 0.001, 1.0, 0.03), 1.0e4) ≈ 0.9450408057277 rtol = 1.0e-10
+
+            # Interval factors are differences of -log P, so they stay finite where both point
+            # factors are ~1e-130, and compose
+            c = cir(0.1, 0.03, 0.01)
+            @test discount(c, 1.0e4, 1.0e4 + 1) ≈ exp(log_reference(0.1, 0.03, 0.01, 0.04, 1.0e4) - log_reference(0.1, 0.03, 0.01, 0.04, 1.0e4 + 1)) rtol = 1.0e-12
+            @test discount(c, 0.0, 3.0) * discount(c, 3.0, 7.0) ≈ discount(c, 7.0) rtol = 1.0e-14
+            @test discount(c, 0.0, 7.0) == discount(c, 7.0)
+
+            # Derivatives in every argument against differences of the reference
+            function reference_gradient(x)
+                return setprecision(BigFloat, 4096) do
+                    h = big"1.0e-40"
+                    e(i) = h .* (1:5 .== i)
+                    return [Float64((log_reference((x .+ e(i))...) - log_reference((x .- e(i))...)) / 2h) for i in 1:5]
+                end
+            end
+            for x in (
+                    [0.1, 0.03, 1.0e-12, 0.04, 10.0], [1.0, 0.03, 0.3, 0.04, 100.0], [-0.2, 0.03, 0.01, 0.04, 10.0],
+                    [1.0e-3, 0.03, 1.0e-6, 0.04, 0.5], [-0.1, 0.03, 0.1, 0.04, 1000.0],
+                )
+                @test ForwardDiff.gradient(x -> FinanceModels._cir_log_zcb(x...), x) ≈ reference_gradient(x) rtol = 1.0e-7 atol = 1.0e-15
+            end
+            # A dual zero volatility takes the kernel, so second derivatives in σ exist at σ = 0, for
+            # either sign of a; -log P is even in σ, so d²/dσ² there is the limit of (∂/∂σ)/σ
+            Lx(x) = FinanceModels._cir_log_zcb(x...)
+            for a in (0.1, -0.1)
+                H = ForwardDiff.hessian(Lx, [a, 0.03, 0.0, 0.04, 10.0])
+                @test all(isfinite, H)
+                @test H[3, 3] ≈ ForwardDiff.gradient(Lx, [a, 0.03, 1.0e-7, 0.04, 10.0])[3] / 1.0e-7 rtol = 1.0e-8
+            end
+
+            # The time derivative at 0 is -r for every sign of a
+            for a in (-0.2, 0.0, 0.1)
+                @test ForwardDiff.derivative(t -> discount(cir(a, 0.03, 0.05), t), 0.0) ≈ -0.04 rtol = 1.0e-14
+            end
+            @test discount(ShortRate.CoxIngersollRoss(0.1f0, 0.03f0, 1.0f-6, 0.04f0), 10.0f0) isa Float32
+            # Overflow is detected, not assumed from Float64's range: e^{γτ} overflows Float32 at γτ ≈ 89
+            # (a 512-bit reference gives 0.12695157031533033)
+            @test discount(ShortRate.CoxIngersollRoss(-0.1f0, -0.03f0, 0.5f0, 0.04f0), 200.0f0) ≈ 0.12695157031533033 rtol = 1.0e-5
+            # a < 0 at τ = ∞: -log P → +∞ (it was ∞ - ∞)
+            @test discount(cir(-0.1, -0.03, 0.1), Inf) == 0.0
+
+            # At a = σ = 0 the closed form divides by γ = 0; the small-γτ series give the derivatives:
+            # -log P = rτ - rσ²τ³/6 + O(σ⁴) at a = 0, and (r - b)τ³/3 is ∂²/∂a² of Vasicek's at σ = 0
+            f(σ) = discount(cir(0.0, 0.03, σ), 10.0)
+            @test ForwardDiff.derivative(f, 0.0) == 0
+            @test ForwardDiff.derivative(s -> ForwardDiff.derivative(f, s), 0.0) ≈ exp(-0.4) * 0.04 * 10.0^3 / 3 rtol = 1.0e-13
+            Haσ = ForwardDiff.hessian(x -> FinanceModels._cir_log_zcb(x[1], 0.03, x[2], 0.04, 10.0), [0.0, 0.0])
+            @test Haσ ≈ [(0.04 - 0.03) * 10.0^3 / 3 0.0; 0.0 -0.04 * 10.0^3 / 3] rtol = 1.0e-13
+            # The series form only dimensionless powers: a long time with small rates, or a short one with
+            # large rates, overflowed one factor and underflowed the other in Float32 (references from
+            # 512-bit evaluations)
+            @test discount(ShortRate.CoxIngersollRoss(1.0f-4, 1.0f-4, 1.0f-5, 1.0f-4), 2000.0f0) ≈ 0.8187401780607745 rtol = 1.0e-6
+            @test discount(ShortRate.CoxIngersollRoss(100.0f0, 0.03f0, 0.01f0, 0.04f0), 0.001f0) ≈ 0.9999604845215898 rtol = 1.0e-6
+            # Prices don't depend on the time unit: (a, b, σ, r, τ) → (λa, λb, λσ, λr, τ/λ) is the same
+            # model, inside the series band and outside it, for either sign of a
+            for (a, b, σ, r, τ) in ((0.1, 0.03, 0.01, 0.04, 1.0), (0.3, 0.05, 0.2, 0.03, 10.0), (-0.1, 0.02, 0.1, 0.04, 20.0)),
+                    λ in (1.0e-3, 1.0e3, 1.0e6), T in (Float32, Float64)
+                p = discount(ShortRate.CoxIngersollRoss(T(a), T(b), T(σ), T(r)), T(τ))
+                @test discount(ShortRate.CoxIngersollRoss(T(λ * a), T(λ * b), T(λ * σ), T(λ * r)), T(τ / λ)) ≈ p rtol = 50eps(T)
+            end
+            # the series and the closed form meet at the band's edge, (γτ)² = 0.16
+            for a in (0.0, 0.1, -0.1), b in (0.03, -0.01)
+                σ = sqrt((0.16 - a^2 * 4) / 2) / 2      # (γτ)² = 0.16 at τ = 2
+                for τ in (prevfloat(2.0), nextfloat(2.0))
+                    @test L(a, b, σ, τ) ≈ Float64(log_reference(a, b, σ, 0.04, τ)) rtol = 1.0e-14
+                end
+            end
         end
     end
 
@@ -1381,4 +1507,18 @@ end
         @test FinanceModels._decay_integral(big(0.0), big(3.0)) == 3
         @test FinanceModels._vasicek_log_zcb(big(0.0), big"0.05", big(0.0), big"0.03", big(10.0)) ≈ big"0.3" rtol = 4eps(BigFloat)
     end
+end
+
+@testset "Vasicek at an infinite horizon without drift" begin
+    # with b = σ²/(2a²) the drift term vanishes; it was 0·∞ = NaN at τ = ∞ (a > 0)
+    @test discount(ShortRate.Vasicek(0.1, 0.0, 0.0, Continuous(0.03)), Inf) ≈ exp(-0.3) rtol = 1.0e-14
+    a, σ = 0.1, 0.01
+    @test discount(ShortRate.Vasicek(a, σ^2 / (2a^2), σ, Continuous(0.03)), Inf) ≈ exp(-(0.03 / a + σ^2 / (4a^3))) rtol = 1.0e-14
+    # at a finite horizon, derivatives through a coefficient whose value is zero keep its term
+    τ = 10.0
+    x, m = a * τ, expm1(-a * τ)
+    L(v) = -log(discount(v, τ))
+    @test ForwardDiff.derivative(b -> L(ShortRate.Vasicek(a, b, 0.0, Continuous(0.03))), 0.0) ≈ (x + m) / a rtol = 1.0e-12
+    @test ForwardDiff.derivative(s -> ForwardDiff.derivative(σ -> L(ShortRate.Vasicek(a, 0.0, σ, Continuous(0.03))), s), 0.0) ≈
+        (-(x + m) + m^2 / 2) / a^3 rtol = 1.0e-10
 end
