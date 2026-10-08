@@ -356,6 +356,61 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
         @test discount(rp, 1.0) ≈ exp(-0.03)
         @test discount(rp, 2.0) ≈ exp(-0.065)
         @test zero(rp, 2.0) isa FinanceCore.Rate
+        # its short rate is the slope of a step, so it takes a linear interpolant only
+        @test_throws MethodError RatePath(DataInterpolations.CubicSpline(cum, ts))
+        # its grid starts at t = 0, where ∫₀ᵗ r = 0: discount(path, 0) is 1 and an interval from 0
+        # is the point discount factor
+        @test_throws ArgumentError RatePath(DataInterpolations.LinearInterpolation(cum, ts .+ 0.1))
+        @test_throws ArgumentError RatePath(DataInterpolations.LinearInterpolation(cum .+ 0.01, ts))
+    end
+
+    @testset "simulated RatePath domain" begin
+        # A path is defined on its grid [0, 1] only: every evaluation outside it throws rather
+        # than extending the last step (a 1-year simulation used to price a year-10 payment).
+        import DataInterpolations
+        Left, Right = DataInterpolations.LeftExtrapolationError, DataInterpolations.RightExtrapolationError
+        v = ShortRate.Vasicek(0.1, 0.05, 0.0, Continuous(0.03))
+        path = only(simulate(v; n_scenarios = 1, timestep = 0.25, horizon = 1.0))
+        @test discount(path, 0.0) == 1.0
+        @test discount(path, 1.0) == exp(-last(path.interp.u))
+        @test discount(path, 0.5, 1.0) ≈ discount(path, 1.0) / discount(path, 0.5)
+        @test short_rate(path, 0.0) ≈ 0.03 rtol = 0.02
+        @test short_rate(path, 1.0) ≈ 0.05 - 0.02 * exp(-0.1) rtol = 0.02
+        # One right-continuous rate: at a grid time the step that starts there, at the horizon the
+        # last step, the same as the instantaneous forward (which threw at the horizon)
+        ts, L = path.interp.t, path.interp.u
+        slope(i) = (L[i + 1] - L[i]) / (ts[i + 1] - ts[i])
+        @test short_rate(path, ts[2]) == slope(2) == Yield.instantaneous_forward(path, ts[2])
+        @test short_rate(path, 1.0) == slope(length(ts) - 1) == Yield.instantaneous_forward(path, 1.0)
+        @test ForwardDiff.derivative(s -> -log(discount(path, s)), ts[2]) ≈ slope(2) rtol = 1.0e-12
+        @test Yield.instantaneous_forward(path, 0.0) == rate(zero(path, 0.0))
+        for t in (nextfloat(1.0), 2.0)
+            @test_throws Right discount(path, t)
+            @test_throws Right Yield.__log_discount(path, t)
+            @test_throws Right discount(path, 0.5, t)
+            @test_throws Right short_rate(path, t)
+            @test_throws Right Yield.instantaneous_forward(path, t)
+            @test_throws Right present_value(path, Cashflow(1.0, t))
+            @test_throws Right ForwardDiff.derivative(s -> discount(path, s), t)
+        end
+        @test_throws Left discount(path, -0.5)
+        @test_throws Left discount(path, -0.5, 0.5)
+        @test_throws Left short_rate(path, -0.5)
+
+        # pv_mc: the default horizon (maturity + 1) covers the contract, a shorter one throws
+        cf = Cashflow(1.0, 10.0)
+        @test_throws Right pv_mc(v, cf; n_scenarios = 1, horizon = 1.0)
+        @test pv_mc(v, cf; n_scenarios = 1, horizon = 10.0) ≈ discount(v, 10.0) rtol = 1.0e-6
+        @test pv_mc(v, cf; n_scenarios = 1) ≈ discount(v, 10.0) rtol = 1.0e-6
+
+        # The grid covers the requested horizon where n·timestep rounds below it (3 × 0.3 is
+        # 0.8999999999999999), and the domain still ends there
+        for (step, h) in ((0.3, 0.9), (1 / 365, 38 * 0.1), (0.1, 0.7))
+            p = only(simulate(v; n_scenarios = 1, timestep = step, horizon = h))
+            @test last(p.interp.t) >= h
+            @test isfinite(discount(p, h))
+            @test_throws Right discount(p, nextfloat(last(p.interp.t)))
+        end
     end
 
     @testset "Degenerate parameters" begin
@@ -1537,4 +1592,49 @@ end
     @test ForwardDiff.derivative(b -> L(ShortRate.Vasicek(a, b, 0.0, Continuous(0.03))), 0.0) ≈ (x + m) / a rtol = 1.0e-12
     @test ForwardDiff.derivative(s -> ForwardDiff.derivative(σ -> L(ShortRate.Vasicek(a, 0.0, σ, Continuous(0.03))), s), 0.0) ≈
         (-(x + m) + m^2 / 2) / a^3 rtol = 1.0e-10
+end
+
+@testset "simulation_steps: the grid of a simulation" begin
+    # roundoff does not add a step: 0.07 / 0.01 is 7.000000000000001
+    @test FinanceModels.simulation_steps(0.07, 0.01) == (; nsteps = 7, aligned = true)
+    @test FinanceModels.simulation_steps(1.0, 1 / 12) == (; nsteps = 12, aligned = true)
+    @test FinanceModels.simulation_steps(0.7f0, 0.1f0) == (; nsteps = 7, aligned = true)
+    # an unaligned horizon takes the first grid point beyond it
+    @test FinanceModels.simulation_steps(0.9, 0.5) == (; nsteps = 2, aligned = false)
+    for (h, dt) in ((0.0, 0.1), (-1.0, 0.1), (Inf, 0.1), (1.0, 0.0), (1.0, NaN))
+        @test_throws ArgumentError FinanceModels.simulation_steps(h, dt)
+    end
+    # simulate uses that grid: 7 steps to 0.07, and the path ends there
+    v = ShortRate.Vasicek(0.1, 0.03, 0.01, Continuous(0.03))
+    p = only(simulate(v; n_scenarios = 1, timestep = 0.01, horizon = 0.07))
+    @test length(p.interp.t) == 8
+    @test last(p.interp.t) == 0.07
+    @test discount(p, 0.07) isa Real
+    @test_throws FinanceModels.DataInterpolations.RightExtrapolationError discount(p, 0.08)
+    # a payment at the horizon is accepted, and one beyond it throws
+    @test present_value(p, Cashflow(1.0, 0.07)) == discount(p, 0.07)
+    @test_throws FinanceModels.DataInterpolations.RightExtrapolationError present_value(p, Cashflow(1.0, 0.08))
+    # Float32 inputs give the same grid
+    p32 = only(simulate(v; n_scenarios = 1, timestep = 0.1f0, horizon = 0.7f0))
+    @test length(p32.interp.t) == 8
+    @test present_value(p32, Cashflow(1.0, 0.7f0)) isa Real
+    # an aligned path ends at its horizon, whichever side n·dt rounds to (3 · 0.1 is
+    # 0.30000000000000004, 3 · 0.3 is 0.8999999999999999): a payment at the horizon is valued, and
+    # one at the next representable time throws
+    for (h, dt) in ((0.3, 0.1), (0.9, 0.3), (0.07, 0.01), (0.3f0, 0.1f0), (0.9f0, 0.3f0))
+        ph = only(simulate(v; n_scenarios = 1, timestep = dt, horizon = h))
+        @test last(ph.interp.t) == h
+        @test length(ph.interp.t) == FinanceModels.simulation_steps(h, dt).nsteps + 1
+        @test present_value(ph, Cashflow(1.0, h)) > 0
+        @test_throws FinanceModels.DataInterpolations.RightExtrapolationError present_value(ph, Cashflow(1.0, nextfloat(h)))
+    end
+    # only the endpoint moves: the steps and the draws are those of a longer simulation's start
+    p3 = only(simulate(v; n_scenarios = 1, timestep = 0.1, horizon = 0.3, rng = Random.MersenneTwister(7)))
+    p5 = only(simulate(v; n_scenarios = 1, timestep = 0.1, horizon = 0.5, rng = Random.MersenneTwister(7)))
+    @test p3.interp.u == p5.interp.u[1:4]
+    @test p3.interp.t[1:3] == p5.interp.t[1:3]
+    # an unaligned horizon is covered by the extra step
+    q = only(simulate(v; n_scenarios = 1, timestep = 0.5, horizon = 0.9))
+    @test last(q.interp.t) == 1.0
+    @test length(q.interp.t) == FinanceModels.simulation_steps(0.9, 0.5).nsteps + 1
 end

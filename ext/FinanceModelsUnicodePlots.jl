@@ -11,12 +11,13 @@ name(::Type{T}) where {T} = (isempty(T.parameters) ? T : T.name.wrapper)
 # interpolation, `print`, or log statement involving any yield model render a
 # 60-character-wide plot.
 function Base.show(io::IO, ::MIME"text/plain", curve::T) where {T <: FinanceModels.Yield.AbstractYieldModel}
-    r = zero(curve, 1)
+    to = plot_end(curve)
+    r = zero(curve, min(1, to))
     ylabel = isa(r.compounding, FinanceCore.Continuous) ? "Continuous" : "Periodic($(r.compounding.frequency))"
     kind = name(typeof(curve))
     l = UnicodePlots.lineplot(
         0.0, #from
-        30.0,  # to
+        to,
         t -> FinanceCore.rate(FinanceModels.zero(curve, t)),
         xlabel = "time",
         ylabel = ylabel,
@@ -27,4 +28,8 @@ function Base.show(io::IO, ::MIME"text/plain", curve::T) where {T <: FinanceMode
     )
     return show(io, l)
 end
+
+# The plot ends at 30, or at a simulated path's last grid time, beyond which the path throws.
+plot_end(curve) = 30.0
+plot_end(p::FinanceModels.RatePath) = min(30.0, float(last(p.interp.t)))
 end

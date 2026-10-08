@@ -22,4 +22,10 @@ end
     # 60-char-wide plot into every log line and interpolated string)
     @test !occursin("Yield Curve", string(c))
     @test !occursin("Yield Curve", sprint(show, c))
+    # a simulated path is plotted up to its horizon, beyond which it throws (its display threw)
+    v = ShortRate.Vasicek(0.1, 0.03, 0.01, Continuous(0.03))
+    for horizon in (5.0, 0.5)
+        path = only(simulate(v; n_scenarios = 1, timestep = 0.1, horizon))
+        @test occursin("Yield Curve", sprint(show, MIME("text/plain"), path))
+    end
 end

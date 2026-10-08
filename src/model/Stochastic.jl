@@ -350,14 +350,22 @@ end
 # ─── RatePath: a simulated scenario as a yield model ─────────────────────────
 
 """
-    RatePath(interp)
+    RatePath(interp::DataInterpolations.LinearInterpolation)
 
-A simulated interest-rate path wrapped as an `AbstractYieldModel`.
-`interp` maps time `t` to the cumulative integral ∫₀ᵗ r(s) ds so that
-`discount(path, t) = exp(-interp(t))`.
+A simulated interest-rate path wrapped as an `AbstractYieldModel`. `interp` interpolates the
+cumulative integral ∫₀ᵗ r(s) ds linearly over the path's time grid, so
+`discount(path, t) = exp(-interp(t))` and the short rate is constant on each step. The grid starts
+at `t = 0`, where the integral is 0; otherwise construction throws an `ArgumentError`. The path is
+defined where `interp` is; `simulate` builds paths that throw outside their time grid.
 """
-struct RatePath{I} <: Yield.AbstractYieldModel
+struct RatePath{I <: DataInterpolations.LinearInterpolation} <: Yield.AbstractYieldModel
     interp::I
+    function RatePath(interp::I) where {I <: DataInterpolations.LinearInterpolation}
+        t0, L0 = first(interp.t), first(interp.u)
+        (iszero(t0) && iszero(L0)) ||
+            throw(ArgumentError("a RatePath's grid must start at t = 0 with value 0, got $L0 at t = $t0"))
+        return new{I}(interp)
+    end
 end
 
 function FinanceCore.discount(p::RatePath, t)
@@ -369,13 +377,37 @@ Yield.__log_native(::RatePath) = true
 # ─── simulate: path generation ───────────────────────────────────────────────
 
 """
+    simulation_steps(horizon, timestep) -> (; nsteps, aligned)
+
+The number of `timestep`-long steps a simulation to `horizon` takes, and whether `horizon` lies on
+that grid. With `r = horizon / timestep`, `horizon` is aligned when `r` is within `8eps(r)` of an
+integer `n`, and the grid has `nsteps = n` steps: roundoff (`0.07 / 0.01` is `7.000000000000001`)
+adds no step. Otherwise `nsteps = ceil(r)`, the first grid point beyond `horizon`, and
+`aligned = false`. `horizon` and `timestep` must be finite and positive.
+
+[`simulate`](@ref) ends an aligned grid at `horizon` itself, and covers an unaligned horizon with
+the extra step.
+"""
+function simulation_steps(horizon::Real, timestep::Real)
+    (isfinite(horizon) && horizon > 0) || throw(ArgumentError("horizon must be finite and positive, got $horizon"))
+    (isfinite(timestep) && timestep > 0) || throw(ArgumentError("timestep must be finite and positive, got $timestep"))
+    r = float(horizon) / float(timestep)
+    n = round(r)
+    abs(r - n) <= 8eps(r) && return (; nsteps = Int(n), aligned = true)
+    return (; nsteps = ceil(Int, r), aligned = false)
+end
+
+"""
     simulate(model::AbstractStochasticModel;
              n_scenarios=1000, timestep=1/12, horizon=30.0,
              rng=Random.default_rng())
 
 Generate `n_scenarios` interest-rate paths.
 Each path is returned as a `RatePath` (an `AbstractYieldModel`) so it plugs
-directly into `present_value`, `discount`, etc.
+directly into `present_value`, `discount`, etc. A path is defined on its time
+grid of [`simulation_steps`](@ref)`(horizon, timestep).nsteps` steps, from 0 to
+`horizon` (or the first grid point beyond an unaligned `horizon`); evaluating it
+outside that range throws rather than extending the path.
 
 Discretisation schemes:
 - **Vasicek / Hull-White**: the exact Gaussian transition density, so the
@@ -397,9 +429,9 @@ function simulate(
         horizon::Real = 30.0,
         rng::Random.AbstractRNG = Random.default_rng()
     )
-    timestep > 0 || throw(ArgumentError("timestep must be positive, got $timestep"))
+    grid = simulation_steps(horizon, timestep)
+    n_steps = grid.nsteps
     dt = Float64(timestep)
-    n_steps = ceil(Int, horizon / dt)
     sqrt_dt = sqrt(dt)
 
     cache = _sim_cache(model, dt, n_steps)
@@ -413,6 +445,10 @@ function simulate(
     for j in 1:n_steps
         times[j + 1] = j * dt
     end
+    # An aligned grid ends at the horizon itself: n_steps·dt can round to either side of it (three
+    # steps of 0.3 end at 0.8999999999999999, three of 0.1 at 0.30000000000000004), and the path
+    # covers exactly the horizon it was asked for. An unaligned grid ends at its extra step.
+    grid.aligned && (times[end] = horizon)
 
     # `map` (rather than filling a Vector{RatePath}, a UnionAll eltype) infers the
     # concrete RatePath{...} element type, so downstream pricing loops dispatch
@@ -429,9 +465,10 @@ function simulate(
                 0.5 * (_observed_rate(model, r) + _observed_rate(model, r_new)) * dt
             r = r_new
         end
+        # no extrapolation: the path is defined only on its simulated grid
         interp = DataInterpolations.LinearInterpolation(
             cumulative, times;
-            extrapolation = DataInterpolations.ExtrapolationType.Extension
+            extrapolation = DataInterpolations.ExtrapolationType.None
         )
         RatePath(interp)
     end
@@ -528,7 +565,8 @@ by averaging `present_value` across simulated scenarios.
     provides the discount factors. For floating-rate instruments whose cashflows depend
     on the rate path, project cashflows per scenario using `Projection` instead.
 
-The `horizon` should cover the contract's maturity. The default (`maturity + 1`) ensures this.
+The `horizon` must cover the contract's maturity, since a simulated path throws
+beyond its horizon. The default (`maturity + 1`) ensures this.
 """
 function pv_mc(
         model::AbstractStochasticModel, contract;
@@ -739,8 +777,18 @@ The short rate is the derivative of this cumulative integral.
 
 Because the cumulative integral is built from trapezoidal steps, the
 returned rate is piecewise-constant within each timestep — an approximation to the
-continuous short-rate process, not the exact value.
+continuous short-rate process, not the exact value. It is right-continuous: at a grid time
+it is the slope of the step that starts there, and at the path's last time the last step's.
+It is the path's `Yield.instantaneous_forward`.
 """
-function short_rate(path::RatePath, t)
-    return DataInterpolations.derivative(path.interp, t)
+short_rate(path::RatePath, t) = Yield.instantaneous_forward(path, t)
+
+# The slope of L = ∫₀ᵗ r over the grid step that starts at `t` (the last step at the path's last time),
+# so the rate is right-continuous like a knot curve's forward. Outside its grid the interpolant's own
+# extrapolation decides: a simulated path throws, a path built with an extension extends.
+function Yield.instantaneous_forward(p::RatePath, t)
+    ts, L = p.interp.t, p.interp.u
+    first(ts) <= t <= last(ts) || return DataInterpolations.derivative(p.interp, t)
+    i = min(searchsortedlast(ts, t), length(ts) - 1)
+    return (L[i + 1] - L[i]) / (ts[i + 1] - ts[i])
 end
