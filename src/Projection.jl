@@ -23,19 +23,21 @@ An abstract type that controls what gets produced from the model.
 
 Subtypes of `ProjectionKind` define the level of detail in the output of the model. For example, if you just want cashflows or you want a full amortization schedule, you might define an `AmortizationSchedule` kind which shows principle, interest, etc.
 
-After defining a new `ProjectionKind`, you need to define the how the projection works for that new output by extending either:
+After defining a new `ProjectionKind`, you need to define how the projection works for that new output by extending either:
 
 ```julia
-function Transducers.asfoldable(p::Projection{C,M,K}) where {C<:Cashflow,M,K<:CashflowProjection}
+function Transducers.asfoldable(p::Projection{C,M,K}) where {C<:MyContract,M,K<:MyKind}
     ...
 end
 ```
-or 
+or
 ```julia
-function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:Cashflow,M,K<:CashflowProjection}
+function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:MyContract,M,K<:MyKind}
     ...
 end
 ```
+Either extension point folds inside every wrapper (a portfolio, `Composite`, `Forward`,
+`FX.Converted`, a transducer over the contract).
 
 There are examples of this in the documentation.
 
@@ -57,12 +59,17 @@ A concrete subtype of `ProjectionKind` which is the projection which returns onl
 struct CashflowProjection <: ProjectionKind end
 
 # Collecting a Projection #######################
-# Map(identity) is a Transducer, for which `collect` is defined. More on Transducers below
 
-# collecting a Projection gives your the reducible defined below with __foldl__
-Base.collect(p::P) where {P <: AbstractProjection} = p |> Map(identity) |> collect
+# Collecting folds the projection into a vector that widens to the types it receives. A projection
+# that emits nothing gives `Union{}[]`: it is not iterable, so no element type can be inferred.
+Base.collect(p::P) where {P <: AbstractProjection} = foldxl(push!!, p; init = Union{}[])
 # collecting a contract wraps the contract in with the default Projection, defined next
 Base.collect(c::C) where {C <: FinanceCore.AbstractContract} = Projection(c) |> collect
+# Transducers over a projection or a contract (`Projection(c) |> Take(2)`) collect the same way.
+# Transducers' own `collect` infers the element type of an empty result from an iterable, which
+# neither is.
+Base.collect(e::Transducers.Eduction{<:Any, <:Union{AbstractProjection, FinanceCore.AbstractContract}}) =
+    foldxl(push!!, e; init = Union{}[])
 
 # Default Projections ##########################
 
@@ -81,35 +88,53 @@ Projection(c, m) = Projection(c, m, CashflowProjection())
 # https://www.youtube.com/watch?v=6mTbuzafcII
 
 
-# There are two ways to define a reducible collection provided by Transducers.jl:
-# `asfoldable` where you can define your reducible in terms of transducers
-# `__foldl__` where you can define the collection using a `for` loop
-# and `foldl__` you can also define state that is used within the loop
+# Transducers.jl defines a reducible in one of two ways: `asfoldable`, in terms of transducers, or
+# `__foldl__`, with a loop that can carry state.
 
-# this wraps a contract in a default projection and makes a contract a reducible collection of cashflows
-function Transducers.asfoldable(c::C) where {C <: FinanceCore.AbstractContract}
-    return Projection(c) |> Map(identity)
-end
-function Transducers.asfoldable(p::Projection{C, M, K}) where {C <: AbstractArray, M, K}
-    return map(p.contract) do c
-        Projection(c, p.model, p.kind)
-    end |> Cat()
-end
+# A bare contract folds as its default projection, so `collect(contract)` and a transducer over a
+# contract reach the same `Projection` methods, whichever extension point the contract defines.
+Transducers.asfoldable(c::FinanceCore.AbstractContract) = Transducers.asfoldable(Projection(c))
+
+# A wrapper (a portfolio, `Composite`, `Forward`, `FX.Converted`) folds its children's projections
+# through `Cat`, with its own step composed into `rf`. `Cat` applies `asfoldable` to each child, so
+# either extension point folds inside any wrapper, and wrappers nest in any order.
+@inline __concat(rf, val, children) = Transducers.__foldl__(Transducers.Reduction(Cat(), rf), val, children)
+
+# A portfolio is its members' projections, concatenated.
+@inline Transducers.__foldl__(rf, val, p::Projection{C, M, K}) where {C <: AbstractArray, M, K} =
+    __concat(rf, val, map(c -> Projection(c, p.model, p.kind), p.contract))
 
 # A cashflow is the simplest, single item reducible collection
 @inline function Transducers.__foldl__(rf, val, p::Projection{C, M, K}) where {C <: Cashflow, M, K}
-    for i in 1:1
-        val = @next(rf, val, p.contract)
-    end
+    val = @next(rf, val, p.contract)
     return complete(rf, val)
 end
 
-# If a Transducer has been combined with a contract into an Eduction
-# then unwrap the contract and apply the transducer to the projection
+# A transducer over a contract (`contract |> xf`, an `Eduction`): the contract's projection, through
+# `xf` in the order written, then into `rf`. `xf` keeps its own state (`Take`, `Scan`), started and
+# completed here without restarting `rf`, whose input it reaches through `__Emit`. An early stop of
+# `xf` (an inner `Take`) ends this stream only; an early stop of `rf` ends the whole fold, so `__Emit`
+# marks it (`__OuterStop`) on its way back out through `xf`.
+struct __OuterStop{A}
+    acc::A
+end
+struct __Emit{F}
+    rf::F
+end
+@inline function (e::__Emit)(acc, x)
+    r = Transducers.next(e.rf, acc, x)
+    return r isa Transducers.Reduced ? Transducers.reduced(__OuterStop(Transducers.unreduced(r))) : r
+end
 @inline function Transducers.__foldl__(rf, val, p::Projection{C, M, K}) where {C <: Transducers.Eduction, M, K}
-    rf = __rewrap(p.contract.rf, rf)             # compose the xform with any othe existing transducers
-    p_alt = @set p.contract = p.contract.coll    # reset the contract to the underlying contract without transducers
-    return Transducers.__foldl__(rf, val, p_alt)        # project with a newly combined reduction
+    xf = Transducers.Reduction(Transducers.Transducer(p.contract), Transducers.BottomRF(Transducers.Completing(__Emit(rf))))
+    child = Projection(p.contract.coll, p.model, p.kind)
+    acc = Transducers.foldl_nocomplete(Transducers.Reduction(Cat(), xf), Transducers.start(xf, val), (child,))
+    # A stop arrives with `xf` already completed. Otherwise `xf` completes here, and may still emit
+    # (a flushed `Partition`, the last group of `PartitionBy`) and so stop `rf`.
+    acc isa Transducers.Reduced || (acc = complete(xf, acc))
+    # Either way the result is `rf`'s: stopped and completed by `rf` itself, or to complete here.
+    u = Transducers.unreduced(acc)
+    return u isa __OuterStop ? Transducers.reduced(u.acc) : complete(rf, u)
 end
 
 #
@@ -140,7 +165,7 @@ end
 
 
 # here a floating bond references the projections's model to determine
-# what the refernece rate is at that point in time
+# what the reference rate is at that point in time
 @inline function Transducers.__foldl__(rf, val, p::Projection{C, M, K}) where {C <: Bond.Floating, M, K}
     b = p.contract
     ts = Bond.coupon_times(b)
@@ -174,22 +199,30 @@ end
     return complete(rf, val)
 end
 
-# we simply concatenate two reducible collections to create a composite contract
-@inline function Transducers.asfoldable(p::Projection{C, M, K}) where {C <: FinanceCore.Composite, M, K}
-    # creates two sub-projections where the contract projected is decomposed to a non-composite contract
-    # and then concatenate the two projections together
-    ap = @set p.contract = p.contract.a
-    bp = @set p.contract = p.contract.b
-    return (ap, bp) |> Cat()
+# A composite's cashflows are its first part's, then its second's
+@inline Transducers.__foldl__(rf, val, p::Projection{C, M, K}) where {C <: FinanceCore.Composite, M, K} =
+    __concat(rf, val, (Projection(p.contract.a, p.model, p.kind), Projection(p.contract.b, p.model, p.kind)))
+
+# `Forward(s, c)` projects `c` on the models seen from `s`, then shifts every cashflow by `s`.
+@inline function Transducers.__foldl__(rf, val, p::Projection{C, M, K}) where {C <: Forward, M, K <: CashflowProjection}
+    s = p.contract.time
+    inner = Projection(p.contract.instrument, __Rebased(p.model, s), p.kind)
+    return __concat(Transducers.Reduction(Map(cf -> @set cf.time += s), rf), val, (inner,))
 end
 
-# forward contract defines a set of cashflows that are relative to a future point in time,
-# so we adjust the resulting cashflows `time`s by the forward start date
-@inline function Transducers.asfoldable(p::Projection{C, M, K}) where {C <: Forward, M, K <: CashflowProjection}
-    fwd_start = p.contract.time
-    p_alt = @set p.contract = p.contract.instrument
-    return p_alt |> Map(cf -> @set cf.time += fwd_start)
+# The models seen from `time`. A model is rebased only when the instrument reads it (by key, or as the
+# valuation model), so unread entries, a discounting rate and any keyed store pass through.
+struct __Rebased{M, T}
+    models::M
+    time::T
 end
+Base.getindex(r::__Rebased, key) = __rebase(r.models[key], r.time)
+# A model seen from time `t`: a yield curve from `t` on; an FX model with its forward rate at `t` as
+# spot and its curves from `t` on; a flat rate (a `Rate`, or a number read as one) is the same from any
+# start.
+__rebase(m::Yield.AbstractYieldModel, t) = Yield.ForwardStarting(m, t)
+__rebase(m::Union{Real, FinanceCore.Rate}, t) = m
+__rebase(m::FX.Forwards, t) = FX.Forwards(m.pair, forward(m, t), __rebase(m.domestic, t), __rebase(m.foreign, t))
 
 # an `FX.Converted` contract's cashflows are denominated in the base (foreign) currency
 # of an FX pair; convert each amount into the quote (domestic) currency at the
@@ -197,28 +230,19 @@ end
 # from the projection's model store by key, mirroring `Bond.Floating`'s reference-rate
 # lookup, so the wrapped contract still sees the same store (a converted floating leg
 # resolves its own reference curve from it).
-@inline function Transducers.asfoldable(p::Projection{C, M, K}) where {C <: FX.Converted, M, K <: CashflowProjection}
+@inline function Transducers.__foldl__(rf, val, p::Projection{C, M, K}) where {C <: FX.Converted, M, K <: CashflowProjection}
     fx = p.model[p.contract.key]
-    # a mis-keyed store (e.g. a yield curve where the FX model belongs) would otherwise
-    # fail deep inside the transducer pipeline — `forward(curve, t)` returns a `Rate`,
-    # which `Rate`-scales the amount and only errors at `Cashflow` reconstruction; name
-    # the actual problem at its source instead
-    if !(fx isa FX.AbstractFXModel)
-        throw(ArgumentError("`FX.Converted` expects an FX model (e.g. `FX.Forwards`) under the key $(repr(p.contract.key)), but the projection's model store holds a $(typeof(fx))"))
-    end
     # the declared pair guards the conversion's direction: an inverted (or crossed)
     # model under an otherwise-valid key would silently multiply by the reciprocal rate
     if fx.pair != p.contract.pair
         throw(ArgumentError("`FX.Converted` declared $(p.contract.pair) but the model under key $(repr(p.contract.key)) prices $(fx.pair)"))
     end
-    p_alt = @set p.contract = p.contract.contract
-    return p_alt |> Map(cf -> @set cf.amount *= forward(fx, cf.time))
+    inner = @set p.contract = p.contract.contract
+    return __concat(Transducers.Reduction(Map(cf -> @set cf.amount *= forward(fx, cf.time)), rf), val, (inner,))
 end
 
 # an `FX.BasisSwapLeg` is a materialized strip of base-currency cashflows; emit them
-# directly (they need no model to resolve). A leaf contract needs `__foldl__`, not
-# `asfoldable`: wrapper rules like `FX.Converted`'s fold their inner projection through
-# an Eduction, which resolves `__foldl__` methods but does not re-apply `asfoldable`.
+# directly (they need no model to resolve).
 @inline function Transducers.__foldl__(rf, val, p::Projection{C, M, K}) where {C <: FX.BasisSwapLeg, M, K}
     for cf in p.contract.cashflows
         val = @next(rf, val, cf)
@@ -226,49 +250,6 @@ end
     return complete(rf, val)
 end
 
-@inline function Transducers.asfoldable(p::Projection{C, M, K}) where {C <: Cashflow, M, K <: CashflowProjection}
-    return Ref(p.contract) |> Map(identity)
-end
-
-"""
-    __rewrap(from::Transducers.Reduction, to)
-    __rewrap(from, to)
-
-Used to unwrap a Reduction which is a composition of contracts and a transducer and apply the transducers to the associated projection instead of the transducer.
-
-For example, on its own a contract is not project-able, but wrapped in a (default) [`Projection`](@ref) it can be. But it may also be a lot more convienent 
-to construct contracts which have scaling or negated modifications and let that flow into a projection.
-
-# Examples
-
-```julia-repl
-julia> Bond.Fixed(0.05,Periodic(1),3) |> collect
-3-element Vector{Cashflow{Float64, Float64}}:
- Cashflow{Float64, Float64}(0.05, 1.0)
- Cashflow{Float64, Float64}(0.05, 2.0)
- Cashflow{Float64, Float64}(1.05, 3.0)
-
-julia> Bond.Fixed(0.05,Periodic(1),3) |> Map(-) |> collect
-3-element Vector{Cashflow{Float64, Float64}}:
- Cashflow{Float64, Float64}(-0.05, 1.0)
- Cashflow{Float64, Float64}(-0.05, 2.0)
- Cashflow{Float64, Float64}(-1.05, 3.0)
-
-julia> Bond.Fixed(0.05,Periodic(1),3) |> Map(-) |> Map(x->x*2) |> collect
-3-element Vector{Cashflow{Float64, Float64}}:
- Cashflow{Float64, Float64}(-0.1, 1.0)
- Cashflow{Float64, Float64}(-0.1, 2.0)
- Cashflow{Float64, Float64}(-2.1, 3.0)
-```
-"""
-function __rewrap(from::Transducers.Reduction, to)
-    rfx = from.xform                    # get the transducer's "xform" from the projection's contract
-    return __rewrap(from.inner, Transducers.Reduction(rfx, to))          # compose the xform with any othe existing transducers
-end
-function __rewrap(from, to)
-    # we've hit bottom, so return `to`
-    return to
-end
 
 # The projection kind is dispatched internally, so a contract with a closed form can define
 # `present_value(model, p::Projection{MyContract})` without an ambiguity with this method.
