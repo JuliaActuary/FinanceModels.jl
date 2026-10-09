@@ -169,6 +169,43 @@ function __strong_zero_mul(x::D, y::D) where {D <: ForwardDiff.Dual}
     return D(__strong_zero_mul(vx, vy), ForwardDiff.Partials(p))
 end
 
+# p/v without forming 1/v, so that a ratio of two tiny numbers (1e-310/1e-310) is not ∞·tiny; 0 where
+# p is 0. A dual number's partials are (∂p - r·∂v)/v with r = p/v, by the same rule, so no v² is formed.
+__ratio(p, v) = __ratio(promote(p, v)...)
+__ratio(p::T, v::T) where {T <: Real} = iszero(p) ? zero(T) : p / v
+function __ratio(p::D, v::D) where {D <: ForwardDiff.Dual}
+    p0, v0 = ForwardDiff.value(p), ForwardDiff.value(v)
+    r = __ratio(p0, v0)
+    q = map((dp, dv) -> __ratio(dp - __strong_zero_mul(r, dv), v0), ForwardDiff.partials(p).values, ForwardDiff.partials(v).values)
+    return D(r, ForwardDiff.Partials(q))
+end
+
+# log(x), with partials ∂x/x as `__ratio`: a zero partial stays zero where 1/x overflows (a constant
+# weight of 1e-310 under a time derivative), and a tiny one keeps its ratio to x.
+__strong_zero_log(x::Real) = log(x)
+function __strong_zero_log(x::D) where {D <: ForwardDiff.Dual}
+    v = ForwardDiff.value(x)
+    return D(__strong_zero_log(v), ForwardDiff.Partials(map(p -> __ratio(p, v), ForwardDiff.partials(x).values)))
+end
+
+# w·eˣ, where eˣ alone, or a derivative of either factor, can overflow while the product doesn't. The
+# value is the product where that is a normal float, and sign(w)·exp(log|w| + x) otherwise; 0 for
+# w = 0. A dual number's partials are eˣ·∂w + (w·eˣ)·∂x, the first again as `__wexp` and the second a
+# strong-zero product with the value, so that each term is formed from factors that are finite
+# wherever the term is representable, at every order.
+__wexp(w, x) = __wexp(promote(w, x)...)
+function __wexp(w::T, x::T) where {T <: Real}
+    iszero(w) && return zero(T)
+    p = w * exp(x)
+    return floatmin(T) <= abs(p) < Inf ? p : sign(w) * exp(log(abs(w)) + x)
+end
+function __wexp(w::D, x::D) where {D <: ForwardDiff.Dual}
+    w0, x0 = ForwardDiff.value(w), ForwardDiff.value(x)
+    v = __wexp(w0, x0)
+    q = map((dw, dx) -> __wexp(dw, x0) + __strong_zero_mul(v, dx), ForwardDiff.partials(w).values, ForwardDiff.partials(x).values)
+    return D(v, ForwardDiff.Partials(q))
+end
+
 # The float element type of a collection of reals, for a copy or an accumulator that keeps the values'
 # numeric type (BigFloat, dual numbers): the declared element type when concrete, otherwise the
 # promotion of the values' types. An untyped empty collection gives `Float64`: the promotion starts

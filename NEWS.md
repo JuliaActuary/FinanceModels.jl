@@ -53,6 +53,23 @@ options, caps, floors and swaptions. A custom contract whose formula depends on 
 defines `present_value(ctx, c) = FinanceModels.closed_form(valuation_model(ctx), c)`.
 `FinanceModels.simulation_steps` is public too.
 
+### Blends of curves
+
+`Yield.Blend(curves, weights, space)` combines curves with weights that sum to 1, in one of three
+spaces. `Yield.Blend(a, b, w, space)` weights `a` by `w` and `b` by `1 - w`. A weight is a number or
+a function of tenor.
+
+- `Yield.DiscountFactors()`: D(t) = Σ wᵢ·Dᵢ(t), with the weights read as shares in [0, 1]. With
+  constant weights, present value is linear in the curves, as for an expected discount factor over
+  scenarios.
+- `Yield.ZeroRates()`: z(t) = Σ wᵢ·zᵢ(t). With constant weights it is the same curve as
+  `w * a + (1 - w) * b`.
+- `Yield.ForwardRates(period)`: f(t) = Σ wᵢ·fᵢ(t), with a weight that varies with tenor read once per
+  period, for example to grade a market curve's annual forwards into an ultimate rate.
+
+Weights are checked when the blend is built (numbers) or where they are read (functions). With
+weights that vary with tenor, the limits at `t = Inf` are `NaN`.
+
 ### Stable CIR bond prices (changed numbers)
 
 The textbook Cox–Ingersoll–Ross price broke down at small volatility and long maturities: it raises

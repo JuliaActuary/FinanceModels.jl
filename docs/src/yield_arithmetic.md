@@ -141,6 +141,39 @@ m + Yield.Constant(Continuous(0.01))
 !!! note "Default convention for bare scalars"
     A bare number like `0.01` is interpreted as an annual effective rate (`Periodic(1)`) when wrapped in `Constant`. To be explicit about compounding, pass a `Rate` object: `Continuous(0.01)` or `Periodic(0.01, 2)`.
 
+## Blending curves
+
+[`Yield.Blend`](@ref FinanceModels.Yield.Blend) combines curves with weights that sum to 1, in one of three spaces. `Yield.Blend(a, b, w, space)` weights `a` by `w` and `b` by `1 - w`; `Yield.Blend(curves, weights, space)` takes any number of curves. A weight is a number, or a function of tenor `t -> w`.
+
+| Space | The blend | Use it for |
+|:------|:----------|:-----------|
+| `Yield.DiscountFactors()` | ``D(t) = \sum_i w_i D_i(t)`` | a mixture: present value is linear in the curves, as for an expected discount factor over scenarios |
+| `Yield.ZeroRates()` | ``z(t) = \sum_i w_i z_i(t)`` | the same curve as `w * a + (1 - w) * b`, also with a weight that varies with tenor |
+| `Yield.ForwardRates(period)` | ``f(t) = \sum_i w_i(kp)\, f_i(t)`` for ``kp \le t < (k+1)p`` | grading one curve's forwards into another's, period by period |
+
+```julia
+market = ZeroRateCurve([0.03, 0.035, 0.04], [1.0, 10.0, 20.0])
+ultimate = Yield.Constant(Continuous(0.045))
+
+# the market curve's annual forwards, graded into the ultimate rate between 20 and 60 years
+grade(t) = clamp((60 - t) / 40, 0, 1)
+graded = Yield.Blend(market, ultimate, grade, Yield.ForwardRates(1.0))
+
+# an equally weighted mixture of simulated paths: their expected discount factor
+paths = simulate(ShortRate.Vasicek(0.1, 0.03, 0.01, Continuous(0.03)); n_scenarios = 1000, timestep = 0.25, horizon = 30.0)
+expected = Yield.Blend(collect(paths), fill(1 / 1000, 1000), Yield.DiscountFactors())
+```
+
+The spaces behave differently:
+
+- **Discount factors.** The weights are shares of their sum and must lie in [0, 1]. With constant weights, `pv(blend, cfs) ≈ Σ wᵢ·pv(cᵢ, cfs)` for cashflows valued from time 0, and the long end follows the curve with the lowest rate.
+  - Rebased to a later time `s` (`ForwardStarting`), the mixture's weights become each curve's share of the discount factor at `s`, `wᵢ·Dᵢ(s)/D(s)`.
+  - An expected discount factor gives the expected present value only of cashflows that don't vary by scenario.
+- **Zero rates.** The weights are used as given, so a negative weight extrapolates. With a weight that varies with tenor, the forward rate picks up the term ``w'(t)\,(L_a(t) - L_b(t))``, so it can bump where the weight changes.
+- **Forward rates.** Each period's forwards are blended with the weights at the period's start, so the forward is smooth within a period and jumps at its boundaries. The blend is built from the curves' interval factors, so it starts at `discount(blend, 0) == 1`. A weight that varies with tenor costs about `t / period` interval factors of each curve per evaluation at `t`.
+
+Weights that don't sum to 1, to rounding, throw an `ArgumentError`: number weights when the blend is built, and weights that vary with tenor where they are read. With weights that vary with tenor, `discount(blend, Inf)` is `NaN`, since the weights at infinity are not known.
+
 ## Operation summary
 
 | Expression | Result type | Semantics |
@@ -149,6 +182,9 @@ m + Yield.Constant(Continuous(0.01))
 | `a - b` | `CompositeYield` | Spread between curves: ``D_a / D_b`` |
 | `curve * α` | `ScaledYield` | ``D^\alpha`` (CZR scaling) |
 | `curve / α` | `ScaledYield` | ``D^{1/\alpha}`` (CZR scaling) |
+| `Yield.Blend(a, b, w, Yield.DiscountFactors())` | `Blend` | ``w D_a + (1-w) D_b`` |
+| `Yield.Blend(a, b, w, Yield.ZeroRates())` | `Blend` | ``z = w z_a + (1-w) z_b`` |
+| `Yield.Blend(a, b, w, Yield.ForwardRates(p))` | `Blend` | ``f = w f_a + (1-w) f_b``, `w` read once per period |
 
 !!! warning "Par-rate spreads cannot be composed additively"
     Curve arithmetic operates on zero rates. If your base rates and spreads are quoted as **par rates**, you cannot simply add the spread curve to the base curve and get the same result as fitting a single curve to the combined par rates. Par rates depend on the path of rates at earlier tenors, so they must be converted to zero rates (e.g. via bootstrap) before composition. See the examples in [`CompositeYield`](@ref FinanceModels.Yield.CompositeYield) for a demonstration of this difference.

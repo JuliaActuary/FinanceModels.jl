@@ -90,7 +90,12 @@ FinanceModels.Yield.force_of_interest(::__ClosedFormForwardCurve, t) = 0.03 + 0.
             @test iszero(Yield.__log_discount(c, 0.0))
         end
         # A wrapper takes its components' intervals, so from 0 it is `discount(w, t)` exactly too.
-        for w in (zrc_lin + ns, ns - Yield.Constant(Continuous(0.01)), 2 * zrc_lin, 2 * (zrc_lin + ns))
+        for w in (
+                zrc_lin + ns, ns - Yield.Constant(Continuous(0.01)), 2 * zrc_lin, 2 * (zrc_lin + ns),
+                Yield.Blend(zrc_lin, ns, 0.3, Yield.DiscountFactors()), Yield.Blend(zrc_lin, ns, 0.3, Yield.ZeroRates()),
+                Yield.Blend(zrc_lin, ns, t -> 0.3 + t / 100, Yield.ZeroRates()),
+                Yield.Blend(zrc_lin, ns, t -> clamp(1 - t / 5, 0, 1), Yield.ForwardRates(1.0)),
+            )
             @test discount(w, 0.0, 7.3) === discount(w, 7.3)
         end
     end
@@ -286,7 +291,11 @@ FinanceModels.Yield.force_of_interest(::__ClosedFormForwardCurve, t) = 0.03 + 0.
 
     @testset "endpoint derivatives" begin
         cd(f, x; h = 1.0e-6) = (f(x + h) - f(x - h)) / (2h)
-        for c in (zrc_lin, ns, sw, zrc_lin + ns, Yield.ForwardStarting(ns, 2.0))
+        for c in (
+                zrc_lin, ns, sw, zrc_lin + ns, Yield.ForwardStarting(ns, 2.0),
+                Yield.Blend(zrc_lin, ns, 0.3, Yield.DiscountFactors()),
+                Yield.Blend(zrc_lin, ns, t -> clamp(1 - t / 5, 0, 1), Yield.ForwardRates(0.5)),
+            )
             f_from(x) = discount(c, x, 7.0)
             f_to(x) = discount(c, 1.3, x)
             @test ForwardDiff.derivative(f_from, 1.3) ≈ cd(f_from, 1.3) rtol = 1.0e-7
@@ -391,6 +400,11 @@ FinanceModels.Yield.force_of_interest(::__ClosedFormForwardCurve, t) = 0.03 + 0.
             Yield.Constant(Continuous(0.04)), ZeroRateCurve(rates, tenors, Spline.Linear()), cubic,
             ZeroRateCurve(rates, tenors), ns, nss, vas, cir, cir_explosive, hw, sw,
             Yield.ForwardStarting(cubic, 1.5), cubic + ns, 0.7 * cubic, vas - Yield.Constant(0.01),
+            Yield.Blend(cubic, ns, 0.3, Yield.DiscountFactors()), Yield.Blend((cubic, ns, vas), (0.2, 0.3, 0.5), Yield.DiscountFactors()),
+            Yield.Blend(cubic, ns, t -> clamp(1 - t / 20, 0, 1), Yield.DiscountFactors()),
+            Yield.Blend(cubic, ns, t -> clamp(1 - t / 20, 0, 1), Yield.ZeroRates()),
+            Yield.Blend(cubic, ns, t -> clamp(1 - t / 20, 0, 1), Yield.ForwardRates(1.0)),
+            Yield.Blend(cubic, ns, 0.3, Yield.ForwardRates()),
         )
         # The closed forms equal the derivative of each curve's L (the generic method, which
         # Smith–Wilson uses), including at t = 0 and past the last knot

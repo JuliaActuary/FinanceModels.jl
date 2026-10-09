@@ -6,6 +6,7 @@ import ..ReadOnlyVector
 import ..DataInterpolations
 import ..Bond: coupon_times, __regular_schedule, __par_coupon
 import ..__implicit_root, ..__primal, ..__ad_depth, ..__evalpoly_exact, ..__float_eltype, ..__continuous, ..__frequency
+import ..__strong_zero_mul, ..__strong_zero_log, ..__wexp
 import ..ForwardDiff
 import ..Accessors
 import ..Compat
@@ -31,6 +32,7 @@ include("Yield/CairnsPritchard.jl")
 include("Yield/MonotoneConvex.jl")
 include("Yield/ZeroRateCurve.jl")
 include("Yield/ImpliedQuote.jl")
+include("Yield/Blend.jl")
 include("Yield/Composition.jl")
 include("Yield/YieldShifts.jl")
 

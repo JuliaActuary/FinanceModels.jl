@@ -125,6 +125,7 @@ is `false`; compare with `Continuous.([0.03, 0.04])`.
 - [`FinanceModels.Yield.TenorShift`](@ref) — lazy zero-rate shift depending on tenor: `(rate, tenor) -> Rate` (formerly `TransformedYield`)
 - [`FinanceModels.Yield.ProjectedShift`](@ref) — lazy zero-rate shift depending on tenor *and* a projection time `τ`: `(τ, rate, tenor) -> Rate`
 - [`FinanceModels.Yield.ForwardStarting`](@ref) — rebase a curve to a new time-zero
+- [`FinanceModels.Yield.Blend`](@ref) — weighted blend of curves in discount-factor, zero-rate or forward-rate space, with constant weights or weights that vary with tenor (see [Blending curves](@ref))
 
 ### Available Models - Stochastic Short Rates
 

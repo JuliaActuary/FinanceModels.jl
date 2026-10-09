@@ -90,14 +90,16 @@ struct ScaledYield{T <: AbstractYieldModel, S <: Real} <: AbstractYieldModel
     factor::S
 end
 
-# Both wrappers work in log-discount space: a composite's `+` adds its components' cumulative
-# log-discounts (multiplying their discount factors) and `-` subtracts them (dividing), and scaling
-# multiplies the curve's by `factor` (raising its discount factor to that power); a single `exp` then
-# forms the discount factor. Zero rates, log-discounts, forwards, intervals and tails all combine this
-# one way, `__combine(w, f)` of the components' `f`.
-const __CombinedYield = Union{CompositeYield, ScaledYield}
+# These wrappers work in log-discount space: a composite's `+` adds its components' cumulative
+# log-discounts (multiplying their discount factors) and `-` subtracts them (dividing), scaling
+# multiplies the curve's by `factor` (raising its discount factor to that power), and a zero-rate
+# `Blend` with number weights takes their weighted sum; a single `exp` then forms the discount factor.
+# Zero rates, log-discounts, forwards, intervals and tails all combine this one way, `__combine(w, f)`
+# of the components' `f`.
+const __CombinedYield = Union{CompositeYield, ScaledYield, __ZeroBlend}
 @inline __combine(rc::CompositeYield, f::F) where {F} = rc.op(f(rc.r1), f(rc.r2))
 @inline __combine(sy::ScaledYield, f::F) where {F} = sy.factor * f(sy.curve)
+@inline __combine(b::__ZeroBlend, f::F) where {F} = __mapsum(@inline((w, c) -> __strong_zero_mul(w, f(c))), b.weights, b.curves)
 
 Base.zero(w::__CombinedYield, time) = Continuous(__combine(w, @inline(c -> __continuous(Base.zero(c, time)))))
 # At t = Inf the components' tails are combined before the limit is taken. The components' L is

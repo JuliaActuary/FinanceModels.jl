@@ -25,10 +25,12 @@
 #   `CoxIngersollRoss`, `RatePath`.
 # - `__log_discount` + `__log_interval`: `SmithWilson` (signed factors: from its interval ratio),
 #   `ForwardStarting` (from the base curve's interval), `HullWhite` (its initial curve's),
-#   `CompositeYield` and `ScaledYield` (their components' intervals, combined).
+#   `CompositeYield` and `ScaledYield` (their components' intervals, combined), `Blend` (by its
+#   space: a mixture's log-discount, or its components' intervals combined).
 # - `__log_tail`, exact: `Constant`, `Spline`, `MonotoneConvex`, and the wrappers `CompositeYield`,
-#   `ScaledYield`, `ForwardStarting`, `HullWhite`, which combine their components' tails. Every other
-#   curve uses the fallback, which knows only the growth rate its zero rate at infinity implies.
+#   `ScaledYield`, `ForwardStarting`, `HullWhite` and `Blend` with number weights, which combine their
+#   components' tails. Every other curve uses the fallback, which knows only the growth rate its zero
+#   rate at infinity implies.
 # - A curve that forwards to another (`HullWhite`, `__PrimalCurve`) forwards every capability in
 #   `__FORWARDED_CAPABILITIES` (at the end of this file), so the wrapped curve's own rules (its
 #   intervals, its closed-form forward) apply. `__log_native` is for leaf curves only.
@@ -141,7 +143,8 @@ end
 Return the zero rate for the curve at the given time. At `time = 0` it is the limit of the zero
 rate, the instantaneous forward rate at 0 (the short rate), for a curve with `discount(curve, 0) == 1`.
 """
-function Base.zero(c::YC, time) where {YC <: AbstractYieldModel}
+Base.zero(c::YC, time) where {YC <: AbstractYieldModel} = __zero_from_log_discount(c, time)
+function __zero_from_log_discount(c, time)
     # L/t; for a curve that defines only `discount`, L is -log(discount(c, time)). At t = 0 with
     # L(0) = 0 that is 0/0, whose limit is L′(0), the instantaneous forward there (a curve with
     # D(0) ≠ 1 gets L(0)/0, as before). A time derivative at 0 would need L″(0) as well, so it throws

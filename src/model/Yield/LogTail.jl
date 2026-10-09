@@ -73,3 +73,68 @@ __check_limit_derivative(c, name) = iszero(c) || throw(
             "Differentiate at a finite time."
     )
 )
+
+# A tail scaled by a blend weight, as a strong zero per coefficient: a zero weight gives a zero tail,
+# also against a coefficient that is infinite or NaN.
+__strong_zero_mul(k::Real, x::__LogTail) =
+    __LogTail(__strong_zero_mul(k, x.a2), __strong_zero_mul(k, x.a1), __strong_zero_mul(k, x.a0))
+
+# L(t) - L(0) of a curve with tail x: its tail from its interval factors.
+__rebase_tail(x::__LogTail, L0) = __LogTail(x.a2, x.a1, x.a0 - L0)
+
+__tail_type(tails) = mapreduce(x -> typeof(x.a0), promote_type, tails)
+__nan_tail(tails) = (T = __tail_type(tails); __LogTail(T(NaN), T(NaN), T(NaN)))
+
+# The curves that decide the tail of a discount-factor mixture Σ w̃ᵢ·exp(-Lᵢ), with shares w̃ᵢ summing
+# to 1: the curve j whose L grows slowest among those with a positive share, ordered by (a2, a1), and
+# the curves tied with it in (a2, a1). A curve whose (a2, a1) is larger is negligible, its intercept
+# included. The order is unknown (`nothing`) where a positive share's a2 or a1 is NaN, or where an
+# unknown growth faster than t (a1 = ±Inf, see `__LogTail`) meets a different quadratic term that it
+# could outgrow or be outgrown by.
+#
+# A zero share counts in the tie, through its weight's partials, where its coefficients equal j's,
+# partials included. Otherwise a bump would change the deciding curves, and the limit has no
+# derivative: a zero share with partials on a curve that would dominate, tie with different partials,
+# or has an unknown order, and a tie among positive shares whose coefficients have different partials.
+function __dominant_tails(w̃, tails)
+    pos(i) = __primal(w̃[i]) > 0
+    key(i) = (__primal(tails[i].a2), __primal(tails[i].a1))
+    any(i -> pos(i) && any(isnan, key(i)), eachindex(tails)) && return nothing
+    j = argmin(i -> pos(i) ? key(i) : (oftype(key(i)[1], Inf), oftype(key(i)[2], Inf)), eachindex(tails))
+    a2j, a1j = key(j)
+    for i in eachindex(tails)
+        a2i, a1i = key(i)
+        pos(i) && a2i > a2j && (a1j == Inf || a1i == -Inf) && return nothing
+    end
+    same(i) = tails[i].a2 == tails[j].a2 && tails[i].a1 == tails[j].a1
+    for i in eachindex(tails)
+        if pos(i)
+            key(i) == key(j) && !same(i) && __throw_mixture_limit_derivative()
+        elseif !iszero(w̃[i])
+            (any(isnan, key(i)) || key(i) < key(j) || (key(i) == key(j) && !same(i))) && __throw_mixture_limit_derivative()
+        end
+    end
+    tied(i) = key(i) == key(j) && (pos(i) || !iszero(w̃[i]))
+    return j, tied
+end
+# The tied curve with the smallest primal intercept among positive shares, a reference for their sum.
+__tied_reference(w̃, tails, tied) =
+    argmin(i -> tied(i) && __primal(w̃[i]) > 0 ? __primal(tails[i].a0) : oftype(__primal(tails[i].a0), Inf), eachindex(tails))
+
+# The tail of the mixture: the deciding curve's (a2, a1), with the tied curves' intercepts combined as
+# a0 = -log Σ w̃ᵢ·e^{-a0ᵢ}; NaN where the order is unknown, and a NaN intercept only where it ties.
+function __mixture_tail(w̃, tails)
+    T = promote_type(mapreduce(typeof, promote_type, w̃), __tail_type(tails))
+    d = __dominant_tails(w̃, tails)
+    d === nothing && return __LogTail(T(NaN), T(NaN), T(NaN))
+    j, tied = d
+    a0r = T(tails[__tied_reference(w̃, tails, tied)].a0)
+    a0 = a0r - __strong_zero_log(sum(i -> tied(i) ? __wexp(T(w̃[i]), a0r - T(tails[i].a0)) : zero(T), eachindex(tails)))
+    return __LogTail(T(tails[j].a2), T(tails[j].a1), a0)
+end
+@noinline __throw_mixture_limit_derivative() = throw(
+    ArgumentError(
+        "discount(blend, Inf) has no derivative here: a bump of a weight or of a curve's tail changes " *
+            "which curves decide the discount factor at infinity. Differentiate at a finite time."
+    )
+)
