@@ -12,11 +12,8 @@ function __log_tail(c::__PrimalCurve)
     t = __log_tail(c.curve)
     return __LogTail(__primal(t.a2), __primal(t.a1), __primal(t.a0))
 end
-function Base.zero(c::__PrimalCurve, t)
-    z = convert(Continuous(), Base.zero(c.curve, t))
-    return Continuous(__primal(FinanceCore.rate(z)))
-end
-instantaneous_forward(c::__PrimalCurve, t) = __primal(instantaneous_forward(c.curve, t))
+Base.zero(c::__PrimalCurve, t) = Continuous(__primal(__continuous(Base.zero(c.curve, t))))
+force_of_interest(c::__PrimalCurve, t) = __primal(force_of_interest(c.curve, t))
 
 """
     implied_quote(curve, family, maturity; guess = 0.0, bracket = (-0.5, 1.0))
@@ -27,9 +24,11 @@ Return the quote `x` for which `family(x, maturity)` reprices on `curve`, so tha
 `family` is a quote constructor taking `(quote, maturity)`, such as
 [`CMTYield`](@ref FinanceModels.Bond.CMTYield), [`OISYield`](@ref FinanceModels.Bond.OISYield),
 [`ZCBYield`](@ref FinanceModels.Bond.ZCBYield), [`ZCBPrice`](@ref FinanceModels.Bond.ZCBPrice),
-or a closure like `(r, t) -> ParYield(r, t; frequency = 1)`. The result is expressed in
-the family's own convention: for example an annual-effective rate for `ZCBYield`,
-a semiannual par yield for `CMTYield` beyond one year, or a price for `ZCBPrice`.
+or a closure like `(r, t) -> ParYield(r, t; frequency = 1)`. The result is a number in the
+family's own convention: for example an annual-effective rate for `ZCBYield`,
+a semiannual par yield for `CMTYield` beyond one year, or a price for `ZCBPrice`. Wrap it
+when that convention is known, for example `Periodic(implied_quote(curve, CMTYield, 10.0), 2)`.
+See [Rate conventions](@ref rate-conventions).
 
 The solve starts from `guess` and falls back to a bracketed search on `bracket`.
 First-order ForwardDiff derivatives with respect to curve parameters are exact:
@@ -73,7 +72,7 @@ end
 """
     par(curve,time;frequency=2)
 
-Calculate the par yield for maturity `time` for the given `curve` and `frequency`. Returns a `Rate` object with periodicity corresponding to the `frequency`.
+Calculate the par yield for maturity `time` for the given `curve` and `frequency`, an integer or a `Periodic`. Returns a `Rate` object with periodicity corresponding to the `frequency`.
 
 If `time` is shorter than one regular coupon period (e.g. `time=0.5` with `frequency=1`), the single stub payment implies a compounding frequency of `1/time`: the result is quoted as `Periodic(1/time)` when `1/time` is a (near-)integer, and otherwise an `ArgumentError` is thrown because the implied frequency cannot be represented as a `Periodic` rate.
 
@@ -101,6 +100,7 @@ Periodic(0.03960780543711406, 2)
 ```
 """
 function par(curve, time; frequency = 2)
+    frequency = __frequency(frequency).frequency
     coup_times = coupon_times(time, frequency)
     mat_disc = discount(curve, time)
     coupon_pv = sum(discount(curve, t) for t in coup_times)

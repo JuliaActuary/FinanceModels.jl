@@ -27,6 +27,14 @@
         @test FinanceModels.eurocall(; params...) ≈ 0.0 atol = 1.0e-5
         @test FinanceModels.europut(; params...) ≈ 0.5 atol = 1.0e-5
 
+        # `r` and `q` may be `Rate`s, converted to their continuous values
+        base = (S = 1.0, K = 1.1, τ = 2, σ = 0.25)
+        r, q = Periodic(0.05, 1), Periodic(0.01, 4)
+        rc, qc = rate(Continuous(r)), rate(Continuous(q))
+        for f in (FinanceModels.eurocall, FinanceModels.europut)
+            @test f(; base..., r, q) == f(; base..., r = rc, q = qc)
+            @test f(; base..., r = Continuous(0.05)) == f(; base..., r = 0.05)
+        end
     end
 end
 

@@ -16,7 +16,8 @@ module ShortRate
     import ..Yield
     import ..AbstractStochasticModel
     import ..FinanceCore
-    using ..FinanceCore: Continuous, Rate, rate
+    import ..__continuous
+    using ..FinanceCore: Continuous, Rate
 
     """
         Vasicek(a, b, σ, initial)
@@ -52,7 +53,7 @@ module ShortRate
 
     # Store the long-term mean as a continuous scalar, regardless of the input
     # compounding convention.
-    Vasicek(a, b::Rate, σ, initial) = Vasicek(a, rate(Continuous(b)), σ, initial)
+    Vasicek(a, b::Rate, σ, initial) = Vasicek(a, __continuous(b), σ, initial)
 
     """
         CoxIngersollRoss(a, b, σ, initial)
@@ -82,7 +83,7 @@ module ShortRate
         initial::T
         function CoxIngersollRoss(a::A, b::B, σ::S, initial::T) where {A, B, S, T}
             σ >= 0 || throw(ArgumentError("volatility σ must be non-negative, got $σ"))
-            initial_value = rate(Continuous(initial))
+            initial_value = __continuous(initial)
             initial_value >= 0 || throw(ArgumentError("initial rate must be non-negative for CIR, got $initial"))
             return new{A, B, S, T}(a, b, σ, initial)
         end
@@ -95,7 +96,7 @@ module ShortRate
     # Store the long-term mean as a continuous scalar, regardless of the input
     # compounding convention.
     CoxIngersollRoss(a, b::Rate, σ, initial) =
-        CoxIngersollRoss(a, rate(Continuous(b)), σ, initial)
+        CoxIngersollRoss(a, __continuous(b), σ, initial)
 
     """
         HullWhite(a, σ, curve)
@@ -126,11 +127,11 @@ end # module ShortRate
 # ─── Closed-form discount (zero-coupon bond prices) ──────────────────────────
 
 function _initial_rate(m::ShortRate.Vasicek)
-    return rate(Continuous(m.initial))
+    return __continuous(m.initial)
 end
 
 function _initial_rate(m::ShortRate.CoxIngersollRoss)
-    return rate(Continuous(m.initial))
+    return __continuous(m.initial)
 end
 
 # The affine short-rate models' factor ∫₀^τ e^{-as} ds = (1 - e^{-aτ})/a: the bond sensitivity
@@ -175,7 +176,7 @@ function FinanceCore.discount(m::ShortRate.Vasicek, T)
 end
 Yield.__log_discount(m::ShortRate.Vasicek, T) = _vasicek_log_zcb(m.a, m.b, m.σ, _initial_rate(m), T)
 Yield.__log_native(::ShortRate.Vasicek) = true
-Yield.instantaneous_forward(m::ShortRate.Vasicek, T) = _vasicek_forward(m.a, m.b, m.σ, _initial_rate(m), T)
+Yield.force_of_interest(m::ShortRate.Vasicek, T) = _vasicek_forward(m.a, m.b, m.σ, _initial_rate(m), T)
 
 # The instantaneous forward f(τ) = d(-log P)/dτ from the Riccati equations B′ = 1 - aB and
 # (-log A)′ = abB - σ²B²/2: f = r·e^{-aτ} + b·(1 - e^{-aτ}) - σ²B²/2, with 1 - aB written as e^{-aτ}.
@@ -292,7 +293,7 @@ function FinanceCore.discount(m::ShortRate.CoxIngersollRoss, T)
 end
 Yield.__log_discount(m::ShortRate.CoxIngersollRoss, T) = _cir_log_zcb(m.a, m.b, m.σ, _initial_rate(m), T)
 Yield.__log_native(::ShortRate.CoxIngersollRoss) = true
-Yield.instantaneous_forward(m::ShortRate.CoxIngersollRoss, T) = _cir_forward(m.a, m.b, m.σ, _initial_rate(m), T)
+Yield.force_of_interest(m::ShortRate.CoxIngersollRoss, T) = _cir_forward(m.a, m.b, m.σ, _initial_rate(m), T)
 
 # Hull-White is calibrated to match the initial term structure exactly.
 # The model parameters (a, σ) affect derivative pricing and simulation,
@@ -303,7 +304,7 @@ end
 Yield.__log_discount(m::ShortRate.HullWhite, T) = Yield.__log_discount(m.curve, T)
 Yield.__log_interval(m::ShortRate.HullWhite, from, to) = Yield.__log_interval(m.curve, from, to)
 Yield.__log_tail(m::ShortRate.HullWhite) = Yield.__log_tail(m.curve)
-Yield.instantaneous_forward(m::ShortRate.HullWhite, T) = Yield.instantaneous_forward(m.curve, T)
+Yield.force_of_interest(m::ShortRate.HullWhite, T) = Yield.force_of_interest(m.curve, T)
 Base.zero(m::ShortRate.HullWhite, T) = Base.zero(m.curve, T)
 FinanceCore.discount(m::ShortRate.HullWhite, from, to) = FinanceCore.discount(m.curve, from, to)
 
@@ -313,24 +314,27 @@ FinanceCore.discount(m::ShortRate.HullWhite, from, to) = FinanceCore.discount(m.
     discount(m::ShortRate.Vasicek, t, T, r_t)
 
 Conditional zero-coupon bond price ``P(t,T \\mid r(t) = r_t)`` under the Vasicek model.
-Since the model is time-homogeneous, ``P(t,T|r) = P(0, T-t | r)``.
+Since the model is time-homogeneous, ``P(t,T|r) = P(0, T-t | r)``. The short rate `r_t` is a
+number, read as continuously compounded, or a `Rate`, converted to its continuously compounded value.
 """
-FinanceCore.discount(m::ShortRate.Vasicek, t, T, r_t) = _vasicek_zcb(m.a, m.b, m.σ, r_t, T - t)
+FinanceCore.discount(m::ShortRate.Vasicek, t, T, r_t) = _vasicek_zcb(m.a, m.b, m.σ, __continuous(r_t), T - t)
 
 """
     discount(m::ShortRate.CoxIngersollRoss, t, T, r_t)
 
 Conditional zero-coupon bond price ``P(t,T \\mid r(t) = r_t)`` under the CIR model.
-Since the model is time-homogeneous, ``P(t,T|r) = P(0, T-t | r)``.
+Since the model is time-homogeneous, ``P(t,T|r) = P(0, T-t | r)``. The short rate `r_t` is a
+number, read as continuously compounded, or a `Rate`, converted to its continuously compounded value.
 """
-FinanceCore.discount(m::ShortRate.CoxIngersollRoss, t, T, r_t) = _cir_zcb(m.a, m.b, m.σ, r_t, T - t)
+FinanceCore.discount(m::ShortRate.CoxIngersollRoss, t, T, r_t) = _cir_zcb(m.a, m.b, m.σ, __continuous(r_t), T - t)
 
 """
     discount(m::ShortRate.HullWhite, t, T, r_t)
 
 Conditional zero-coupon bond price ``P(t,T \\mid r(t) = r_t)`` under the Hull-White model.
 Unlike Vasicek/CIR, this depends on `t` and `T` separately (not just `T-t`)
-because the model is calibrated to an initial term structure.
+because the model is calibrated to an initial term structure. The short rate `r_t` is a number,
+read as continuously compounded, or a `Rate`, converted to its continuously compounded value.
 
 Formula (Brigo & Mercurio 2006, Proposition 3.2.2):
 ```math
@@ -340,11 +344,11 @@ Formula (Brigo & Mercurio 2006, Proposition 3.2.2):
 function FinanceCore.discount(m::ShortRate.HullWhite, t, T, r_t)
     a, σ = m.a, m.σ
     B_tT = _decay_integral(a, T - t)
-    f0t = Yield.instantaneous_forward(m.curve, t)
+    f0t = Yield.force_of_interest(m.curve, t)
     # ln(P(0,T)/P(0,t)) is the curve's log-discount over [t, T], which stays finite where both factors
     # underflow; σ²/(4a)·(1 - e^{-2at}) = σ²/2 · ∫₀ᵗ e^{-2as} ds
     lnA = -Yield.__log_interval(m.curve, t, T) + B_tT * f0t - σ^2 / 2 * B_tT^2 * _decay_integral(2a, t)
-    return exp(lnA - B_tT * r_t)
+    return exp(lnA - B_tT * __continuous(r_t))
 end
 
 # ─── RatePath: a simulated scenario as a yield model ─────────────────────────
@@ -478,7 +482,7 @@ end
 _sim_initial_rate(m::ShortRate.Vasicek) = _initial_rate(m)
 _sim_initial_rate(m::ShortRate.CoxIngersollRoss) = _initial_rate(m)
 function _sim_initial_rate(m::ShortRate.HullWhite)
-    return Yield.instantaneous_forward(m.curve, 0.0)
+    return Yield.force_of_interest(m.curve, 0.0)
 end
 
 # Include every model parameter that can flow into a simulated state. Falling
@@ -534,7 +538,7 @@ end
 
 function _hw_alpha(m::ShortRate.HullWhite, t)
     a, σ = m.a, m.σ
-    f0t = Yield.instantaneous_forward(m.curve, t)
+    f0t = Yield.force_of_interest(m.curve, t)
     return f0t + σ^2 / 2 * _decay_integral(a, t)^2
 end
 
@@ -641,9 +645,6 @@ function closed_form(m::_GaussianModel, c::Option.ZCBPut)
     return put
 end
 
-_frequency_value(f::FinanceCore.Frequency) = f.frequency
-_frequency_value(f::Real) = f
-
 # ─── present_value for Caps and Floors ───────────────────────────────────────
 #
 # A caplet paying max(L(T_{i-1},T_i) - K, 0)·τ at T_i is equivalent to
@@ -657,7 +658,7 @@ _frequency_value(f::Real) = f
 # type of a present value under `m`, as FinanceCore values an empty collection.
 function _caplet_strip(m, c, option, who)
     K = c.strike
-    freq = _frequency_value(c.frequency)
+    freq = c.frequency.frequency
     τ = 1.0 / freq
     n_periods = _check_integer_periods(c.maturity, freq, who)
     K_bond = 1.0 / (1.0 + K * τ)
@@ -692,7 +693,7 @@ closed_form(m::_GaussianModel, c::Option.Floor) = _caplet_strip(m, c, first, "Fl
 
 function closed_form(m::_GaussianModel, c::Option.Swaption)
     T0 = c.expiry
-    freq = _frequency_value(c.frequency)
+    freq = c.frequency.frequency
     τ = 1.0 / freq
     coupon = c.strike
 
@@ -754,7 +755,7 @@ end
 """
     short_rate(path::RatePath, t)
 
-The instantaneous short rate `r(t)` for a simulated scenario.
+The instantaneous short rate `r(t)` for a simulated scenario, as a `Continuous` rate.
 
 `RatePath` stores the cumulative integral `∫₀ᵗ r(s) ds` as a `LinearInterpolation`.
 The short rate is the derivative of this cumulative integral.
@@ -770,7 +771,7 @@ short_rate(path::RatePath, t) = Yield.instantaneous_forward(path, t)
 # The slope of L = ∫₀ᵗ r over the grid step that starts at `t` (the last step at the path's last time),
 # so the rate is right-continuous like a knot curve's forward. Outside its grid the interpolant's own
 # extrapolation decides: a simulated path throws, a path built with an extension extends.
-function Yield.instantaneous_forward(p::RatePath, t)
+function Yield.force_of_interest(p::RatePath, t)
     ts, L = p.interp.t, p.interp.u
     first(ts) <= t <= last(ts) || return DataInterpolations.derivative(p.interp, t)
     i = min(searchsortedlast(ts, t), length(ts) - 1)

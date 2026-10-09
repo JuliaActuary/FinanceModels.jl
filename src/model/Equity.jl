@@ -10,7 +10,7 @@ import ..Volatility
 import ..Option
 import ..CommonEquity
 import ..eurocall, ..europut
-import ..closed_form
+import ..closed_form, ..__continuous
 using ..FinanceCore
 
 abstract type AbstractEquityModel <: AbstractModel end
@@ -67,8 +67,8 @@ struct BlackScholesMerton{T, U, V} <: AbstractEquityModel
     # an inner constructor:
 
     function BlackScholesMerton(r, q, σ::V) where {V}
-        rc = rate(Continuous(r))
-        qc = rate(Continuous(q))
+        rc = __continuous(r)
+        qc = __continuous(q)
         return new{typeof(rc), typeof(qc), V}(rc, qc, σ)
     end
 

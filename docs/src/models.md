@@ -72,6 +72,40 @@ julia> rate(r)
 
 (`Rate`s internally store the equivalent continuously compounded rate, so the nominal value returned by `rate` may show floating point artifacts of the round-trip conversion.)
 
+#### [Rate conventions](@id rate-conventions)
+
+A bare number has no compounding convention of its own, so each input reads it by its role:
+
+| Quantity | Convention of a number | Examples |
+|---|---|---|
+| Curve coordinates: knot rates, zero rates, instantaneous forwards | Continuous | `ZeroRateCurve([0.03, 0.04], [1, 5])`; results `knot_rates(curve)`, `zero(curve, t)`, `Yield.instantaneous_forward(curve, t)` |
+| Scalar rates for FinanceCore and flat curves | Annual effective, `Periodic(1)` | `Yield.Constant(0.05)`, `curve + 0.01`, `discount(0.05, t)`, `ZCBYield(0.05, t)` |
+| Coupons, margins and interest-rate strikes | Nominal, paid at the contract's frequency | `Bond.Fixed(0.05, Periodic(2), 10)`, `Bond.Floating(0.002, Periodic(4), 5, :SOFR)`, `Option.Cap(0.03, 4, 5)` |
+
+Rate-valued results are `Rate`s, which carry their convention; curve coordinates are `Continuous`.
+Each of these inputs also takes a `Rate`:
+
+- a curve coordinate or other continuous input (knot rates, Smith–Wilson's `ufr`, a conditional
+  short rate) converts the `Rate` to its continuously compounded value, so
+  `ZeroRateCurve(Periodic.([0.03, 0.04], 1), [1, 5])` builds the curve of those annual rates;
+- a coupon, margin or strike must be a `Periodic` rate of the contract's frequency, and its
+  nominal rate is used: `Bond.Fixed(Periodic(0.05, 2), Periodic(2), 10)` is
+  `Bond.Fixed(0.05, Periodic(2), 10)`. Another frequency throws an `ArgumentError`, because its
+  nominal rate and its converted rate give different coupons; convert it explicitly. A typed
+  coupon can differ from the number in the last bits, since the `Rate` stores its continuously
+  compounded equivalent.
+
+A few quantities stay numbers: raw model fields (volatilities, mean-reversion speeds, curve
+coefficients, the stored `ufr` and long-run means), quote coordinates, and sensitivities. Vasicek's
+and CIR's `initial` short rate is a `Rate`: a number is stored as `Continuous`.
+[`implied_quote`](@ref FinanceModels.Yield.implied_quote) returns a number in its quote family's
+convention; wrap it when that convention is known, for example
+`Periodic(implied_quote(curve, OISYield, 7.0), 1)`.
+
+`rate` gives the number of a `Rate`, for example as a ForwardDiff input:
+`rate.(knot_rates(curve))`. A `Rate` never equals a number, so `knot_rates(curve) == [0.03, 0.04]`
+is `false`; compare with `Continuous.([0.03, 0.04])`.
+
 ### Available Models - Yields
 
 - [`FinanceModels.Yield.Constant`](@ref)
@@ -164,29 +198,34 @@ Two concrete subtypes of [`Yield.AbstractYieldShift`](@ref FinanceModels.Yield.A
 ```julia-repl
 julia> base = Yield.Constant(0.05);  # 5% annual effective: continuous zero = log(1.05) ≈ 0.0488
 
-julia> # Parallel shift (+100 bp annual effective) using Rate arithmetic
-       shifted = base + (z, t) -> z + Periodic(0.01, 1);
+julia> # Parallel shift of +100 bp annual effective: convert to annual effective, add, convert back
+       shifted = base + (z, t) -> Continuous(Periodic(1)(z) + 0.01);
 
-julia> zero(shifted, 10)  # = log(1.05) + log(1.01) — Rate arithmetic converts Periodic → Continuous
-Continuous(0.05874049502260014)
+julia> zero(shifted, 10)  # = log(1.06)
+Continuous(0.05826890812397578)
+
+julia> # `z + Periodic(0.01, 1)` adds in `z`'s (continuous) convention, so it adds log(1.01):
+       # the annual effective rate becomes 6.05%, not 6%
+       zero(base + (z, t) -> z + Periodic(0.01, 1), 10)
+Continuous(0.05874049502260009)
 
 julia> # Continuous shift (simpler when convention is known)
        shifted2 = base + (z, t) -> z + Continuous(0.01);
 
 julia> zero(shifted2, 10)  # = log(1.05) + 0.01
-Continuous(0.05879016416943205)
+Continuous(0.05879016416943201)
 
 julia> # Tenor-dependent twist (steepener that fades at 30y)
        twist = base + (z, t) -> z + Continuous(0.02 * max(0.0, 1.0 - t/30.0));
 
 julia> zero(twist, 1)   # ≈ 4.88% + 1.93%
-Continuous(0.06812349750276539)
+Continuous(0.06812349750276533)
 
 julia> zero(twist, 30)  # shift is zero at 30y
-Continuous(0.04879016416943205)
+Continuous(0.04879016416943201)
 ```
 
-The rule function has the signature `(z::Rate, t) -> Rate`. The return value is type-asserted as `Rate`, so rules must carry compounding convention explicitly — returning a plain `Real` raises a `TypeError`. Because the rule receives the zero rate itself, `Rate` arithmetic like `z + Periodic(0.01, 1)` handles compounding conversion correctly — no manual convention juggling needed.
+The rule function has the signature `(z::Rate, t) -> Rate`. The return value is type-asserted as `Rate`, so rules must carry compounding convention explicitly — returning a plain `Real` raises a `TypeError`. Because the rule receives the zero rate as a `Rate`, it can convert explicitly: `Continuous(Periodic(1)(z) + 0.01)` adds 100 bp annual effective. `Rate + Rate` adds in the left operand's convention.
 
 The `+` operator provides ergonomic construction: `curve + f` or `f + curve` both create a `TenorShift`. This is distinct from `curve + scalar` (which creates a `CompositeYield`).
 
@@ -206,13 +245,13 @@ julia> # Curve as seen at projection year 3 (30% phased in → -45 bp).
        c3 = Yield.ProjectedShift(base, phase_in, 3.0);
 
 julia> zero(c3, 5)
-Continuous(0.04429016416943205)
+Continuous(0.04429016416943201)
 
 julia> # Curve as seen at projection year 10 (fully phased in → -150 bp).
        c10 = Yield.ProjectedShift(base, phase_in, 10.0);
 
 julia> zero(c10, 5)
-Continuous(0.03379016416943205)
+Continuous(0.03379016416943201)
 ```
 
 The intended pattern: store `phase_in` once as a first-class, year-independent value, then call `ProjectedShift(base, phase_in, τ)` at each projection time `τ` in a projection loop.

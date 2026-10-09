@@ -48,8 +48,8 @@ with an `AbstractYieldModel` and a two-argument function:
 ```julia
 base = Yield.Constant(0.05)
 
-# Parallel shift (+100 bp)
-base + (z, t) -> z + Periodic(0.01, 1)
+# Parallel shift of +100 bp annual effective
+base + (z, t) -> Continuous(Periodic(1)(z) + 0.01)
 
 # Tenor-dependent twist (steepener that fades at 30y)
 base + (z, t) -> z + Continuous(0.02 * max(0.0, 1.0 - t/30.0))
@@ -80,7 +80,7 @@ struct TenorShift{C <: AbstractYieldModel, F} <: AbstractYieldShift
 end
 
 function Base.zero(s::TenorShift, t)
-    z = Base.zero(s.base, t)
+    z = convert(Continuous(), Base.zero(s.base, t))   # the rule receives a Continuous rate
     return convert(Continuous(), s.rule(z, t)::FinanceCore.Rate)
 end
 
@@ -136,14 +136,14 @@ struct ProjectedShift{C <: AbstractYieldModel, F, T} <: AbstractYieldShift
 end
 
 function Base.zero(s::ProjectedShift, t)
-    z = Base.zero(s.base, t)
+    z = convert(Continuous(), Base.zero(s.base, t))   # the rule receives a Continuous rate
     return convert(Continuous(), s.rule(s.time, z, t)::FinanceCore.Rate)
 end
 FinanceCore.discount(s::AbstractYieldShift, t) = _discount_from_zero(s, t)
 # At t = 0 the forward is the zero rate's limit: the rule applied to the base curve's `zero(base, 0)`,
 # with every parameter's derivative. Differentiating L there would need the base's zero rate at a dual
 # time of 0, which a curve without its own zero rate refuses. Elsewhere, the derivative of L.
-instantaneous_forward(s::AbstractYieldShift, t) =
+force_of_interest(s::AbstractYieldShift, t) =
     iszero(t) ? FinanceCore.rate(Base.zero(s, t)) : __log_discount_derivative(s, t)
 __log_discount(s::AbstractYieldShift, t) = __zero_log_discount(s, t)
 __log_native(::AbstractYieldShift) = true

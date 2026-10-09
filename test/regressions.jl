@@ -244,6 +244,31 @@ Transducers.asfoldable(p::Projection{AsfoldableContract}) = [Cashflow(1.0, 1.0),
         @test ParYield(Continuous(0.04), 5; frequency = 1).instrument.coupon_rate ≈ exp(0.04) - 1
     end
 
+    @testset "every frequency input is an integer or a Periodic" begin
+        curve = Yield.NelsonSiegel(1.0, 0.05, -0.02, 0.01)
+        eurusd = FX.Pair(:EUR, :USD)
+        for (n, f) in ((2, Periodic(2)), (4, Periodic(4)))
+            @test par(curve, 5; frequency = f) === par(curve, 5; frequency = n)
+            @test ParYield(0.04, 5; frequency = n) == ParYield(0.04, 5; frequency = f)
+            @test ParSwapYield(0.04, 5; frequency = n) == ParSwapYield(0.04, 5; frequency = f)
+            @test FX.ParBasisSwap(eurusd, -0.0015, 3.0; reference = curve, frequency = n).instrument.cashflows ==
+                FX.ParBasisSwap(eurusd, -0.0015, 3.0; reference = curve, frequency = f).instrument.cashflows
+            swaps = [collect(Projection(InterestRateSwap(curve, 5; frequency = x), Models(curve; index = curve))) for x in (n, f)]
+            @test swaps[1] == swaps[2]
+            # contracts store a `Periodic`
+            @test Bond.Fixed(0.05, n, 10) == Bond.Fixed(0.05, f, 10)
+            @test Bond.Floating(0.0, n, 10, "OIS") == Bond.Floating(0.0, f, 10, "OIS")
+            for c in (Option.Cap(0.03, n, 3.0), Option.Floor(0.03, n, 3.0), Option.Swaption(1.0, 2.0, 0.011, n))
+                @test c.frequency === f
+            end
+        end
+        # anything else is a MethodError: a non-integer number, a `Continuous` frequency
+        @test_throws MethodError par(curve, 5; frequency = 2.0)
+        @test_throws MethodError Option.Cap(0.03, 4.0, 3.0)
+        @test_throws MethodError Bond.Fixed(0.05, Continuous(), 10)
+        @test_throws MethodError FX.ParBasisSwap(eurusd, -0.0015, 3.0; reference = curve, frequency = 0.25)
+    end
+
     @testset "OISYield conventions" begin
         # One year or less: a single payment. Longer: annual payments on both legs.
         @test OISYield(0.04, 0.5).instrument == Bond.Fixed(0.0, Periodic(1), 0.5)

@@ -1,7 +1,8 @@
 """
     Constant(rate)
 
-A yield curve representing a flat term structure. `rate` can be a [`Rate`](@ref) object or a `Real` object.
+A yield curve representing a flat term structure. `rate` can be a [`Rate`](@ref) object or a `Real`
+object; a `Real` is an annual effective rate, `Periodic(rate, 1)`. See [Rate conventions](@ref rate-conventions).
 
 
 If [`fit`](@ref FinanceModels.fit)ing with the default FinanceModels.jl settings, the solver will attempt to fit a discount rate with the range of: `-1.0 .. 1.0`
@@ -24,7 +25,7 @@ FinanceCore.discount(c::Constant, t) = FinanceCore.discount(c.rate, t)
 Base.zero(c::Constant, t) = convert(Continuous(), c.rate)
 __log_discount(c::Constant, t) = __zero_log_discount(c, t)
 __log_native(::Constant) = true
-instantaneous_forward(c::Constant, t) = FinanceCore.rate(Base.zero(c, t))
+force_of_interest(c::Constant, t) = FinanceCore.rate(Base.zero(c, t))
 function __log_tail(c::Constant)
     z = FinanceCore.rate(Base.zero(c, Inf))
     return __LogTail(zero(z), z, zero(z))

@@ -154,22 +154,22 @@
 
         @testset "$name" for (name, c) in curves
             # Forward at t=0 should equal instantaneous forward f[1]
-            @test Yield.instantaneous_forward(c, 0.0) ≈ c._f[1] atol = 1.0e-10
+            @test rate(Yield.instantaneous_forward(c, 0.0)) ≈ c._f[1] atol = 1.0e-10
 
             # Forward at internal knot points equals the instantaneous forward f[i+1]
             # (at x=1 of the interval ending at that knot)
             @testset "forward at knot t=$t" for (i, t) in enumerate(times[1:(end - 1)])
-                @test Yield.instantaneous_forward(c, t) ≈ c._f[i + 1] atol = 1.0e-10
+                @test rate(Yield.instantaneous_forward(c, t)) ≈ c._f[i + 1] atol = 1.0e-10
             end
 
             # Forward at/beyond the last knot equals the boundary instantaneous
             # forward f[end], keeping the forward curve continuous at t_n
-            @test Yield.instantaneous_forward(c, times[end]) ≈ c._f[end] atol = 1.0e-10
+            @test rate(Yield.instantaneous_forward(c, times[end])) ≈ c._f[end] atol = 1.0e-10
 
             # Forward should be continuous and positive everywhere, including across the last knot
             @testset "forward positive and continuous" begin
                 ts = range(0.01, 6.0, 120)
-                fwds = [Yield.instantaneous_forward(c, t) for t in ts]
+                fwds = [rate(Yield.instantaneous_forward(c, t)) for t in ts]
                 @test all(fwds .> 0)
 
                 # Check continuity: adjacent forward values shouldn't jump excessively
@@ -179,26 +179,26 @@
             end
 
             # Extrapolation: flat at the boundary instantaneous forward
-            @test Yield.instantaneous_forward(c, 6.0) ≈ c._f[end] atol = 1.0e-10
-            @test Yield.instantaneous_forward(c, 10.0) ≈ c._f[end] atol = 1.0e-10
+            @test rate(Yield.instantaneous_forward(c, 6.0)) ≈ c._f[end] atol = 1.0e-10
+            @test rate(Yield.instantaneous_forward(c, 10.0)) ≈ c._f[end] atol = 1.0e-10
 
             # Continuity exactly at the last knot (this used to jump from f[end] to fᵈ[end])
             @testset "continuity at the last knot" begin
                 ε = 1.0e-9
-                @test Yield.instantaneous_forward(c, times[end] - ε) ≈
-                    Yield.instantaneous_forward(c, times[end] + ε) atol = 1.0e-6
+                @test rate(Yield.instantaneous_forward(c, times[end] - ε)) ≈
+                    rate(Yield.instantaneous_forward(c, times[end] + ε)) atol = 1.0e-6
                 @test rate(zero(c, times[end] + 1.0e-6)) ≈ rate(zero(c, times[end])) atol = 1.0e-6
             end
 
             # Mid-interval forwards should be bounded by fᵈ ± max deviation
             @testset "mid-interval forward bounds" begin
                 # First interval: t ∈ (0, 1)
-                f_mid = Yield.instantaneous_forward(c, 0.5)
+                f_mid = rate(Yield.instantaneous_forward(c, 0.5))
                 @test f_mid > 0  # Must be positive
                 @test abs(f_mid - c._fᵈ[1]) < max(abs(c._f[1] - c._fᵈ[1]), abs(c._f[2] - c._fᵈ[1])) + 0.001
 
                 # Second interval: t ∈ (1, 2)
-                f_mid = Yield.instantaneous_forward(c, 1.5)
+                f_mid = rate(Yield.instantaneous_forward(c, 1.5))
                 @test f_mid > 0  # Must be positive
                 @test abs(f_mid - c._fᵈ[2]) < max(abs(c._f[2] - c._fᵈ[2]), abs(c._f[3] - c._fᵈ[2])) + 0.001
             end
@@ -230,7 +230,7 @@
 
             c = Yield.MonotoneConvex(rates, times)
             # the collared interpolant keeps instantaneous forwards nonnegative...
-            @test minimum(Yield.instantaneous_forward(c, t) for t in range(1.0e-6, 4.0, 1001)) >= -1.0e-12
+            @test minimum(rate(Yield.instantaneous_forward(c, t)) for t in range(1.0e-6, 4.0, 1001)) >= -1.0e-12
             # ...without giving up exact knot repricing (the g construction always
             # integrates to the discrete forwards regardless of node values)
             for (i, t) in enumerate(times)
@@ -248,14 +248,14 @@
         end
         # negative rates imply discount factors above 1 and finite forwards everywhere
         @test discount(c, 1.0) > 1.0
-        @test all(isfinite(Yield.instantaneous_forward(c, t)) for t in range(0.01, 6.0, 200))
+        @test all(isfinite(rate(Yield.instantaneous_forward(c, t))) for t in range(0.01, 6.0, 200))
     end
 
     @testset "single knot" begin
         c = Yield.MonotoneConvex([0.03], [2.0])
         @test rate(zero(c, 2.0)) ≈ 0.03
         @test rate(zero(c, 1.0)) ≈ 0.03  # flat forward within the single interval
-        @test Yield.instantaneous_forward(c, 0.5) ≈ 0.03
+        @test rate(Yield.instantaneous_forward(c, 0.5)) ≈ 0.03
         @test rate(zero(c, 4.0)) ≈ 0.03  # constant-forward extrapolation
     end
 
@@ -333,8 +333,8 @@
         # reconstructable via Accessors, and the cached f/fᵈ stay consistent with
         # the updated rates (the struct caches derived fields but had no 4-arg ctor)
         c2 = Accessors.@set c.rates[2] = 0.05
-        @test c2.rates[2] == 0.05
-        f, fᵈ = Yield.__monotone_convex_fs(c2.rates, c2.tenors)
+        @test c2.rates[2] == Continuous(0.05)
+        f, fᵈ = Yield.__monotone_convex_fs(rate.(c2.rates), c2.tenors)
         @test c2._f == f
         @test c2._fᵈ == fᵈ
 
@@ -375,25 +375,25 @@
             r[1] = 0.2; t[1] = 0.5; push!(r, 1.0)
             @test zero(c, 3.0) == z3
             @test c._f == f0
-            @test c.rates == rates && c.tenors == times
+            @test c.rates == Continuous.(rates) && c.tenors == times
         end
 
         @testset "read-only fields" begin
             c = Yield.MonotoneConvex(rates, times)
-            for v in (knot_rates(c), knot_tenors(c))
-                @test v isa AbstractVector{Float64}
-                @test_throws Base.CanonicalIndexError v[1] = 0.2
-                @test_throws Base.CanonicalIndexError v .= 0.0
+            for (v, T) in ((knot_rates(c), Rate{Float64, Continuous}), (knot_tenors(c), Float64))
+                @test v isa AbstractVector{T}
+                @test_throws Base.CanonicalIndexError v[1] = v[2]
+                @test_throws Base.CanonicalIndexError v .= v[2]
                 @test_throws Base.CanonicalIndexError sort!(v; rev = true)
-                @test copy(v) isa Vector{Float64}
+                @test copy(v) isa Vector{T}
             end
             @test zero(c, 3.0) == zero(Yield.MonotoneConvex(rates, times), 3.0)
             # reads used by tests/internals still work
             @test searchsortedlast(c.tenors, 3.0) == 2
-            @test Yield.__monotone_convex_fs(c.rates, c.tenors)[1] == c._f
+            @test Yield.__monotone_convex_fs(rate.(c.rates), c.tenors)[1] == c._f
             # the cached forwards are internal: hidden from the public listing, readable as fields
             @test propertynames(c) == (:spline, :rates, :tenors, :extrapolation)
-            @test propertynames(c, true) == (:spline, :rates, :tenors, :extrapolation, :_f, :_fᵈ, :_tail)
+            @test propertynames(c, true) == (:spline, :rates, :tenors, :extrapolation, :_rates, :_f, :_fᵈ, :_tail)
             @test c.spline == Spline.MonotoneConvex()
         end
 
@@ -411,7 +411,7 @@
             @test ci isa Yield.MonotoneConvex{Float64, Float64}
             @test ci.tenors == [1.0, 2.0, 3.0, 4.0]
             cb = Yield.MonotoneConvex((0.02, 0.03), (1.0f0, big"2.0"))
-            @test eltype(cb.tenors) == BigFloat && eltype(cb.rates) == Float64
+            @test eltype(cb.tenors) == BigFloat && eltype(cb.rates) == Rate{Float64, Continuous}
             @test isfinite(discount(cb, 1.5))
             # a single knot is a flat curve
             c1 = Yield.MonotoneConvex([0.03], [1.0])
@@ -425,12 +425,12 @@
         @testset "Accessors rebuild the forwards; cache is not settable" begin
             c = Yield.MonotoneConvex(rates, times)
             c2 = @set c.rates[2] = 0.05
-            @test c2.rates == [0.02, 0.05, 0.035, 0.04]
-            @test c2._f == Yield.__monotone_convex_fs(c2.rates, c2.tenors)[1]
+            @test c2.rates == Continuous.([0.02, 0.05, 0.035, 0.04])
+            @test c2._f == Yield.__monotone_convex_fs(rate.(c2.rates), c2.tenors)[1]
             @test rate(zero(c2, 2.0)) ≈ 0.05
-            @test c.rates == rates                               # original untouched
+            @test c.rates == Continuous.(rates)                  # original untouched
             c3 = @set c.tenors = [1.0, 3.0, 6.0, 12.0]
-            @test c3.tenors == [1.0, 3.0, 6.0, 12.0] && c3._f == Yield.__monotone_convex_fs(c3.rates, c3.tenors)[1]
+            @test c3.tenors == [1.0, 3.0, 6.0, 12.0] && c3._f == Yield.__monotone_convex_fs(rate.(c3.rates), c3.tenors)[1]
             @test_throws ArgumentError (@set c.tenors[2] = 0.5)   # breaks ordering → re-validated
             @test_throws ArgumentError (@set c.rates = [NaN, 0.0, 0.0, 0.0])
             # derived caches and unknown keys are not `reconstruct` keywords
@@ -455,8 +455,8 @@
             qs = ZCBYield.(Continuous.(target), times)
             fitted = fit(c, qs)
             @test fitted isa Yield.MonotoneConvex
-            @test collect(fitted.rates) ≈ target atol = 1.0e-6
-            @test fitted._f == Yield.__monotone_convex_fs(fitted.rates, fitted.tenors)[1]
+            @test rate.(fitted.rates) ≈ target atol = 1.0e-6
+            @test fitted._f == Yield.__monotone_convex_fs(rate.(fitted.rates), fitted.tenors)[1]
         end
 
         @testset "fit validates the knot grid up front" begin

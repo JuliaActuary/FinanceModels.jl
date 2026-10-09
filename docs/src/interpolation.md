@@ -33,7 +33,7 @@ zrc_aki = ZeroRateCurve(rates, tenors, Spline.Akima())           # Akima
 zrc_flat_zero = ZeroRateCurve(rates, tenors, Spline.Cubic();
     extrapolation=:flat_zero)
 
-knot_rates(zrc_lin)                                 # read-only view of the rates
+knot_rates(zrc_lin)                                 # read-only view of the rates, as Continuous rates
 zrc_up = reconstruct(zrc_lin; rates = rates .+ 0.001)   # every knot 10bp higher
 zrc_mc = reconstruct(zrc_lin; spline = Spline.MonotoneConvex())
 ```

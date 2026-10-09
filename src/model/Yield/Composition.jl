@@ -27,11 +27,12 @@ factor — it no longer pays the `log`/`exp` round-trip that earlier versions di
 many curves in a hot loop is still marginally slower than pre-fitting a single combined
 curve, but the gap is small.
 
-Curves can be added or subtracted together, but note that this is not always the same thing
-as adding or subtracting spreads with rates. If spreads and base rates are expressed as zero
-rates, then the curve addition/subtraction has the same effect as re-fitting the yield model
-with the rate+spread inputs added together first. Non-zero rates (e.g. par rates) do not have
-this same property.
+Curves can be added or subtracted together, but this is not always the same as adding or
+subtracting spreads to rates. Adding two curves adds their continuously compounded zero rates. So
+it equals fitting a curve to the summed zero rates only when those are continuously compounded and
+the curves share knots and an interpolation that preserves addition, such as linear interpolation
+on the same knots (the example below). Other quotes (annual-effective or par rates) and other
+interpolations (PCHIP, MonotoneConvex) do not have this property.
 
 ## Examples
 
@@ -43,15 +44,15 @@ mats = [1 / 12, 2 / 12, 3 / 12, 6 / 12, 1, 2, 3, 5, 7, 10, 20, 30]
 
 ### Zero coupon rates/spreads
 
-q_rf_z = ZCBYield.(rates,mats)
-q_s_z = ZCBYield.(spreads,mats)
-q_y_z = ZCBYield.(rates + spreads,mats)
+q_rf_z = ZCBYield.(Continuous.(rates),mats)
+q_s_z = ZCBYield.(Continuous.(spreads),mats)
+q_y_z = ZCBYield.(Continuous.(rates + spreads),mats)
 
 c_rf_z = fit(Spline.Linear(),q_rf_z,Fit.Bootstrap())
 c_s_z = fit(Spline.Linear(),q_s_z,Fit.Bootstrap())
 c_y_z = fit(Spline.Linear(),q_y_z,Fit.Bootstrap())
 
-# adding curves when the spreads were zero spreads works
+# adding linear curves on the same knots, fitted to continuous zero rates and spreads, works
 @test discount(c_rf_z+c_s_z,20) ≈ discount(c_y_z,20)
 
 
@@ -98,7 +99,7 @@ const __CombinedYield = Union{CompositeYield, ScaledYield}
 @inline __combine(rc::CompositeYield, f::F) where {F} = rc.op(f(rc.r1), f(rc.r2))
 @inline __combine(sy::ScaledYield, f::F) where {F} = sy.factor * f(sy.curve)
 
-Base.zero(w::__CombinedYield, time) = Continuous(__combine(w, @inline(c -> FinanceCore.rate(Base.zero(c, time)))))
+Base.zero(w::__CombinedYield, time) = Continuous(__combine(w, @inline(c -> __continuous(Base.zero(c, time)))))
 # At t = Inf the components' tails are combined before the limit is taken. The components' L is
 # inlined at these calls: a wrapper inlined into a loop (`pv`'s `map`) otherwise copies each
 # component onto the stack for every call. Inlining a Spline's L into every caller instead makes
@@ -112,7 +113,7 @@ function FinanceCore.discount(w::__CombinedYield, time)
     return exp(-__log_discount(w, time))
 end
 __log_tail(w::__CombinedYield) = __combine(w, __log_tail)
-instantaneous_forward(w::__CombinedYield, t) = __combine(w, c -> instantaneous_forward(c, t))
+force_of_interest(w::__CombinedYield, t) = __combine(w, c -> force_of_interest(c, t))
 
 # A wrapper's interval combines its components' intervals, so each keeps its own form: a log-native
 # curve's difference of log-discounts (L(to) alone from 0), Smith–Wilson's signed ratio, a rebased
@@ -173,7 +174,7 @@ function __log_discount(c::ForwardStarting, t)
     return __log_interval(c.curve, c.forwardstart, t + c.forwardstart)
 end
 __log_interval(c::ForwardStarting, from, to) = __log_interval(c.curve, from + c.forwardstart, to + c.forwardstart)
-instantaneous_forward(c::ForwardStarting, t) = instantaneous_forward(c.curve, t + c.forwardstart)
+force_of_interest(c::ForwardStarting, t) = force_of_interest(c.curve, t + c.forwardstart)
 __log_tail(c::ForwardStarting) = __shift_tail(__log_tail(c.curve), c.forwardstart, __log_discount(c.curve, c.forwardstart))
 
 """
@@ -186,8 +187,8 @@ function Base.:+(a::AbstractYieldModel, b::AbstractYieldModel)
 end
 
 function Base.:+(a::Constant, b::Constant)
-    z_a = FinanceCore.rate(convert(Continuous(), a.rate))
-    z_b = FinanceCore.rate(convert(Continuous(), b.rate))
+    z_a = __continuous(a.rate)
+    z_b = __continuous(b.rate)
     return Constant(Continuous(z_a + z_b))
 end
 
@@ -243,8 +244,8 @@ function Base.:-(a::AbstractYieldModel, b::AbstractYieldModel)
 end
 
 function Base.:-(a::Constant, b::Constant)
-    z_a = FinanceCore.rate(convert(Continuous(), a.rate))
-    z_b = FinanceCore.rate(convert(Continuous(), b.rate))
+    z_a = __continuous(a.rate)
+    z_b = __continuous(b.rate)
     return Constant(Continuous(z_a - z_b))
 end
 

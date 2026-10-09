@@ -10,7 +10,10 @@
 # | `__log_interval(c, a, b)`  | L(b) − L(a), real where the interval factor is positive | from `__log_native`   |
 # | `__log_tail(c)`            | the coefficients of L as t → ∞ (`__LogTail`)   | from `zero(c, Inf)`, below     |
 # | `zero(c, t)`               | continuous zero rate L(t)/t                    | L(t)/t; L′(0) at t = 0 if L(0) = 0 |
-# | `instantaneous_forward(c, t)` | right-hand derivative of L                  | ForwardDiff of L               |
+# | `force_of_interest(c, t)`  | right-hand derivative of L, a number           | ForwardDiff of L               |
+#
+# The public `instantaneous_forward` wraps `force_of_interest` once, as a `Continuous` rate;
+# FinanceModels' own consumers of the forward call the numeric hook.
 #
 # `__log_native` says that the log-difference route is valid for intervals: the curve's L is
 # computed directly, with L(0) = 0, and its discount factor is exp(-L), so positive. It doesn't just
@@ -63,7 +66,7 @@ end
 # is NaN (0·Inf). An infinite zero rate means L grows faster than t, at an order the curve doesn't
 # say; the forward slot then holds ±Inf, which the limit reads as that unknown growth.
 function __log_tail(c)
-    z = FinanceCore.rate(Base.zero(c, Inf))
+    z = __continuous(Base.zero(c, Inf))
     return __LogTail(zero(z), z, oftype(z, NaN))
 end
 
@@ -87,7 +90,7 @@ __dual_at_origin(t::ForwardDiff.Dual) = iszero(__primal(t)) && !iszero(t)
 # needs the zero rate's limit at 0 and its derivatives: the built-in curves' own `zero` is exact
 # there, and the generic `zero` of a curve that defines only its discount factor or L throws.
 function __zero_log_discount(c, t)
-    L = FinanceCore.rate(Base.zero(c, t)) * t
+    L = __continuous(Base.zero(c, t)) * t
     return iszero(t) ? zero(L) : L
 end
 
@@ -145,7 +148,7 @@ function Base.zero(c::YC, time) where {YC <: AbstractYieldModel}
     # instead of returning a NaN.
     __dual_at_origin(time) && __throw_zero_rate_derivative_at_origin(time)
     L = __log_discount(c, time)
-    iszero(time) && iszero(L) && return Continuous(instantaneous_forward(c, time))
+    iszero(time) && iszero(L) && return Continuous(force_of_interest(c, time))
     return Continuous(L / time)
 end
 @noinline __throw_zero_rate_derivative_at_origin(t) = throw(
@@ -158,16 +161,22 @@ end
 """
     instantaneous_forward(curve, t)
 
-The instantaneous (continuously compounded) forward rate of `curve` at time `t`,
-``f(t) = -\\frac{d}{dt} \\log D(t)``. At `t = 0` it is the curve's short rate.
+The instantaneous forward rate of `curve` at time `t`, ``f(t) = -\\frac{d}{dt} \\log D(t)``, as a
+`Continuous` rate. At `t = 0` it is the curve's short rate. `rate(instantaneous_forward(curve, t))`
+is the number, for example to differentiate it with ForwardDiff.
 
 A curve with a closed form uses it. Other curves differentiate their cumulative log-discount with
-ForwardDiff, which stays finite where discount factors underflow.
+ForwardDiff, which stays finite where discount factors underflow. A custom curve needs only
+`discount`; to supply a closed-form forward, define `Yield.force_of_interest(curve, t)`,
+which returns the continuously compounded forward as a number.
 
 Note this is distinct from `forward(curve, from, to)`, which is the *discrete* forward `Rate`
-between two times.
+between two times. See [Rate conventions](@ref rate-conventions).
 """
-instantaneous_forward(c::AbstractYieldModel, t) = __log_discount_derivative(c, t)
+instantaneous_forward(c::AbstractYieldModel, t) = Continuous(force_of_interest(c, t))
+
+# The forward as a continuously compounded number: the hook a curve with a closed form defines.
+force_of_interest(c::AbstractYieldModel, t) = __log_discount_derivative(c, t)
 __log_discount_derivative(c, t) = ForwardDiff.derivative(s -> __log_discount(c, s), t)
 
 """
@@ -186,5 +195,5 @@ FinanceCore.accumulation(yc::AbstractYieldModel, from, to) = FinanceCore.discoun
 # their numbers of time arguments; the test suite checks every forwarding type against this list.
 const __FORWARDED_CAPABILITIES = (
     (FinanceCore.discount, 1), (FinanceCore.discount, 2), (__log_discount, 1), (__log_interval, 2),
-    (__log_tail, 0), (Base.zero, 1), (instantaneous_forward, 1),
+    (__log_tail, 0), (Base.zero, 1), (force_of_interest, 1),
 )

@@ -41,10 +41,11 @@ discount(c, 2.5)  # Get the discount factor at t=2.5
 ```
 
 `Yield.MonotoneConvex` is a [`Yield.AbstractInterpolatedZeroCurve`](@ref): it copies and
-validates its inputs like every knot curve (a single knot is allowed and gives a flat curve),
+validates its inputs like every knot curve (a single knot is allowed and gives a flat curve;
+`rates` takes numbers, read as continuously compounded, `Rate`s, or a mixture),
 its knots are read with [`knot_rates`](@ref)/[`knot_tenors`](@ref), and it changes only through
 [`reconstruct`](@ref), which recomputes the node forwards. [`Yield.instantaneous_forward`](@ref) gives
-the interpolated instantaneous forward.
+the interpolated instantaneous forward, as a `Continuous` rate.
 
 # Derivatives with respect to the knot rates
 
@@ -60,8 +61,8 @@ from those points; at them, each partial is the limit of a centered bump in its 
 """
 struct MonotoneConvex{T, U, P, E} <: AbstractInterpolatedZeroCurve
     spline::Sp.MonotoneConvex    # stored so every knot curve has the same public properties
-    rates::ReadOnlyVector{T}     # continuously-compounded zero rates at the knots
-    tenors::ReadOnlyVector{U}    # finite, ≥ 0, strictly increasing
+    _rates::ReadOnlyVector{T, T} # continuously-compounded zero rates at the knots; property `rates` is `knot_rates`
+    tenors::ReadOnlyVector{U, U} # finite, ≥ 0, strictly increasing
     extrapolation::P             # validated long-end policy
     _f::Vector{T}                # node instantaneous forwards, derived from (rates, tenors)
     _fᵈ::Vector{T}               # discrete forwards, derived from (rates, tenors)
@@ -249,7 +250,10 @@ function __mc_kink_tol(rates, times, i)
     end
     return 16 * eps(s)
 end
-__mc_kink_tol(mc, i) = eltype(mc.rates) <: ForwardDiff.Dual ? __mc_kink_tol(mc.rates, mc.tenors, i) : nothing
+function __mc_kink_tol(mc, i)
+    rates = getfield(mc, :_rates)
+    return eltype(rates) <: ForwardDiff.Dual ? __mc_kink_tol(rates, mc.tenors, i) : nothing
+end
 
 __mc_kink_error(why) = ArgumentError(
     "Yield.MonotoneConvex cannot differentiate with respect to its knot rates here: $why. Use a " *
@@ -470,7 +474,7 @@ end
 # L over an interval after a knot: the knot's t·z, plus the discrete forward and the integrated
 # deviation accumulated since.
 @inline function __mc_knot_log_discount(mc::MonotoneConvex, t, i)
-    f, fᵈ, rates, times = mc._f, mc._fᵈ, mc.rates, mc.tenors
+    f, fᵈ, rates, times = mc._f, mc._fᵈ, getfield(mc, :_rates), mc.tenors
     t_prev = times[i - 1]
     x = (t - t_prev) / (times[i] - t_prev)
     G = g_rate(x, f[i], f[i + 1], fᵈ[i], __mc_kink_tol(mc, i))

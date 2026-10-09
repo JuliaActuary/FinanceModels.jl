@@ -62,7 +62,7 @@ FinanceCore.present_value(model, c::PaysAfterMaturity) = FinanceCore.present_val
             Quote(n * exp(-3 * z[3]), Cashflow(n, 3.0)),
         ]
         curve = fit(Spline.Linear(), scaled, Fit.Bootstrap())
-        @test knot_rates(curve) ≈ z rtol = 1.0e-12
+        @test rate.(knot_rates(curve)) ≈ z rtol = 1.0e-12
         @test knot_tenors(curve) == [1.0, 2.0, 3.0]
     end
 

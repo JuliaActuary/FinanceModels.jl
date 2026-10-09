@@ -67,7 +67,7 @@
         selected_mc = fit(Spline.MonotoneConvex(), qs; extrapolation = :flat_zero)
         @test selected_mc isa Yield.MonotoneConvex
         @test selected_mc.extrapolation === :flat_zero
-        @test rate(zero(selected_mc, 100.0)) ≈ last(selected_mc.rates) atol = 1.0e-10
+        @test zero(selected_mc, 100.0) ≈ last(selected_mc.rates) atol = 1.0e-10
         @test_throws ArgumentError fit(
             Spline.MonotoneConvex(), qs;
             extrapolation = :extension
@@ -94,6 +94,18 @@
         # only the internal unchecked form skips copying and validation (optimizer trial curves)
         raw = KG(FinanceModels.Yield.Unchecked(), [NaN, 0.0], [2.0, 1.0])
         @test isnan(raw.rates[1]) && raw.tenors == [2.0, 1.0]
+        # typed and mixed rates are normalized here, once, to continuous numbers
+        p = rate(Continuous(Periodic(0.035, 1)))
+        gt = KG(Any[0.02, Continuous(0.03), Periodic(0.035, 1)], [1.0, 2.0, 3.0], Spline.Linear())
+        @test gt.rates == [0.02, 0.03, p] && eltype(gt.rates) == Float64
+        @test KG(Continuous.([0.02, 0.03f0]), [1.0, 2.0], Spline.Linear()).rates isa Vector{Float64}
+        @test KG(Continuous.(Float32[0.02, 0.03]), [1.0, 2.0], Spline.Linear()).rates isa Vector{Float32}
+        # a curve's typed knot view gives its numbers, copied
+        c = ZeroRateCurve([0.02, 0.03], [1.0, 2.0], Spline.Linear())
+        gv = KG(knot_rates(c), knot_tenors(c), Spline.Linear())
+        @test gv.rates == [0.02, 0.03] && gv.rates !== getfield(getfield(c, :_rates), :_data)
+        # a rate that is neither a number nor a `Rate` fails where it is converted
+        @test_throws MethodError KG(["0.02", "0.03"], [1.0, 2.0], Spline.Linear())
     end
 
     @testset "curves built from a KnotGrid cannot alias caller vectors" begin
@@ -104,7 +116,7 @@
         mc = Yield.MonotoneConvex(KG(rr, [1.0, 2, 5], Spline.MonotoneConvex()))
         d3 = discount(mc, 3.0)
         rr[2] = 0.08
-        @test mc.rates[2] == 0.03
+        @test mc.rates[2] == Continuous(0.03)
         @test discount(mc, 3.0) == d3
         @test discount(mc, 3.0) == discount(Yield.MonotoneConvex([0.02, 0.03, 0.035], [1.0, 2.0, 5.0]), 3.0)
         rr = [0.02, 0.03, 0.035]
@@ -181,7 +193,7 @@
         # MonotoneConvex keeps its native boundary instantaneous forward, so its forward
         # curve is continuous at the last knot.
         mc = Yield.MonotoneConvex(rates, tenors)
-        fₙ = Yield.instantaneous_forward(mc, 30.0)
+        fₙ = rate(Yield.instantaneous_forward(mc, 30.0))
         @test fₙ == last(mc._f)
         @test rate(forward(mc, 30.0, 100.0)) ≈ fₙ atol = 1.0e-14
         @test abs(fₙ - f) > 1.0e-4

@@ -133,7 +133,7 @@ tenors = [1.0, 2.0, 3.0, 5.0, 10.0]
 zrc = ZeroRateCurve(rates, tenors)                          # default: MonotoneConvex
 zrc = ZeroRateCurve(rates, tenors, Spline.Linear())          # or Linear, PCHIP, Cubic, Akima
 
-knot_rates(zrc), knot_tenors(zrc)                            # read-only views of the knots
+knot_rates(zrc), knot_tenors(zrc)                            # read-only views: Continuous rates, tenors
 zrc_up = reconstruct(zrc; rates = rates .+ 0.001)            # a new curve, 10bp higher at every knot
 ```
 

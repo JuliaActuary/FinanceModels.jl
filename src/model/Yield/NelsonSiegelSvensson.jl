@@ -90,7 +90,7 @@ function Base.zero(ns::NelsonSiegel, t)
     return Continuous(ns.β₀ + ns.β₁ * (1 - e) / q + ns.β₂ * ((1 - e) / q - e))
 end
 # f = (z·t)′ = β₀ + β₁e^{-q} + β₂qe^{-q}: no cancellation, and β₀ at t = ∞
-function instantaneous_forward(ns::NelsonSiegel, t)
+function force_of_interest(ns::NelsonSiegel, t)
     __at_infinity(t) && return ns.β₀ + zero(t)
     q = t / ns.τ₁
     e = exp(-q)
@@ -178,7 +178,7 @@ end
 FinanceCore.discount(nss::NelsonSiegelSvensson, t) = _discount_from_zero(nss, t)
 __log_discount(nss::NelsonSiegelSvensson, t) = __zero_log_discount(nss, t)
 __log_native(::NelsonSiegelSvensson) = true
-function instantaneous_forward(nss::NelsonSiegelSvensson, t)
+function force_of_interest(nss::NelsonSiegelSvensson, t)
     __at_infinity(t) && return nss.β₀ + zero(t)
     q₁, q₂ = t / nss.τ₁, t / nss.τ₂
     e₁, e₂ = exp(-q₁), exp(-q₂)

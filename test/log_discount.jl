@@ -13,6 +13,11 @@ FinanceCore.discount(::__HalfFlatCurve, t) = 0.5 * exp(-0.03 * t)
 struct __NegativeDiscountCurve <: Yield.AbstractYieldModel end
 FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
 
+# A curve with a closed-form forward, given through the numeric hook
+struct __ClosedFormForwardCurve <: Yield.AbstractYieldModel end
+FinanceCore.discount(::__ClosedFormForwardCurve, t) = exp(-0.03 * t - 0.001 * t^2)
+FinanceModels.Yield.force_of_interest(::__ClosedFormForwardCurve, t) = 0.03 + 0.002 * t
+
 @testset "Interval factors from cumulative log-discounts" begin
     rates, tenors = [0.02, 0.03, 0.035, 0.04], [1.0, 2.0, 5.0, 10.0]
     zrc_lin = ZeroRateCurve(rates, tenors, Spline.Linear())
@@ -295,7 +300,7 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
             -(0.05 - 0.02 * exp(-4.0) + 0.01 * 4.0 * exp(-4.0)) rtol = 1.0e-12
         mc = ZeroRateCurve(rates, tenors)
         @test ForwardDiff.derivative(h -> discount(mc, 3.0, 3.0 + h), 0.0) ≈
-            -Yield.instantaneous_forward(mc, 3.0) rtol = 1.0e-12
+            -rate(Yield.instantaneous_forward(mc, 3.0)) rtol = 1.0e-12
         # A dual start at an exact 0 still carries its derivative: the instantaneous forward at 0
         # (the linear curve's flat short end, 2%) times the factor.
         @test ForwardDiff.derivative(x -> discount(zrc_lin, x, 7.0), 0.0) ≈ 0.02 * discount(zrc_lin, 7.0) rtol = 1.0e-12
@@ -313,7 +318,7 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
         mc_steep = ZeroRateCurve([0.01, 0.05, 0.05, 0.05], tenors)
         mc_origin = ZeroRateCurve([0.02, 0.025, 0.03], [0.0, 1.0, 5.0])   # a knot at t = 0
         nss = Yield.NelsonSiegelSvensson(2.5, 3.0, 0.04, -0.02, 0.01, -0.005)
-        f0 = Yield.instantaneous_forward(mc, 0.0)
+        f0 = rate(Yield.instantaneous_forward(mc, 0.0))
         curves = (
             mc => f0, mc_steep => 0.0, mc_origin => 0.02,
             ns => 0.03, nss => 0.02, mc + ns => f0 + 0.03, 2 * mc => 2 * f0,
@@ -363,7 +368,7 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
         @test_throws DomainError ForwardDiff.derivative(t -> discount(Yield.TenorShift(sw, (z, t) -> z), t), 0.0)
         @test_throws DomainError ForwardDiff.derivative(t -> rate(zero(sw, t)), 0.0)
         # An exact 0 is the zero rate's limit there, the instantaneous forward (it was the 0/0 NaN)
-        @test rate(zero(sw, 0.0)) == Yield.instantaneous_forward(sw, 0.0)
+        @test rate(zero(sw, 0.0)) == rate(Yield.instantaneous_forward(sw, 0.0))
         @test rate(zero(sw, 0.0)) ≈ rate(zero(sw, 1.0e-7)) rtol = 1.0e-6
         # Float32 parameters keep Float32 zero rates, at a dual 0 (the decay's series) and elsewhere
         ns32 = Yield.NelsonSiegel(1.0f0, 0.05f0, -0.02f0, 0.01f0)
@@ -391,7 +396,7 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
         # Smith–Wilson uses), including at t = 0 and past the last knot
         L′(c, t) = ForwardDiff.derivative(s -> Yield.__log_discount(c, s), t)
         for c in curves, t in (0.0, 0.3, 1.0, 1.7, 2.0, 4.0, 5.0, 7.5, 10.0, 12.0, 40.0)
-            @test Yield.instantaneous_forward(c, t) ≈ L′(c, t) atol = 1.0e-14
+            @test rate(Yield.instantaneous_forward(c, t)) ≈ L′(c, t) atol = 1.0e-14
         end
         # At a knot the forward is L's right-hand derivative, the forward of the piece that starts
         # there, so Hull–White's θ and conditional prices at knot times keep their values (a 6.x
@@ -400,40 +405,40 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
         L(t) = -log(discount(lin, t))
         for t in (2.0, 5.0, 10.0)
             h = 1.0e-6
-            @test Yield.instantaneous_forward(lin, t) ≈ (L(t + h) - L(t)) / h rtol = 1.0e-4
-            @test !isapprox(Yield.instantaneous_forward(lin, t), (L(t) - L(t - h)) / h; rtol = 1.0e-4)
+            @test rate(Yield.instantaneous_forward(lin, t)) ≈ (L(t + h) - L(t)) / h rtol = 1.0e-4
+            @test !isapprox(rate(Yield.instantaneous_forward(lin, t)), (L(t) - L(t - h)) / h; rtol = 1.0e-4)
         end
         hw_lin = ShortRate.HullWhite(0.1, 0.01, lin)
         for (t, P) in ((2.0, 0.9688352697), (5.0, 0.9700656931), (10.0, 0.9701617133))
             @test discount(hw_lin, t, t + 1.0, 0.03) ≈ P rtol = 1.0e-9
         end
         # long-run forwards
-        @test Yield.instantaneous_forward(vas, Inf) ≈ 0.03 - 0.01^2 / (2 * 0.1^2) rtol = 1.0e-14
-        @test Yield.instantaneous_forward(cir, Inf) ≈ 2 * 0.1 * 0.03 / (sqrt(0.1^2 + 2 * 0.05^2) + 0.1) rtol = 1.0e-14
-        @test Yield.instantaneous_forward(ns, Inf) == ns.β₀
+        @test rate(Yield.instantaneous_forward(vas, Inf)) ≈ 0.03 - 0.01^2 / (2 * 0.1^2) rtol = 1.0e-14
+        @test rate(Yield.instantaneous_forward(cir, Inf)) ≈ 2 * 0.1 * 0.03 / (sqrt(0.1^2 + 2 * 0.05^2) + 0.1) rtol = 1.0e-14
+        @test rate(Yield.instantaneous_forward(ns, Inf)) == ns.β₀
         # CIR at σ = 0 is the deterministic forward r(τ) = b + (r - b)e^{-aτ}, continuous with σ → 0
         # (at τ = ∞ only for a ≥ 0: an explosive a < 0 forward tends to ∞ at σ = 0 but to a finite limit
         # for every σ > 0)
         cir_σ(a, b, σ) = ShortRate.CoxIngersollRoss(a, b, σ, Continuous(0.04))
         for (a, b) in ((0.1, 0.05), (0.1, 0.0), (-0.1, 0.0), (0.0, 0.03)), τ in (0.5, 10.0, 1.0e3)
-            @test Yield.instantaneous_forward(cir_σ(a, b, 0.0), τ) ≈ b + (0.04 - b) * exp(-a * τ) rtol = 1.0e-13
+            @test rate(Yield.instantaneous_forward(cir_σ(a, b, 0.0), τ)) ≈ b + (0.04 - b) * exp(-a * τ) rtol = 1.0e-13
             @test Yield.instantaneous_forward(cir_σ(a, b, 0.0), τ) ≈ Yield.instantaneous_forward(cir_σ(a, b, 1.0e-300), τ) rtol = 4eps()
         end
-        @test Yield.instantaneous_forward(cir_σ(0.1, 0.05, 0.0), Inf) ≈ 0.05 rtol = 1.0e-15
+        @test rate(Yield.instantaneous_forward(cir_σ(0.1, 0.05, 0.0), Inf)) ≈ 0.05 rtol = 1.0e-15
         # CIR without mean reversion: the forward decays to 0 at τ = ∞; and a σ whose square underflows
-        @test Yield.instantaneous_forward(ShortRate.CoxIngersollRoss(0.0, 0.03, 0.1, 0.04), Inf) == 0
-        @test Yield.instantaneous_forward(ShortRate.CoxIngersollRoss(0.0, 0.03, 1.0e-200, 0.04), 10.0) ≈ 0.04 rtol = 1.0e-15
+        @test rate(Yield.instantaneous_forward(ShortRate.CoxIngersollRoss(0.0, 0.03, 0.1, 0.04), Inf)) == 0
+        @test rate(Yield.instantaneous_forward(ShortRate.CoxIngersollRoss(0.0, 0.03, 1.0e-200, 0.04), 10.0)) ≈ 0.04 rtol = 1.0e-15
         # a < 0 with a tiny σ: 2γ/D′ is ~1e200 and e^{-γτ} ~1e-218, so B′ overflowed when squared first
         # (a 2048-bit reference gives 1.1399322250785743e178)
-        @test Yield.instantaneous_forward(ShortRate.CoxIngersollRoss(-0.1, 0.0, 1.0e-100, 0.04), 5000.0) ≈ 1.1399322250785743e178 rtol = 1.0e-12
+        @test rate(Yield.instantaneous_forward(ShortRate.CoxIngersollRoss(-0.1, 0.0, 1.0e-100, 0.04), 5000.0)) ≈ 1.1399322250785743e178 rtol = 1.0e-12
         # and through a = σ = 0: f = r(1 - σ²B²/2) at a = 0, so ∂²f/∂σ² = -rτ²
-        fσ(σ) = Yield.instantaneous_forward(ShortRate.CoxIngersollRoss(0.0, 0.03, σ, 0.04), 10.0)
+        fσ(σ) = rate(Yield.instantaneous_forward(ShortRate.CoxIngersollRoss(0.0, 0.03, σ, 0.04), 10.0))
         @test ForwardDiff.derivative(s -> ForwardDiff.derivative(fσ, s), 0.0) ≈ -0.04 * 10.0^2 rtol = 1.0e-13
 
         # A curve without its own `zero` takes the limit at an exact 0, its short rate; it was NaN
         for c in (vas, cir, cir_explosive, hw, sw, Yield.ForwardStarting(cubic, 1.5), vas - Yield.Constant(0.01))
             z0 = rate(zero(c, 0.0))
-            @test z0 == Yield.instantaneous_forward(c, 0.0)
+            @test z0 == rate(Yield.instantaneous_forward(c, 0.0))
             @test z0 ≈ rate(zero(c, 1.0e-7)) rtol = 1.0e-6
         end
         @test rate(zero(vas, 0.0)) == 0.04
@@ -447,7 +452,7 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
                 Yield.instantaneous_forward(c, t) rtol = 1.0e-12
         end
         shifted(h) = Yield.TenorShift(vas, (z, t) -> z + Continuous(h))
-        @test ForwardDiff.derivative(h -> Yield.instantaneous_forward(shifted(h), 0.0), 0.01) == 1
+        @test ForwardDiff.derivative(h -> rate(Yield.instantaneous_forward(shifted(h), 0.0)), 0.01) == 1
         @test ForwardDiff.derivative(r -> rate(zero(ShortRate.Vasicek(0.1, 0.03, 0.01, r), 0.0)), 0.04) == 1
 
         # Nelson–Siegel near 0: at t = 1e-16, e^{-q} rounded to 1 and the zero rate jumped from 2% to
@@ -465,7 +470,7 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
         @test rate(zero(ns2, 1.0e-16)) == rate(zero(ns2, 0.0))
         @test rate(zero(nss, 1.0e-16)) == rate(zero(nss, 0.0))
         # and the zero rate's slope there is the series', z′(0) = (f′(0))/2
-        f′0 = ForwardDiff.derivative(t -> Yield.instantaneous_forward(ns2, t), 0.0)
+        f′0 = ForwardDiff.derivative(t -> rate(Yield.instantaneous_forward(ns2, t)), 0.0)
         @test ForwardDiff.derivative(t -> rate(zero(ns2, t)), 0.0) ≈ f′0 / 2 rtol = 1.0e-14
         @test ForwardDiff.derivative(t -> rate(zero(ns2, t)), 1.0e-12) ≈ f′0 / 2 rtol = 1.0e-9
     end
@@ -488,4 +493,33 @@ FinanceCore.discount(::__NegativeDiscountCurve, t) = -exp(-0.03 * t)
         # a time derivative of Hull–White's zero rate at 0 (it threw: the generic zero is L/t there)
         @test ForwardDiff.derivative(t -> rate(zero(hw, t)), 0.0) == ForwardDiff.derivative(t -> rate(zero(lin, t)), 0.0)
     end
+end
+
+@testset "instantaneous_forward is a Continuous rate" begin
+    lin = ZeroRateCurve([0.02, 0.03, 0.035], [1.0, 5.0, 10.0], Spline.Linear())
+    ns = Yield.NelsonSiegel(1.0, 0.05, -0.02, 0.01)
+    vas = ShortRate.Vasicek(0.1, 0.03, 0.01, 0.04)
+    sw = Yield.SmithWilson([1.0, 5.0], [0.01, -0.02]; ufr = 0.03, α = 0.1)
+    curves = (
+        Yield.Constant(0.04), lin, ZeroRateCurve([0.02, 0.03, 0.035], [1.0, 5.0, 10.0]), ns, vas,
+        ShortRate.HullWhite(0.1, 0.01, lin), sw, lin + ns, 0.5 * lin, Yield.ForwardStarting(lin, 1.5),
+        Yield.TenorShift(lin, (z, t) -> z + Continuous(0.01)), FinanceModels.Yield.__PrimalCurve(lin),
+        __HalfFlatCurve(), __ClosedFormForwardCurve(),
+    )
+    # the public function wraps the numeric hook once, with its value unchanged
+    for c in curves, t in (0.0, 2.5, 5.0, 12.0)
+        f = Yield.instantaneous_forward(c, t)
+        @test f isa FinanceCore.Rate{Float64, Continuous}
+        @test rate(f) === FinanceModels.Yield.force_of_interest(c, t)
+    end
+    # a custom curve's closed form is used, directly and inside wrappers
+    c = __ClosedFormForwardCurve()
+    f2 = 0.03 + 0.002 * 2.0
+    @test Yield.instantaneous_forward(c, 2.0) == Continuous(f2)
+    @test rate(Yield.instantaneous_forward(c + Yield.Constant(Continuous(0.01)), 2.0)) == f2 + 0.01
+    @test rate(Yield.instantaneous_forward(Yield.ForwardStarting(c, 1.0), 1.0)) == f2
+    @test rate(zero(ShortRate.HullWhite(0.1, 0.01, c), 0.0)) ≈ 0.03 rtol = 1.0e-14
+    # a typed forward feeds FinanceCore with its convention: a flat curve at the forward discounts at it
+    @test discount(Yield.Constant(Yield.instantaneous_forward(lin, 7.0)), 2.0) ≈
+        exp(-2 * rate(Yield.instantaneous_forward(lin, 7.0))) rtol = 1.0e-15
 end

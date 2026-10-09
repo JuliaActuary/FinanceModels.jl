@@ -29,20 +29,21 @@ interpolation piece, respectively.
 [`FlatForwardAt`](@ref) holds a supplied forward rate fixed beyond the last knot.
 
 Inputs are **copied** (later mutation of the vectors you passed in does not affect the curve)
-and promoted to one concrete float element type each. An `ArgumentError` is raised for a length
-mismatch, empty or non-finite inputs, negative/unsorted/duplicate tenors, or fewer knots than
-the interpolant needs. `Yield.Spline` is a [`Yield.AbstractInterpolatedZeroCurve`](@ref): read
+and promoted to one concrete float element type each. `rates` takes numbers (continuously
+compounded), `Rate`s, or a mixture, as [`ZeroRateCurve`](@ref) does. An `ArgumentError` is
+raised for a length mismatch, empty or non-finite inputs, negative/unsorted/duplicate tenors, or
+fewer knots than the interpolant needs. `Yield.Spline` is a [`Yield.AbstractInterpolatedZeroCurve`](@ref): read
 its knots with [`knot_rates`](@ref)/[`knot_tenors`](@ref) and change it with
 [`reconstruct`](@ref).
 """
 struct Spline{S <: Sp.SplineCurve, R, T, E, I, X} <: AbstractInterpolatedZeroCurve
-    spline::S                  # the requested method (not the order reduced for short grids)
-    rates::ReadOnlyVector{R}   # continuously-compounded zero rates at the knots
-    tenors::ReadOnlyVector{T}  # finite, ≥ 0, strictly increasing
-    extrapolation::E           # validated long-end policy
-    _interp::I                 # t -> continuous zero rate through the last knot (and the flat short end)
-    _tail::X                   # the long-end policy's `CurveTail` (unused with `:extension`)
-    _extend::Bool              # `:extension`: the interpolant continues past the last knot
+    spline::S                     # the requested method (not the order reduced for short grids)
+    _rates::ReadOnlyVector{R, R}  # continuously-compounded zero rates at the knots; property `rates` is `knot_rates`
+    tenors::ReadOnlyVector{T, T}  # finite, ≥ 0, strictly increasing
+    extrapolation::E              # validated long-end policy
+    _interp::I                    # t -> continuous zero rate through the last knot (and the flat short end)
+    _tail::X                      # the long-end policy's `CurveTail` (unused with `:extension`)
+    _extend::Bool                 # `:extension`: the interpolant continues past the last knot
     # Internal: the builders below pass an owned grid and a validated policy. Every policy has the
     # same tail type, so a runtime policy Symbol does not change the curve's type.
     Spline(::Unchecked, spline::S, g::KnotGrid{R, T}, extrapolation::E, interp::I, tail::X, extend::Bool) where {S, R, T, E, I, X} =

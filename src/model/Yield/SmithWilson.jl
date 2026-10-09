@@ -18,7 +18,7 @@ Positional arguments to construct a curve:
 
 Required keyword arguments:
 
-- `ufr` is the Ultimate Forward Rate, the forward interest rate to which the yield curve tends, in continuous compounding convention. 
+- `ufr` is the Ultimate Forward Rate, the forward interest rate to which the yield curve tends: a number, read as continuously compounded, or a `Rate`, converted to its continuously compounded value. The `ufr` field holds that number.
 - `α` is the parameter that governs the speed of convergence towards the Ultimate Forward Rate. It can be typed with `\\alpha[TAB]`
 
 # Examples
@@ -48,12 +48,13 @@ struct SmithWilson{TU <: AbstractVector, TQb <: AbstractVector, U, A} <: Abstrac
     ufr::U
     α::A
 
-    # Inner constructor ensures that vector lengths match
-    function SmithWilson(u::TU, qb::TQb, ufr::U, α::A) where {TU <: AbstractVector, TQb <: AbstractVector, U, A}
+    # Inner constructor ensures that vector lengths match, and stores the ufr as a continuous number
+    function SmithWilson(u::TU, qb::TQb, ufr, α::A) where {TU <: AbstractVector, TQb <: AbstractVector, A}
         if length(u) != length(qb)
             throw(DomainError("Vectors u and qb in SmithWilson must have equal length"))
         end
-        return new{TU, TQb, U, A}(u, qb, ufr, α)
+        z = __continuous(ufr)
+        return new{TU, TQb, typeof(z), A}(u, qb, z, α)
     end
 end
 
@@ -69,7 +70,7 @@ end
 
 
 function SmithWilson(times::AbstractVector, cashflows::AbstractMatrix, prices::AbstractVector; ufr, α)
-    Q = Diagonal(exp.(-ufr * times)) * cashflows
+    Q = Diagonal(exp.(-__continuous(ufr) * times)) * cashflows
     q = vec(sum(Q, dims = 1))  # We want q to be a column vector
     QHQ = Q' * H(α, times) * Q
     b = QHQ \ (prices - q)

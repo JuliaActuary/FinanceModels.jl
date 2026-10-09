@@ -10,8 +10,8 @@ grid: [`Yield.Spline`](@ref) (the DataInterpolations-backed methods) and
 
 Every such curve:
 
-- owns validated copies of its knots, read with [`knot_rates`](@ref) and
-  [`knot_tenors`](@ref) (read-only vectors);
+- owns validated copies of its knots, read with [`knot_rates`](@ref) (`Continuous` rates) and
+  [`knot_tenors`](@ref), as read-only vectors; the `rates` property is `knot_rates`;
 - changes only by building a new curve with [`reconstruct`](@ref) (or `Accessors.@set` on its
   `rates`, `tenors`, `spline`, or `extrapolation` properties, which calls `reconstruct`);
 - follows its `extrapolation` policy beyond the last knot;
@@ -28,12 +28,20 @@ abstract type AbstractInterpolatedZeroCurve <: AbstractYieldModel end
 """
     knot_rates(curve::Yield.AbstractInterpolatedZeroCurve)
 
-The continuously compounded zero rates at the curve's knots, in tenor order, as a read-only
-vector. Use `copy` or `collect` for a mutable `Vector`.
+The zero rates at the curve's knots, in tenor order, as a read-only vector of `Continuous` rates.
+It is a view of the curve's numeric storage: indexing allocates nothing. Use `copy` or `collect`
+for a mutable `Vector` of rates, and `rate.(knot_rates(curve))` for the numbers, for example as
+the input of a ForwardDiff gradient. `curve.rates` is the same vector.
+
+Note that a `Rate` never equals a number: `knot_rates(curve) == [0.02, 0.03]` is `false`. Compare
+with `Continuous.([0.02, 0.03])`, or compare the numbers. See [Rate conventions](@ref rate-conventions).
 
 See also [`knot_tenors`](@ref), [`reconstruct`](@ref).
 """
-knot_rates(c::AbstractInterpolatedZeroCurve) = c.rates
+function knot_rates(c::AbstractInterpolatedZeroCurve)
+    v = getfield(getfield(c, :_rates), :_data)
+    return ReadOnlyVector{FinanceCore.Rate{eltype(v), Continuous}, eltype(v)}(v)
+end
 
 """
     knot_tenors(curve::Yield.AbstractInterpolatedZeroCurve)
@@ -54,13 +62,20 @@ Build a new curve from `curve` with any of its knot `rates`, knot `tenors`, inte
 method (`spline`), or `extrapolation` policy replaced; omitted arguments keep the curve's own.
 The result goes through the same validation as [`ZeroRateCurve`](@ref) and is built once.
 Replacing `spline` can change the concrete type, for example to `Yield.MonotoneConvex`.
-
-`reconstruct(curve)` is equal to `curve` and prices identically. `rates` may hold ForwardDiff
-dual numbers, so this is how to differentiate a valuation with respect to a curve's knot rates:
+`rates` takes numbers (continuously compounded), `Rate`s, or a mixture, as `ZeroRateCurve` does.
+`reconstruct(curve)` is equal to `curve` and prices identically.
 
 ```julia
 curve = ZeroRateCurve([0.03, 0.035, 0.04], [1.0, 5.0, 10.0])
-ForwardDiff.gradient(z -> pv(reconstruct(curve; rates = z), cfs), collect(knot_rates(curve)))
+steepener = Continuous.([0.0, 0.001, 0.0025])
+stressed = reconstruct(curve; rates = knot_rates(curve) .+ steepener)
+```
+
+`rates` may hold ForwardDiff dual numbers, so this is how to differentiate a valuation with
+respect to a curve's knot rates, seeded with their numbers:
+
+```julia
+ForwardDiff.gradient(z -> pv(reconstruct(curve; rates = z), cfs), rate.(knot_rates(curve)))
 ```
 
 The derivatives are first order. At a kink of `Spline.MonotoneConvex()` (for example a flat
@@ -97,7 +112,7 @@ end
 """
     instantaneous_forward(curve::AbstractInterpolatedZeroCurve, t)
 
-The instantaneous (continuously compounded) forward rate of a knot curve at `t`: the right-hand
+The instantaneous forward rate of a knot curve at `t`, as a `Continuous` rate: the right-hand
 derivative of `-log(discount(curve, t))`. At a knot where the interpolant's pieces meet it is the
 forward of the piece that starts there (`Spline.MonotoneConvex()`'s forward is continuous at its
 interior knots). From the last knot on it is the tail's forward, which follows `curve.extrapolation`:
@@ -109,7 +124,9 @@ unsupported.
 Note this is distinct from `forward(curve, from, to)`, which is the *discrete* forward `Rate`
 between two times and is defined for every yield model.
 """
-function instantaneous_forward(c::AbstractInterpolatedZeroCurve, t)
+instantaneous_forward(::AbstractInterpolatedZeroCurve, t)
+
+function force_of_interest(c::AbstractInterpolatedZeroCurve, t)
     __check_time(t, "instantaneous_forward")
     (__extends(c) || t < __tail(c).last_tenor) || return __tail_forward(__tail(c), t)
     return __interior_forward(c, t)
@@ -148,16 +165,20 @@ __log_native(::AbstractInterpolatedZeroCurve) = true
 # (`[-0.0] == [0.0]` but `!isequal([-0.0], [0.0])`).
 Base.:(==)(a::AbstractInterpolatedZeroCurve, b::AbstractInterpolatedZeroCurve) =
     a.spline == b.spline && a.extrapolation == b.extrapolation && a.tenors == b.tenors &&
-    a.rates == b.rates
+    getfield(a, :_rates) == getfield(b, :_rates)
 Base.isequal(a::AbstractInterpolatedZeroCurve, b::AbstractInterpolatedZeroCurve) =
     isequal(a.spline, b.spline) && isequal(a.extrapolation, b.extrapolation) &&
-    isequal(a.tenors, b.tenors) && isequal(a.rates, b.rates)
+    isequal(a.tenors, b.tenors) && isequal(getfield(a, :_rates), getfield(b, :_rates))
 Base.hash(c::AbstractInterpolatedZeroCurve, h::UInt) =
-    hash(c.rates, hash(c.tenors, hash(c.extrapolation, hash(c.spline, hash(:AbstractInterpolatedZeroCurve, h)))))
+    hash(getfield(c, :_rates), hash(c.tenors, hash(c.extrapolation, hash(c.spline, hash(:AbstractInterpolatedZeroCurve, h)))))
 
-# Base's convention: the derived caches are listed only with `propertynames(c, true)`.
+# The `rates` property is the typed view `knot_rates`; the field `_rates` holds the numbers, which
+# internal code reads. Base's convention: the private fields (`_rates` and the derived caches) are
+# listed only with `propertynames(c, true)`.
+Base.getproperty(c::AbstractInterpolatedZeroCurve, s::Symbol) = s === :rates ? knot_rates(c) : getfield(c, s)
 Base.propertynames(c::AbstractInterpolatedZeroCurve, private::Bool = false) =
-    private ? fieldnames(typeof(c)) : (:spline, :rates, :tenors, :extrapolation)
+    private ? (:spline, :rates, :tenors, :extrapolation, filter(n -> startswith(String(n), "_"), fieldnames(typeof(c)))...) :
+    (:spline, :rates, :tenors, :extrapolation)
 
 # ConstructionBase protocol, whose derived caches must follow their inputs:
 #  * the properties are (spline, rates, tenors, extrapolation); `getproperties` excludes caches;
@@ -177,7 +198,7 @@ Accessors.ConstructionBase.constructorof(::Type{<:AbstractInterpolatedZeroCurve}
 # Print the construction call, which rebuilds an equal curve.
 function Base.show(io::IO, c::AbstractInterpolatedZeroCurve)
     print(io, "ZeroRateCurve(")
-    show(io, collect(c.rates))
+    show(io, collect(getfield(c, :_rates)))
     print(io, ", ")
     show(io, collect(c.tenors))
     print(io, ", ")

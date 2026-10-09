@@ -56,7 +56,7 @@ credit_spread = 0.012   # 120bps
 zrc_credit = ZeroRateCurve(fill(credit_spread, length(tenors)), tenors)
 
 println("── Base Curve (continuously compounded zero rates) ──")
-for (t, r) in zip(knot_tenors(zrc_base), knot_rates(zrc_base))
+for (t, r) in zip(knot_tenors(zrc_base), rate.(knot_rates(zrc_base)))
     @printf(
         "  %5.1fy: %.4f%%  (tsy) + %.0fbps (spread) = %.4f%%\n",
         t, r * 100, credit_spread * 10_000, (r + credit_spread) * 100
