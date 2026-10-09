@@ -85,39 +85,51 @@ __rebase_tail(x::__LogTail, L0) = __LogTail(x.a2, x.a1, x.a0 - L0)
 __tail_type(tails) = mapreduce(x -> typeof(x.a0), promote_type, tails)
 __nan_tail(tails) = (T = __tail_type(tails); __LogTail(T(NaN), T(NaN), T(NaN)))
 
-# The tail of a discount-factor mixture Σ w̃ᵢ·exp(-Lᵢ), with shares w̃ᵢ summing to 1: the tail of the
-# curve whose L grows slowest, among those with a positive share, ordered by (a2, a1). A curve whose
-# (a2, a1) is larger is negligible, its intercept included; curves tied in (a2, a1) combine their
-# intercepts as a0 = -log Σ w̃ᵢ·e^{-a0ᵢ}. The order is unknown, and the tail NaN, where a curve's a2
-# or a1 is NaN, or where an unknown growth faster than t (a1 = ±Inf, see `__LogTail`) meets a
-# different quadratic term that it could outgrow or be outgrown by.
+# The curves that decide the tail of a discount-factor mixture Σ w̃ᵢ·exp(-Lᵢ), with shares w̃ᵢ summing
+# to 1: the curve j whose L grows slowest among those with a positive share, ordered by (a2, a1), and
+# the curves tied with it in (a2, a1). A curve whose (a2, a1) is larger is negligible, its intercept
+# included. The order is unknown (`nothing`) where a positive share's a2 or a1 is NaN, or where an
+# unknown growth faster than t (a1 = ±Inf, see `__LogTail`) meets a different quadratic term that it
+# could outgrow or be outgrown by.
 #
-# A zero share with partials on a curve that would dominate or tie, or tied coefficients with
-# different partials, would change which curves decide the limit under a bump, so the limit has no
-# derivative there.
-function __mixture_tail(w̃, tails)
-    T = promote_type(mapreduce(typeof, promote_type, w̃), __tail_type(tails))
-    nan = __LogTail(T(NaN), T(NaN), T(NaN))
+# A zero share counts in the tie, through its weight's partials, where its coefficients equal j's,
+# partials included. Otherwise a bump would change the deciding curves, and the limit has no
+# derivative: a zero share with partials on a curve that would dominate, tie with different partials,
+# or has an unknown order, and a tie among positive shares whose coefficients have different partials.
+function __dominant_tails(w̃, tails)
     pos(i) = __primal(w̃[i]) > 0
     key(i) = (__primal(tails[i].a2), __primal(tails[i].a1))
-    any(i -> pos(i) && any(isnan, key(i)), eachindex(tails)) && return nan
+    any(i -> pos(i) && any(isnan, key(i)), eachindex(tails)) && return nothing
     j = argmin(i -> pos(i) ? key(i) : (oftype(key(i)[1], Inf), oftype(key(i)[2], Inf)), eachindex(tails))
     a2j, a1j = key(j)
     for i in eachindex(tails)
         a2i, a1i = key(i)
+        pos(i) && a2i > a2j && (a1j == Inf || a1i == -Inf) && return nothing
+    end
+    same(i) = tails[i].a2 == tails[j].a2 && tails[i].a1 == tails[j].a1
+    for i in eachindex(tails)
         if pos(i)
-            a2i > a2j && (a1j == Inf || a1i == -Inf) && return nan
-        elseif !iszero(w̃[i]) && (any(isnan, key(i)) || !(key(j) < key(i)))
-            __throw_mixture_limit_derivative()
+            key(i) == key(j) && !same(i) && __throw_mixture_limit_derivative()
+        elseif !iszero(w̃[i])
+            (any(isnan, key(i)) || key(i) < key(j) || (key(i) == key(j) && !same(i))) && __throw_mixture_limit_derivative()
         end
     end
-    tied(i) = pos(i) && key(i) == key(j)
-    for i in eachindex(tails)
-        tied(i) && !(tails[i].a2 == tails[j].a2 && tails[i].a1 == tails[j].a1) && __throw_mixture_limit_derivative()
-    end
-    r = argmin(i -> tied(i) ? __primal(tails[i].a0) : oftype(__primal(tails[i].a0), Inf), eachindex(tails))
-    a0r = T(tails[r].a0)
-    a0 = a0r - log(sum(i -> tied(i) ? T(w̃[i]) * exp(a0r - T(tails[i].a0)) : zero(T), eachindex(tails)))
+    tied(i) = key(i) == key(j) && (pos(i) || !iszero(w̃[i]))
+    return j, tied
+end
+# The tied curve with the smallest primal intercept among positive shares, a reference for their sum.
+__tied_reference(w̃, tails, tied) =
+    argmin(i -> tied(i) && __primal(w̃[i]) > 0 ? __primal(tails[i].a0) : oftype(__primal(tails[i].a0), Inf), eachindex(tails))
+
+# The tail of the mixture: the deciding curve's (a2, a1), with the tied curves' intercepts combined as
+# a0 = -log Σ w̃ᵢ·e^{-a0ᵢ}; NaN where the order is unknown, and a NaN intercept only where it ties.
+function __mixture_tail(w̃, tails)
+    T = promote_type(mapreduce(typeof, promote_type, w̃), __tail_type(tails))
+    d = __dominant_tails(w̃, tails)
+    d === nothing && return __LogTail(T(NaN), T(NaN), T(NaN))
+    j, tied = d
+    a0r = T(tails[__tied_reference(w̃, tails, tied)].a0)
+    a0 = a0r - __strong_zero_log(sum(i -> tied(i) ? __strong_zero_mul(T(w̃[i]), exp(a0r - T(tails[i].a0))) : zero(T), eachindex(tails)))
     return __LogTail(T(tails[j].a2), T(tails[j].a1), a0)
 end
 @noinline __throw_mixture_limit_derivative() = throw(

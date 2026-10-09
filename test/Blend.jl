@@ -48,6 +48,36 @@ import Random
         @test L(mix(0.4), 0.0) === 0.0
     end
 
+    @testset "discount factors: tiny shares, posterior shares, negative times" begin
+        # a positive share too small for its inverse: ∂D/∂w is still D_a - D_b, a curve parameter's
+        # derivative is w·∂D_a, a second derivative in w is 0, and a time derivative is finite
+        D(w, r) = discount(Yield.Blend(flat(r), flat(1000.0), w, DF), 1.0)
+        for w0 in (0.0, 1.0e-310, 1.0e-300, 0.3)
+            @test ForwardDiff.derivative(w -> D(w, 0.0), w0) == 1
+        end
+        @test ForwardDiff.gradient(p -> D(p[1], p[2]), [1.0e-310, 0.0]) == [1.0, -1.0e-310]
+        @test ForwardDiff.derivative(u -> ForwardDiff.derivative(w -> D(w, 0.0), u), 1.0e-310) == 0
+        # (∂D/∂t = -1000·e^{-1000}, which underflows)
+        @test abs(ForwardDiff.derivative(t -> discount(Yield.Blend(flat(0.0), flat(1000.0), 1.0e-310, DF), t), 1.0)) <= 1.0e-320
+        # the forward weights each curve by its share of the discount factor, w̃ᵢ·Dᵢ/D, which is
+        # finite although Dᵢ overflows; also as the time derivative of L
+        m = Yield.Blend(flat(-720.0), flat(0.0), 1.0e-310, DF)
+        q = setprecision(BigFloat, 256) do
+            r = BigFloat(1.0e-310) * exp(big(720))
+            Float64(-720 * r / (r + 1))
+        end
+        @test rate(Yield.instantaneous_forward(m, 1.0)) ≈ q rtol = 1.0e-13
+        @test ForwardDiff.derivative(t -> L(m, t), 1.0) ≈ q rtol = 1.0e-13
+        # a negative time reaches the curves: a flat curve prices it, a knot curve rejects it
+        for w in (0.5, t -> 0.5), space in (DF, ZR, Yield.ForwardRates(1.0))
+            @test discount(Yield.Blend(flat(0.03), flat(0.03), w, space), -0.5) ≈ discount(flat(0.03), -0.5) rtol = 1.0e-15
+        end
+        knot = ZeroRateCurve([0.03, 0.03], [1.0, 2.0], Spline.Linear())
+        for w in (0.5, t -> 0.5), space in (DF, ZR, Yield.ForwardRates(1.0))
+            @test_throws DomainError discount(Yield.Blend(knot, knot, w, space), -0.5)
+        end
+    end
+
     @testset "the origin in mixed precision" begin
         # Float32 weights on Float64 curves, and Float64 weights on Float32 curves
         cs64 = (lin, ns, a)
@@ -234,6 +264,21 @@ import Random
         # zero-rate blends combine tails linearly
         @test discount(Yield.Blend(c4, cm2, 0.25, ZR), Inf) == Inf
         @test discount(Yield.Blend(c4, cm2, 0.5, ZR), Inf) == 0.0
+        # the long-run forward is that of the curves that decide the tail
+        @test rate(Yield.instantaneous_forward(mix(c4, c2), Inf)) == 0.02
+        @test rate(Yield.instantaneous_forward(mix(c2, c2), Inf)) == 0.02
+        @test rate(Yield.instantaneous_forward(Yield.Blend(c2, c4, 0.0, DF), Inf)) == 0.04
+        @test rate(Yield.instantaneous_forward(mix(ns, Yield.NelsonSiegel(2.0, 0.05, -0.01, 0.02)), Inf)) == 0.05
+        @test isnan(rate(Yield.instantaneous_forward(mix(vas, c2), Inf)))
+        @test isnan(rate(Yield.instantaneous_forward(Yield.Blend(c2, c4, t -> 0.5, Yield.ForwardRates(1.0)), Inf)))
+        # a zero share on a tied curve enters the intercept through its weight's partials
+        flat0(w) = discount(Yield.Blend(flat(0.0), flat(0.0), w, DF), Inf)
+        @test ForwardDiff.derivative(flat0, 0.0) == 0 == ForwardDiff.derivative(flat0, 1.0)
+        tie(w) = discount(Yield.Blend(knot, flat(0.0625), w, DF) - flat(0.0625), Inf)
+        for w0 in (0.0, 0.4, 1.0)
+            @test tie(w0) ≈ w0 * exp(0.03125) + (1 - w0) rtol = 1.0e-15
+            @test ForwardDiff.derivative(tie, w0) ≈ exp(0.03125) - 1 rtol = 1.0e-13
+        end
         # a tie that a bump would split, and a zero share on a curve that would dominate, have no derivative
         split(r) = discount(mix(flat(r), flat(0.03)) - flat(0.03), Inf)
         @test split(0.03) ≈ 1.0 rtol = 1.0e-15

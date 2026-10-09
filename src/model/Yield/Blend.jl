@@ -166,17 +166,22 @@ __mapsum(f::F, xs::Vararg{Any, N}) where {F, N} = sum(map(f, xs...))
 # ── Discount factors ─────────────────────────────────────────────────────────────────────
 
 # The discount factor D and the log-discount L = -log D of the mixture Σ w̃ᵢ·exp(-Lᵢ), with shares
-# w̃ᵢ = wᵢ/Σw, both computed in the promoted type of the weights and the log-discounts. Products
-# with a weight are strong zeros (`__strong_zero_mul`).
+# w̃ᵢ = wᵢ/s and s = Σw, all in the promoted type of the weights and the log-discounts. Products with
+# a weight are strong zeros (`__strong_zero_mul`). The curves with a positive share P are taken
+# relative to the one with the smallest Lᵢ, m, so that no exponential overflows. The curves with a
+# zero share Z add 0 in value but carry their weights' partials, to every order.
 #
-# The curves with a positive share P are summed relative to the one with the smallest Lᵢ, m, so no
-# term overflows: Σ_P w̃ᵢ·e^{-(Lᵢ-m)} = 1 + x, with x = Σ_P w̃ᵢ·expm1(m - Lᵢ) - Σ_Z w̃ᵢ, and
-# L_P = m - log1p(x). The sum over the zero shares Z is 0 in value, but carries the partials of
-# Σ_P w̃ᵢ - 1, which the log1p form would otherwise drop. Where x < -1/2 (the dominant curve has a
-# small share), L_P is a log-sum-exp of log w̃ᵢ + m - Lᵢ instead. The zero shares then add to D
-# directly, and to L through log1p: 0 in value, but with their exact partials to every order, also
-# where the zero-share curve's discount factor is far larger or smaller than the mixture's. At t = 0,
-# with Lᵢ(0) = 0, D = 1 and L = 0 exactly.
+# D = e^{-m}·S + Σ_Z w̃ᵢ·e^{-Lᵢ}, with S = Σ_P wᵢ·e^{m-Lᵢ}/s, which lies between the reference's
+# share and 1. Where e^{-m} is not a normal float, the product is (S·e^{-m/2})·e^{-m/2}, so that it
+# overflows or underflows only where D does. Both are products, without a log, so the derivatives are
+# those of the sum itself: a representable ∂D/∂w is exact also where L or its derivative overflows
+# (curves 1000 apart, at w = 0 or 1e-310). At t = 0 the sum in S is s itself, so D = 1 exactly.
+#
+# L = L_P - log1p(Σ_Z w̃ᵢ·e^{L_P-Lᵢ}). L_P = m - log1p(x), with x = Σ_P w̃ᵢ·expm1(m - Lᵢ) - Σ_Z w̃ᵢ
+# (the last sum is 0 in value but carries the partials of Σ_P w̃ᵢ - 1, which log1p would otherwise
+# drop), or, where x < -1/2 (the reference has a small share), a log-sum-exp of log w̃ᵢ + m - Lᵢ,
+# with the logs of the shares as `__strong_zero_log`, so that a tiny constant share has zero partials.
+# At t = 0, L = 0 exactly.
 function __mixture(ws, Ls)
     T = promote_type(mapreduce(typeof, promote_type, ws), mapreduce(typeof, promote_type, Ls))
     w, L = map(T, ws), map(T, Ls)
@@ -185,16 +190,19 @@ function __mixture(ws, Ls)
     pos = map(x -> __primal(x) > 0, w̃)
     j = argmin(i -> pos[i] ? __primal(L[i]) : oftype(__primal(L[i]), Inf), eachindex(L))
     m = L[j]
+    S = sum(i -> pos[i] ? __strong_zero_mul(w[i], exp(m - L[i])) : zero(T), eachindex(L)) / s
+    E = exp(-m)
+    DP = __is_normal(E) ? E * S : (h = exp(-m / 2); (S * h) * h)
+    D = DP + sum(i -> pos[i] ? zero(T) : __strong_zero_mul(w̃[i], exp(-L[i])), eachindex(L))
     x = sum(i -> pos[i] ? __strong_zero_mul(w̃[i], expm1(m - L[i])) : -w̃[i], eachindex(L))
     LP = if __primal(x) >= -1 / 2
         m - log1p(x)
     else
-        lt(i) = log(w̃[i]) + (m - L[i])
+        lt(i) = __strong_zero_log(w̃[i]) + (m - L[i])
         k = argmax(i -> pos[i] ? __primal(lt(i)) : oftype(__primal(L[i]), -Inf), eachindex(L))
         M = lt(k)
         m - (M + log(sum(i -> pos[i] ? exp(lt(i) - M) : zero(T), eachindex(L))))
     end
-    D = exp(-LP) + sum(i -> pos[i] ? zero(T) : __strong_zero_mul(w̃[i], exp(-L[i])), eachindex(L))
     Lb = LP - log1p(sum(i -> pos[i] ? zero(T) : __strong_zero_mul(w̃[i], exp(LP - L[i])), eachindex(L)))
     return (; D, L = Lb, shares = w̃, Ls = L)
 end
@@ -214,21 +222,45 @@ function __blend_interval_discount(::DiscountFactors, b, from, to)
     x, y = __mixture(b, from), __mixture(b, to)
     return __is_normal(x.D) && __is_normal(y.D) ? y.D / x.D : exp(x.L - y.L)
 end
-# The forward Σ pᵢ·fᵢ, where pᵢ = w̃ᵢ·Dᵢ/D is a curve's share of the discount factor; each curve's
-# own forward, so it is exact at t = 0. With weights that vary with tenor, the derivative of L.
+# The forward Σ pᵢ·fᵢ, where pᵢ = w̃ᵢ·Dᵢ/D = w̃ᵢ·e^{L-Lᵢ} is a curve's share of the discount factor:
+# each curve's own forward, so it is exact at t = 0. A positive share's pᵢ takes one exponential of
+# log w̃ᵢ + L - Lᵢ, which is at most 0, since e^{L-Lᵢ} alone can overflow where w̃ᵢ is small. At
+# t = Inf it is the forward of the curves that decide the tail. With weights that vary with tenor,
+# the derivative of L.
 function __blend_force(::DiscountFactors, b, t)
     b.weights isa __NumberWeights || return __log_discount_derivative(b, t)
+    __at_infinity(t) && return __mixture_force_at_infinity(b)
     x = __mixture(b, t)
-    return __mapsum(x.shares, x.Ls, b.curves) do w, Li, c
-        __strong_zero_mul(__strong_zero_mul(w, exp(x.L - Li)), force_of_interest(c, t))
-    end
+    return __mapsum(@inline((w, Li, c) -> __strong_zero_mul(__posterior_share(w, x.L - Li), force_of_interest(c, t))), x.shares, x.Ls, b.curves)
+end
+# w·e^{Δ}: for a positive share one exponential, of log w + Δ ≤ 0, since e^{Δ} alone can overflow.
+__posterior_share(w, Δ) = __primal(w) > 0 ? exp(__strong_zero_log(w) + Δ) : __strong_zero_mul(w, exp(Δ))
+# The limit of the forward: that of the curve that decides the tail, or of the curves tied with it,
+# weighted by their limiting shares w̃ᵢ·e^{-a0ᵢ} where their forwards differ; NaN where the order of
+# the tails is unknown.
+function __mixture_force_at_infinity(b)
+    tails = map(__log_tail, b.curves)
+    w̃ = __tail_shares(b.weights, tails)
+    fs = map(c -> force_of_interest(c, Inf), b.curves)
+    T = promote_type(eltype(w̃), mapreduce(typeof, promote_type, fs))
+    d = __dominant_tails(w̃, tails)
+    d === nothing && return T(NaN)
+    j, tied = d
+    all(i -> !tied(i) || fs[i] == fs[j], eachindex(fs)) && return T(fs[j])
+    r = __tied_reference(w̃, tails, tied)
+    q = map(i -> tied(i) ? __strong_zero_mul(T(w̃[i]), exp(T(tails[r].a0) - T(tails[i].a0))) : zero(T), eachindex(fs))
+    return sum(i -> __strong_zero_mul(q[i], T(fs[i])), eachindex(fs)) / sum(q)
 end
 function __blend_tail(::DiscountFactors, b)
     tails = map(__log_tail, b.curves)
-    T = promote_type(mapreduce(typeof, promote_type, b.weights), __tail_type(tails))
-    w = map(T, b.weights)
+    return __mixture_tail(__tail_shares(b.weights, tails), tails)
+end
+# Number weights as shares, in the type of the tails' coefficients.
+function __tail_shares(ws, tails)
+    T = promote_type(mapreduce(typeof, promote_type, ws), __tail_type(tails))
+    w = map(T, ws)
     s = sum(w)
-    return __mixture_tail(map(x -> x / s, w), tails)
+    return map(x -> x / s, w)
 end
 
 # ── Zero rates, with weights that vary with tenor ────────────────────────────────────────
@@ -298,12 +330,16 @@ end
 function __blend_log_interval(::ForwardRates, b, from, to)
     return __primal(from) <= __primal(to) ? __forward_interval(b, from, to) : -__forward_interval(b, to, from)
 end
-__blend_log_discount(::ForwardRates, b, t) = __forward_interval(b, zero(t), t)
+# From 0 by the ordered interval, so a negative time reaches the curves, which may reject it.
+__blend_log_discount(s::ForwardRates, b, t) = __blend_log_interval(s, b, zero(t), t)
 __blend_discount(s::ForwardRates, b, t) = exp(-__blend_log_discount(s, b, t))
 __blend_interval_discount(::ForwardRates, b, from, to) = exp(-__log_interval(b, from, to))
 function __blend_force(s::ForwardRates, b, t)
-    ws = b.weights isa __NumberWeights ? b.weights : __weights(b, __period_index(t, s.period) * s.period)
-    return __mapsum(@inline((w, c) -> __strong_zero_mul(w, force_of_interest(c, t))), ws, b.curves)
+    f(ws) = __mapsum(@inline((w, c) -> __strong_zero_mul(w, force_of_interest(c, t))), ws, b.curves)
+    b.weights isa __NumberWeights && return f(b.weights)
+    # the weights at infinity are not known
+    __at_infinity(t) && return oftype(__mapsum(c -> force_of_interest(c, t), b.curves), NaN)
+    return f(__weights(b, __period_index(t, s.period) * s.period))
 end
 # Each curve's tail from its interval factors, L(t) - L(0).
 __blend_tail(::ForwardRates, b) =

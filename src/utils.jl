@@ -169,6 +169,16 @@ function __strong_zero_mul(x::D, y::D) where {D <: ForwardDiff.Dual}
     return D(__strong_zero_mul(vx, vy), ForwardDiff.Partials(p))
 end
 
+# log(x), with the chain rule's products p·(1/x) taken as strong zeros: a zero partial stays zero
+# where 1/x overflows (a constant weight of 1e-310 under a time derivative), instead of 0·Inf = NaN,
+# and a nonzero one overflows to ±Inf.
+__strong_zero_log(x::Real) = log(x)
+function __strong_zero_log(x::D) where {D <: ForwardDiff.Dual}
+    v = ForwardDiff.value(x)
+    r = inv(v)
+    return D(__strong_zero_log(v), ForwardDiff.Partials(map(p -> __strong_zero_mul(p, r), ForwardDiff.partials(x).values)))
+end
+
 # The float element type of a collection of reals, for a copy or an accumulator that keeps the values'
 # numeric type (BigFloat, dual numbers): the declared element type when concrete, otherwise the
 # promotion of the values' types. An untyped empty collection gives `Float64`: the promotion starts
