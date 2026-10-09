@@ -78,6 +78,52 @@ import Random
         end
     end
 
+    @testset "weighted exponentials and ratios" begin
+        wexp, ratio, zlog = FinanceModels.__wexp, FinanceModels.__ratio, FinanceModels.__strong_zero_log
+        ref(w, x) = Float64(big(w) * exp(big(x)))
+        @test wexp(0.0, Inf) === 0.0
+        @test wexp(-2.0, 1.0) == -2 * exp(1.0)
+        # a product whose eˣ overflows, or whose terms round to subnormals, is formed in log space
+        @test wexp(1.0e-310, 720.0) ≈ ref(1.0e-310, 720.0) rtol = 8 * 720 * eps()
+        @test wexp(-1.0e-310, 720.0) ≈ -ref(1.0e-310, 720.0) rtol = 8 * 720 * eps()
+        @test wexp(2.0, -745.0) == ref(2.0, -745.0) != 2 * exp(-745.0)
+        # ∂/∂x is the value itself; ∂/∂w is eˣ, here overflowing, as it should
+        @test ForwardDiff.derivative(x -> wexp(1.0e-310, x), 720.0) == wexp(1.0e-310, 720.0)
+        @test ForwardDiff.derivative(w -> wexp(w, 720.0), 1.0e-310) == Inf
+        @test ForwardDiff.derivative(y -> ForwardDiff.derivative(x -> wexp(1.0e-310, x), y), 720.0) == wexp(1.0e-310, 720.0)
+        # a ratio of tiny numbers, and log's partials as such ratios, to second order
+        @test ratio(1.0e-310, 1.0e-310) == 1
+        @test ForwardDiff.derivative(t -> ratio(1.0e-310 * exp(2t), 1.0e-310 * exp(t)), 0.0) ≈ 1 rtol = 1.0e-15
+        @test ForwardDiff.derivative(t -> zlog(1.0e-310 * exp(t)), 0.0) ≈ 1 rtol = 1.0e-15
+        @test ForwardDiff.derivative(s -> ForwardDiff.derivative(t -> zlog(1.0e-310 * exp(t)), s), 0.0) == 0
+        @test ForwardDiff.derivative(t -> zlog(1.0e-310 + 0 * t), 0.0) == 0
+    end
+
+    @testset "discount factors: scaled sums keep representable derivatives" begin
+        # a time derivative where a curve's discount factor is near overflow and its share tiny:
+        # ∂D/∂t = 709·w·e^{709}, and the second derivative 709²·w·e^{709}
+        m709 = Yield.Blend(flat(-709.0), flat(0.0), 1.0e-300, DF)
+        @test ForwardDiff.derivative(t -> discount(m709, t), 1.0) ≈ Float64(709 * big(1.0e-300) * exp(big(709))) rtol = 1.0e-12
+        @test ForwardDiff.derivative(s -> ForwardDiff.derivative(t -> discount(m709, t), s), 1.0) ≈
+            Float64(709^2 * big(1.0e-300) * exp(big(709))) rtol = 1.0e-12
+        # ∂²D/∂w∂t = 709·e^{709} overflows, and is Inf
+        @test ForwardDiff.derivative(u -> ForwardDiff.derivative(t -> discount(Yield.Blend(flat(-709.0), flat(0.0), u, DF), t), 1.0), 1.0e-300) == Inf
+        # a value whose curve's discount factor overflows twice over
+        m1420 = Yield.Blend(flat(-1420.0), flat(0.0), 1.0e-310, DF)
+        @test discount(m1420, 1.0) ≈ Float64(big(1.0e-310) * exp(big(1420)) + 1 - big(1.0e-310)) rtol = 8 * 1420 * eps()
+        @test discount(m1420, 1.0) ≈ discount(m1420, 0.0, 1.0) rtol = 8 * 1420 * eps()
+        # a tiny weight with a derivative of its own: ∂L/∂t = -w′/w = -1
+        mw = Yield.Blend(flat(0.0), flat(1000.0), t -> 1.0e-310 * exp(t - 1), DF)
+        @test rate(Yield.instantaneous_forward(mw, 1.0)) ≈ -1 rtol = 1.0e-14
+        @test ForwardDiff.derivative(p -> L(Yield.Blend(flat(0.0), flat(1000.0), 1.0e-310 * exp(p), DF), 1.0), 0.0) ≈ -1 rtol = 1.0e-14
+        # the limit at infinity of a tie with intercepts 0 and 1000: D∞ = w + (1 - w)·e^{-1000}
+        far = ZeroRateCurve([1000.0, 500.0], [1.0, 2.0], Spline.Linear())
+        @test L(far, 3.0) == 1000
+        for w0 in (0.0, 1.0e-310, 0.3, 1.0)
+            @test ForwardDiff.derivative(w -> discount(Yield.Blend(flat(0.0), far, w, DF), Inf), w0) ≈ 1 rtol = 1.0e-15
+        end
+    end
+
     @testset "the origin in mixed precision" begin
         # Float32 weights on Float64 curves, and Float64 weights on Float32 curves
         cs64 = (lin, ns, a)

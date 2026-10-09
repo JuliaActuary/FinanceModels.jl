@@ -167,15 +167,17 @@ __mapsum(f::F, xs::Vararg{Any, N}) where {F, N} = sum(map(f, xs...))
 
 # The discount factor D and the log-discount L = -log D of the mixture Σ w̃ᵢ·exp(-Lᵢ), with shares
 # w̃ᵢ = wᵢ/s and s = Σw, all in the promoted type of the weights and the log-discounts. Products with
-# a weight are strong zeros (`__strong_zero_mul`). The curves with a positive share P are taken
-# relative to the one with the smallest Lᵢ, m, so that no exponential overflows. The curves with a
-# zero share Z add 0 in value but carry their weights' partials, to every order.
+# a weight are strong zeros (`__strong_zero_mul`), and weighted exponentials w·eˣ are `__wexp`, whose
+# partials are formed from finite factors wherever they are representable: eˣ·∂w for a weight,
+# (w·eˣ)·∂x for a log-discount, which no single expression's derivative keeps finite in both. The
+# curves with a positive share P are taken relative to the one with the smallest Lᵢ, m. The curves
+# with a zero share Z add 0 in value but carry their weights' partials, to every order.
 #
-# D = e^{-m}·S + Σ_Z w̃ᵢ·e^{-Lᵢ}, with S = Σ_P wᵢ·e^{m-Lᵢ}/s, which lies between the reference's
-# share and 1. Where e^{-m} is not a normal float, the product is (S·e^{-m/2})·e^{-m/2}, so that it
-# overflows or underflows only where D does. Both are products, without a log, so the derivatives are
-# those of the sum itself: a representable ∂D/∂w is exact also where L or its derivative overflows
-# (curves 1000 apart, at w = 0 or 1e-310). At t = 0 the sum in S is s itself, so D = 1 exactly.
+# D = S·e^{-m} + Σ_Z w̃ᵢ·e^{-Lᵢ}, with S = Σ_P wᵢ·e^{m-Lᵢ}/s, which lies between the reference's share
+# and 1. So a representable value or derivative is exact also where a curve's discount factor, or
+# its derivative, overflows (a share of 1e-310 on a curve with L = -1420, a time derivative at
+# L = -709, ∂D/∂w at w = 0 or 1e-310 on curves 1000 apart). At t = 0 the sum in S is s itself, so
+# D = 1 exactly.
 #
 # L = L_P - log1p(Σ_Z w̃ᵢ·e^{L_P-Lᵢ}). L_P = m - log1p(x), with x = Σ_P w̃ᵢ·expm1(m - Lᵢ) - Σ_Z w̃ᵢ
 # (the last sum is 0 in value but carries the partials of Σ_P w̃ᵢ - 1, which log1p would otherwise
@@ -190,10 +192,8 @@ function __mixture(ws, Ls)
     pos = map(x -> __primal(x) > 0, w̃)
     j = argmin(i -> pos[i] ? __primal(L[i]) : oftype(__primal(L[i]), Inf), eachindex(L))
     m = L[j]
-    S = sum(i -> pos[i] ? __strong_zero_mul(w[i], exp(m - L[i])) : zero(T), eachindex(L)) / s
-    E = exp(-m)
-    DP = __is_normal(E) ? E * S : (h = exp(-m / 2); (S * h) * h)
-    D = DP + sum(i -> pos[i] ? zero(T) : __strong_zero_mul(w̃[i], exp(-L[i])), eachindex(L))
+    S = sum(i -> pos[i] ? __wexp(w[i], m - L[i]) : zero(T), eachindex(L)) / s
+    D = __wexp(S, -m) + sum(i -> pos[i] ? zero(T) : __wexp(w̃[i], -L[i]), eachindex(L))
     x = sum(i -> pos[i] ? __strong_zero_mul(w̃[i], expm1(m - L[i])) : -w̃[i], eachindex(L))
     LP = if __primal(x) >= -1 / 2
         m - log1p(x)
@@ -203,7 +203,7 @@ function __mixture(ws, Ls)
         M = lt(k)
         m - (M + log(sum(i -> pos[i] ? exp(lt(i) - M) : zero(T), eachindex(L))))
     end
-    Lb = LP - log1p(sum(i -> pos[i] ? zero(T) : __strong_zero_mul(w̃[i], exp(LP - L[i])), eachindex(L)))
+    Lb = LP - log1p(sum(i -> pos[i] ? zero(T) : __wexp(w̃[i], LP - L[i]), eachindex(L)))
     return (; D, L = Lb, shares = w̃, Ls = L)
 end
 __mixture(b::Blend, t) = __mixture(__weights(b, t), __curve_log_discounts(b, t))
@@ -222,19 +222,15 @@ function __blend_interval_discount(::DiscountFactors, b, from, to)
     x, y = __mixture(b, from), __mixture(b, to)
     return __is_normal(x.D) && __is_normal(y.D) ? y.D / x.D : exp(x.L - y.L)
 end
-# The forward Σ pᵢ·fᵢ, where pᵢ = w̃ᵢ·Dᵢ/D = w̃ᵢ·e^{L-Lᵢ} is a curve's share of the discount factor:
-# each curve's own forward, so it is exact at t = 0. A positive share's pᵢ takes one exponential of
-# log w̃ᵢ + L - Lᵢ, which is at most 0, since e^{L-Lᵢ} alone can overflow where w̃ᵢ is small. At
-# t = Inf it is the forward of the curves that decide the tail. With weights that vary with tenor,
-# the derivative of L.
+# The forward Σ pᵢ·fᵢ, where pᵢ = w̃ᵢ·Dᵢ/D = w̃ᵢ·e^{L-Lᵢ} (`__wexp`) is a curve's share of the
+# discount factor: each curve's own forward, so it is exact at t = 0. At t = Inf it is the forward of
+# the curves that decide the tail. With weights that vary with tenor, the derivative of L.
 function __blend_force(::DiscountFactors, b, t)
     b.weights isa __NumberWeights || return __log_discount_derivative(b, t)
     __at_infinity(t) && return __mixture_force_at_infinity(b)
     x = __mixture(b, t)
-    return __mapsum(@inline((w, Li, c) -> __strong_zero_mul(__posterior_share(w, x.L - Li), force_of_interest(c, t))), x.shares, x.Ls, b.curves)
+    return __mapsum(@inline((w, Li, c) -> __strong_zero_mul(__wexp(w, x.L - Li), force_of_interest(c, t))), x.shares, x.Ls, b.curves)
 end
-# w·e^{Δ}: for a positive share one exponential, of log w + Δ ≤ 0, since e^{Δ} alone can overflow.
-__posterior_share(w, Δ) = __primal(w) > 0 ? exp(__strong_zero_log(w) + Δ) : __strong_zero_mul(w, exp(Δ))
 # The limit of the forward: that of the curve that decides the tail, or of the curves tied with it,
 # weighted by their limiting shares w̃ᵢ·e^{-a0ᵢ} where their forwards differ; NaN where the order of
 # the tails is unknown.
@@ -248,12 +244,30 @@ function __mixture_force_at_infinity(b)
     j, tied = d
     all(i -> !tied(i) || fs[i] == fs[j], eachindex(fs)) && return T(fs[j])
     r = __tied_reference(w̃, tails, tied)
-    q = map(i -> tied(i) ? __strong_zero_mul(T(w̃[i]), exp(T(tails[r].a0) - T(tails[i].a0))) : zero(T), eachindex(fs))
+    q = map(i -> tied(i) ? __wexp(T(w̃[i]), T(tails[r].a0) - T(tails[i].a0)) : zero(T), eachindex(fs))
     return sum(i -> __strong_zero_mul(q[i], T(fs[i])), eachindex(fs)) / sum(q)
 end
 function __blend_tail(::DiscountFactors, b)
     tails = map(__log_tail, b.curves)
     return __mixture_tail(__tail_shares(b.weights, tails), tails)
+end
+# The discount factor at t = Inf. Where the mixture's limit is finite (the deciding curves' L tends to
+# a constant), it is the sum Σ w̃ᵢ·e^{-a0ᵢ} over the tied curves, as `__mixture` sums at a finite time,
+# so a representable derivative in the weights stays so where e^{-a0ᵢ} underflows. Otherwise it is
+# the tail's limit: 0, Inf, or NaN where unknown.
+__blend_discount_at_infinity(space, b) = __discount_at_infinity(b)
+function __blend_discount_at_infinity(::DiscountFactors, b)
+    b.weights isa __NumberWeights || return __discount_at_infinity(b)
+    tails = map(__log_tail, b.curves)
+    w̃ = __tail_shares(b.weights, tails)
+    tail = __mixture_tail(w̃, tails)
+    __tail_limit_sign(tail) == 0 || return __discount_at_infinity(tail)
+    j, tied = __dominant_tails(w̃, tails)
+    T = typeof(tail.a0)
+    a0r = T(tails[__tied_reference(w̃, tails, tied)].a0)
+    pos(i) = __primal(w̃[i]) > 0
+    S = sum(i -> tied(i) && pos(i) ? __wexp(T(w̃[i]), a0r - T(tails[i].a0)) : zero(T), eachindex(tails))
+    return __wexp(S, -a0r) + sum(i -> tied(i) && !pos(i) ? __wexp(T(w̃[i]), -T(tails[i].a0)) : zero(T), eachindex(tails))
 end
 # Number weights as shares, in the type of the tails' coefficients.
 function __tail_shares(ws, tails)
@@ -353,7 +367,7 @@ function __log_discount(b::Blend, t)
     return __blend_log_discount(b.space, b, t)
 end
 function FinanceCore.discount(b::Blend, t)
-    __at_infinity(t) && return __discount_at_infinity(b)
+    __at_infinity(t) && return __blend_discount_at_infinity(b.space, b)
     return __blend_discount(b.space, b, t)
 end
 function __log_interval(b::Blend, from, to)

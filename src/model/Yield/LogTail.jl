@@ -129,7 +129,7 @@ function __mixture_tail(w̃, tails)
     d === nothing && return __LogTail(T(NaN), T(NaN), T(NaN))
     j, tied = d
     a0r = T(tails[__tied_reference(w̃, tails, tied)].a0)
-    a0 = a0r - __strong_zero_log(sum(i -> tied(i) ? __strong_zero_mul(T(w̃[i]), exp(a0r - T(tails[i].a0))) : zero(T), eachindex(tails)))
+    a0 = a0r - __strong_zero_log(sum(i -> tied(i) ? __wexp(T(w̃[i]), a0r - T(tails[i].a0)) : zero(T), eachindex(tails)))
     return __LogTail(T(tails[j].a2), T(tails[j].a1), a0)
 end
 @noinline __throw_mixture_limit_derivative() = throw(
