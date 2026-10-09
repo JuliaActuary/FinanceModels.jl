@@ -22,6 +22,34 @@
   instead of a flat 5%, which lets PCHIP and Akima fits converge. Converged fits
   of other strategies move by at most about 1e-9 in zero rate.
 
+### Valuation contexts (FinanceCore 3)
+
+| v6 | v7 |
+|---|---|
+| `present_value(model, contract, t)` | an explicit reduction (below); there is no valuation-time argument |
+| `present_value(d, Projection(c; index = i))` | `present_value(Models(d; index = i), c)`, or `present_value(Models(d), c)` when `i` is `d` |
+| `present_value(d, Projection(c, store))` | `present_value(Models(d, store), c)` |
+| `present_value(m, ::Projection{MyContract})` (a closed form) | `present_value(ctx, ::MyContract)`, with `discount(ctx, t)`, `ctx[key]`, `valuation_model(ctx)` |
+| `model_requirements(contract)` | removed: a contract reads its models from the context by key |
+| `present_value(fx, leg::FX.BasisSwapLeg)` (base-currency units) | `present_value(fx.foreign, leg)`, or `FX.Converted(leg, pair, key)` under `Models(fx, store)` (quote currency) |
+| `collect(Projection(c, store))` | unchanged |
+
+To value, as of `t`, a contract's cashflows at or after `t` on a deterministic curve, discount each
+from `t` (a cashflow at `t` counts, as under `cur_time`):
+
+```julia
+asof(curve, c, t) = foldxl(+, Projection(c, curve) |> Filter(cf -> cf.time >= t) |>
+    Map(cf -> cf.amount * discount(curve, t, cf.time)); init = zero(discount(curve, t, t)))
+```
+
+Don't roll a time-0 value forward instead: `accumulation(curve, t) * present_value(curve, c)` also
+counts the cashflows before `t`. Even restricted to the later cashflows, it gives `NaN`
+(`Inf * 0`) once the accumulation overflows and the time-0 value underflows.
+
+Changed numbers: a collection of contracts (each contract valued on its own timing), a cashflow
+before time 0 (it accumulates), and a `Composite` (the sum of its parts' values, which can differ
+from v6 in the last bits).
+
 ### `ZeroRateCurve` returns the curve it builds
 
 `ZeroRateCurve` is now a construction function rather than a type. It returns a

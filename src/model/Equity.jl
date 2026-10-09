@@ -10,6 +10,7 @@ import ..Volatility
 import ..Option
 import ..CommonEquity
 import ..eurocall, ..europut
+import ..closed_form
 using ..FinanceCore
 
 abstract type AbstractEquityModel <: AbstractModel end
@@ -87,12 +88,12 @@ function volatility(vol::Real, strike_ratio, time_to_maturity)
     return vol
 end
 
-function FinanceCore.present_value(model::M, c::Option.EuroCall{CommonEquity, K, T}) where {M <: Equity.BlackScholesMerton, K, T}
+function closed_form(model::M, c::Option.EuroCall{CommonEquity, K, T}) where {M <: Equity.BlackScholesMerton, K, T}
     σ_val = volatility(model.σ, c.strike, c.maturity)
     return eurocall(; S = 1.0, K = c.strike, τ = c.maturity, r = model.r, q = model.q, σ = σ_val)
 end
 
-function FinanceCore.present_value(model::M, c::Option.EuroPut{CommonEquity, K, T}) where {M <: Equity.BlackScholesMerton, K, T}
+function closed_form(model::M, c::Option.EuroPut{CommonEquity, K, T}) where {M <: Equity.BlackScholesMerton, K, T}
     σ_val = volatility(model.σ, c.strike, c.maturity)
     return europut(; S = 1.0, K = c.strike, τ = c.maturity, r = model.r, q = model.q, σ = σ_val)
 end

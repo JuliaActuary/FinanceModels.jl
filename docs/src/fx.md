@@ -205,6 +205,23 @@ p = Projection(FX.Converted(eur_bond, eurusd, "EURUSD"), store, CashflowProjecti
 collect(p)  # USD cashflows: each EUR amount × forward(m, t)
 ```
 
+Every value under a valuation context is in that context's reporting currency (the quote
+currency for an `FX.Forwards` model, which discounts on its `domestic` curve), so values add. A
+base-currency contract is converted explicitly, by `FX.Converted` or by valuing it on a
+base-currency curve and converting at spot. FinanceModels checks the contracts that carry a
+currency against the context's currency where it is known: an FX model's quote currency (also as
+the model of `Models`), or, inside `FX.Converted`, its pair's base currency.
+- An `FX.Converted` must convert into that currency.
+- An unconverted [`FX.BasisSwapLeg`](@ref) is valued in that currency, or under a plain yield curve,
+  which carries no currency and is taken to be the leg's; it throws under any other context.
+- A plain bond carries no currency and is valued in the context's currency.
+
+Inside `FX.Converted`, a leg must pay in the pair's base currency and a nested `FX.Converted` must
+convert into it; otherwise it throws rather than being converted again. An `FX.Forward`, which prices on the
+context's own FX model, is not supported there. Convert only the base-currency contracts, as in
+`Composite(fwd, FX.Converted(leg, pair, key))`. The reporting currency is a unit of today's value,
+not the trade's collateral agreement, which the curves describe.
+
 Converting at forwards and discounting domestically is *identical* to discounting on the
 (basis-adjusted) foreign curve and converting at spot:
 
@@ -234,8 +251,7 @@ swap = Composite(
     Bond.Fixed(0.08, Periodic(1), 3) |> Map(cf -> cf * -10.0),                          # pay $ leg
 )
 
-p = Projection(swap, Dict("JPYUSD" => fx), CashflowProjection())
-pv(usd9, p) # ≈ 1.5430 ($ millions)
+pv(Models(usd9, Dict("JPYUSD" => fx)), swap) # ≈ 1.5430 ($ millions)
 ```
 
 Hull values this swap both as a portfolio of forward contracts (his Table 7.9: forwards

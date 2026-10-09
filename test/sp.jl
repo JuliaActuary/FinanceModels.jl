@@ -20,7 +20,7 @@ end
     @test collect(Bond.Fixed(0.05, Periodic(1), 1)) == [Cashflow(1.05, 1.0)]
 
     @test pv(Yield.Constant(0.05), Bond.Fixed(0.05, Periodic(1), 3.0)) ≈ 1.0
-    @test pv(Yield.Constant(0.05), p) ≈ 1.0
+    @test pv(Yield.Constant(0.05), collect(p)) ≈ 1.0
 end
 
 @testset "Quote IRR" begin
@@ -46,10 +46,10 @@ end
     c = Bond.Fixed(0.05, Periodic(1), 3.0)
     p = Projection([c, c])
     @test length(collect(p)) == 6
-    @test pv(Yield.Constant(0.0), p) ≈ 2.3
+    @test pv(Yield.Constant(0.0), [c, c]) ≈ 2.3
     p = Projection([c, c |> Map(-)])
     @test length(collect(p)) == 6
-    @test pv(Yield.Constant(0.0), p) ≈ 0.0
+    @test pv(Yield.Constant(0.0), [c, c |> Map(-)]) ≈ 0.0
 
 
 end

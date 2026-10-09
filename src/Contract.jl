@@ -612,7 +612,9 @@ A convenience method for creating an interest rate swap given a curve and a teno
 The notional is a unit (1.0) amount, and both legs settle `frequency` times per period. `frequency` is required because swap conventions differ by market; overnight index swaps on SOFR, €STR, and SONIA settle annually (`frequency = 1`). The fixed rate is the annualized par coupon for the tenor's schedule on `curve`, so the swap prices to zero at inception — including non-whole tenors, whose first period is a short stub accruing its actual length.
 
 
-A [`Projection`](@ref), with an indexable `model_key` is still needed to project a swap. See examples below for what this looks like.
+A swap reads its index curve under `model_key`: value it with
+`present_value(Models(curve), swap)`, and list its cashflows with
+`collect(Projection(swap, Dict("OIS" => curve)))`.
 
 # Examples
 

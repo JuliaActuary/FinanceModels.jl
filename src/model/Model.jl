@@ -12,32 +12,13 @@ function FinanceCore.Quote(m::M, c::C) where {M <: AbstractModel, C <: FinanceCo
     return FinanceCore.Quote(pv(m, c), c)
 end
 
+# The closed-form value of a contract under the model that prices it (see `valuation_model`): the
+# model files below add their formulas as methods.
+function closed_form end
+
 include("Spline.jl")
 include("Yield.jl")
 include("Volatility.jl")
 include("Equity.jl")
 include("FX.jl")
 include("Stochastic.jl")
-
-"""
-    present_value(model,contract,current_time=0.0)
-    present_value(model,projection,current_time=0.0)
- 
- Return the value of the contract as corresponding with the valuation assumptions embedded in the `model` for the given contract or projection with `CashflowProjection` kind.
-
-# Examples
-
-```julia
-m = Equity.BlackScholesMerton(0.01, 0.02, 0.15)
-
-a = Option.EuroCall(CommonEquity(), 1.0, 1.0)
-
-pv(m, a) # ≈ 0.05410094201902403
-```
-"""
-function FinanceCore.present_value(model, c::FinanceCore.AbstractContract, cur_time = 0.0)
-    # Wrap the bare contract in the default cashflow projection and reuse the single
-    # discounting fold defined for `Projection` (see Projection.jl) rather than
-    # duplicating it here.
-    return present_value(model, Projection(c, model, CashflowProjection()), cur_time)
-end

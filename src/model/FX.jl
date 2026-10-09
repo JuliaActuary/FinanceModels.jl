@@ -15,11 +15,19 @@ are encoded explicitly in types and keyword arguments, and the curves inside an 
 are ordinary yield models, so splines, parametric curves, curve arithmetic
 (e.g. `foreign_ois + basis`), and `fit` all apply unchanged.
 
-Present values follow one rule: `present_value` is denominated in the currency of the
-contract's own cashflows — the *quote* currency for an [`FX.Forward`](@ref) (it settles
-in quote-currency units), the *base* currency for an [`FX.BasisSwapLeg`](@ref) (a strip
-of base-currency cashflows). Convert before combining values across denominations: a
-base-currency present value times spot is the quote-currency present value.
+Present values follow one rule: every value under a valuation context is in that context's
+reporting currency, the *quote* currency for an [`FX.Forwards`](@ref) model (it discounts on its
+`domestic` curve), so values add. An [`FX.Forward`](@ref) settles in quote-currency units. A
+base-currency contract is converted explicitly: wrap it in [`FX.Converted`](@ref), which converts
+each cashflow at its forward, or value it on a base-currency curve, such as the model's `foreign`
+curve, and convert that value at spot. Contracts that carry a currency are checked against the
+context's currency where it is known: an FX model's quote currency (also as the model of `Models`),
+or, inside an `FX.Converted`, its pair's base currency. An `FX.Converted` must convert into that
+currency. An unconverted [`FX.BasisSwapLeg`](@ref) is valued in it, or under a plain yield curve,
+which carries no currency and is taken to be the leg's; it throws under any other context. A plain
+bond carries no currency and is valued in the context's currency. The reporting currency is a unit of today's value only: it is not
+the trade's collateral agreement, which the model's curves describe (the `foreign` curve of a model
+fitted to market forwards is the base-currency curve under the domestic collateral).
 
 # Example
 
@@ -42,6 +50,7 @@ module FX
 
 import ..AbstractModel
 import ..Bond
+import ..Yield
 import ..FinanceCore: Timepoint
 using ..FinanceCore
 
@@ -189,16 +198,15 @@ An outright FX forward contract: at `time`, receive one unit of the base currenc
 `pair` and pay `strike` units of the quote currency. Its value is expressed in the quote
 currency.
 
-Under an [`FX.Forwards`](@ref) model `m` for the same pair:
+Under an [`FX.Forwards`](@ref) model `m` for the same pair (or a valuation context whose
+`valuation_model` it is), the contract is one quote-currency cashflow,
+`forward(m, c.time) - c.strike` at `c.time`, so
 
-    present_value(m, c, cur_time = 0.0) = (forward(m, c.time) - c.strike) * discount(m.domestic, cur_time, c.time)
+    present_value(m, c) = (forward(m, c.time) - c.strike) * discount(m.domestic, c.time)
 
 A forward struck at the market outright has zero present value, which is how market
-quotes are represented — see [`FX.Outright`](@ref). `cur_time` moves only the
-discounting date — the model is *not* rolled: `forward(m, c.time)` is still today's
-forward, the package's usual static-curve valuation convention. A forward that settled
-before `cur_time` is worth zero, consistent with how cashflows before `cur_time` are
-treated everywhere else in the package.
+quotes are represented — see [`FX.Outright`](@ref). The contract reads `m` from the context, so it
+is not supported inside an [`FX.Converted`](@ref).
 
 Pricing a contract whose pair differs from the model's pair throws an `ArgumentError`
 naming both pairs, rather than producing a silently inverted or crossed price.
@@ -224,17 +232,18 @@ end
 
 FinanceCore.maturity(c::Forward) = c.time
 
-function FinanceCore.present_value(m::Forwards, c::Forward, cur_time = 0.0)
-    # a mismatched pair would otherwise price a silently crossed/inverted rate — the
-    # classic FX bug this module exists to prevent
+# The forward's one quote-currency cashflow under `m` (its projection, in Projection.jl). A model that
+# is not an FX model has no method; a mismatched pair would otherwise price a silently crossed or
+# inverted rate, the classic FX bug this module exists to prevent.
+function __forward_cashflow(m::Forwards, c::Forward)
     if c.pair != m.pair
         throw(ArgumentError("cannot price an FX.Forward on $(c.pair) with an FX.Forwards model for $(m.pair)"))
     end
-    v = (FinanceCore.forward(m, c.time) - c.strike) * discount(m.domestic, cur_time, c.time)
-    # a forward settled before the valuation time contributes nothing, matching the
-    # projection-path convention (`Filter(cf -> cf.time >= cur_time)` in Projection.jl)
-    return c.time < cur_time ? zero(v) : v
+    return Cashflow(FinanceCore.forward(m, c.time) - c.strike, c.time)
 end
+
+# An FX model, as a valuation context, discounts in its reporting (quote) currency.
+FinanceCore.discount(m::Forwards, t...) = discount(m.domestic, t...)
 
 """
     FX.Outright(pair, forward_rate, time)
@@ -343,15 +352,16 @@ used by [`Bond.Floating`](@ref FinanceModels.Bond.Floating) for its reference ra
 `pair` declares the conversion the wrapper expects: if the model found under `key` is
 for a different pair — including the *inverted* one — projection throws an
 `ArgumentError` naming both pairs, rather than silently converting at a crossed or
-reciprocal rate. What the wrapper *cannot* verify is the wrapped contract's own
-denomination, since bare cashflows carry no currency; `pair` is your declaration that
-its cashflows are base-currency amounts.
+reciprocal rate. Under an FX model's context (or `Models` over one), the wrapper must convert into
+its reporting currency. An [`FX.BasisSwapLeg`](@ref) inside must pay in the pair's base currency,
+and a nested `FX.Converted` must convert into it. Other contracts carry no currency, so
+`pair` is your declaration that their cashflows are base-currency amounts. An
+[`FX.Forward`](@ref) prices on the context's own FX model and is not supported inside.
 
-Converting at CIP forwards and then discounting on the domestic curve is identical to
-discounting the unconverted cashflows on the FX model's foreign curve and converting the
-result at spot:
+Converting at CIP forwards and discounting on the domestic curve agrees, up to rounding,
+with discounting on the FX model's foreign curve and converting at spot:
 
-    pv(domestic, Converted(c)) == spot * pv(foreign, c)
+    pv(Models(domestic, Dict(key => fx)), FX.Converted(c, pair, key)) ≈ fx.spot * pv(fx.foreign, c)
 
 so collateralized (hedged) cross-currency valuation is consistent whichever way it is
 sliced, and — when the FX model was fit to market forwards — automatically reflects the
@@ -376,10 +386,11 @@ eur = Yield.Constant(Continuous(0.03))
 fx = FX.Forwards(eurusd, 1.08, usd, eur)
 
 bond = Bond.Fixed(0.04, Periodic(1), 2.0)  # a EUR-denominated bond
-p = Projection(FX.Converted(bond, eurusd, "EURUSD"), Dict("EURUSD" => fx), CashflowProjection())
+c = FX.Converted(bond, eurusd, "EURUSD")
+store = Dict("EURUSD" => fx)
 
-collect(p)  # cashflows now in USD: each amount is multiplied by forward(fx, t)
-pv(usd, p)  # == 1.08 * pv(eur, bond)
+collect(Projection(c, store))   # USD cashflows: each amount × forward(fx, t)
+pv(Models(usd, store), c)       # ≈ 1.08 * pv(eur, bond)
 ```
 """
 struct Converted{C, P <: Pair, K} <: FinanceCore.AbstractContract
@@ -404,10 +415,18 @@ are denominated in the *base* (foreign) currency of `pair`. Produced by
 
 Because the amounts are fixed once the projection curve is known, the leg is priceable
 by any single discount curve, which is what lets par basis-swap quotes flow through the
-standard curve-fitting machinery. Under an [`FX.Forwards`](@ref) model for the same
-pair, `present_value(m, leg)` is the leg's value **in base-currency units**, priced on
-`m.foreign` (the basis-adjusted/CSA discount curve); a mismatched pair throws an
-`ArgumentError` naming both pairs.
+standard curve-fitting machinery. Its value comes by one of two explicit routes:
+
+- `present_value(curve, leg)` on a base-currency curve, in base-currency units; for an
+  [`FX.Forwards`](@ref) model `m`, `present_value(m.foreign, leg)` (the basis-adjusted curve);
+- `present_value(Models(m, Dict(key => m)), FX.Converted(leg, pair, key))`, in quote-currency
+  units, converting each cashflow at its forward.
+
+An unconverted leg is also valued under a context that reports in its base currency (an
+`FX.Forwards` model whose quote currency it is, or `Models` over one). Under any other context (an
+FX model in another currency, `Models` over a plain curve, a `Rate` or a number) it throws an
+`ArgumentError`, also inside a portfolio, a `Composite`, a `Forward` or a transducer. A curve carries no currency, so a curve passed to the
+first route is taken to be a base-currency curve.
 """
 struct BasisSwapLeg{P <: Pair, C} <: FinanceCore.AbstractContract
     pair::P
@@ -416,12 +435,19 @@ end
 
 FinanceCore.maturity(c::BasisSwapLeg) = last(c.cashflows).time
 
-function FinanceCore.present_value(m::Forwards, c::BasisSwapLeg, cur_time = 0.0)
-    if c.pair != m.pair
-        throw(ArgumentError("cannot price an FX.BasisSwapLeg on $(c.pair) with an FX.Forwards model for $(m.pair)"))
-    end
-    return FinanceCore.present_value(m.foreign, c, cur_time)
-end
+@noinline __throw_unconverted(leg) = throw(
+    ArgumentError(
+        "an FX.BasisSwapLeg on $(leg.pair) is denominated in $(repr(leg.pair.base)), not in this context's " *
+            "reporting currency. Value it on a $(repr(leg.pair.base)) curve, present_value(curve, leg), or " *
+            "convert it with FX.Converted(leg, pair, key) under a context whose store holds the FX model."
+    )
+)
+@noinline __throw_misconverted(c, paid, from) = throw(
+    ArgumentError(
+        "an FX.$(nameof(typeof(c))) on $(c.pair) pays in $(repr(paid)), but its context is in $(repr(from)) " *
+            "(its reporting currency, or an enclosing FX.Converted's base). Convert into $(repr(from))."
+    )
+)
 
 """
     FX.ParBasisSwap(pair, spread, maturity; reference, frequency=Periodic(4))
