@@ -99,7 +99,7 @@ import Random
         @test ForwardDiff.derivative(t -> zlog(1.0e-310 + 0 * t), 0.0) == 0
     end
 
-    @testset "discount factors: scaled sums keep representable derivatives" begin
+    @testset "discount factors: selected extreme-scale derivatives" begin
         # a time derivative where a curve's discount factor is near overflow and its share tiny:
         # ∂D/∂t = 709·w·e^{709}, and the second derivative 709²·w·e^{709}
         m709 = Yield.Blend(flat(-709.0), flat(0.0), 1.0e-300, DF)
@@ -121,6 +121,39 @@ import Random
         @test L(far, 3.0) == 1000
         for w0 in (0.0, 1.0e-310, 0.3, 1.0)
             @test ForwardDiff.derivative(w -> discount(Yield.Blend(flat(0.0), far, w, DF), Inf), w0) ≈ 1 rtol = 1.0e-15
+        end
+    end
+
+    @testset "discount factors: known extreme-scale AD limitations" begin
+        # These assertions retain the mathematical targets for the limitations documented in
+        # Blend's docstring. A future numerical fix should turn them into ordinary passing tests.
+        @testset "a tiny positive weight has a finite zero-rate derivative" begin
+            w0 = 1.0e-310
+            blend(w) = Yield.Blend(flat(0.0), flat(700.0), w, DF)
+            expected = setprecision(BigFloat, 256) do
+                w, Db = BigFloat(w0), exp(-BigFloat(700))
+                Float64(-(1 - Db) / (w + (1 - w) * Db))
+            end
+            @test_broken ForwardDiff.derivative(w -> rate(zero(blend(w), 1.0)), w0) ≈ expected rtol = 1.0e-14
+        end
+
+        @testset "intervals and composition preserve a finite discount derivative" begin
+            far = ZeroRateCurve([1000.0, 500.0], [1.0, 2.0], Spline.Linear())
+            blend(w) = Yield.Blend(flat(0.0), far, w, DF)
+            # D = w + (1 - w)·exp(-1000), so ∂D/∂w rounds to 1 at either endpoint.
+            for t in (3.0, Inf)
+                @test ForwardDiff.derivative(w -> discount(blend(w), t), 0.0) == 1.0
+                @test_broken ForwardDiff.derivative(w -> discount(blend(w), 0.0, t), 0.0) ≈ 1.0
+                @test_broken ForwardDiff.derivative(w -> discount(blend(w) + flat(0.0), t), 0.0) ≈ 1.0
+            end
+        end
+
+        @testset "fixed weights preserve a component-rate derivative" begin
+            # D(r) = w·exp(1420) + (1 - w)·exp(-r) is finite, and D′(0) rounds to -1.
+            # The second component's relative contribution underflows inside the scaled sum.
+            f(r) = discount(Yield.Blend(flat(-1420.0), flat(r), 1.0e-310, DF), 1.0)
+            @test isfinite(f(0.0))
+            @test_broken ForwardDiff.derivative(f, 0.0) ≈ -1.0
         end
     end
 

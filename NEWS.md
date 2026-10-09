@@ -70,6 +70,12 @@ a function of tenor.
 Weights are checked when the blend is built (numbers) or where they are read (functions). With
 weights that vary with tenor, the limits at `t = Inf` are `NaN`.
 
+Known limitation: automatic differentiation of discount-factor blends at extreme scales can give
+inaccurate derivatives, including spurious zeros, `Inf` or `NaN`, even when the price and true
+derivative are finite. Very small weights or widely separated component log-discounts can trigger
+this, including through zero rates, interval discounts and curve composition. See the warning in
+the `Yield.Blend` docstring and the blending guide.
+
 ### Stable CIR bond prices (changed numbers)
 
 The textbook Cox–Ingersoll–Ross price broke down at small volatility and long maturities: it raises

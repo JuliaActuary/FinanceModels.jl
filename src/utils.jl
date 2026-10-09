@@ -191,8 +191,8 @@ end
 # w·eˣ, where eˣ alone, or a derivative of either factor, can overflow while the product doesn't. The
 # value is the product where that is a normal float, and sign(w)·exp(log|w| + x) otherwise; 0 for
 # w = 0. A dual number's partials are eˣ·∂w + (w·eˣ)·∂x, the first again as `__wexp` and the second a
-# strong-zero product with the value, so that each term is formed from factors that are finite
-# wherever the term is representable, at every order.
+# strong-zero product with the value. This avoids some intermediate overflows and underflows;
+# subsequent operations and higher-order partials remain subject to floating-point limitations.
 __wexp(w, x) = __wexp(promote(w, x)...)
 function __wexp(w::T, x::T) where {T <: Real}
     iszero(w) && return zero(T)

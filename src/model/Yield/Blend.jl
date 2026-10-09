@@ -60,8 +60,9 @@ are read: they must be finite and sum to 1, to rounding, and discount-factor wei
 
 - **Discount factors.** The weights are shares of their sum. With constant weights, the present
   value of cashflows valued from time 0 is linear in the curves: `pv(blend, cfs) ≈ Σ wᵢ·pv(cᵢ, cfs)`.
-  The long end follows the curve with the lowest rate. A derivative with respect to one of N weights
-  is `(Dᵢ - D)/Σw`; in the two-curve form, `∂D/∂w = D_a - D_b`.
+  The long end follows the curve with the lowest rate. Mathematically, a derivative with respect to
+  one of N weights is `(Dᵢ - D)/Σw`; in the two-curve form, `∂D/∂w = D_a - D_b`. Numerical limitations
+  of automatic differentiation are described below.
   - A blend rebased to time `s` (`ForwardStarting`) mixes its curves with the weights
     `w̃ᵢ·Dᵢ(s)/D(s)`, not `w̃ᵢ`.
   - An expected discount factor gives the expected present value only of cashflows that don't vary
@@ -75,6 +76,14 @@ are read: they must be finite and sum to 1, to rounding, and discount-factor wei
 
 With weights that vary with tenor, the limits at `t = Inf` are `NaN`, since the weights there are not
 known.
+
+!!! warning "Automatic differentiation at extreme scales"
+    In discount-factor blends, extremely small weights or widely separated component log-discounts
+    can produce inaccurate derivatives, including spurious zeros, `Inf` or `NaN`, even when the
+    price and mathematical derivative are finite. This affects differentiation with respect to
+    weights, time and curve parameters. A derivative that works for a direct discount calculation
+    may fail through zero rates, interval discounts or curve composition. Verify sensitivities in
+    these regimes against analytic or suitably higher-precision references.
 
 # Examples
 
@@ -167,17 +176,16 @@ __mapsum(f::F, xs::Vararg{Any, N}) where {F, N} = sum(map(f, xs...))
 
 # The discount factor D and the log-discount L = -log D of the mixture Σ w̃ᵢ·exp(-Lᵢ), with shares
 # w̃ᵢ = wᵢ/s and s = Σw, all in the promoted type of the weights and the log-discounts. Products with
-# a weight are strong zeros (`__strong_zero_mul`), and weighted exponentials w·eˣ are `__wexp`, whose
-# partials are formed from finite factors wherever they are representable: eˣ·∂w for a weight,
-# (w·eˣ)·∂x for a log-discount, which no single expression's derivative keeps finite in both. The
-# curves with a positive share P are taken relative to the one with the smallest Lᵢ, m. The curves
-# with a zero share Z add 0 in value but carry their weights' partials, to every order.
+# a weight are strong zeros (`__strong_zero_mul`), and weighted exponentials w·eˣ are `__wexp`, which
+# evaluates eˣ·∂w and (w·eˣ)·∂x separately to reduce intermediate overflow and underflow. The curves
+# with a positive share P are taken relative to the one with the smallest Lᵢ, m. The curves with a
+# zero share Z add 0 in value but carry their weights' partials.
 #
 # D = S·e^{-m} + Σ_Z w̃ᵢ·e^{-Lᵢ}, with S = Σ_P wᵢ·e^{m-Lᵢ}/s, which lies between the reference's share
-# and 1. So a representable value or derivative is exact also where a curve's discount factor, or
-# its derivative, overflows (a share of 1e-310 on a curve with L = -1420, a time derivative at
-# L = -709, ∂D/∂w at w = 0 or 1e-310 on curves 1000 apart). At t = 0 the sum in S is s itself, so
-# D = 1 exactly.
+# and 1. Scaling can keep the value and some derivatives representable when a component discount
+# factor overflows. It does not preserve every finite derivative at extreme scales: relative terms
+# can underflow, and differentiating the reference can introduce cancellation. See the known AD
+# limitations in test/Blend.jl. When every Lᵢ = 0, the sum in S is s itself, so D = 1 exactly.
 #
 # L = L_P - log1p(Σ_Z w̃ᵢ·e^{L_P-Lᵢ}). L_P = m - log1p(x), with x = Σ_P w̃ᵢ·expm1(m - Lᵢ) - Σ_Z w̃ᵢ
 # (the last sum is 0 in value but carries the partials of Σ_P w̃ᵢ - 1, which log1p would otherwise
@@ -217,6 +225,8 @@ __blend_log_interval(::DiscountFactors, b, from, to) = __mixture(b, to).L - __mi
 # The ratio of the discount factors where both are normal floats: D(0) is exactly 1, with zero
 # partials, so an interval from 0 is `discount(b, t)` itself. Otherwise the difference of the
 # log-discounts, which stays finite where a discount factor underflows or overflows.
+# Reconstructing the interval discount from L can lose a finite derivative when a partial of L
+# overflows, even if the direct discount calculation preserves that derivative.
 function __blend_interval_discount(::DiscountFactors, b, from, to)
     (isinf(from) || isinf(to)) && return exp(-__log_interval(b, from, to))
     x, y = __mixture(b, from), __mixture(b, to)
@@ -253,7 +263,7 @@ function __blend_tail(::DiscountFactors, b)
 end
 # The discount factor at t = Inf. Where the mixture's limit is finite (the deciding curves' L tends to
 # a constant), it is the sum Σ w̃ᵢ·e^{-a0ᵢ} over the tied curves, as `__mixture` sums at a finite time,
-# so a representable derivative in the weights stays so where e^{-a0ᵢ} underflows. Otherwise it is
+# which can preserve weight derivatives where e^{-a0ᵢ} underflows. Otherwise it is
 # the tail's limit: 0, Inf, or NaN where unknown.
 __blend_discount_at_infinity(space, b) = __discount_at_infinity(b)
 function __blend_discount_at_infinity(::DiscountFactors, b)

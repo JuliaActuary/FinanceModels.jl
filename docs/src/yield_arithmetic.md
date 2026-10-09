@@ -174,6 +174,14 @@ The spaces behave differently:
 
 Weights that don't sum to 1, to rounding, throw an `ArgumentError`: number weights when the blend is built, and weights that vary with tenor where they are read. With weights that vary with tenor, `discount(blend, Inf)` is `NaN`, since the weights at infinity are not known.
 
+!!! warning "Automatic differentiation at extreme scales"
+    In discount-factor blends, extremely small weights or widely separated component log-discounts
+    can produce inaccurate derivatives, including spurious zeros, `Inf` or `NaN`, even when the
+    price and mathematical derivative are finite. This affects differentiation with respect to
+    weights, time and curve parameters. A derivative that works for a direct discount calculation
+    may fail through zero rates, interval discounts or curve composition. Verify sensitivities in
+    these regimes against analytic or suitably higher-precision references.
+
 ## Operation summary
 
 | Expression | Result type | Semantics |
