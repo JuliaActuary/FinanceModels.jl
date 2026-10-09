@@ -154,6 +154,10 @@ end
 # B = -m/a and τ - B = (x + m)/a for m = expm1(-x), keeps the terms linear in τ in one product, so
 # -log P follows the long rate b - σ²/(2a²) to ±∞; its σ² terms cancel as x = aτ → 0, so |x| < 0.2
 # uses the second form with the Taylor polynomials of φ₂ and h, exact to Float64 rounding there.
+# For explosive mean reversion, x < -1, B > 1.7τ grows like e^{|x|}, and B·r and (τ - B)·c ≈ -B·c
+# cancel when r is near c (σ = 0, r = b, a = -0.1, τ = 500 gave P = 1 instead of e^{-15}), so the
+# terms in B are grouped there: B·(r - c) + c·τ + (σB)²/(4a).
+const __VASICEK_EXPLOSIVE_X = -1
 const __VASICEK_H_COEFFS = ntuple(k -> (-1)^(k - 1) * (2^(k + 1) - 2) // factorial(k + 2), 13)
 function __vasicek_log_zcb(a, b, σ, r, τ)
     x = a * τ
@@ -165,6 +169,10 @@ function __vasicek_log_zcb(a, b, σ, r, τ)
     # The drift term vanishes with its coefficient. Skipping it then keeps τ = ∞ finite for a > 0
     # (it is 0·∞ otherwise); `iszero` of a dual number also requires zero partials.
     c = b - σ^2 / (2a^2)
+    if x < __VASICEK_EXPLOSIVE_X
+        B = -m / a
+        return B * (r - c) + (iszero(c) ? zero(c) : c * τ) + (σ * B)^2 / (4a)
+    end
     drift = iszero(c) ? zero(c) : (x + m) / a * c
     return -m / a * r + drift + σ^2 * m^2 / (4a^3)
 end
@@ -179,7 +187,9 @@ Yield.force_of_interest(m::ShortRate.Vasicek, T) = __vasicek_forward(m.a, m.b, m
 
 # The instantaneous forward f(τ) = d(-log P)/dτ from the Riccati equations B′ = 1 - aB and
 # (-log A)′ = abB - σ²B²/2: f = r·e^{-aτ} + b·(1 - e^{-aτ}) - σ²B²/2, with 1 - aB written as e^{-aτ}.
+# For explosive mean reversion it is (r - b)·e^{-aτ} + b - (σB)²/2, whose first terms do not cancel.
 function __vasicek_forward(a, b, σ, r, τ)
+    a * τ < __VASICEK_EXPLOSIVE_X && return (r - b) * exp(-a * τ) + b - (σ * __decay_integral(a, τ))^2 / 2
     return r * exp(-a * τ) - b * expm1(-a * τ) - σ^2 / 2 * __decay_integral(a, τ)^2
 end
 

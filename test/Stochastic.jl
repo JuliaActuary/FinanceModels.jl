@@ -1593,6 +1593,45 @@ end
     @test discount(ShortRate.Vasicek(0.1, 0.001, 0.05, Continuous(0.03)), Inf) == Inf
 end
 
+@testset "Vasicek with explosive mean reversion" begin
+    # For aτ < -1, B = (e^{|a|τ} - 1)/|a| grows exponentially, and B·r and B·c, c = b - σ²/(2a²), cancel
+    # when r is near c: a constant 3% short rate (σ = 0, r = b, a = -0.1) priced its 500-year bond at
+    # P = 1 instead of e^{-15}. Errors are measured against a 2048-bit reference, relative to the
+    # size of the grouped terms.
+    logP, fwd = FinanceModels.__vasicek_log_zcb, FinanceModels.__vasicek_forward
+    setprecision(BigFloat, 2048) do
+        function ref(a, b, σ, r, τ)
+            B = -expm1(-a * τ) / a
+            return B * r + (τ - B) * (b - σ^2 / (2a^2)) + σ^2 * B^2 / (4a)
+        end
+        ref_fwd(a, b, σ, r, τ) = r * exp(-a * τ) - b * expm1(-a * τ) - σ^2 / 2 * (-expm1(-a * τ) / a)^2
+        for a in (-1.0, -0.3, -0.1, -0.02), τ in (5.0, 30.0, 100.0, 500.0),
+                (b, σ, r) in ((0.03, 0.0, 0.03), (0.03, 0.0, 0.05), (0.04, 0.001, 0.04), (0.05, 0.01, 0.03))
+            a * τ < -1 || continue
+            R = ref(big(a), big(b), big(σ), big(r), big(τ))
+            abs(R) < 700 || continue   # P representable in Float64
+            B, c = -expm1(-a * τ) / a, b - σ^2 / (2a^2)
+            scale = abs(B * (r - c)) + abs(c * τ) + (σ * B)^2 / (4abs(a))
+            @test abs(logP(a, b, σ, r, τ) - R) <= 8eps() * scale
+            F = ref_fwd(big(a), big(b), big(σ), big(r), big(τ))
+            @test abs(fwd(a, b, σ, r, τ) - F) <= 8eps() * (abs(r - b) * exp(-a * τ) + abs(b) + (σ * B)^2 / 2)
+            # the derivatives in a and r follow the grouped form too
+            da = ForwardDiff.derivative(y -> logP(y, b, σ, r, τ), a)
+            dA = ForwardDiff.derivative(y -> ref(y, big(b), big(σ), big(r), big(τ)), big(a))
+            @test abs(da - dA) <= 1.0e-12 * (abs(Float64(dA)) + τ * scale)
+            dr = ForwardDiff.derivative(y -> logP(a, b, σ, y, τ), r)
+            @test dr ≈ B rtol = 1.0e-14
+        end
+    end
+    # A constant short rate prices like a constant curve, whatever the mean reversion.
+    for a in (-1.0, -0.1, 0.1)
+        m = ShortRate.Vasicek(a, 0.03, 0.0, Continuous(0.03))
+        @test discount(m, 500) ≈ exp(-15) rtol = 1.0e-12
+        @test rate(Yield.instantaneous_forward(m, 500)) ≈ 0.03 rtol = 1.0e-12
+        @test rate(zero(m, 500)) ≈ 0.03 rtol = 1.0e-12
+    end
+end
+
 @testset "affine series keep the working precision" begin
     # The series coefficients are exact, so Float32 inputs price in Float32 on both sides of the
     # |aτ| = 0.2 threshold, and a BigFloat limit at a = 0 is exact to its own precision.

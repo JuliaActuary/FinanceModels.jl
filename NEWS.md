@@ -246,6 +246,10 @@ rounding for every mean reversion, zero and negative included, with exact Forwar
 derivatives. Prices change by the former errors; away from small aτ, only in the last bits.
 Vasicek's discount factor at τ = ∞ with mean reversion a > 0 and no drift term (b = σ²/(2a²)) is its
 limit, exp(−r/a − σ²/(4a³)); it was `NaN`.
+With explosive mean reversion (aτ < −1), Vasicek's bond price and forward group the terms that grow
+like e^{|a|τ}: they cancelled when the short rate was near its long-run level, so a constant 3% rate
+(σ = 0, r = b, a = −0.1) priced its 500-year bond at 1 instead of e^{−15}, and its forward was wrong
+the same way. Prices and forwards for aτ ≥ −1 are bitwise unchanged.
 
 ### Differentiable spline fits
 
