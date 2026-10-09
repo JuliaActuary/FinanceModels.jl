@@ -25,10 +25,12 @@
 #   `CoxIngersollRoss`, `RatePath`.
 # - `__log_discount` + `__log_interval`: `SmithWilson` (signed factors: from its interval ratio),
 #   `ForwardStarting` (from the base curve's interval), `HullWhite` (its initial curve's),
-#   `CompositeYield` and `ScaledYield` (their components' intervals, combined).
+#   `CompositeYield` and `ScaledYield` (their components' intervals, combined), `Blend` (by its
+#   space: a mixture's log-discount, or its components' intervals combined).
 # - `__log_tail`, exact: `Constant`, `Spline`, `MonotoneConvex`, and the wrappers `CompositeYield`,
-#   `ScaledYield`, `ForwardStarting`, `HullWhite`, which combine their components' tails. Every other
-#   curve uses the fallback, which knows only the growth rate its zero rate at infinity implies.
+#   `ScaledYield`, `ForwardStarting`, `HullWhite` and `Blend` with number weights, which combine their
+#   components' tails. Every other curve uses the fallback, which knows only the growth rate its zero
+#   rate at infinity implies.
 # - A curve that forwards to another (`HullWhite`, `__PrimalCurve`) forwards every capability in
 #   `__FORWARDED_CAPABILITIES` (at the end of this file), so the wrapped curve's own rules (its
 #   intervals, its closed-form forward) apply. `__log_native` is for leaf curves only.
