@@ -10,9 +10,9 @@ Examples:
 - `Bond`s:
   - `Bond.Fixed`, `Bond.Floating`
 - `Option`s:
-- `Option.EuroCall` and `Option.EuroPut`
+  - `Option.EuroCall` and `Option.EuroPut`
 - Compositional contracts:
-  - `Forward`to represent an instrument that is relative to a forward point in time.
+  - `Forward` to represent an instrument that is relative to a forward point in time.
   - `Composite` to represent the combination of two other instruments.  
 
 In the future, this notion may be extended to liabilities (e.g. insurance policies in LifeContingencies.jl)
@@ -32,7 +32,7 @@ The new solution: `Cashflow`s. Our example above would become: `[Cashflow(1,0.05
 
 ### Creating a new Contract
 
-A contract is anything that creates a vector of `Cashflow`s when `collect`ed. For example, let's create a bond which only pays down principle and offers no coupons.
+A contract is anything that creates a vector of `Cashflow`s when `collect`ed. For example, let's create a bond which only pays down principal and offers no coupons.
 
 ```julia
 using FinanceModels,FinanceCore
@@ -44,7 +44,7 @@ using Transducers: __foldl__, @next, complete
 """
 A bond which pays down its par (one unit) in equal payments. 
 """
-struct PrincipleOnlyBond{F<:FinanceCore.Frequency} <: FinanceModels.Bond.AbstractBond
+struct PrincipalOnlyBond{F<:FinanceCore.Frequency} <: FinanceModels.Bond.AbstractBond
     frequency::F
     maturity::Float64
 end
@@ -53,14 +53,14 @@ end
 # There's two parts to customize:
 # 1. any initialization or state to keep track of
 # 2. The loop where we decide what gets returned at each timestep
-function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:PrincipleOnlyBond,M,K}
+function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:PrincipalOnlyBond,M,K}
     # initialization stuff
     b = p.contract # the contract within a projection
     ts = Bond.coupon_times(b) # works since it's a FinanceModels.Bond.AbstractBond with a frequency and maturity
     pmt = 1 / length(ts)
 
     for t in ts
-        # the loop wich returns a value
+        # the loop which returns a value
         cf = Cashflow(pmt, t)
         val = @next(rf, val, cf) # the value to return is the last argument
     end
@@ -68,10 +68,10 @@ function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:Principl
 end
 ```
 
-That's it! then we can use this fitting models, projections, quotes, etc. Here we simply collect the bond into an array of cashflows:
+That's it! We can now use this contract to fit models, create projections, quotes, etc. Here we simply collect the bond into an array of cashflows:
 
 ```julia-repl
-julia> PrincipleOnlyBond(Periodic(2),5.) |> collect
+julia> PrincipalOnlyBond(Periodic(2),5.) |> collect
 10-element Vector{Cashflow{Float64, Float64}}:
  Cashflow{Float64, Float64}(0.1, 0.5)
  Cashflow{Float64, Float64}(0.1, 1.0)
@@ -133,17 +133,17 @@ julia> Bond.Fixed(0.05,Periodic(1),3) |> Map(-) |> Map(x->x*2) |> collect
  Cashflow{Float64, Float64}(-2.1, 3.0)
 ```
 
-Another example of this is how `InterestRateSwap`[@ref] is implemented. It's simply a `Composite` contract of a positive fixed rate bond and a negative floating rate bond:
+Another example of this is [`InterestRateSwap`](@ref). It's simply a `Composite` contract of a positive fixed rate bond and a negative floating rate bond. For a tenor of whole coupon periods, whose par coupon is the par yield, it is:
 
 ```julia
-function InterestRateSwap(curve, tenor; frequency, model_key="OIS")
-    frequency = Bond.__coerce_periodic(frequency)
-    fixed_rate = Bond.__par_coupon(curve, tenor, frequency.frequency) # the schedule's annualized par coupon
-    fixed_leg = Bond.Fixed(fixed_rate, frequency, tenor)
+function my_swap(curve, tenor; frequency, model_key = "OIS")
+    fixed_leg = Bond.Fixed(par(curve, tenor; frequency), frequency, tenor)
     float_leg = Bond.Floating(0.0, frequency, tenor, model_key) |> Map(-)
     return Composite(fixed_leg, float_leg)
 end
 ```
+
+`InterestRateSwap` also solves the par coupon of a tenor with a short first stub.
 
 ##### Cashflows are model dependent
 
@@ -166,10 +166,10 @@ Values add under one context: a `Composite` is worth the sum of its parts and a 
 sum of its contracts' values. For multiple index curves or combined yield and FX models, use an
 explicit store, for example `Models(ois, Dict("SOFR" => sofr, "EURUSD" => fx))`.
 
-A contract with a closed-form value defines `present_value` on the contract, reading the models it
-needs from the context: `discount(ctx, t)` for discounting, `ctx[key]` for an observed model, and
-[`valuation_model(ctx)`](@ref valuation_model) for the model whose formula prices it. It then
-values inside a `Composite` or a portfolio:
+A contract with a closed-form value defines `present_value(ctx, contract)`, the one extension point
+for a contract's value. It reads the models it needs from the context: `discount(ctx, t)` for
+discounting, `ctx[key]` for an observed model, and [`valuation_model(ctx)`](@ref valuation_model)
+for the model whose formula prices it. It then values inside a `Composite` or a portfolio:
 
 ```julia
 struct OnePeriodFloater <: FinanceCore.AbstractContract
@@ -180,6 +180,32 @@ FinanceCore.present_value(ctx, c::OnePeriodFloater) = discount(ctx, 2.0) / disco
 
 present_value(Models(ois, Dict("SOFR" => sofr)), [OnePeriodFloater("SOFR"), Bond.Fixed(0.04, Periodic(2), 5.0)])
 ```
+
+When the formula depends on the type of the pricing model, `present_value` hands the context's
+model to the model kernel [`FinanceModels.closed_form(model, contract)`](@ref FinanceModels.closed_form),
+and each model that prices the contract adds a method for it. FinanceModels' options, caps, floors
+and swaptions are valued this way. A custom contract opts in with one line:
+
+```julia
+# pays S_T - K at T on a unit stock
+struct EquityForward <: FinanceCore.AbstractContract
+    strike::Float64
+    maturity::Float64
+end
+FinanceCore.present_value(ctx, c::EquityForward) = FinanceModels.closed_form(valuation_model(ctx), c)
+FinanceModels.closed_form(m::Equity.BlackScholesMerton, c::EquityForward) =
+    exp(-m.q * c.maturity) - c.strike * exp(-m.r * c.maturity)
+
+m = Equity.BlackScholesMerton(0.03, 0.01, 0.2)
+fwd = EquityForward(1.0, 2.0)
+call = Option.EuroCall(CommonEquity(), 1.0, 2.0)
+present_value(m, fwd)
+present_value(Models(m; index = Yield.Constant(0.03)), fwd)   # the same value
+present_value(m, [fwd, call])                                 # the sum of the two values
+present_value(m, Composite(fwd, call))                        # the same sum
+```
+
+A model without a `closed_form` method for the contract throws a `MethodError`.
 
 Wrappers that act on the cashflow stream (`Forward`, `FX.Converted`, `contract |> Map(f)`) need the
 contract's projection, so a contract with only a closed form cannot be valued inside them.

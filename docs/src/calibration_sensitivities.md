@@ -7,9 +7,10 @@ A fitted curve is a function of the market quotes it was fitted to. Two question
   ([`implied_quote`](@ref FinanceModels.Yield.implied_quote)).
 
 Both are answered with [ForwardDiff.jl](https://github.com/JuliaDiff/ForwardDiff.jl), and both
-give exact first-order derivatives: they come from the implicit function theorem at the solved
-point, not from differentiating a solver's iterations. The values are always the primal
-calculation, bitwise.
+give exact first-order derivatives. Solved calibrations take them from the implicit function
+theorem at the solution, not from the solver's iterations, and their values are the primal
+calculation, bitwise. A Smith–Wilson fit is a closed form and is differentiated directly (see the
+table below).
 
 !!! note "The implicit function theorem, in actuarial terms"
     A bond's yield to maturity is defined implicitly. It is the rate `y` at which the present
@@ -139,8 +140,7 @@ when:
   Jacobian);
 - the fitted curve lies on, or within the fit's precision of, a kink of its interpolation (for
   example, flat quotes fitted with `Spline.MonotoneConvex()`, `Spline.PCHIP()`, or
-  `Spline.Akima()`); or
-- the model is not a spline fit (see the table).
+  `Spline.Akima()`).
 
 Reverse-mode AD is not supported. Derivatives are first order only: second derivatives through
 a fit (convexity with respect to the quotes) throw the nested-dual error above.

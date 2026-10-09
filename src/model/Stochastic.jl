@@ -1,16 +1,15 @@
 """
-Stochastic short-rate models (Vasicek, Cox-Ingersoll-Ross, Hull-White) that
-implement the `AbstractYieldModel` interface via closed-form zero-coupon bond
-prices.  They also support Monte Carlo simulation via `simulate` and `pv_mc`.
-"""
-
-"""
     AbstractStochasticModel <: Yield.AbstractYieldModel
 
 Abstract supertype for stochastic short-rate models.
 """
 abstract type AbstractStochasticModel <: Yield.AbstractYieldModel end
 
+"""
+Stochastic short-rate models (Vasicek, Cox-Ingersoll-Ross, Hull-White) that
+implement the `AbstractYieldModel` interface via closed-form zero-coupon bond
+prices.  They also support Monte Carlo simulation via `simulate` and `pv_mc`.
+"""
 module ShortRate
 
     import ..Yield
@@ -126,11 +125,11 @@ end # module ShortRate
 
 # ─── Closed-form discount (zero-coupon bond prices) ──────────────────────────
 
-function _initial_rate(m::ShortRate.Vasicek)
+function __initial_rate(m::ShortRate.Vasicek)
     return __continuous(m.initial)
 end
 
-function _initial_rate(m::ShortRate.CoxIngersollRoss)
+function __initial_rate(m::ShortRate.CoxIngersollRoss)
     return __continuous(m.initial)
 end
 
@@ -141,12 +140,12 @@ end
 # τ(1 - xφ₂(x))), whose omitted terms are below Float64 rounding there. The series' coefficients are
 # exact in every precision, so their values at x = 0 are too; their truncation is set for Float64,
 # which bounds a wider type inside the band to about 4e-18 relative.
-const _AFFINE_SERIES_X = 0.2
-const _φ2_COEFFS = ntuple(k -> (-1)^(k - 1) // factorial(k + 1), 11)
-_φ2(x) = __evalpoly_exact(x, _φ2_COEFFS)
-@inline function _decay_integral(a, τ)
+const __AFFINE_SERIES_X = 0.2
+const __φ2_COEFFS = ntuple(k -> (-1)^(k - 1) // factorial(k + 1), 11)
+__φ2(x) = __evalpoly_exact(x, __φ2_COEFFS)
+@inline function __decay_integral(a, τ)
     x = a * τ
-    return abs(x) < _AFFINE_SERIES_X ? τ * (1 - x * _φ2(x)) : -expm1(-x) / a
+    return abs(x) < __AFFINE_SERIES_X ? τ * (1 - x * __φ2(x)) : -expm1(-x) / a
 end
 
 # Vasicek ZCB price P = A(τ) exp(-B(τ) r):
@@ -155,12 +154,12 @@ end
 # B = -m/a and τ - B = (x + m)/a for m = expm1(-x), keeps the terms linear in τ in one product, so
 # -log P follows the long rate b - σ²/(2a²) to ±∞; its σ² terms cancel as x = aτ → 0, so |x| < 0.2
 # uses the second form with the Taylor polynomials of φ₂ and h, exact to Float64 rounding there.
-const _VASICEK_H_COEFFS = ntuple(k -> (-1)^(k - 1) * (2^(k + 1) - 2) // factorial(k + 2), 13)
-function _vasicek_log_zcb(a, b, σ, r, τ)
+const __VASICEK_H_COEFFS = ntuple(k -> (-1)^(k - 1) * (2^(k + 1) - 2) // factorial(k + 2), 13)
+function __vasicek_log_zcb(a, b, σ, r, τ)
     x = a * τ
-    if abs(x) < _AFFINE_SERIES_X
-        p = x * _φ2(x)
-        return τ * (1 - p) * r + b * τ * p - σ^2 * τ^3 / 2 * __evalpoly_exact(x, _VASICEK_H_COEFFS)
+    if abs(x) < __AFFINE_SERIES_X
+        p = x * __φ2(x)
+        return τ * (1 - p) * r + b * τ * p - σ^2 * τ^3 / 2 * __evalpoly_exact(x, __VASICEK_H_COEFFS)
     end
     m = expm1(-x)
     # The drift term vanishes with its coefficient. Skipping it then keeps τ = ∞ finite for a > 0
@@ -169,19 +168,19 @@ function _vasicek_log_zcb(a, b, σ, r, τ)
     drift = iszero(c) ? zero(c) : (x + m) / a * c
     return -m / a * r + drift + σ^2 * m^2 / (4a^3)
 end
-_vasicek_zcb(a, b, σ, r, τ) = exp(-_vasicek_log_zcb(a, b, σ, r, τ))
+__vasicek_zcb(a, b, σ, r, τ) = exp(-__vasicek_log_zcb(a, b, σ, r, τ))
 
 function FinanceCore.discount(m::ShortRate.Vasicek, T)
-    return _vasicek_zcb(m.a, m.b, m.σ, _initial_rate(m), T)
+    return __vasicek_zcb(m.a, m.b, m.σ, __initial_rate(m), T)
 end
-Yield.__log_discount(m::ShortRate.Vasicek, T) = _vasicek_log_zcb(m.a, m.b, m.σ, _initial_rate(m), T)
+Yield.__log_discount(m::ShortRate.Vasicek, T) = __vasicek_log_zcb(m.a, m.b, m.σ, __initial_rate(m), T)
 Yield.__log_native(::ShortRate.Vasicek) = true
-Yield.force_of_interest(m::ShortRate.Vasicek, T) = _vasicek_forward(m.a, m.b, m.σ, _initial_rate(m), T)
+Yield.force_of_interest(m::ShortRate.Vasicek, T) = __vasicek_forward(m.a, m.b, m.σ, __initial_rate(m), T)
 
 # The instantaneous forward f(τ) = d(-log P)/dτ from the Riccati equations B′ = 1 - aB and
 # (-log A)′ = abB - σ²B²/2: f = r·e^{-aτ} + b·(1 - e^{-aτ}) - σ²B²/2, with 1 - aB written as e^{-aτ}.
-function _vasicek_forward(a, b, σ, r, τ)
-    return r * exp(-a * τ) - b * expm1(-a * τ) - σ^2 / 2 * _decay_integral(a, τ)^2
+function __vasicek_forward(a, b, σ, r, τ)
+    return r * exp(-a * τ) - b * expm1(-a * τ) - σ^2 / 2 * __decay_integral(a, τ)^2
 end
 
 # CIR ZCB price P = A(τ) exp(-B(τ) r), with γ = √(a² + 2σ²) (Cox, Ingersoll & Ross 1985):
@@ -199,9 +198,9 @@ end
 # Both reach the deterministic price continuously as σ → 0, and σ = 0 needs no case of its own: the
 # smaller factor is then 0 and they give the deterministic (volatility-free Vasicek) price. For small γτ,
 # where the divisions by γ, s and σ² are near 0/0 (exactly so at a = σ = 0, leaving derivatives NaN),
-# B and the log A term come from series in X = (γτ/2)² (`_cir_series`); outside that band only a = σ = 0 remains,
+# B and the log A term come from series in X = (γτ/2)² (`__cir_series`); outside that band only a = σ = 0 remains,
 # at τ = ∞, where γτ is 0·∞ and the rate stays constant.
-function _cir_pieces(a, σ, τ)
+function __cir_pieces(a, σ, τ)
     γ = hypot(a, σ, σ)
     big = γ + abs(a)
     small = 2σ / big * σ
@@ -210,27 +209,27 @@ function _cir_pieces(a, σ, τ)
     D = s + d * exp(-γ * τ)
     return (; γ, s, d, q, D, B = 2q / D)
 end
-function _cir_log_zcb(a, b, σ, r, τ)
-    if _cir_short(a, σ, τ)
-        B, g = _cir_series(a, σ, τ)
+function __cir_log_zcb(a, b, σ, r, τ)
+    if __cir_short(a, σ, τ)
+        B, g = __cir_series(a, σ, τ)
         return B * r + (a * τ) * (b * τ) * g
     end
     # a = σ = 0 at τ = ∞ (γτ = 0·∞): the rate stays constant
     iszero(a) && iszero(σ) && return r * τ
-    (; γ, s, d, q, D, B) = _cir_pieces(a, σ, τ)
+    (; γ, s, d, q, D, B) = __cir_pieces(a, σ, τ)
     # Without a drift towards b, A = 1, also at τ = ∞ where τ/s is infinite
     iszero(a * b) && return B * r
-    return B * r - 2a * b * _cir_log_a_ratio(a, σ, τ, γ, s, d, q, D)
+    return B * r - 2a * b * __cir_log_a_ratio(a, σ, τ, γ, s, d, q, D)
 end
 # G = log A/(2ab), as described above
-function _cir_log_a_ratio(a, σ, τ, γ, s, d, q, D)
+function __cir_log_a_ratio(a, σ, τ, γ, s, d, q, D)
     if a >= 0
         w = 2q / (s * D)
-        return w * _log1p_ratio(σ^2 * w) - τ / s
+        return w * __log1p_ratio(σ^2 * w) - τ / s
     end
     γτ = γ * τ
     v = expm1(γτ) / (d * γ)
-    isfinite(σ^2 * v) && return τ / d - v * _log1p_ratio(σ^2 * v)
+    isfinite(σ^2 * v) && return τ / d - v * __log1p_ratio(σ^2 * v)
     # log1p(σ²v) = ℓc + γτ + log1p(e^{-(ℓc + γτ)}) with ℓc = log(σ²q/(dγ)), and 1/d - γ/σ² =
     # -(a² + σ² - aγ)/(dσ²), a sum of positive terms for a < 0; one numerator over σ², so that σ² = 0
     # (underflow) or τ = ∞ gives an infinity of the right sign
@@ -245,55 +244,55 @@ end
 # which never divides by σ² or γ. Only dimensionless powers are formed, so a long time with small
 # rates (or the reverse) can't overflow one factor while underflowing another. With (γτ)² < 0.16 the
 # series' omitted terms are below Float64 rounding.
-const _CIR_SERIES_X2 = 0.16
-const _CIR_C = ntuple(k -> 1 // factorial(2k - 2), 9)   # 1/(2j)!, j = 0, …, 8
-const _CIR_S = ntuple(k -> 1 // factorial(2k - 1), 9)   # 1/(2j + 1)!
-_cir_short(a, σ, τ) = (a * τ)^2 + 2(σ * τ)^2 < _CIR_SERIES_X2
-function _cir_series(a, σ, τ)
+const __CIR_SERIES_X2 = 0.16
+const __CIR_C = ntuple(k -> 1 // factorial(2k - 2), 9)   # 1/(2j)!, j = 0, …, 8
+const __CIR_S = ntuple(k -> 1 // factorial(2k - 1), 9)   # 1/(2j + 1)!
+__cir_short(a, σ, τ) = (a * τ)^2 + 2(σ * τ)^2 < __CIR_SERIES_X2
+function __cir_series(a, σ, τ)
     α = a * τ / 2
     y = (σ * τ)^2 / 2
     X0 = α^2
     X = X0 + y
-    C = __evalpoly_exact(X, _CIR_C)
-    Ŝ = __evalpoly_exact(X, _CIR_S)
+    C = __evalpoly_exact(X, __CIR_C)
+    Ŝ = __evalpoly_exact(X, __CIR_S)
     T = typeof(float(__primal(X)))
     Δ, dd, X0k = zero(X), zero(X), one(X0)   # Δ̂, (Xᵏ - X₀ᵏ)/(X - X₀), X₀ᵏ⁻¹
-    for k in 2:length(_CIR_C)
+    for k in 2:length(__CIR_C)
         dd = X * dd + X0k
         X0k *= X0
-        Δ += (convert(T, _CIR_C[k]) + α * convert(T, _CIR_S[k])) * dd
+        Δ += (convert(T, __CIR_C[k]) + α * convert(T, __CIR_S[k])) * dd
     end
     e = exp(-α)
-    return τ * Ŝ / (C + α * Ŝ), Δ * e * _log1p_ratio(y * Δ * e)
+    return τ * Ŝ / (C + α * Ŝ), Δ * e * __log1p_ratio(y * Δ * e)
 end
-_cir_zcb(a, b, σ, r, τ) = exp(-_cir_log_zcb(a, b, σ, r, τ))
+__cir_zcb(a, b, σ, r, τ) = exp(-__cir_log_zcb(a, b, σ, r, τ))
 
 # The instantaneous forward f(τ) = d(-log P)/dτ = r·B′ + ab·B, from the Riccati equation
-# (log A)′ = -abB, with B from the same pieces as `_cir_log_zcb`. B′ = (2γ e^{-γτ/2}/D′)², with the
+# (log A)′ = -abB, with B from the same pieces as `__cir_log_zcb`. B′ = (2γ e^{-γτ/2}/D′)², with the
 # exponential inside the square so that a huge 2γ/D′ (a < 0, tiny σ) meets e^{-γτ} before it is squared;
 # for small γτ, B′ = 1 - aB - σ²B²/2 from the Riccati equation itself, smooth through a = σ = 0. As for
 # the price, σ = 0 is an ordinary case, and only a = σ = 0 at τ = ∞ is handled apart.
-function _cir_forward(a, b, σ, r, τ)
-    if _cir_short(a, σ, τ)
-        B, _ = _cir_series(a, σ, τ)
+function __cir_forward(a, b, σ, r, τ)
+    if __cir_short(a, σ, τ)
+        B, _ = __cir_series(a, σ, τ)
         return r * (1 - a * B - σ^2 * B^2 / 2) + a * b * B
     end
     iszero(a) && iszero(σ) && return r + zero(τ)
-    (; γ, D, B) = _cir_pieces(a, σ, τ)
+    (; γ, D, B) = __cir_pieces(a, σ, τ)
     return r * (2γ * exp(-γ * τ / 2) / D)^2 + a * b * B
 end
 
 # log1p(u)/u. Where |u| < 1e-3 its Taylor polynomial, whose omitted terms are below Float64 rounding,
 # so it is 1 at u = 0 (σ² underflows, or σ is a dual zero) and differentiable there.
-const _LOG1P_RATIO_COEFFS = ntuple(k -> (-1)^(k - 1) // k, 7)
-_log1p_ratio(u) = abs(u) < 1.0e-3 ? __evalpoly_exact(u, _LOG1P_RATIO_COEFFS) : log1p(u) / u
+const __LOG1P_RATIO_COEFFS = ntuple(k -> (-1)^(k - 1) // k, 7)
+__log1p_ratio(u) = abs(u) < 1.0e-3 ? __evalpoly_exact(u, __LOG1P_RATIO_COEFFS) : log1p(u) / u
 
 function FinanceCore.discount(m::ShortRate.CoxIngersollRoss, T)
-    return _cir_zcb(m.a, m.b, m.σ, _initial_rate(m), T)
+    return __cir_zcb(m.a, m.b, m.σ, __initial_rate(m), T)
 end
-Yield.__log_discount(m::ShortRate.CoxIngersollRoss, T) = _cir_log_zcb(m.a, m.b, m.σ, _initial_rate(m), T)
+Yield.__log_discount(m::ShortRate.CoxIngersollRoss, T) = __cir_log_zcb(m.a, m.b, m.σ, __initial_rate(m), T)
 Yield.__log_native(::ShortRate.CoxIngersollRoss) = true
-Yield.force_of_interest(m::ShortRate.CoxIngersollRoss, T) = _cir_forward(m.a, m.b, m.σ, _initial_rate(m), T)
+Yield.force_of_interest(m::ShortRate.CoxIngersollRoss, T) = __cir_forward(m.a, m.b, m.σ, __initial_rate(m), T)
 
 # Hull-White is calibrated to match the initial term structure exactly.
 # The model parameters (a, σ) affect derivative pricing and simulation,
@@ -317,7 +316,7 @@ Conditional zero-coupon bond price ``P(t,T \\mid r(t) = r_t)`` under the Vasicek
 Since the model is time-homogeneous, ``P(t,T|r) = P(0, T-t | r)``. The short rate `r_t` is a
 number, read as continuously compounded, or a `Rate`, converted to its continuously compounded value.
 """
-FinanceCore.discount(m::ShortRate.Vasicek, t, T, r_t) = _vasicek_zcb(m.a, m.b, m.σ, __continuous(r_t), T - t)
+FinanceCore.discount(m::ShortRate.Vasicek, t, T, r_t) = __vasicek_zcb(m.a, m.b, m.σ, __continuous(r_t), T - t)
 
 """
     discount(m::ShortRate.CoxIngersollRoss, t, T, r_t)
@@ -326,7 +325,7 @@ Conditional zero-coupon bond price ``P(t,T \\mid r(t) = r_t)`` under the CIR mod
 Since the model is time-homogeneous, ``P(t,T|r) = P(0, T-t | r)``. The short rate `r_t` is a
 number, read as continuously compounded, or a `Rate`, converted to its continuously compounded value.
 """
-FinanceCore.discount(m::ShortRate.CoxIngersollRoss, t, T, r_t) = _cir_zcb(m.a, m.b, m.σ, __continuous(r_t), T - t)
+FinanceCore.discount(m::ShortRate.CoxIngersollRoss, t, T, r_t) = __cir_zcb(m.a, m.b, m.σ, __continuous(r_t), T - t)
 
 """
     discount(m::ShortRate.HullWhite, t, T, r_t)
@@ -343,11 +342,11 @@ Formula (Brigo & Mercurio 2006, Proposition 3.2.2):
 """
 function FinanceCore.discount(m::ShortRate.HullWhite, t, T, r_t)
     a, σ = m.a, m.σ
-    B_tT = _decay_integral(a, T - t)
+    B_tT = __decay_integral(a, T - t)
     f0t = Yield.force_of_interest(m.curve, t)
     # ln(P(0,T)/P(0,t)) is the curve's log-discount over [t, T], which stays finite where both factors
     # underflow; σ²/(4a)·(1 - e^{-2at}) = σ²/2 · ∫₀ᵗ e^{-2as} ds
-    lnA = -Yield.__log_interval(m.curve, t, T) + B_tT * f0t - σ^2 / 2 * B_tT^2 * _decay_integral(2a, t)
+    lnA = -Yield.__log_interval(m.curve, t, T) + B_tT * f0t - σ^2 / 2 * B_tT^2 * __decay_integral(2a, t)
     return exp(lnA - B_tT * __continuous(r_t))
 end
 
@@ -438,11 +437,11 @@ function simulate(
     dt = Float64(timestep)
     sqrt_dt = sqrt(dt)
 
-    cache = _sim_cache(model, dt, n_steps)
+    cache = __sim_cache(model, dt, n_steps)
 
     # Parameters other than the initial rate may carry an AD number type.
-    r0 = _sim_initial_rate(model)
-    T = _sim_eltype(model, r0)
+    r0 = __sim_initial_rate(model)
+    T = __sim_eltype(model, r0)
 
     times = Vector{Float64}(undef, n_steps + 1)
     times[1] = 0.0
@@ -464,9 +463,9 @@ function simulate(
         for j in 1:n_steps
             Z = randn(rng)
             t = (j - 1) * dt
-            r_new = _step(model, r, dt, sqrt_dt, Z, t, cache, j)
+            r_new = __step(model, r, dt, sqrt_dt, Z, t, cache, j)
             cumulative[j + 1] = cumulative[j] +
-                0.5 * (_observed_rate(model, r) + _observed_rate(model, r_new)) * dt
+                0.5 * (__observed_rate(model, r) + __observed_rate(model, r_new)) * dt
             r = r_new
         end
         # no extrapolation: the path is defined only on its simulated grid
@@ -479,28 +478,28 @@ function simulate(
 end
 
 # Initial rate extractors for simulation
-_sim_initial_rate(m::ShortRate.Vasicek) = _initial_rate(m)
-_sim_initial_rate(m::ShortRate.CoxIngersollRoss) = _initial_rate(m)
-function _sim_initial_rate(m::ShortRate.HullWhite)
+__sim_initial_rate(m::ShortRate.Vasicek) = __initial_rate(m)
+__sim_initial_rate(m::ShortRate.CoxIngersollRoss) = __initial_rate(m)
+function __sim_initial_rate(m::ShortRate.HullWhite)
     return Yield.force_of_interest(m.curve, 0.0)
 end
 
 # Include every model parameter that can flow into a simulated state. Falling
 # back to the initial-rate type preserves the extension contract for custom
 # stochastic models.
-_sim_eltype(::AbstractStochasticModel, r0) = typeof(r0)
-_sim_eltype(m::ShortRate.Vasicek, r0) =
+__sim_eltype(::AbstractStochasticModel, r0) = typeof(r0)
+__sim_eltype(m::ShortRate.Vasicek, r0) =
     promote_type(typeof(r0), typeof(m.a), typeof(m.b), typeof(m.σ))
-_sim_eltype(m::ShortRate.CoxIngersollRoss, r0) =
+__sim_eltype(m::ShortRate.CoxIngersollRoss, r0) =
     promote_type(typeof(r0), typeof(m.a), typeof(m.b), typeof(m.σ))
-_sim_eltype(m::ShortRate.HullWhite, r0) =
+__sim_eltype(m::ShortRate.HullWhite, r0) =
     promote_type(typeof(r0), typeof(m.a), typeof(m.σ))
 
 # Exact Ornstein-Uhlenbeck transition parameters over one step of length dt:
 #   x_{t+dt} | x_t ~ Normal(x_t·ϕ, sd²),  ϕ = exp(-a·dt),  sd² = σ²(1-ϕ²)/(2a)
-function _ou_step_params(a, σ, dt)
+function __ou_step_params(a, σ, dt)
     ϕ = exp(-a * dt)
-    var = σ^2 * _decay_integral(2a, dt)
+    var = σ^2 * __decay_integral(2a, dt)
     return (ϕ = ϕ, sd = sqrt(var))
 end
 
@@ -508,20 +507,20 @@ end
 # the state is the full-truncation auxiliary process and the rate is its
 # positive part. The abstract fallback preserves the extension contract for
 # custom stochastic models whose simulated state is their observed rate.
-_observed_rate(::AbstractStochasticModel, r) = r
-_observed_rate(::ShortRate.CoxIngersollRoss, x) = max(x, zero(x))
+__observed_rate(::AbstractStochasticModel, r) = r
+__observed_rate(::ShortRate.CoxIngersollRoss, x) = max(x, zero(x))
 
 # Vasicek: exact transition r' = b + (r-b)ϕ + sd·Z (no discretisation bias)
-function _step(m::ShortRate.Vasicek, r, dt, sqrt_dt, Z, t, cache, j)
+function __step(m::ShortRate.Vasicek, r, dt, sqrt_dt, Z, t, cache, j)
     return m.b + (r - m.b) * cache.ϕ + cache.sd * Z
 end
 
 # CIR: full truncation scheme (Lord, Koekkoek & Van Dijk, 2010).
 # The state is an auxiliary process x that may go negative; drift and
-# diffusion use x⁺ and the observed rate is x⁺ (see `_observed_rate`).
+# diffusion use x⁺ and the observed rate is x⁺ (see `__observed_rate`).
 # Flooring x itself at zero (absorption) would bias E[exp(-∫r)] down
 # materially when the Feller condition is violated.
-function _step(m::ShortRate.CoxIngersollRoss, x, dt, sqrt_dt, Z, t, ::Nothing, j)
+function __step(m::ShortRate.CoxIngersollRoss, x, dt, sqrt_dt, Z, t, ::Nothing, j)
     xp = max(x, zero(x))
     return x + m.a * (m.b - xp) * dt + m.σ * sqrt(xp) * sqrt_dt * Z
 end
@@ -531,26 +530,26 @@ end
 # α(t) = f(0,t) + σ²/(2a²)(1 - exp(-at))² (Brigo & Mercurio 2006, Eq. 3.36).
 # This avoids differentiating the forward curve (θ(t) needs f_t(0,t)) and has
 # no discretisation bias in r.
-function _step(m::ShortRate.HullWhite, r, dt, sqrt_dt, Z, t, cache, j)
+function __step(m::ShortRate.HullWhite, r, dt, sqrt_dt, Z, t, cache, j)
     x = r - cache.α[j]  # cache.α[j] = α(t_{j-1})
     return x * cache.ou.ϕ + cache.ou.sd * Z + cache.α[j + 1]
 end
 
-function _hw_alpha(m::ShortRate.HullWhite, t)
+function __hw_alpha(m::ShortRate.HullWhite, t)
     a, σ = m.a, m.σ
     f0t = Yield.force_of_interest(m.curve, t)
-    return f0t + σ^2 / 2 * _decay_integral(a, t)^2
+    return f0t + σ^2 / 2 * __decay_integral(a, t)^2
 end
 
 # Per-simulation cache: OU transition parameters for the Gaussian models
 # (plus the α(t) grid for Hull-White). Models that do not need a cache,
 # including CIR and custom AbstractStochasticModel subtypes, receive `nothing`.
-_sim_cache(::AbstractStochasticModel, dt, n_steps) = nothing
-_sim_cache(m::ShortRate.Vasicek, dt, n_steps) = _ou_step_params(m.a, m.σ, dt)
-function _sim_cache(m::ShortRate.HullWhite, dt, n_steps)
+__sim_cache(::AbstractStochasticModel, dt, n_steps) = nothing
+__sim_cache(m::ShortRate.Vasicek, dt, n_steps) = __ou_step_params(m.a, m.σ, dt)
+function __sim_cache(m::ShortRate.HullWhite, dt, n_steps)
     return (
-        ou = _ou_step_params(m.a, m.σ, dt),
-        α = [_hw_alpha(m, j * dt) for j in 0:n_steps],
+        ou = __ou_step_params(m.a, m.σ, dt),
+        α = [__hw_alpha(m, j * dt) for j in 0:n_steps],
     )
 end
 
@@ -593,10 +592,10 @@ end
 
 # Union type for Gaussian (normal) short-rate models that share the same
 # ZCB option formula (Black's formula with σ_P from the B(t,T) function).
-const _GaussianModel = Union{ShortRate.Vasicek, ShortRate.HullWhite}
+const __GaussianModel = Union{ShortRate.Vasicek, ShortRate.HullWhite}
 
 """
-    _zcb_option_price(m::Union{ShortRate.Vasicek, ShortRate.HullWhite}, T, S, K)
+    __zcb_option_price(m::Union{ShortRate.Vasicek, ShortRate.HullWhite}, T, S, K)
 
 Closed-form price of a European call and put on a zero-coupon bond
 under a Gaussian (Vasicek or Hull-White) one-factor model.
@@ -609,7 +608,7 @@ Returns `(call_price, put_price)`.
 
 Reference: Brigo & Mercurio (2006), Proposition 3.2.1
 """
-function _zcb_option_price(m::_GaussianModel, T, S, K)
+function __zcb_option_price(m::__GaussianModel, T, S, K)
     S > T || throw(ArgumentError("Bond maturity S=$S must be greater than option expiry T=$T"))
     K > 0 || throw(ArgumentError("Strike K=$K must be positive"))
     a, σ = m.a, m.σ
@@ -617,7 +616,7 @@ function _zcb_option_price(m::_GaussianModel, T, S, K)
     P0S = FinanceCore.discount(m, S)
 
     # σ_P: volatility of the ZCB price at expiry, σ·B(T,S)·sqrt((1 - e^{-2aT})/(2a))
-    σ_P = σ * _decay_integral(a, S - T) * sqrt(_decay_integral(2a, T))
+    σ_P = σ * __decay_integral(a, S - T) * sqrt(__decay_integral(2a, T))
 
     if σ_P < 1.0e-15
         # Degenerate case: no vol → intrinsic value
@@ -628,20 +627,20 @@ function _zcb_option_price(m::_GaussianModel, T, S, K)
 
     h = (1 / σ_P) * log(P0S / (K * P0T)) + σ_P / 2
 
-    call = P0S * N(h) - K * P0T * N(h - σ_P)
-    put = K * P0T * N(-h + σ_P) - P0S * N(-h)
+    call = P0S * __N(h) - K * P0T * __N(h - σ_P)
+    put = K * P0T * __N(-h + σ_P) - P0S * __N(-h)
     return (call, put)
 end
 
 # ─── present_value for ZCB options ───────────────────────────────────────────
 
-function closed_form(m::_GaussianModel, c::Option.ZCBCall)
-    call, _ = _zcb_option_price(m, c.expiry, c.bond_maturity, c.strike)
+function closed_form(m::__GaussianModel, c::Option.ZCBCall)
+    call, _ = __zcb_option_price(m, c.expiry, c.bond_maturity, c.strike)
     return call
 end
 
-function closed_form(m::_GaussianModel, c::Option.ZCBPut)
-    _, put = _zcb_option_price(m, c.expiry, c.bond_maturity, c.strike)
+function closed_form(m::__GaussianModel, c::Option.ZCBPut)
+    _, put = __zcb_option_price(m, c.expiry, c.bond_maturity, c.strike)
     return put
 end
 
@@ -656,23 +655,23 @@ end
 # (standard market convention; see Hull 2018, §32.3). For forward-starting caps, adjust the contract
 # maturity accordingly. A strip with no caplet (a maturity of zero or one period) is worth zero in the
 # type of a present value under `m`, as FinanceCore values an empty collection.
-function _caplet_strip(m, c, option, who)
+function __caplet_strip(m, c, option, who)
     K = c.strike
     freq = c.frequency.frequency
     τ = 1.0 / freq
-    n_periods = _check_integer_periods(c.maturity, freq, who)
+    n_periods = __check_integer_periods(c.maturity, freq, who)
     K_bond = 1.0 / (1.0 + K * τ)
     total = zero((1.0 + K * τ) * FinanceCore.discount(m, zero(τ)))
     for i in 2:n_periods
         T_reset = (i - 1) * τ   # option expiry = reset date
         T_pay = i * τ         # bond maturity = payment date
-        total += (1.0 + K * τ) * option(_zcb_option_price(m, T_reset, T_pay, K_bond))
+        total += (1.0 + K * τ) * option(__zcb_option_price(m, T_reset, T_pay, K_bond))
     end
     return total
 end
-# a caplet is a ZCB put, a floorlet a ZCB call (`_zcb_option_price` returns `(call, put)`)
-closed_form(m::_GaussianModel, c::Option.Cap) = _caplet_strip(m, c, last, "Cap maturity")
-closed_form(m::_GaussianModel, c::Option.Floor) = _caplet_strip(m, c, first, "Floor maturity")
+# a caplet is a ZCB put, a floorlet a ZCB call (`__zcb_option_price` returns `(call, put)`)
+closed_form(m::__GaussianModel, c::Option.Cap) = __caplet_strip(m, c, last, "Cap maturity")
+closed_form(m::__GaussianModel, c::Option.Floor) = __caplet_strip(m, c, first, "Floor maturity")
 
 # ─── present_value for European Swaptions (Jamshidian decomposition) ─────────
 #
@@ -691,14 +690,14 @@ closed_form(m::_GaussianModel, c::Option.Floor) = _caplet_strip(m, c, first, "Fl
 # NOTE: Jamshidian decomposition requires monotonic bond prices in r, which holds
 # only for Gaussian models (Vasicek, Hull-White). For CIR, use pv_mc() instead.
 
-function closed_form(m::_GaussianModel, c::Option.Swaption)
+function closed_form(m::__GaussianModel, c::Option.Swaption)
     T0 = c.expiry
     freq = c.frequency.frequency
     τ = 1.0 / freq
     coupon = c.strike
 
     # Payment dates of the underlying swap
-    n_payments = _check_integer_periods(c.swap_maturity - T0, freq, "Swap tenor")
+    n_payments = __check_integer_periods(c.swap_maturity - T0, freq, "Swap tenor")
     payment_times = [T0 + i * τ for i in 1:n_payments]
 
     # Step 1: Find r* such that the swap has zero value at T0
@@ -716,7 +715,7 @@ function closed_form(m::_GaussianModel, c::Option.Swaption)
         return total
     end
     slope_terms(r) = (
-        weight(i) * __primal(_decay_integral(m.a, Ti - T0)) * __primal(FinanceCore.discount(m, T0, Ti, r))
+        weight(i) * __primal(__decay_integral(m.a, Ti - T0)) * __primal(FinanceCore.discount(m, T0, Ti, r))
             for (i, Ti) in enumerate(payment_times)
     )
 
@@ -733,13 +732,13 @@ function closed_form(m::_GaussianModel, c::Option.Swaption)
     # Step 3: Sum ZCB options, weighted like the swap's payments: a payer swaption is a
     # portfolio of ZCB puts, a receiver swaption of ZCB calls
     return sum(enumerate(payment_times)) do (i, Ti)
-        call, put = _zcb_option_price(m, T0, Ti, FinanceCore.discount(m, T0, Ti, r_star))
+        call, put = __zcb_option_price(m, T0, Ti, FinanceCore.discount(m, T0, Ti, r_star))
         weight(i) * (c.payer ? put : call)
     end
 end
 
 # Validate that a value is an integer multiple of the period length
-function _check_integer_periods(value, freq, label)
+function __check_integer_periods(value, freq, label)
     n = value * freq
     n_int = round(Int, n)
     abs(n - n_int) < 1.0e-8 || throw(

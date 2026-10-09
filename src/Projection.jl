@@ -42,12 +42,11 @@ Either extension point folds inside every wrapper (a portfolio, `Composite`, `Fo
 There are examples of this in the documentation.
 
 # Examples
-```julia
+```julia-repl
 julia> struct CashflowProjection <: ProjectionKind end
-CashflowProjection
 
 julia> struct AmortizationSchedule <: ProjectionKind end
-AmortizationSchedule
+```
 """
 abstract type ProjectionKind end
 

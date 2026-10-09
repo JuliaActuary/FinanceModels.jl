@@ -42,6 +42,13 @@
         @test_throws DomainError Yield.CairnsPritchardExtended(-1.0, 1.0, 2.0, 0.0, 0.0, 0.0, 0.0)
         @test_throws DomainError Yield.CairnsPritchardExtended(1.0, -1.0, 2.0, 0.0, 0.0, 0.0, 0.0)
         @test_throws DomainError Yield.CairnsPritchardExtended(1.0, 2.0, -1.0, 0.0, 0.0, 0.0, 0.0)
+        # the error carries the decay parameters
+        e = try
+            Yield.CairnsPritchard(-1.0, 1.0, 0.0, 0.0, 0.0)
+        catch err
+            err
+        end
+        @test e.val == (-1.0, 1.0)
     end
 
     @testset "Fit to legacy digitized yield fixture" begin

@@ -29,14 +29,14 @@ Examples:
 - `Option`s:
   - `Option.EuroCall` and `Option.EuroPut`
 - Compositional contracts:
-  - `Forward`to represent an instrument that is relative to a forward point in time.
+  - `Forward` to represent an instrument that is relative to a forward point in time.
   - `Composite` to represent the combination of two other instruments.  
 
 In the future, this notion may be extended to liabilities (e.g. insurance policies in LifeContingencies.jl)
 
 ### Creating a new Contract
 
-A contract is anything that creates a vector of `Cashflow`s when `collect`ed. For example, let's create a bond which only pays down principle and offers no coupons.
+A contract is anything that creates a vector of `Cashflow`s when `collect`ed. For example, let's create a bond which only pays down principal and offers no coupons.
 
 ```julia
 using FinanceModels,FinanceCore
@@ -72,9 +72,6 @@ function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:Principa
 end
 ```
 
-A contract whose cashflows depend on a model reads it by key from the projection's model, a
-valuation context such as [`Models`](@ref) (see [Contracts](@ref)).
-
 We can now use this contract to fit models, create projections, quotes, etc. Here we simply collect the bond into an array of cashflows:
 
 ```julia-repl
@@ -96,7 +93,7 @@ Note that all contracts in FinanceModels.jl are currently *unit* contracts in th
 
 #### More complex Contracts
 
-**When the cashflow depends on a model**. An example of this is a floating bond where the coupon paid depends on a view of forward rates. See **Section 6 - Projections** for how this is handled.
+**When the cashflow depends on a model**. An example of this is a floating bond where the coupon paid depends on a view of forward rates. See **Section 6 - Projections** for how this is handled: the contract reads its model by key from a valuation context such as [`Models`](@ref) (see [Contracts](@ref)).
 
 ## 3. `Quote`s - The observed price we need to fit a model to
 
@@ -123,7 +120,7 @@ A number of convenience functions are included to construct a `Quote`:
 ## 4. **Models** - Not just yield curves anymore
 
 - **Yield Curves**: all of Yields.jl yield models are included in the initial FinanceModels.jl release
-- **Equities and Options**: The initial release includes `BlackScholesMerton` option pricing and one can use constant or spline volatility models
+- **Equities and Options**: The initial release includes `BlackScholesMerton` option pricing with a constant volatility model (`Volatility.Constant`)
 - **Others** more to come in the future
 
 ### Creating a new model
@@ -150,7 +147,7 @@ end
 
 # `@optic` indicates what in our model variables needs to be updated (from AccessibleModels.jl)
 # `-1.0 .. 1.0` says to bound the search from negative to positive one (from IntervalSets.jl)
-FinanceModels.__default_optic(m::ABDiscountLine) = (
+FinanceModels.default_variables(m::ABDiscountLine) = (
     @optic(_.a) => -1.0 .. 1.0,
     @optic(_.b) => -1.0 .. 1.0,
 )
@@ -200,8 +197,8 @@ Model fitting can be customized:
 - The **loss function** (least squares, absolute difference, etc.) via the third argument to `fit`:
   - e.g. `fit(ABDiscountLine(), quotes, Fit.Loss(x -> abs(x)))`
   - the default is `Fit.Loss(x->x^2)`
-- the **optimization algorithm** by defining a method `FinanceModels.__default_optim(m::ABDiscountLine) = OptimizationOptimJL.Newton()`
-  - you may need to change the `__default_optic` to be unbounded (simply omit the `=>` and subsequent bounds)
+- the **optimization algorithm** by defining a method `FinanceModels.default_optimizer(m::ABDiscountLine) = OptimizationOptimJL.Newton()`
+  - you may need to change the `default_variables` to be unbounded (simply omit the `=>` and subsequent bounds)
   - The default is `OptimizationOptimJL.LBFGS()` (spline least-squares fits default to `OptimizationOptimJL.Newton()`)
 - The **general algorithm** can be customized by creating a new method for fit:
 
@@ -227,7 +224,7 @@ What is a `Projection`?
 struct Projection{C,M,K} <: AbstractProjection
     contract::C    # the contract (or set of contracts) we want to project
     model::M       # the model that defines how the contract will behave
-    kind::K           # what kind of projetion do we want? only cashflows? 
+    kind::K           # what kind of projection do we want? only cashflows?
 end
 ```
 
@@ -246,6 +243,7 @@ For example, the cashflows you generate for a floating rate bond is the current 
 
 - define `model` as a relation that maps a key to a model. E.g. a `Dict("SOFR" => NelsonSiegelSvensson(...))`
 - when defining the logic for the reducible collection/foldl, you can reference the `Projection.model` by the associated key.
+- to value the contract, wrap the store with the discount model: `present_value(Models(curve, Dict("SOFR" => sofr)), bond)`.
 
 Here's how a floating bond is implemented:
 
@@ -289,13 +287,13 @@ And how we can reference the associated model when projecting that contract. Thi
 end
 ```
 
-In this post we've now defined two assets that can work seamlessly with projecting cashflows, fitting models, and determining valuations :)
+In this guide we've now defined two assets that can work seamlessly with projecting cashflows, fitting models, and determining valuations :)
 
 ## 7. `ProjectionKind`s
 
 While `CashflowProjection` is the most common (and the only one built into the initial release of FinanceModels), a `Projection` can be created which handles different kinds of outputs in the same manner as projecting just basic cashflows. For example, you may want to output an amortization schedule, or a financial statement, or an account value roll-forward. The `Projection` is able to handle these custom outputs by dispatching on the third element in a `Projection`.
 
-Let's extend the example of a principle-only bond from section 2 above. Our goal is to create a basic amortization schedule which shows the payment made and outstanding balance.
+Let's extend the example of a principal-only bond from section 2 above. Our goal is to create a basic amortization schedule which shows the payment made and outstanding balance.
 
 First, we create a new subtype of `ProjectionKind`:
 
@@ -315,7 +313,7 @@ function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:Principa
     pmt = 1 / length(ts)
     balance = 1.0
     for t in ts
-        # the loop wich returns a tuple of the relevant data
+        # the loop which returns a tuple of the relevant data
         balance -= pmt
         result = (time=t,payment=pmt,outstanding=balance)
         val = @next(rf, val, result) # the value to return is the last argument

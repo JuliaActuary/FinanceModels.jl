@@ -116,7 +116,7 @@ The models can be used to compute various rates of interest:
 - `discount(curve,from,to)` or `discount(curve,to)` gives the discount factor
 - `accumulation(curve,from,to)` or `accumulation(curve,to)` gives the accumulation factor
 - `zero(curve,time)` gives the zero-coupon spot rate for the given time (returned as a `Continuous` `Rate`).
-- `forward(curve,from,to)` gives the zero rate between the two given times
+- `forward(curve,from,to)` gives the forward rate between the two given times (returned as a `Continuous` `Rate`)
 - `par(curve,time;frequency=2)` gives the coupon-paying par equivalent rate for the given time.
 
 #### `ZeroRateCurve` — direct construction

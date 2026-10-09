@@ -21,6 +21,37 @@
 - Full-curve `Fit.Loss` spline fits start from slightly sloped rates near 5%
   instead of a flat 5%, which lets PCHIP and Akima fits converge. Converged fits
   of other strategies move by at most about 1e-9 in zero rate.
+- **Simulated paths end at their horizon.** A `RatePath` from `simulate` is defined
+  from 0 to the first grid point at or beyond `horizon`; evaluating it later (a
+  discount factor, the present value of a later cashflow, `short_rate`) throws
+  DataInterpolations' `RightExtrapolationError` instead of extending the last
+  simulated step. **Migration:** pass a `horizon` that covers your last cashflow,
+  to `simulate` and to `pv_mc` (whose default, the contract's maturity plus one, already does).
+  A horizon a whole number of steps away up to roundoff no longer gets an extra step
+  (`horizon = 0.07, timestep = 0.01` took 8 steps; see `FinanceModels.simulation_steps`), so those
+  paths change, and such a path ends at the horizon itself.
+- **Forward-starting floating instruments change value.** `Forward(s, floater)` now
+  fixes the floater's coupons on the index rates from `s` on; it read them from
+  time 0. Fixed instruments are unchanged. ActuaryUtilities' `locked_floater`
+  builds on `Forward`, so its values change too.
+- **`zero(curve, 0)` is the short rate** for curves without their own zero rate
+  (Vasicek, CIR, Hull–White, Smith–Wilson, `ForwardStarting`, custom curves with
+  `discount(curve, 0) == 1`), where it was `NaN`. Code that tested for that `NaN` should drop
+  the check.
+- **Rate-valued results are typed.** `knot_rates`, a knot curve's `rates`,
+  `Yield.instantaneous_forward` and `short_rate` return `Continuous` rates; use `rate` for the
+  number. See [Typed rate results and inputs](@ref).
+- **Transducer chains apply in the order written.** Inside a projection or valuation,
+  `c |> f |> g` applied `g` first; values of chains whose steps don't commute change.
+- **`RatePath` takes a `DataInterpolations.LinearInterpolation` only**, the interpolant
+  `simulate` builds. Its short rate is the slope of a step, which another interpolant would get
+  wrong. Its grid must start at t = 0 with the value 0 (an `ArgumentError` otherwise).
+- **`TransformedYield` is removed.** The alias deprecated in v6.1 is gone; use `Yield.TenorShift`.
+- **Optimization 5 is required** (with OptimizationOptimJL 0.4.6 and AccessibleModels
+  0.1.14); environments pinned to Optimization 4 must upgrade it together with
+  FinanceModels. Under Optim 2 (OptimizationOptimJL 0.4.9 and later) a loss fit
+  at the default tolerance can land about 1e-9 from the exact fit; pass
+  `solve_kwargs = (; g_tol = 1e-12)` to fit to rounding.
 
 ### Valuation contexts (FinanceCore 3)
 
@@ -50,6 +81,19 @@ Changed numbers: a collection of contracts (each contract valued on its own timi
 before time 0 (it accumulates), and a `Composite` (the sum of its parts' values, which can differ
 from v6 in the last bits).
 
+### Extension hooks
+
+The hooks are public, not exported, so qualify them when you add methods:
+
+| v6 | v7 |
+|---|---|
+| `FinanceModels.__default_optic(m::MyModel) = …` | `FinanceModels.default_variables(m::MyModel) = …` |
+| `FinanceModels.__default_optim(m::MyModel) = …` | `FinanceModels.default_optimizer(m::MyModel) = …` |
+| a closed form whose formula depends on the model | `present_value(ctx, c::MyContract) = FinanceModels.closed_form(valuation_model(ctx), c)`, with `FinanceModels.closed_form(m::MyModel, c::MyContract) = …` |
+
+A closed-form forward for a custom curve goes on `Yield.force_of_interest`; see [Typed rate results
+and inputs](@ref).
+
 ### `ZeroRateCurve` returns the curve it builds
 
 `ZeroRateCurve` is now a construction function rather than a type. It returns a
@@ -60,12 +104,12 @@ curves returned by spline `fit`s and `Fit.Bootstrap()`. All of them share one in
 | v6 | v7 |
 |:---|:---|
 | `zrc isa ZeroRateCurve`, `f(z::ZeroRateCurve)` | `zrc isa Yield.AbstractInterpolatedZeroCurve` (or `Yield.AbstractYieldModel` when only discounting) |
-| `zrc.rates`, `zrc.tenors`, `mc.times` | `knot_rates(curve)`, `knot_tenors(curve)` (read-only vectors) |
-| `@set zrc.rates[2] = 0.031` | `reconstruct(curve; rates = new_rates)` (`@set` on `rates`, `tenors`, `spline` or `extrapolation` still works and calls `reconstruct`) |
-| `ZeroRateCurve(dual_rates, zrc.tenors, zrc.spline)` in a gradient | `reconstruct(curve; rates = dual_rates)` |
+| `zrc.rates`, `zrc.tenors`, `mc.times` | `knot_rates(curve)` (read-only `Continuous` rates; `rate.(knot_rates(curve))` for the numbers) and `knot_tenors(curve)`; `curve.rates` is `knot_rates(curve)` |
+| `@set zrc.rates[2] = 0.031` | `reconstruct(curve; rates = new_rates)` (`@set` on `rates`, `tenors`, `spline` or `extrapolation` still works and calls `reconstruct`; a number is continuous, a `Rate` is converted) |
+| `ZeroRateCurve(dual_rates, zrc.tenors, zrc.spline)` in a gradient | `reconstruct(curve; rates = dual_rates)`, seeded with `rate.(knot_rates(curve))` |
 | `Yield.build_model(spline, tenors, rates; extrapolation)` | `ZeroRateCurve(rates, tenors, spline; extrapolation)` (note the argument order) |
 | `fit(Yield.MonotoneConvex(), quotes)` | `fit(Spline.MonotoneConvex(), quotes)` |
-| `mc.f`, `mc.fᵈ` | `Yield.instantaneous_forward(mc, t)`; the node forwards are internal |
+| `mc.f`, `mc.fᵈ` | `Yield.instantaneous_forward(mc, t)`, a `Continuous` rate; the node forwards are internal |
 | `Yield.Spline(fn)` for a callable zero-rate function | `Yield.Constant(0.0) + ((z, t) -> Continuous(fn(t)))` |
 
 - **`Yield.build_model` is removed**, and so are the `Yield.MonotoneConvex()` placeholder and
@@ -86,7 +130,7 @@ curves returned by spline `fit`s and `Fit.Bootstrap()`. All of them share one in
 - **Knot curves change only through `reconstruct`.** The knot vectors are read-only (indexed
   assignment, `.=`, `sort!`, and writes through `view` throw). `reconstruct` and `Accessors.@set`
   revalidate and rebuild every derived cache, so two curves can no longer compare `==` yet price
-  differently. Setting a derived cache (`_f`, `_fn`, `_tail`, …) throws.
+  differently. Setting a derived cache (`_f`, `_interp`, `_tail`, …) throws.
 - **Equality is structural for every knot curve.** `==`, `isequal`, and `hash` compare the knot
   rates, knot tenors, interpolation method, and extrapolation policy, so independently built
   curves from equal inputs are equal and work as `Dict` keys. `isequal` keeps the signed-zero
@@ -108,7 +152,7 @@ curves returned by spline `fit`s and `Fit.Bootstrap()`. All of them share one in
   grid, and samples through `zero(curve, t)` instead of `-log(discount(curve, t))/t`, which is
   numerically stable at very small and very large tenors. The sampled grid is validated like any
   other knot grid. A tenor of `0` (previously rejected) takes the source curve's zero-rate limit
-  there; a source curve without one gives a non-finite rate, which throws.
+  there, its short rate; a non-finite limit throws.
 - **Refitting a knot curve is the spline fit on its knots.** `fit(curve, quotes)` works for any
   knot curve: it fits new knot rates at the curve's tenors with its interpolation method and
   extrapolation policy, by the same solve as `fit(spline, quotes)`. It starts from the same rates
@@ -132,6 +176,45 @@ curves returned by spline `fit`s and `Fit.Bootstrap()`. All of them share one in
 - **PCHIP and Akima loss fits start from a different seed**: a curve that is strictly increasing
   and concave in the maturities, away from the interpolants' formula switches. Fits that
   converged before reach the same curve up to the optimizer's tolerance.
+
+### Typed rate results and inputs
+
+Rate-valued results are `Rate`s. Inputs that took a number still take it, with the same meaning,
+and also take a `Rate`; see [Rate conventions](@ref rate-conventions).
+
+| v6, and earlier 7.0 code | v7 |
+|:---|:---|
+| `Yield.instantaneous_forward(c, t)`, a number | a `Continuous` rate; `rate(Yield.instantaneous_forward(c, t))` is the number |
+| `short_rate(path, t)`, a number | a `Continuous` rate; `rate(short_rate(path, t))` is the number |
+| `knot_rates(c)` and `c.rates`, numbers | read-only `Continuous` rates; `rate.(knot_rates(c))` gives the numbers |
+| `ForwardDiff.gradient(f, collect(knot_rates(c)))` | `ForwardDiff.gradient(f, rate.(knot_rates(c)))` |
+| `knot_rates(c) == [0.02, 0.03]` | `knot_rates(c) == Continuous.([0.02, 0.03])` |
+| `Yield.instantaneous_forward(c::MyCurve, t) = …` (a closed form) | `Yield.force_of_interest(c::MyCurve, t) = …`, returning the number |
+| `Bond.Fixed(rate(y), Periodic(2), T)` with `y = Periodic(r, 2)` | `Bond.Fixed(y, Periodic(2), T)` also works |
+| `Yield.SmithWilson(ufr = rate(Continuous(r)), α)` | `Yield.SmithWilson(ufr = r, α)` for any `Rate` `r` |
+
+- **Arithmetic on typed results.** Number arithmetic on these results throws a `MethodError`:
+  `-f`, `exp(f)`, `isfinite(f)`, `f < 0.04`, `f ≈ 0.04`, and ForwardDiff seeds or derivatives of a
+  function that returns a `Rate`. Use `rate` for the number. `Rate` arithmetic with a number keeps
+  the rate's convention: `knot_rates(c) .+ 0.001` adds 0.001 to each continuous rate, and
+  `knot_rates(c) .+ Periodic(0.001, 1)` adds log(1.001).
+- **`Rate == Real` is `false` without an error.** `knot_rates(c) == [0.02, 0.03]`,
+  `instantaneous_forward(c, t) == 0` and `x in knot_rates(c)` for a number `x` are always `false`.
+  Compare `Rate`s with `Rate`s, or numbers with numbers.
+- **The `rates` property is typed.** `c.rates` is `knot_rates(c)`, and the numbers are stored in the
+  private field `_rates`. `@set c.rates[2] = 0.031` still works, reading the number as continuous.
+  Assigning into the view throws, as before; with a number on the right (`knot_rates(c) .= 0.0`) the
+  conversion to a `Rate` throws a `MethodError` first.
+- **Coupons, margins and interest-rate strikes** take a `Periodic` rate only at the contract's
+  frequency. Another frequency throws an `ArgumentError`, and a `Continuous` rate a `MethodError`.
+  Convert explicitly: `Bond.Fixed(Periodic(2)(y), Periodic(2), T)` for the yield-equivalent coupon,
+  or `rate(y)` for its nominal value. Numbers are unchanged.
+- **A closed-form forward for a custom curve** goes on `Yield.force_of_interest(curve, t)`,
+  returning a number; `Yield.instantaneous_forward` wraps it, and FinanceModels' own consumers
+  (Hull–White, compositions, `ForwardStarting`) use the number. A curve that defines only
+  `discount` needs nothing: its forward is differentiated with ForwardDiff.
+- **`implied_quote` stays a number**, in its quote family's convention. Wrap it when that
+  convention is known, for example `Periodic(implied_quote(curve, OISYield, 7.0), 1)`.
 
 ### Flat short end
 
@@ -176,7 +259,7 @@ curves returned by spline `fit`s and `Fit.Bootstrap()`. All of them share one in
 - **`Yield.FlatForwardAt(rate)` supplies an independent terminal forward.** It requires a `FinanceCore.Rate` such as `Continuous(0.035)` or `Periodic(0.035, 1)`; there is no method for a bare number (a `MethodError`), because `Yield.Constant(0.035)` reads a bare number as annual effective. The rate is stored continuously compounded and stays fixed through fitting and Accessors updates. It preserves the final-knot discount factor and usually introduces a forward jump.
 - **The policy is part of the curve.** It is preserved by `fit`, `reconstruct`, and `Accessors.@set`, compared by `==`, and readable as `curve.extrapolation`. The type parameters of `Yield.Spline` and `Yield.MonotoneConvex` are internal: dispatch on the type names or `Yield.AbstractInterpolatedZeroCurve`.
 - **MonotoneConvex supports the tail policies natively.** Direct construction and loss-fitting `Spline.MonotoneConvex()` return a native `Yield.MonotoneConvex` for `:flat_forward`, `:flat_zero`, `:linear`, and `Yield.FlatForwardAt(rate)`; `Fit.Bootstrap()` still rejects the descriptor.
-- **`instantaneous_forward` is right-continuous** for every knot curve: at a knot it is the forward of the piece that starts there, and from the final knot on the tail's. At the final knot of a `Spline.MonotoneConvex()` curve it now returns the tail's forward, not the interior (left) one; they differ only under tail policies other than `:flat_forward`.
+- **`instantaneous_forward` is right-continuous** for every knot curve: at a knot it is the forward of the piece that starts there, and from the final knot on the tail's. At the final knot of a `Spline.MonotoneConvex()` curve it now returns the tail's forward, not the interior (left) one; they differ only under tail policies other than `:flat_forward`. It returns a `Continuous` rate.
 
 ### Quote conventions
 
@@ -194,6 +277,10 @@ curves returned by spline `fit`s and `Fit.Bootstrap()`. All of them share one in
 - **`ParYield` rejects a conflicting `frequency`.** A `Periodic` rate sets its own
   frequency; passing a different `frequency` now throws an `ArgumentError` instead
   of being silently ignored. Convert the rate first, e.g. `Periodic(1)(r)`.
+- **Every `frequency` is an integer or a `Periodic`.** Contracts store it as a `Periodic`:
+  `Option.Cap(0.03, 4, 5.0).frequency` is `Periodic(4)`, not `4`. `Option.Cap`, `Option.Floor`
+  and `Option.Swaption` reject a non-integer number (a `MethodError`), and `Bond.Fixed` and
+  `Bond.Floating` reject `Continuous()`; pass the integer or `Periodic(n)`.
 
 ### `CompositeYield` accepts only `+` and `-`
 
@@ -210,8 +297,8 @@ curves' zero rates in some other way, define a small curve type with its own `ze
 
 For the built-in curves, `discount(curve, from, to)`, `accumulation(curve, from, to)` and
 `forward(curve, from, to)` are computed from the log-discount at each endpoint rather than as a
-ratio of discount factors. `discount(curve, 0, t)` is unchanged bit for bit, and so is every
-`present_value` of a contract. Intervals that start later can move by a few units in the last
+ratio of discount factors. `discount(curve, 0, t)` is unchanged bit for bit, so this change leaves
+every contract's `present_value` unchanged. Intervals that start later can move by a few units in the last
 place, and intervals far in the tail are finite where they were `NaN`. Tests that compare such
 intervals exactly should allow for rounding. A custom curve that defines only `discount` keeps the
 ratio D(to)/D(from).
@@ -224,9 +311,9 @@ ends it now returns the rate of the positive interval factor instead of throwing
 Time derivatives at exactly `t = 0` of `Yield.MonotoneConvex`, `NelsonSiegel`,
 `NelsonSiegelSvensson` and curves built on them are exact where they were `NaN`. `MonotoneConvex`
 now computes its log-discount directly, so some of its discount factors move in the last bit. For a
-curve without its own `zero` (Smith–Wilson, the short-rate models, `ForwardStarting`, custom curves)
-the zero rate at 0 is the 0/0 of L(t)/t, so its time derivative there, and that of a yield shift
-over such a curve, throws a `DomainError`.
+curve without its own `zero` (Smith–Wilson, Vasicek, CIR, `ForwardStarting`, custom curves) the zero
+rate at 0 is the limit of L(t)/t, but its time derivative there, and that of a yield shift over such
+a curve, throws a `DomainError`.
 
 ### Derivatives through fits and knot curves
 
@@ -364,7 +451,7 @@ Note that `SmithWilson` is not exported at the top level (qualify it as `Yield.S
 
 Previously the kind of contract, the implied quotes, the type of model, and how the fitting process worked were all combined into a single call (`Yields.Par`). This minimized the amount of code needed to construct a yield curve, but left it fairly cumbersome to extend the package. For example, for every new yield curve model, methods for `Par`, `CMT`, `OIS`, `Zero`, ... had to be defined. Additionally, all of the inputs needed to be yields - specifying a price was not available as an argument to fit.
 
-With the new design of the package, creating a completely new model is much easier, as only the model itself and the valuation primitives need to be defined. For example, defining a new yield curve type that works to value contracts instrument quotes only requires defining the `discount` method. To allow the model to be `fit` requires only defining a default set of parameters to optimize with `__default_optic`:
+With the new design of the package, creating a completely new model is much easier, as only the model itself and the valuation primitives need to be defined. For example, defining a new yield curve type that works to value contracts instrument quotes only requires defining the `discount` method. To allow the model to be `fit` requires only defining a default set of parameters to optimize with `default_variables`:
 
 ```julia
  using FinanceModels, FinanceCore
@@ -387,7 +474,7 @@ end
 
 # `@optic` indicates what in our model variables needs to be updated (from AccessibleModels.jl)
 # `-1.0 .. 1.0` says to bound the search from negative to positive one (from IntervalSets.jl)
-FinanceModels.__default_optic(m::ABDiscountLine) = (
+FinanceModels.default_variables(m::ABDiscountLine) = (
     @optic(_.a) => -1.0 .. 1.0,
     @optic(_.b) => -1.0 .. 1.0,
 )

@@ -47,10 +47,11 @@ through it, so that the formula applies alike to `present_value(model, c)` and t
 `present_value(Models(model, store), c)`:
 
 ```julia
-FinanceCore.present_value(ctx, c::MyOption) = my_formula(valuation_model(ctx), c)
-my_formula(m::MyModel, c::MyOption) = ...
+FinanceCore.present_value(ctx, c::MyOption) = FinanceModels.closed_form(valuation_model(ctx), c)
+FinanceModels.closed_form(m::MyModel, c::MyOption) = ...
 ```
-A context whose model does not price the contract fails in the formula, with a `MethodError`.
+A context whose model does not price the contract fails in the formula, with a `MethodError`. See
+[`closed_form`](@ref FinanceModels.closed_form).
 """
 valuation_model(m::Models) = m.model
 valuation_model(m) = m

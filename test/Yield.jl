@@ -390,19 +390,6 @@ end
         # test that showing the curve doesn't error
         @test length(repr(curve)) > 0
 
-        #     # https://www.federalreserve.gov/pubs/feds/2006/200628/200628abs.html
-        #     # 2020-04-02 data
-        #     cmt = [0.0945,0.2053,0.4431,0.7139,0.9724,1.2002,1.3925,1.5512,1.6805,1.7853,1.8704,1.9399,1.9972,2.045,2.0855,2.1203,2.1509,2.1783,2.2031,2.2261,2.2477,2.2683,2.2881,2.3074,2.3262,2.3447,2.3629,2.3809,2.3987,2.4164] ./ 100
-        #     mats = collect(1:30)
-        #     curve = FinanceModels.USCMT(cmt,mats)
-        #     target = [0.0945,0.2053,0.444,0.7172,0.9802,1.2142,1.4137,1.5797,1.7161,1.8275,1.9183,1.9928,2.0543,2.1056,2.1492,2.1868,2.2198,2.2495,2.2767,2.302,2.3261,2.3494,2.372,2.3944,2.4167,2.439,2.4614,2.4839,2.5067,2.5297] ./ 100
-
-        #     @testset "FRB data" for (t,mat,target) in zip(1:length(mats),mats,target)
-        #         @show mat
-        #         if mat >= 1
-        #             @test rate(zero(curve,mat, FinanceModels.Continuous())) ≈ target[mat] atol=0.001
-        #         end
-        #     end
     end
 
     @testset "OIS" begin
@@ -700,19 +687,6 @@ end
         # test that showing the curve doesn't error
         @test length(repr(curve)) > 0
 
-        #     # https://www.federalreserve.gov/pubs/feds/2006/200628/200628abs.html
-        #     # 2020-04-02 data
-        #     cmt = [0.0945,0.2053,0.4431,0.7139,0.9724,1.2002,1.3925,1.5512,1.6805,1.7853,1.8704,1.9399,1.9972,2.045,2.0855,2.1203,2.1509,2.1783,2.2031,2.2261,2.2477,2.2683,2.2881,2.3074,2.3262,2.3447,2.3629,2.3809,2.3987,2.4164] ./ 100
-        #     mats = collect(1:30)
-        #     curve = FinanceModels.USCMT(cmt,mats)
-        #     target = [0.0945,0.2053,0.444,0.7172,0.9802,1.2142,1.4137,1.5797,1.7161,1.8275,1.9183,1.9928,2.0543,2.1056,2.1492,2.1868,2.2198,2.2495,2.2767,2.302,2.3261,2.3494,2.372,2.3944,2.4167,2.439,2.4614,2.4839,2.5067,2.5297] ./ 100
-
-        #     @testset "FRB data" for (t,mat,target) in zip(1:length(mats),mats,target)
-        #         @show mat
-        #         if mat >= 1
-        #             @test rate(zero(curve,mat, FinanceModels.Continuous())) ≈ target[mat] atol=0.001
-        #         end
-        #     end
     end
 
     @testset "OIS" begin

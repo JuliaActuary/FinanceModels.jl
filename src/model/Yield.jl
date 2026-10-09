@@ -8,10 +8,12 @@ import ..Bond: coupon_times, __regular_schedule, __par_coupon
 import ..__implicit_root, ..__primal, ..__ad_depth, ..__evalpoly_exact, ..__float_eltype, ..__continuous, ..__frequency
 import ..ForwardDiff
 import ..Accessors
+import ..Compat
 
 using ..FinanceCore: Continuous, Periodic, discount, accumulation, forward, pv, AbstractContract
 
 export discount, zero, forward, par, implied_quote, pv, instantaneous_forward, knot_rates, knot_tenors, reconstruct
+Compat.@compat public force_of_interest
 
 abstract type AbstractYieldModel <: AbstractModel end
 

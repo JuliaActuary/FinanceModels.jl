@@ -51,7 +51,7 @@ struct SmithWilson{TU <: AbstractVector, TQb <: AbstractVector, U, A} <: Abstrac
     # Inner constructor ensures that vector lengths match, and stores the ufr as a continuous number
     function SmithWilson(u::TU, qb::TQb, ufr, α::A) where {TU <: AbstractVector, TQb <: AbstractVector, A}
         if length(u) != length(qb)
-            throw(DomainError("Vectors u and qb in SmithWilson must have equal length"))
+            throw(ArgumentError("SmithWilson: u and qb must have equal lengths, got $(length(u)) and $(length(qb))"))
         end
         z = __continuous(ufr)
         return new{TU, TQb, typeof(z), A}(u, qb, z, α)
@@ -72,20 +72,20 @@ end
 function SmithWilson(times::AbstractVector, cashflows::AbstractMatrix, prices::AbstractVector; ufr, α)
     Q = Diagonal(exp.(-__continuous(ufr) * times)) * cashflows
     q = vec(sum(Q, dims = 1))  # We want q to be a column vector
-    QHQ = Q' * H(α, times) * Q
+    QHQ = Q' * __H(α, times) * Q
     b = QHQ \ (prices - q)
     Qb = Q * b
     return SmithWilson(times, Qb; ufr = ufr, α = α)
 end
 
-# D(t) = exp(-ufr·t)·(1 + s(t)) with s(t) = Σ H(α, uᵢ, t)·qbᵢ (0 at t = 0), accumulated in a fused
-# loop: the vector form `H(α, u, t) ⋅ qb` allocated a fresh length(u) array on every call. `H` is
+# D(t) = exp(-ufr·t)·(1 + s(t)) with s(t) = Σ __H(α, uᵢ, t)·qbᵢ (0 at t = 0), accumulated in a fused
+# loop: the vector form `__H(α, u, t) ⋅ qb` allocated a fresh length(u) array on every call. `__H` is
 # inlined into the loop (about a third faster). Fitted to arbitrary prices, 1 + s can be negative,
 # and so can the discount factor.
 function __smith_wilson_s(sw::SmithWilson, t)
-    s = H(sw.α, sw.u[1], t) * sw.qb[1]
+    s = __H(sw.α, sw.u[1], t) * sw.qb[1]
     @inbounds for i in 2:length(sw.u)
-        s += H(sw.α, sw.u[i], t) * sw.qb[i]
+        s += __H(sw.α, sw.u[i], t) * sw.qb[i]
     end
     return s
 end
@@ -122,26 +122,25 @@ end
 
 
 """
-    H_ordered(α, t_min, t_max)
+    __H_ordered(α, t_min, t_max)
 
 The Smith-Wilson H function with ordered arguments (for better performance than using min and max).
 """
-@inline function H_ordered(α, t_min, t_max)
+@inline function __H_ordered(α, t_min, t_max)
     return α * t_min + exp(-α * t_max) * sinh(-α * t_min)
 end
 
 """
-    H(α, t1, t2)
+    __H(α, t1, t2)
 
 The Smith-Wilson H function implemented in a faster way.
 """
-@inline function H(α, t1::T, t2::T) where {T}
-    return t1 < t2 ? H_ordered(α, t1, t2) : H_ordered(α, t2, t1)
+@inline function __H(α, t1::T, t2::T) where {T}
+    return t1 < t2 ? __H_ordered(α, t1, t2) : __H_ordered(α, t2, t1)
 end
 
-H(α, t1, t2) = H(α, promote(t1, t2)...)
+__H(α, t1, t2) = __H(α, promote(t1, t2)...)
 
-H(α, t1vec::AbstractVector, t2) = [H(α, t1, t2) for t1 in t1vec]
-H(α, t1vec::AbstractVector, t2vec::AbstractVector) = [H(α, t1, t2) for t1 in t1vec, t2 in t2vec]
-# This can be optimized by going to H_ordered directly, but it might be a bit cumbersome
-H(α, tvec::AbstractVector) = H(α, tvec, tvec)
+__H(α, t1vec::AbstractVector, t2vec::AbstractVector) = [__H(α, t1, t2) for t1 in t1vec, t2 in t2vec]
+# This can be optimized by going to __H_ordered directly, but it might be a bit cumbersome
+__H(α, tvec::AbstractVector) = __H(α, tvec, tvec)

@@ -5,8 +5,8 @@ struct TestStochasticModel <: AbstractStochasticModel
     initial::Float64
 end
 
-FinanceModels._sim_initial_rate(m::TestStochasticModel) = m.initial
-FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) = r
+FinanceModels.__sim_initial_rate(m::TestStochasticModel) = m.initial
+FinanceModels.__step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) = r
 
 @testset "Stochastic Models" begin
 
@@ -721,7 +721,7 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             # σ from 0 through values whose σ² underflows; negative, zero and positive mean reversion;
             # maturities to 10,000 years; b = 0 drops log A. Compared in -log P, wherever that is finite
             # in Float64 (the explosive a < 0 can push the price itself out of range at 10,000 years).
-            L(a, b, σ, τ) = FinanceModels._cir_log_zcb(a, b, σ, 0.04, τ)
+            L(a, b, σ, τ) = FinanceModels.__cir_log_zcb(a, b, σ, 0.04, τ)
             for a in (-0.3, -0.1, -1.0e-3, 0.0, 1.0e-6, 1.0e-3, 0.1, 1.0),
                     σ in (0.0, 1.0e-300, 1.0e-200, 1.0e-150, 1.0e-12, 1.0e-10, 1.0e-8, 1.0e-4, 0.01, 0.1, 1.0),
                     τ in (0.5, 10.0, 100.0, 1.0e3, 1.0e4), b in (0.03, 0.0, -0.01)
@@ -762,11 +762,11 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
                     [0.1, 0.03, 1.0e-12, 0.04, 10.0], [1.0, 0.03, 0.3, 0.04, 100.0], [-0.2, 0.03, 0.01, 0.04, 10.0],
                     [1.0e-3, 0.03, 1.0e-6, 0.04, 0.5], [-0.1, 0.03, 0.1, 0.04, 1000.0],
                 )
-                @test ForwardDiff.gradient(x -> FinanceModels._cir_log_zcb(x...), x) ≈ reference_gradient(x) rtol = 1.0e-7 atol = 1.0e-15
+                @test ForwardDiff.gradient(x -> FinanceModels.__cir_log_zcb(x...), x) ≈ reference_gradient(x) rtol = 1.0e-7 atol = 1.0e-15
             end
             # A dual zero volatility takes the kernel, so second derivatives in σ exist at σ = 0, for
             # either sign of a; -log P is even in σ, so d²/dσ² there is the limit of (∂/∂σ)/σ
-            Lx(x) = FinanceModels._cir_log_zcb(x...)
+            Lx(x) = FinanceModels.__cir_log_zcb(x...)
             for a in (0.1, -0.1)
                 H = ForwardDiff.hessian(Lx, [a, 0.03, 0.0, 0.04, 10.0])
                 @test all(isfinite, H)
@@ -789,7 +789,7 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             f(σ) = discount(cir(0.0, 0.03, σ), 10.0)
             @test ForwardDiff.derivative(f, 0.0) == 0
             @test ForwardDiff.derivative(s -> ForwardDiff.derivative(f, s), 0.0) ≈ exp(-0.4) * 0.04 * 10.0^3 / 3 rtol = 1.0e-13
-            Haσ = ForwardDiff.hessian(x -> FinanceModels._cir_log_zcb(x[1], 0.03, x[2], 0.04, 10.0), [0.0, 0.0])
+            Haσ = ForwardDiff.hessian(x -> FinanceModels.__cir_log_zcb(x[1], 0.03, x[2], 0.04, 10.0), [0.0, 0.0])
             @test Haσ ≈ [(0.04 - 0.03) * 10.0^3 / 3 0.0; 0.0 -0.04 * 10.0^3 / 3] rtol = 1.0e-13
             # The series form only dimensionless powers: a long time with small rates, or a short one with
             # large rates, overflowed one factor and underflowed the other in Float32 (references from
@@ -903,13 +903,13 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             dt = 1.0
             n_steps = round(Int, T / dt)
             sqrt_dt = sqrt(dt)
-            cache = FinanceModels._sim_cache(v, dt, n_steps)
+            cache = FinanceModels.__sim_cache(v, dt, n_steps)
             rng = Random.MersenneTwister(42)
             rates = Vector{Float64}(undef, N)
             for i in 1:N
                 r = Float64(r0)
                 for j in 1:n_steps
-                    r = FinanceModels._step(v, r, dt, sqrt_dt, randn(rng), (j - 1) * dt, cache, j)
+                    r = FinanceModels.__step(v, r, dt, sqrt_dt, randn(rng), (j - 1) * dt, cache, j)
                 end
                 rates[i] = r
             end
@@ -930,20 +930,20 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
             a, σ = 0.1, 0.02
             hw = ShortRate.HullWhite(a, σ, Yield.Constant(Continuous(0.03)))
             T = 5.0
-            E_rT = FinanceModels._hw_alpha(hw, T)
+            E_rT = FinanceModels.__hw_alpha(hw, T)
             V_rT = σ^2 * (1 - exp(-2a * T)) / (2a)
 
             N = 10_000
             dt = 1.0
             n_steps = round(Int, T / dt)
             sqrt_dt = sqrt(dt)
-            cache = FinanceModels._sim_cache(hw, dt, n_steps)
+            cache = FinanceModels.__sim_cache(hw, dt, n_steps)
             rng = Random.MersenneTwister(42)
             rates = Vector{Float64}(undef, N)
             for i in 1:N
-                r = FinanceModels._sim_initial_rate(hw)
+                r = FinanceModels.__sim_initial_rate(hw)
                 for j in 1:n_steps
-                    r = FinanceModels._step(hw, r, dt, sqrt_dt, randn(rng), (j - 1) * dt, cache, j)
+                    r = FinanceModels.__step(hw, r, dt, sqrt_dt, randn(rng), (j - 1) * dt, cache, j)
                 end
                 rates[i] = r
             end
@@ -977,9 +977,9 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
                 # the observed short rate is x⁺
                 x = Float64(r0)
                 for j in 1:n_steps
-                    x = FinanceModels._step(cir, x, dt, sqrt_dt, randn(rng), (j - 1) * dt, nothing, j)
+                    x = FinanceModels.__step(cir, x, dt, sqrt_dt, randn(rng), (j - 1) * dt, nothing, j)
                 end
-                rates[i] = FinanceModels._observed_rate(cir, x)
+                rates[i] = FinanceModels.__observed_rate(cir, x)
             end
             sample_mean = sum(rates) / N
             sample_var = sum((r - sample_mean)^2 for r in rates) / (N - 1)
@@ -1330,7 +1330,7 @@ FinanceModels._step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) =
         for base in (ShortRate.Vasicek(0.1, 0.03, 0.01, 0.04), Yield.SmithWilson(ufr = 0.03, α = 0.1))
             shifted = ShortRate.HullWhite(0.1, 0.01, Yield.TenorShift(base, (z, t) -> z))
             path = only(simulate(shifted; n_scenarios = 1, horizon = 1.0, rng = MersenneTwister(1)))
-            @test FinanceModels._sim_initial_rate(shifted) ≈ rate(Yield.instantaneous_forward(base, 0.0)) rtol = 1.0e-12
+            @test FinanceModels.__sim_initial_rate(shifted) ≈ rate(Yield.instantaneous_forward(base, 0.0)) rtol = 1.0e-12
             @test 0 < discount(path, 1.0) < 1
         end
         # Float32 throughout: the forward at t = 0 floored t at the Float64 literal 1e-10
@@ -1535,7 +1535,7 @@ end
 end
 
 @testset "affine decay factor (1 - e^{-aτ})/a near a = 0" begin
-    # Vasicek's and Hull-White's B(τ) and variance factors share `_decay_integral`. Hull-White's
+    # Vasicek's and Hull-White's B(τ) and variance factors share `__decay_integral`. Hull-White's
     # closed forms returned τ for |a| < 1e-12, with no derivative in `a`, and lost digits as
     # a → 0 (relative error 8e-8 at a = 1e-10); Vasicek's four-term Taylor branch was off by
     # 1e-9 near aτ = 0.02.
@@ -1543,8 +1543,8 @@ end
         ref(a, τ) = (x = a * τ; abs(x) < 0.01 ? τ * sum((-x)^k / factorial(big(k + 1)) for k in 0:60) : -expm1(-x) / a)
         for a in (0.0, 1.0e-300, 1.0e-12, 1.0e-10, 1.0e-6, 1.0e-3, 0.019, 0.021, 0.19, 0.21, 0.5, 2.0), s in (1, -1),
                 τ in (0.25, 1.0, 10.0, 30.0)
-            @test FinanceModels._decay_integral(s * a, τ) ≈ ref(big(s * a), big(τ)) rtol = 4eps()
-            @test ForwardDiff.derivative(x -> FinanceModels._decay_integral(x, τ), s * a) ≈
+            @test FinanceModels.__decay_integral(s * a, τ) ≈ ref(big(s * a), big(τ)) rtol = 4eps()
+            @test ForwardDiff.derivative(x -> FinanceModels.__decay_integral(x, τ), s * a) ≈
                 ForwardDiff.derivative(x -> ref(x, big(τ)), big(s * a)) rtol = 1.0e-13
         end
     end
@@ -1571,7 +1571,7 @@ end
             m = expm1(-x)
             return -m / a * r + b * (x + m) / a - σ^2 / (2a^3) * (x + m - m^2 / 2)
         end
-        logP = FinanceModels._vasicek_log_zcb
+        logP = FinanceModels.__vasicek_log_zcb
         for a in (0.0, 1.0e-300, 1.0e-10, 1.0e-6, 1.0e-3, 0.01, 0.019, 0.021, 0.1, 0.19, 0.21, 0.5, 1.0, 2.0),
                 s in (1, -1), τ in (0.25, 1.0, 5.0, 19.9, 30.0), (b, σ, r) in ((0.05, 0.01, 0.03), (0.03, 0.2, 0.05), (-0.01, 0.1, 0.0))
             x = s * a
@@ -1600,15 +1600,15 @@ end
         v = ShortRate.Vasicek(a, 0.05f0, 0.01f0, Continuous(0.03f0))
         @test discount(v, 1.0f0) isa Float32
         @test discount(v, 0.0f0, 1.0f0, 0.03f0) isa Float32
-        @test FinanceModels._decay_integral(a, 1.0f0) isa Float32
-        @test ForwardDiff.derivative(x -> FinanceModels._decay_integral(x, 1.0f0), a) isa Float32
+        @test FinanceModels.__decay_integral(a, 1.0f0) isa Float32
+        @test ForwardDiff.derivative(x -> FinanceModels.__decay_integral(x, 1.0f0), a) isa Float32
     end
     setprecision(BigFloat, 256) do
         # a = b = r = 0: -log P = -σ²τ³/6, so P = exp(1/6) at σ = τ = 1
         v = ShortRate.Vasicek(big(0.0), big(0.0), big(1.0), Continuous(big(0.0)))
         @test discount(v, big(1.0)) ≈ exp(big(1) / 6) rtol = 4eps(BigFloat)
-        @test FinanceModels._decay_integral(big(0.0), big(3.0)) == 3
-        @test FinanceModels._vasicek_log_zcb(big(0.0), big"0.05", big(0.0), big"0.03", big(10.0)) ≈ big"0.3" rtol = 4eps(BigFloat)
+        @test FinanceModels.__decay_integral(big(0.0), big(3.0)) == 3
+        @test FinanceModels.__vasicek_log_zcb(big(0.0), big"0.05", big(0.0), big"0.03", big(10.0)) ≈ big"0.3" rtol = 4eps(BigFloat)
     end
 end
 

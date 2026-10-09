@@ -122,7 +122,7 @@ is `false`; compare with `Continuous.([0.03, 0.04])`.
 
 - `curve + curve` — additive composition of zero rates ([`FinanceModels.Yield.CompositeYield`](@ref))
 - `curve * scalar` / `curve / scalar` — scale zero rates ([`FinanceModels.Yield.ScaledYield`](@ref))
-- [`FinanceModels.Yield.TenorShift`](@ref) — lazy zero-rate shift depending on tenor: `(rate, tenor) -> Rate` (formerly `TransformedYield`, retained as alias)
+- [`FinanceModels.Yield.TenorShift`](@ref) — lazy zero-rate shift depending on tenor: `(rate, tenor) -> Rate` (formerly `TransformedYield`)
 - [`FinanceModels.Yield.ProjectedShift`](@ref) — lazy zero-rate shift depending on tenor *and* a projection time `τ`: `(τ, rate, tenor) -> Rate`
 - [`FinanceModels.Yield.ForwardStarting`](@ref) — rebase a curve to a new time-zero
 
@@ -193,7 +193,7 @@ Two concrete subtypes of [`Yield.AbstractYieldShift`](@ref FinanceModels.Yield.A
 
 ##### `TenorShift` — shift depends on tenor only
 
-[`Yield.TenorShift`](@ref FinanceModels.Yield.TenorShift) (formerly `TransformedYield`, retained as a deprecated alias) applies a shift that may vary with the tenor `t`. The rule function receives the base curve's `Continuous` zero rate and the tenor, and returns a new rate:
+[`Yield.TenorShift`](@ref FinanceModels.Yield.TenorShift) (formerly `TransformedYield`) applies a shift that may vary with the tenor `t`. The rule function receives the base curve's `Continuous` zero rate and the tenor, and returns a new rate:
 
 ```julia-repl
 julia> base = Yield.Constant(0.05);  # 5% annual effective: continuous zero = log(1.05) ≈ 0.0488

@@ -1,6 +1,7 @@
 module FinanceModels
 
 using Reexport
+import Compat
 @reexport using FinanceCore
 using FinanceCore: present_value, discount, accumulation
 using DifferentiationInterface: AutoForwardDiff
@@ -49,6 +50,9 @@ export ShortRate, AbstractStochasticModel, RatePath, simulate, pv_mc, short_rate
 export Projection, CashflowProjection, Models, valuation_model
 export pv
 export Fit, fit, FitConvergenceError
+
+# Public, not exported
+Compat.@compat public simulation_steps, default_variables, default_optimizer, closed_form
 
 include("precompile.jl")
 end
