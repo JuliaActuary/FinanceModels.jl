@@ -141,7 +141,8 @@ end
 Return the zero rate for the curve at the given time. At `time = 0` it is the limit of the zero
 rate, the instantaneous forward rate at 0 (the short rate), for a curve with `discount(curve, 0) == 1`.
 """
-function Base.zero(c::YC, time) where {YC <: AbstractYieldModel}
+Base.zero(c::YC, time) where {YC <: AbstractYieldModel} = __zero_from_log_discount(c, time)
+function __zero_from_log_discount(c, time)
     # L/t; for a curve that defines only `discount`, L is -log(discount(c, time)). At t = 0 with
     # L(0) = 0 that is 0/0, whose limit is L′(0), the instantaneous forward there (a curve with
     # D(0) ≠ 1 gets L(0)/0, as before). A time derivative at 0 would need L″(0) as well, so it throws
