@@ -121,16 +121,34 @@ vector, also with transducers applied to it (`collect(Projection(c) |> Take(0))`
 
 A `RatePath` from `simulate` covers times from 0 to `horizon`, or to the first grid point beyond an
 unaligned `horizon`. Evaluating it outside that range
-(`discount`, interval discounts, `zero`, `forward`, `short_rate`, the present value of a later
-cashflow, or `pv_mc` with an explicit `horizon` shorter than the contract) throws
-DataInterpolations' `RightExtrapolationError` or `LeftExtrapolationError`. It used to extend the
-last simulated step silently, so a one-year simulation priced a payment at year 10. A path's
-instantaneous rate is right-continuous: at a grid time `short_rate` and
-`Yield.instantaneous_forward` both give the slope of the step that starts there, as a `Continuous`
-rate, and the last step's at the path's end. `RatePath` takes a `DataInterpolations.LinearInterpolation` only, the
-interpolant `simulate` builds: its rate is a step's slope, which another interpolant would get
-wrong. Its grid must start at t = 0 with the value 0, or construction throws an `ArgumentError`.
-With UnicodePlots loaded, a path displays up to its last grid time (at most 30); it threw.
+(`discount`, interval discounts, `zero`, `forward`, the present value of a later cashflow, or
+`pv_mc` with an explicit `horizon` shorter than the contract) throws DataInterpolations'
+`RightExtrapolationError` or `LeftExtrapolationError`. It used to extend the last simulated step
+silently, so a one-year simulation priced a payment at year 10. A path's forward is
+right-continuous: at a grid time `Yield.instantaneous_forward` gives the slope of the step that
+starts there, as a `Continuous` rate, and the last step's at the path's end. `RatePath` takes a
+`DataInterpolations.LinearInterpolation` only, the interpolant `simulate` builds: its forward is a
+step's slope, which another interpolant would get wrong. Its grid must start at t = 0 with the
+value 0, or construction throws an `ArgumentError`. With UnicodePlots loaded, a path displays up to
+its last grid time (at most 30); it threw.
+
+### `short_rate` is the simulated rate at a grid time
+
+`short_rate(path, t)` returned the slope of the path's discount integral over the step that starts
+at `t`: the average of the simulated rate at `t` and at the end of the step. That is half a step's
+move away from the rate at `t`, and it depends on the next draw. For
+`ShortRate.Vasicek(0.136, 0.0168, 0.0119, Continuous(0.01))` at `t = 5` it differed from the
+simulated rate by 17bp (standard deviation over 20,000 paths) with monthly steps and by 57bp with
+annual steps. Passed as `r_t` to `discount(model, 5, 10, r_t)`, it moved the conditional bond price
+by 0.6% and 2.1%, without an error.
+
+A path from `simulate` now records the simulated rate at each grid time, and `short_rate(path, t)`
+returns it as a `Continuous` rate; for Cox–Ingersoll–Ross it is the observed `max(x, 0)`. `t` must
+be one of the path's grid times, `FinanceModels.simulation_times(path)`, up to roundoff (`8eps` at
+the scale of the time or of the step). Any other time, between grid times or outside the grid,
+throws a `DomainError`. A path built from an integral alone, `RatePath(interp)`, records no rates,
+and `short_rate` throws an `ArgumentError` on it. `Yield.instantaneous_forward(path, t)` still gives
+the step's slope. Discount factors and the random draws are unchanged.
 
 `simulate` takes its number of steps from `FinanceModels.simulation_steps(horizon, timestep)`, which
 returns `(; nsteps, aligned)`. A horizon within `8eps` of a whole number of steps is aligned, so
