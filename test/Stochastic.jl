@@ -356,8 +356,13 @@ FinanceModels.__step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) 
         @test discount(rp, 1.0) ≈ exp(-0.03)
         @test discount(rp, 2.0) ≈ exp(-0.065)
         @test zero(rp, 2.0) isa FinanceCore.Rate
-        # its short rate is the slope of a step, so it takes a linear interpolant only
+        # built from an integral alone, it records no simulated rates
+        @test_throws ArgumentError short_rate(rp, 1.0)
+        @test FinanceModels.simulation_times(rp) == ts
+        # its forward is the slope of a step, so it takes a linear interpolant only
         @test_throws MethodError RatePath(DataInterpolations.CubicSpline(cum, ts))
+        # simulate's constructor takes one rate per grid time
+        @test_throws DimensionMismatch RatePath(interp, [0.03, 0.035])
         # its grid starts at t = 0, where ∫₀ᵗ r = 0: discount(path, 0) is 1 and an interval from 0
         # is the point discount factor
         @test_throws ArgumentError RatePath(DataInterpolations.LinearInterpolation(cum, ts .+ 0.1))
@@ -374,28 +379,34 @@ FinanceModels.__step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) 
         @test discount(path, 0.0) == 1.0
         @test discount(path, 1.0) == exp(-last(path.interp.u))
         @test discount(path, 0.5, 1.0) ≈ discount(path, 1.0) / discount(path, 0.5)
-        @test rate(short_rate(path, 0.0)) ≈ 0.03 rtol = 0.02
-        @test rate(short_rate(path, 1.0)) ≈ 0.05 - 0.02 * exp(-0.1) rtol = 0.02
-        # One right-continuous rate: at a grid time the step that starts there, at the horizon the
-        # last step, the same as the instantaneous forward (which threw at the horizon)
+        # with σ = 0 the recorded rate is the deterministic Vasicek rate at each grid time
+        @test short_rate(path, 0.0) == Continuous(0.03)
+        @test rate(short_rate(path, 0.25)) ≈ 0.05 - 0.02 * exp(-0.025) rtol = 1.0e-12
+        @test rate(short_rate(path, 1.0)) ≈ 0.05 - 0.02 * exp(-0.1) rtol = 1.0e-12
+        # The path's forward is right-continuous: at a grid time the slope of the step that starts
+        # there, the average of its two rates, and at the horizon the last step's
         ts, L = path.interp.t, path.interp.u
         slope(i) = (L[i + 1] - L[i]) / (ts[i + 1] - ts[i])
-        @test short_rate(path, ts[2]) == Continuous(slope(2)) == Yield.instantaneous_forward(path, ts[2])
-        @test short_rate(path, 1.0) == Continuous(slope(length(ts) - 1)) == Yield.instantaneous_forward(path, 1.0)
+        @test Yield.instantaneous_forward(path, ts[2]) == Continuous(slope(2))
+        @test Yield.instantaneous_forward(path, 1.0) == Continuous(slope(length(ts) - 1))
+        @test slope(2) ≈ (rate(short_rate(path, ts[2])) + rate(short_rate(path, ts[3]))) / 2 rtol = 1.0e-12
         @test ForwardDiff.derivative(s -> -log(discount(path, s)), ts[2]) ≈ slope(2) rtol = 1.0e-12
         @test Yield.instantaneous_forward(path, 0.0) == zero(path, 0.0)
         for t in (nextfloat(1.0), 2.0)
             @test_throws Right discount(path, t)
             @test_throws Right Yield.__log_discount(path, t)
             @test_throws Right discount(path, 0.5, t)
-            @test_throws Right short_rate(path, t)
             @test_throws Right Yield.instantaneous_forward(path, t)
             @test_throws Right present_value(path, Cashflow(1.0, t))
             @test_throws Right ForwardDiff.derivative(s -> discount(path, s), t)
         end
         @test_throws Left discount(path, -0.5)
         @test_throws Left discount(path, -0.5, 0.5)
-        @test_throws Left short_rate(path, -0.5)
+        # short_rate reads the recorded rates: a time within roundoff of the last one is that time,
+        # and a time genuinely outside the grid has no simulated rate
+        @test short_rate(path, nextfloat(1.0)) == short_rate(path, 1.0)
+        @test_throws DomainError short_rate(path, 2.0)
+        @test_throws DomainError short_rate(path, -0.5)
 
         # pv_mc: the default horizon (maturity + 1) covers the contract, a shorter one throws
         cf = Cashflow(1.0, 10.0)
@@ -1485,12 +1496,11 @@ FinanceModels.__step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) 
         )
         rp = RatePath(interp)
 
-        # In the first segment [0,1], slope = 0.03
-        @test short_rate(rp, 0.5) ≈ Continuous(0.03)
-        # In the second segment [1,2], slope = 0.035
-        @test short_rate(rp, 1.5) ≈ Continuous(0.035)
-        # In the third segment [2,3], slope = 0.035
-        @test short_rate(rp, 2.5) ≈ Continuous(0.035)
+        # An integral alone records no rates; its forward is each segment's slope
+        @test_throws ArgumentError short_rate(rp, 1.0)
+        @test Yield.instantaneous_forward(rp, 0.5) ≈ Continuous(0.03)
+        @test Yield.instantaneous_forward(rp, 1.5) ≈ Continuous(0.035)
+        @test Yield.instantaneous_forward(rp, 2.5) ≈ Continuous(0.035)
 
         # Test with simulated paths
         v = ShortRate.Vasicek(0.3, 0.05, 0.02, Continuous(0.03))
@@ -1730,9 +1740,158 @@ end
     p3 = only(simulate(v; n_scenarios = 1, timestep = 0.1, horizon = 0.3, rng = Random.MersenneTwister(7)))
     p5 = only(simulate(v; n_scenarios = 1, timestep = 0.1, horizon = 0.5, rng = Random.MersenneTwister(7)))
     @test p3.interp.u == p5.interp.u[1:4]
+    @test p3._rates == p5._rates[1:4]
     @test p3.interp.t[1:3] == p5.interp.t[1:3]
     # an unaligned horizon is covered by the extra step
     q = only(simulate(v; n_scenarios = 1, timestep = 0.5, horizon = 0.9))
     @test last(q.interp.t) == 1.0
     @test length(q.interp.t) == FinanceModels.simulation_steps(0.9, 0.5).nsteps + 1
+end
+
+@testset "short_rate: the simulated rate at grid times" begin
+    # The 7.0 simulation loop, which kept only the integral, replayed with the same internals
+    function legacy(model, timestep, horizon, rng)
+        grid = FinanceModels.simulation_steps(horizon, timestep)
+        dt = Float64(timestep)
+        cache = FinanceModels.__sim_cache(model, dt, grid.nsteps)
+        r0 = FinanceModels.__sim_initial_rate(model)
+        T = FinanceModels.__sim_eltype(model, r0)
+        cumulative = Vector{T}(undef, grid.nsteps + 1)
+        cumulative[1] = zero(T)
+        observed = Any[FinanceModels.__observed_rate(model, r0)]
+        r = r0
+        for j in 1:grid.nsteps
+            r_new = FinanceModels.__step(model, r, dt, sqrt(dt), randn(rng), (j - 1) * dt, cache, j)
+            cumulative[j + 1] = cumulative[j] +
+                0.5 * (FinanceModels.__observed_rate(model, r) + FinanceModels.__observed_rate(model, r_new)) * dt
+            push!(observed, FinanceModels.__observed_rate(model, r_new))
+            r = r_new
+        end
+        return cumulative, observed
+    end
+    bits(x::ForwardDiff.Dual) = (ForwardDiff.value(x), Tuple(ForwardDiff.partials(x)))
+    bits(x) = x
+
+    curve = Yield.Constant(Continuous(0.03))
+    dual = ForwardDiff.Dual{Nothing}(0.136, 1.0)
+    models = (
+        ShortRate.Vasicek(0.136, 0.0168, 0.0119, Continuous(0.01)),
+        ShortRate.Vasicek(0.1f0, 0.03f0, 0.01f0, Continuous(0.03f0)),
+        ShortRate.Vasicek(dual, 0.0168, 0.0119, Continuous(0.01)),
+        # Feller violated: the auxiliary state goes negative and the observed rate clips at 0
+        ShortRate.CoxIngersollRoss(0.1, 0.1, 0.5, Continuous(0.05)),
+        ShortRate.CoxIngersollRoss(dual, 0.1, 0.5, Continuous(0.05)),
+        ShortRate.HullWhite(0.1, 0.01, curve),
+        ShortRate.HullWhite(dual, 0.01, curve),
+        TestStochasticModel(0.03),
+    )
+    for m in models
+        rng_a, rng_b = Random.Xoshiro(11), Random.Xoshiro(11)
+        p = only(simulate(m; n_scenarios = 1, timestep = 0.1, horizon = 3.0, rng = rng_a))
+        cumulative, observed = legacy(m, 0.1, 3.0, rng_b)
+        # the integral, its type and the draws are those of the 7.0 loop
+        @test eltype(p.interp.u) == eltype(cumulative)
+        @test isequal(bits.(p.interp.u), bits.(cumulative))
+        @test rng_a == rng_b
+        # the recorded rates are the observed states, at the precision they were integrated in (the
+        # initial rate is a plain number in a model whose other parameters carry derivatives)
+        @test eltype(p._rates) == promote_type(eltype(cumulative), Float64)
+        @test isequal(bits.(p._rates), bits.(convert.(eltype(p._rates), observed)))
+        @test all(k -> isequal(bits(rate(short_rate(p, p.interp.t[k]))), bits(p._rates[k])), eachindex(p._rates))
+    end
+    # a Float32 model's integral stays Float32 while its states are recorded as the Float64 values
+    # it integrated
+    p32 = only(simulate(models[2]; n_scenarios = 1, timestep = 0.1, horizon = 1.0, rng = Random.Xoshiro(1)))
+    @test eltype(p32.interp.u) == Float32 && eltype(p32._rates) == Float64
+    # the clipped CIR rate is recorded as max(x, 0), and some states clip on this path
+    pc = only(simulate(models[4]; n_scenarios = 1, timestep = 1 / 52, horizon = 5.0, rng = Random.Xoshiro(3)))
+    @test all(>=(0), pc._rates) && any(iszero, pc._rates)
+    # a Float64 model and its ForwardDiff counterpart draw the same shocks
+    rng_f, rng_d = Random.Xoshiro(5), Random.Xoshiro(5)
+    pf = only(simulate(models[1]; n_scenarios = 1, timestep = 0.1, horizon = 3.0, rng = rng_f))
+    pd = only(simulate(models[3]; n_scenarios = 1, timestep = 0.1, horizon = 3.0, rng = rng_d))
+    @test rng_f == rng_d
+    @test ForwardDiff.value.(pd._rates) == pf._rates
+
+    # the recorded rate is the conditional discount's state
+    v = models[1]
+    p = only(simulate(v; n_scenarios = 1, timestep = 1 / 12, horizon = 10.0, rng = Random.Xoshiro(2)))
+    r5 = short_rate(p, 5.0)
+    @test discount(v, 5.0, 10.0, r5) == discount(v, 5.0, 10.0, rate(r5))
+    @test short_rate(p, 5) == r5
+    @test short_rate(p, 60 * (1 / 12)) == r5
+
+    # grid lookup: an unaligned horizon of 0.95 is covered by the step to 1.0
+    q = only(simulate(v; n_scenarios = 1, timestep = 0.1, horizon = 0.95, rng = Random.Xoshiro(4)))
+    ts = FinanceModels.simulation_times(q)
+    @test ts == q.interp.t && first(ts) == 0.0 && last(ts) ≈ 1.0
+    for k in eachindex(ts)
+        @test short_rate(q, ts[k]) == Continuous(q._rates[k])
+        @test short_rate(q, nextfloat(ts[k])) == short_rate(q, ts[k])
+        k > 1 && @test short_rate(q, prevfloat(ts[k])) == short_rate(q, ts[k])
+    end
+    @test short_rate(q, prevfloat(0.0)) == short_rate(q, 0.0)
+    # times between grid points, the off-grid horizon itself, and times outside the grid have no
+    # simulated rate
+    for t in (0.05, 0.95, 0.35, last(ts) + 0.01, -0.01, 2.0, NaN)
+        @test_throws DomainError short_rate(q, t)
+    end
+    # the times are a copy
+    ts[1] = 99.0
+    @test FinanceModels.simulation_times(q)[1] == 0.0
+end
+
+@testset "CIR simulation derivatives through clipped states" begin
+    # √ of a state that full truncation clips to an exact zero gave 0·∞ = NaN partials, which then
+    # spread through the rest of the path; the clipped state now contributes nothing
+    D = ForwardDiff.Dual{Nothing}
+    @test FinanceModels.__strong_zero_sqrt(4.0) == 2.0
+    @test ForwardDiff.partials(FinanceModels.__strong_zero_sqrt(D(4.0, 1.0)))[1] == 0.25
+    @test ForwardDiff.partials(FinanceModels.__strong_zero_sqrt(D(0.0, 0.0)))[1] == 0.0
+    @test ForwardDiff.partials(FinanceModels.__strong_zero_sqrt(D(0.0, 1.0)))[1] == Inf
+    # second derivative of √x at 4 is -1/(4·4^{3/2}) = -1/32
+    @test ForwardDiff.derivative(x -> ForwardDiff.derivative(FinanceModels.__strong_zero_sqrt, x), 4.0) ≈ -1 / 32
+    @test ForwardDiff.derivative(x -> ForwardDiff.derivative(y -> FinanceModels.__strong_zero_sqrt(max(y, zero(y))), x), -1.0) == 0.0
+
+    # a = 0.1, b = 0.1, σ = 0.5: 2ab = 0.02 < σ² = 0.25, so the state clips on this path
+    path(a, b, σ) = only(
+        simulate(
+            ShortRate.CoxIngersollRoss(a, b, σ, Continuous(0.05));
+            n_scenarios = 1, timestep = 0.1, horizon = 3.0, rng = Random.Xoshiro(11)
+        )
+    )
+    @test any(iszero, path(0.1, 0.1, 0.5)._rates)
+    P(θ) = discount(path(θ...), 3.0)
+    θ0 = [0.1, 0.1, 0.5]
+    g = ForwardDiff.gradient(P, θ0)
+    @test all(isfinite, g)
+    for i in 1:3
+        h = zeros(3)
+        h[i] = 1.0e-6
+        @test g[i] ≈ (P(θ0 + h) - P(θ0 - h)) / 2.0e-6 rtol = 1.0e-5
+    end
+    @test g[1] ≈ -0.024368665474394646 rtol = 1.0e-5
+    # second derivatives stay finite, and the values are those of a Float64 run
+    @test all(isfinite, ForwardDiff.hessian(P, θ0))
+    @test ForwardDiff.value(discount(path(D(0.1, 1.0), 0.1, 0.5), 3.0)) == P(θ0)
+
+    # an integer or rational initial rate under a derivative promotes to floating point, keeping
+    # its tag (the helper fixed the result to the input's dual type and threw a MethodError)
+    P0(r) = discount(
+        only(
+            simulate(
+                ShortRate.CoxIngersollRoss(0.1, 0.1, 0.5, r);
+                n_scenarios = 1, timestep = 0.1, horizon = 3.0, rng = Random.Xoshiro(11)
+            )
+        ), 3.0
+    )
+    for (exact, float) in ((1 // 20, 0.05), (1, 1.0))
+        d = ForwardDiff.derivative(P0, exact)
+        @test d ≈ ForwardDiff.derivative(P0, float) rtol = 1.0e-12
+        @test d ≈ (P0(float + 1.0e-6) - P0(float - 1.0e-6)) / 2.0e-6 rtol = 1.0e-5
+    end
+    s = FinanceModels.__strong_zero_sqrt(D(1 // 4, 1 // 1))
+    @test s isa ForwardDiff.Dual{Nothing, Float64} && ForwardDiff.value(s) == 0.5 && ForwardDiff.partials(s)[1] == 1.0
+    s32 = FinanceModels.__strong_zero_sqrt(D(4.0f0, 1.0f0))
+    @test s32 isa ForwardDiff.Dual{Nothing, Float32} && ForwardDiff.partials(s32)[1] == 0.25f0
 end

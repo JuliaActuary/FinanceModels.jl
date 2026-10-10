@@ -7,7 +7,7 @@ FinanceModels.jl includes stochastic short-rate models that are first-class yiel
 For stochastic-cashflow analysis (e.g. Monte Carlo valuation), `simulate()` generates scenario yield curves that also plug into the existing `present_value`.
 
 !!! note "Relationship to EconomicScenarioGenerators.jl"
-    Short-rate and equity scenario generators were previously provided by [EconomicScenarioGenerators.jl](https://github.com/JuliaActuary/EconomicScenarioGenerators.jl). The `FinanceModels.ShortRate` models together with `simulate` and `pv_mc` are the maintained successors. EconomicScenarioGenerators.jl remains the place for copula-correlated, multi-model simulation (its `Correlated` generator).
+    Short-rate and equity scenario generators were previously provided by [EconomicScenarioGenerators.jl](https://github.com/JuliaActuary/EconomicScenarioGenerators.jl). The `FinanceModels.ShortRate` models together with `simulate` and `pv_mc` are the maintained successors of its interest-rate generators. Its equity generator and its copula-correlated, multi-model simulation (the `Correlated` generator) remain in EconomicScenarioGenerators.jl.
 
 ## Available Models
 
@@ -105,15 +105,23 @@ The conditional form is used internally for derivative pricing (swaption
 Jamshidian decomposition) and can be useful for scenario analysis where
 the short rate at a future time is known.
 
-### Extracting the Short Rate from a Simulated Path
+### The Simulated Short Rate on a Path
 
-After simulation, you can extract the instantaneous short rate `r(t)` from a
-`RatePath` using `short_rate`:
+Each simulated path records the short rate at its grid times. `short_rate` reads it as a
+`Continuous` rate, and it is the state to pass to the conditional discount factor:
 
 ```julia
 scenarios = simulate(v; n_scenarios=10, timestep=1/12, horizon=10.0)
-short_rate(scenarios[1], 5.0)  # r(5) for the first scenario, a Continuous rate
+path = scenarios[1]
+r5 = short_rate(path, 5.0)    # the simulated r(5) on this path
+discount(v, 5.0, 10.0, r5)    # P(5, 10 | r(5)) on this path
 ```
+
+`short_rate` answers only at the path's grid times, `FinanceModels.simulation_times(path)`. A time
+between them, or outside the grid, throws a `DomainError`, because the simulation has no rate
+there. `Yield.instantaneous_forward(path, t)` is the slope of the path's discount integral over the
+step that starts at `t`, the average of that step's two rates. It uses the rate at the end of the
+step, so it is not the state at `t`.
 
 ### Valuing Fixed-Income Contracts
 
@@ -370,7 +378,7 @@ hw_fit = fit(hw0, quotes)
 
 ### Performance Guidance
 
-- `simulate` allocates one `LinearInterpolation` per scenario. For 100k scenarios with a 30-year monthly horizon, expect execution times on the order of seconds.
+- `simulate` allocates one `LinearInterpolation` and one vector of recorded short rates per scenario. For 100k scenarios with a 30-year monthly horizon, expect execution times on the order of seconds.
 - `pv_mc` is embarrassingly parallel across scenarios but is not parallelised internally. For large-scale simulations, users can parallelise with `Threads.@threads` or `Distributed`:
 
 ```julia
@@ -400,4 +408,4 @@ mean_pv = sum(pvs) / length(pvs)
 | `fit(model, quotes)` | Calibrate to market data |
 | `simulate(model; ...)` | Generate `Vector{RatePath}` scenarios |
 | `pv_mc(model, contract; ...)` | Monte Carlo expected present value |
-| `short_rate(path, t)` | Extract `r(t)`, a `Continuous` rate, from a simulated `RatePath` |
+| `short_rate(path, t)` | The simulated `r(t)` at a grid time of a `RatePath`, a `Continuous` rate |

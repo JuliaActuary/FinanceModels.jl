@@ -23,7 +23,7 @@ end
 # the extension hooks and helpers that are part of the API without being exported
 @testset "public, not exported" begin
     hooks = (
-        (FinanceModels, :simulation_steps), (FinanceModels, :default_variables), (FinanceModels, :default_optimizer),
+        (FinanceModels, :simulation_steps), (FinanceModels, :simulation_times), (FinanceModels, :default_variables), (FinanceModels, :default_optimizer),
         (FinanceModels, :closed_form), (FinanceModels.Yield, :force_of_interest),
     )
     for (mod, name) in hooks
