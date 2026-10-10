@@ -834,9 +834,9 @@ end
 """
     simulation_times(path::RatePath)
 
-The grid times of `path`, from 0 to its last simulated time, as a new `Vector{Float64}`. For a path
-from [`simulate`](@ref) these are multiples of the timestep, ending at an aligned horizon or at the
-extra step that covers an unaligned one (see [`FinanceModels.simulation_steps`](@ref)).
+A copy of `path`'s time grid, from 0 to its last time. For a path from [`simulate`](@ref) it is a
+new `Vector{Float64}` of multiples of the timestep, ending at an aligned horizon or at the extra
+step that covers an unaligned one (see [`FinanceModels.simulation_steps`](@ref)).
 [`short_rate`](@ref) answers at these times only.
 """
 simulation_times(path::RatePath) = copy(path.interp.t)

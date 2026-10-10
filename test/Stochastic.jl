@@ -1874,4 +1874,24 @@ end
     # second derivatives stay finite, and the values are those of a Float64 run
     @test all(isfinite, ForwardDiff.hessian(P, θ0))
     @test ForwardDiff.value(discount(path(D(0.1, 1.0), 0.1, 0.5), 3.0)) == P(θ0)
+
+    # an integer or rational initial rate under a derivative promotes to floating point, keeping
+    # its tag (the helper fixed the result to the input's dual type and threw a MethodError)
+    P0(r) = discount(
+        only(
+            simulate(
+                ShortRate.CoxIngersollRoss(0.1, 0.1, 0.5, r);
+                n_scenarios = 1, timestep = 0.1, horizon = 3.0, rng = Random.Xoshiro(11)
+            )
+        ), 3.0
+    )
+    for (exact, float) in ((1 // 20, 0.05), (1, 1.0))
+        d = ForwardDiff.derivative(P0, exact)
+        @test d ≈ ForwardDiff.derivative(P0, float) rtol = 1.0e-12
+        @test d ≈ (P0(float + 1.0e-6) - P0(float - 1.0e-6)) / 2.0e-6 rtol = 1.0e-5
+    end
+    s = FinanceModels.__strong_zero_sqrt(D(1 // 4, 1 // 1))
+    @test s isa ForwardDiff.Dual{Nothing, Float64} && ForwardDiff.value(s) == 0.5 && ForwardDiff.partials(s)[1] == 1.0
+    s32 = FinanceModels.__strong_zero_sqrt(D(4.0f0, 1.0f0))
+    @test s32 isa ForwardDiff.Dual{Nothing, Float32} && ForwardDiff.partials(s32)[1] == 0.25f0
 end

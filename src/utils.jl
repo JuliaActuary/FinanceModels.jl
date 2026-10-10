@@ -191,11 +191,12 @@ end
 # √x, with partials ∂x/(2√x) as `__ratio`: a zero partial stays zero at x = 0, where the slope 1/(2√x)
 # is infinite and `sqrt` gives 0·∞ = NaN. A state that is exactly zero with zero partials (the CIR
 # diffusion's clipped state) contributes nothing to a derivative of any order; a nonzero partial at
-# x = 0 still gives ±Inf, the infinite slope.
+# x = 0 still gives ±Inf, the infinite slope. The result keeps the input's tag and takes the numeric
+# type `sqrt` gives, so an integer or rational dual number promotes to floating point.
 __strong_zero_sqrt(x::Real) = sqrt(x)
-function __strong_zero_sqrt(x::D) where {D <: ForwardDiff.Dual}
+function __strong_zero_sqrt(x::ForwardDiff.Dual{Tag}) where {Tag}
     s = __strong_zero_sqrt(ForwardDiff.value(x))
-    return D(s, ForwardDiff.Partials(map(p -> __ratio(p, 2s), ForwardDiff.partials(x).values)))
+    return ForwardDiff.Dual{Tag}(s, ForwardDiff.Partials(map(p -> __ratio(p, 2s), ForwardDiff.partials(x).values)))
 end
 
 # w·eˣ, where eˣ alone, or a derivative of either factor, can overflow while the product doesn't. The
