@@ -52,7 +52,7 @@ export pv
 export Fit, fit, FitConvergenceError
 
 # Public, not exported
-Compat.@compat public simulation_steps, default_variables, default_optimizer, closed_form
+Compat.@compat public simulation_steps, simulation_times, default_variables, default_optimizer, closed_form
 
 include("precompile.jl")
 end

@@ -373,18 +373,36 @@ end
 
 A simulated interest-rate path wrapped as an `AbstractYieldModel`. `interp` interpolates the
 cumulative integral ∫₀ᵗ r(s) ds linearly over the path's time grid, so
-`discount(path, t) = exp(-interp(t))` and the short rate is constant on each step. The grid starts
-at `t = 0`, where the integral is 0; otherwise construction throws an `ArgumentError`. The path is
-defined where `interp` is; `simulate` builds paths that throw outside their time grid.
+`discount(path, t) = exp(-interp(t))` and the path's forward is constant on each step: at a grid
+time, `Yield.instantaneous_forward(path, t)` is the slope of the step that starts there, which for
+a simulated path is the average of that step's two simulated rates. The grid starts at `t = 0`,
+where the integral is 0; otherwise construction throws an `ArgumentError`. The path is defined
+where `interp` is; `simulate` builds paths that throw outside their time grid.
+
+A path from [`simulate`](@ref) also records the simulated short rate at each grid time, read with
+[`short_rate`](@ref). A path built from an integral alone, as here, records none, and `short_rate`
+throws on it.
 """
-struct RatePath{I <: DataInterpolations.LinearInterpolation} <: Yield.AbstractYieldModel
+struct RatePath{I <: DataInterpolations.LinearInterpolation, R <: Union{Nothing, AbstractVector}} <: Yield.AbstractYieldModel
     interp::I
+    _rates::R  # the simulated short rate at each grid time, or `nothing` for an integral-only path
     function RatePath(interp::I) where {I <: DataInterpolations.LinearInterpolation}
-        t0, L0 = first(interp.t), first(interp.u)
-        (iszero(t0) && iszero(L0)) ||
-            throw(ArgumentError("a RatePath's grid must start at t = 0 with value 0, got $L0 at t = $t0"))
-        return new{I}(interp)
+        __check_ratepath_start(interp)
+        return new{I, Nothing}(interp, nothing)
     end
+    # simulate's constructor: the integral and the rates it was accumulated from, one per grid time
+    function RatePath(interp::I, rates::R) where {I <: DataInterpolations.LinearInterpolation, R <: AbstractVector}
+        __check_ratepath_start(interp)
+        length(rates) == length(interp.t) ||
+            throw(DimensionMismatch("a RatePath needs one rate per grid time, got $(length(rates)) for $(length(interp.t))"))
+        return new{I, R}(interp, rates)
+    end
+end
+
+function __check_ratepath_start(interp)
+    t0, L0 = first(interp.t), first(interp.u)
+    return (iszero(t0) && iszero(L0)) ||
+        throw(ArgumentError("a RatePath's grid must start at t = 0 with value 0, got $L0 at t = $t0"))
 end
 
 function FinanceCore.discount(p::RatePath, t)
@@ -440,6 +458,14 @@ In all cases the cumulative discount integral ``∫₀ᵗ r(s)\\,ds`` is accumul
 with the trapezoidal rule between grid points, so pathwise discount factors
 (and hence `pv_mc`) retain an integration error that grows with `timestep`
 even when the short-rate transition itself is exact.
+
+Each path also records the simulated short rate at its grid times
+([`FinanceModels.simulation_times`](@ref)), read with [`short_rate`](@ref).
+
+Paths are repeatable: the same `rng` state, arguments and package versions give the same paths.
+A model whose parameters carry ForwardDiff numbers draws the same shocks as its `Float64`
+counterpart, so paired sensitivity runs see identical scenarios. A change to which draws feed
+which step is recorded in the NEWS.
 """
 function simulate(
         model::AbstractStochasticModel;
@@ -458,6 +484,9 @@ function simulate(
     # Parameters other than the initial rate may carry an AD number type.
     r0 = __sim_initial_rate(model)
     T = __sim_eltype(model, r0)
+    # The recorded rates keep the precision of the states the integral is accumulated from: the
+    # shock and `dt` are Float64, so a Float32 model's states after the first step are Float64.
+    S = promote_type(T, Float64)
 
     times = Vector{Float64}(undef, n_steps + 1)
     times[1] = 0.0
@@ -475,13 +504,17 @@ function simulate(
     return map(1:n_scenarios) do _
         cumulative = Vector{T}(undef, n_steps + 1)
         cumulative[1] = zero(T)
+        rates = Vector{S}(undef, n_steps + 1)
         r = r0
+        rates[1] = __observed_rate(model, r)
         for j in 1:n_steps
             Z = randn(rng)
             t = (j - 1) * dt
             r_new = __step(model, r, dt, sqrt_dt, Z, t, cache, j)
+            # the integral is accumulated from the working states, never from the recorded rates
             cumulative[j + 1] = cumulative[j] +
                 0.5 * (__observed_rate(model, r) + __observed_rate(model, r_new)) * dt
+            rates[j + 1] = __observed_rate(model, r_new)
             r = r_new
         end
         # no extrapolation: the path is defined only on its simulated grid
@@ -489,7 +522,7 @@ function simulate(
             cumulative, times;
             extrapolation = DataInterpolations.ExtrapolationType.None
         )
-        RatePath(interp)
+        RatePath(interp, rates)
     end
 end
 
@@ -765,23 +798,69 @@ function __check_integer_periods(value, freq, label)
     return n_int
 end
 
-# ─── short_rate: extract r(t) from a simulated RatePath ──────────────────────
+# ─── short_rate: the simulated r(t) at a path's grid times ───────────────────
 
 """
     short_rate(path::RatePath, t)
 
-The instantaneous short rate `r(t)` for a simulated scenario, as a `Continuous` rate.
+The simulated short rate at grid time `t` of a path from [`simulate`](@ref), as a `Continuous`
+rate: the model's state there (for Cox-Ingersoll-Ross, the observed rate `max(x, 0)`). It is the
+rate to pass as `r_t` to a conditional `discount(model, t, T, r_t)`.
 
-`RatePath` stores the cumulative integral `∫₀ᵗ r(s) ds` as a `LinearInterpolation`.
-The short rate is the derivative of this cumulative integral.
+`t` must be one of the path's simulated times, [`FinanceModels.simulation_times`](@ref)`(path)`. A
+time within roundoff of one, `8eps` at the scale of that time or of the step, whichever is larger,
+is read as that time. Any other `t`, between grid times or outside the grid, throws a
+`DomainError`: the simulation has no rate there. A path built from an integral alone,
+`RatePath(interp)`, records no rates, and `short_rate` throws an `ArgumentError`.
 
-Because the cumulative integral is built from trapezoidal steps, the
-returned rate is piecewise-constant within each timestep — an approximation to the
-continuous short-rate process, not the exact value. It is right-continuous: at a grid time
-it is the slope of the step that starts there, and at the path's last time the last step's.
-It is the path's `Yield.instantaneous_forward`.
+`Yield.instantaneous_forward(path, t)` is different: it is the slope of the discount integral over
+the step that starts at `t`, the average of that step's two simulated rates, so it depends on the
+rate at the end of the step.
 """
-short_rate(path::RatePath, t) = Yield.instantaneous_forward(path, t)
+function short_rate(path::RatePath{<:DataInterpolations.LinearInterpolation, <:AbstractVector}, t)
+    return Continuous(path._rates[__grid_index(path.interp.t, t)])
+end
+function short_rate(::RatePath{<:DataInterpolations.LinearInterpolation, Nothing}, t)
+    throw(
+        ArgumentError(
+            "this RatePath was built from an integral alone and records no simulated short rates; " *
+                "`simulate` records them, and `Yield.instantaneous_forward(path, t)` gives the integral's slope"
+        )
+    )
+end
+
+"""
+    simulation_times(path::RatePath)
+
+The grid times of `path`, from 0 to its last simulated time, as a new `Vector{Float64}`. For a path
+from [`simulate`](@ref) these are multiples of the timestep, ending at an aligned horizon or at the
+extra step that covers an unaligned one (see [`FinanceModels.simulation_steps`](@ref)).
+[`short_rate`](@ref) answers at these times only.
+"""
+simulation_times(path::RatePath) = copy(path.interp.t)
+
+# The index of the grid time that `t` names. The nearest grid time is found first and accepted when
+# `t` is within 8eps of it, at the scale of that time or of the first step, whichever is larger: a
+# time computed as `k * dt` or read from a range may differ from the grid's by a few ulps, and
+# `t = 0` gets the same tolerance as the first step. Any other `t` throws.
+function __grid_index(ts::AbstractVector, t)
+    n = length(ts)
+    i = clamp(searchsortedfirst(ts, t), 1, n)
+    k = (i > 1 && abs(t - ts[i - 1]) <= abs(t - ts[i])) ? i - 1 : i
+    scale = n > 1 ? max(abs(ts[k]), ts[2] - ts[1]) : abs(ts[k])
+    abs(t - ts[k]) <= 8eps(float(scale)) && return k
+    where = if isnan(t)
+        "not a number"
+    elseif t > last(ts)
+        "beyond the path's last simulated time $(last(ts))"
+    elseif t < first(ts)
+        "before the path's first simulated time $(first(ts))"
+    else
+        j = searchsortedlast(ts, t)
+        "between the simulated times $(ts[j]) and $(ts[j + 1])"
+    end
+    throw(DomainError(t, "the time is $where; the simulation has no state there. `FinanceModels.simulation_times(path)` lists the path's times"))
+end
 
 # The slope of L = ∫₀ᵗ r over the grid step that starts at `t` (the last step at the path's last time),
 # so the rate is right-continuous like a knot curve's forward. Outside its grid the interpolant's own
