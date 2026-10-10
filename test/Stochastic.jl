@@ -1840,3 +1840,38 @@ end
     ts[1] = 99.0
     @test FinanceModels.simulation_times(q)[1] == 0.0
 end
+
+@testset "CIR simulation derivatives through clipped states" begin
+    # √ of a state that full truncation clips to an exact zero gave 0·∞ = NaN partials, which then
+    # spread through the rest of the path; the clipped state now contributes nothing
+    D = ForwardDiff.Dual{Nothing}
+    @test FinanceModels.__strong_zero_sqrt(4.0) == 2.0
+    @test ForwardDiff.partials(FinanceModels.__strong_zero_sqrt(D(4.0, 1.0)))[1] == 0.25
+    @test ForwardDiff.partials(FinanceModels.__strong_zero_sqrt(D(0.0, 0.0)))[1] == 0.0
+    @test ForwardDiff.partials(FinanceModels.__strong_zero_sqrt(D(0.0, 1.0)))[1] == Inf
+    # second derivative of √x at 4 is -1/(4·4^{3/2}) = -1/32
+    @test ForwardDiff.derivative(x -> ForwardDiff.derivative(FinanceModels.__strong_zero_sqrt, x), 4.0) ≈ -1 / 32
+    @test ForwardDiff.derivative(x -> ForwardDiff.derivative(y -> FinanceModels.__strong_zero_sqrt(max(y, zero(y))), x), -1.0) == 0.0
+
+    # a = 0.1, b = 0.1, σ = 0.5: 2ab = 0.02 < σ² = 0.25, so the state clips on this path
+    path(a, b, σ) = only(
+        simulate(
+            ShortRate.CoxIngersollRoss(a, b, σ, Continuous(0.05));
+            n_scenarios = 1, timestep = 0.1, horizon = 3.0, rng = Random.Xoshiro(11)
+        )
+    )
+    @test any(iszero, path(0.1, 0.1, 0.5)._rates)
+    P(θ) = discount(path(θ...), 3.0)
+    θ0 = [0.1, 0.1, 0.5]
+    g = ForwardDiff.gradient(P, θ0)
+    @test all(isfinite, g)
+    for i in 1:3
+        h = zeros(3)
+        h[i] = 1.0e-6
+        @test g[i] ≈ (P(θ0 + h) - P(θ0 - h)) / 2.0e-6 rtol = 1.0e-5
+    end
+    @test g[1] ≈ -0.024368665474394646 rtol = 1.0e-5
+    # second derivatives stay finite, and the values are those of a Float64 run
+    @test all(isfinite, ForwardDiff.hessian(P, θ0))
+    @test ForwardDiff.value(discount(path(D(0.1, 1.0), 0.1, 0.5), 3.0)) == P(θ0)
+end

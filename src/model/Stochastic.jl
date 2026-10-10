@@ -568,10 +568,12 @@ end
 # The state is an auxiliary process x that may go negative; drift and
 # diffusion use x⁺ and the observed rate is x⁺ (see `__observed_rate`).
 # Flooring x itself at zero (absorption) would bias E[exp(-∫r)] down
-# materially when the Feller condition is violated.
+# materially when the Feller condition is violated. A clipped x⁺ is an exact
+# zero with zero partials; `__strong_zero_sqrt` keeps its diffusion's partials
+# zero, where `sqrt` gave 0·∞ = NaN derivatives for the rest of the path.
 function __step(m::ShortRate.CoxIngersollRoss, x, dt, sqrt_dt, Z, t, ::Nothing, j)
     xp = max(x, zero(x))
-    return x + m.a * (m.b - xp) * dt + m.σ * sqrt(xp) * sqrt_dt * Z
+    return x + m.a * (m.b - xp) * dt + m.σ * __strong_zero_sqrt(xp) * sqrt_dt * Z
 end
 
 # Hull-White: exact transition via the decomposition r(t) = x(t) + α(t)

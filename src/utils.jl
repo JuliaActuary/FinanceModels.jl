@@ -188,6 +188,16 @@ function __strong_zero_log(x::D) where {D <: ForwardDiff.Dual}
     return D(__strong_zero_log(v), ForwardDiff.Partials(map(p -> __ratio(p, v), ForwardDiff.partials(x).values)))
 end
 
+# √x, with partials ∂x/(2√x) as `__ratio`: a zero partial stays zero at x = 0, where the slope 1/(2√x)
+# is infinite and `sqrt` gives 0·∞ = NaN. A state that is exactly zero with zero partials (the CIR
+# diffusion's clipped state) contributes nothing to a derivative of any order; a nonzero partial at
+# x = 0 still gives ±Inf, the infinite slope.
+__strong_zero_sqrt(x::Real) = sqrt(x)
+function __strong_zero_sqrt(x::D) where {D <: ForwardDiff.Dual}
+    s = __strong_zero_sqrt(ForwardDiff.value(x))
+    return D(s, ForwardDiff.Partials(map(p -> __ratio(p, 2s), ForwardDiff.partials(x).values)))
+end
+
 # w·eˣ, where eˣ alone, or a derivative of either factor, can overflow while the product doesn't. The
 # value is the product where that is a normal float, and sign(w)·exp(log|w| + x) otherwise; 0 for
 # w = 0. A dual number's partials are eˣ·∂w + (w·eˣ)·∂x, the first again as `__wexp` and the second a

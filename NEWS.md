@@ -150,6 +150,15 @@ throws a `DomainError`. A path built from an integral alone, `RatePath(interp)`,
 and `short_rate` throws an `ArgumentError` on it. `Yield.instantaneous_forward(path, t)` still gives
 the step's slope. Discount factors and the random draws are unchanged.
 
+### Derivatives through clipped CIR paths
+
+ForwardDiff derivatives of a simulated Cox–Ingersoll–Ross path were `NaN` from the first step at
+which full truncation clipped the state to zero: the diffusion took the square root of an exact
+zero, whose infinite slope times the zero derivative is `NaN`. The clipped state now contributes
+nothing to a derivative of any order. With a = 0.1, b = 0.1, σ = 0.5 and r₀ = 5%, where the Feller
+condition fails, the derivative in `a` of one path's 3-year discount factor was `NaN` and is now
+−0.0243687, matching a central difference. Values are unchanged.
+
 `simulate` takes its number of steps from `FinanceModels.simulation_steps(horizon, timestep)`, which
 returns `(; nsteps, aligned)`. A horizon within `8eps` of a whole number of steps is aligned, so
 roundoff adds no step: `horizon = 0.07, timestep = 0.01` took 8 steps and now takes 7, which changes
