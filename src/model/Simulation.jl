@@ -324,6 +324,13 @@ derivatives at a correlation of ±1 don't exist.
 
 A scenario draws `d` standard normals per step, in the order scenario, step, model. A single model
 with `ρ = [1;;]` gives exactly the paths of `simulate(model; rng)`.
+
+With Copulas.jl loaded, a `d`-dimensional copula can take the place of `ρ`,
+`simulate(models, copula; ...)`. Each step draws one sample of uniforms from the copula and maps
+each through the standard normal quantile to a model's innovation, so the copula is the dependence
+of each step's innovations, not of the models' later values. A `GaussianCopula` is simulated as its
+correlation matrix and an `IndependentCopula` as the identity, exactly as the matrix method. A
+copula sample of exactly 0 or 1 throws a `DomainError` rather than giving an infinite shock.
 """
 function simulate(
         models::Tuple, ρ::AbstractMatrix;
