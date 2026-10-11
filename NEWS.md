@@ -16,7 +16,7 @@ Cairns–Pritchard models. For example, a nested derivative through the nonnegat
 pass validation and produce a `NaN` derivative. Calculations retain the derivatives; the API
 and intended parameter domains are unchanged.
 
-### Option prices at zero and tiny volatility
+### Option prices and simulations at zero and tiny volatility
 
 - **Bond options, caps, floors and swaptions** under Vasicek and Hull–White switched to intrinsic
   values below a bond-price volatility of 1e-15, which dropped the volatility derivative of an
@@ -37,6 +37,12 @@ where the forward price equals the strike exactly, the delta is ±1/2 and the pr
 proportion to the volatility. Elsewhere the delta is 1 or 0 and there is no vega. These are
 one-sided, and a forward a rounding error from the strike is in or out of the money. At zero
 volatility at the money, gamma is infinite. Prices otherwise change only by rounding.
+
+- **Simulated Vasicek and Hull–White paths** took each step's standard deviation as √(σ²·…), whose
+  σ-derivative is `NaN` at σ = 0, so pathwise sensitivities there were `NaN`. σ² also underflowed
+  below σ = 1e-154, so a positive σ was simulated as zero. The standard deviation is now σ·√(…).
+  The random draws are unchanged, but the standard deviation can differ from 7.0.0's in its last
+  bit, as it did in 36 of 144 parameter sets checked, and so can simulated paths.
 
 ## v7.0.0
 

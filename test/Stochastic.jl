@@ -2086,3 +2086,52 @@ end
     end
 end
 
+@testset "Gaussian simulation steps are linear in σ (#291)" begin
+    D(f, x) = ForwardDiff.derivative(f, x)
+    # the standard deviation of an exact Ornstein-Uhlenbeck step, σ·√((1 - e^{-2a·dt})/(2a)), against
+    # 256-bit arithmetic: √(σ²·…) had a NaN derivative at σ = 0, and σ² underflowed below σ = 1e-154
+    setprecision(BigFloat, 256) do
+        for a in (-0.5, 0.0, 1.0e-8, 0.1, 2.0), σ in (0.0, 1.0e-300, 1.0e-200, 1.0e-12, 0.01, 0.2), dt in (1 / 252, 1 / 12, 1.0)
+            A, Δ = big(a), big(dt)
+            w = iszero(A) ? sqrt(Δ) : sqrt((1 - exp(-2A * Δ)) / (2A))
+            @test FinanceModels.__ou_step_params(a, σ, dt).sd ≈ big(σ) * w rtol = 4eps()
+            @test D(s -> FinanceModels.__ou_step_params(a, s, dt).sd, σ) ≈ w rtol = 4eps()
+        end
+    end
+
+    # Simulated discount factors against an independent replay of the exact transitions in 256-bit
+    # arithmetic, with the same shocks. Given the shocks each rate is r_j = μ_j + σ·ξ_j (Hull-White's μ
+    # also has σ²/2·B(t)²), so the pathwise derivative is known exactly, at σ = 0 too.
+    a, b, r0, dt, n = 0.1, 0.04, 0.03, 1 / 12, 24
+    # scalar draws, as `simulate` makes them (a vector `randn` draws a different stream)
+    rng = Random.Xoshiro(11)
+    Z = [randn(rng) for _ in 1:n]
+    vas(s) = discount(only(simulate(ShortRate.Vasicek(a, b, s, Continuous(r0)); n_scenarios = 1, timestep = dt, horizon = n * dt, rng = Random.Xoshiro(11))), n * dt)
+    hw(s) = discount(only(simulate(ShortRate.HullWhite(a, s, Yield.Constant(Continuous(r0))); n_scenarios = 1, timestep = dt, horizon = n * dt, rng = Random.Xoshiro(11))), n * dt)
+    setprecision(BigFloat, 256) do
+        A, Δ = big(a), big(dt)
+        ϕ, w = exp(-A * Δ), sqrt((1 - exp(-2A * Δ)) / (2A))
+        ξ = [big(0.0); accumulate((x, z) -> x * ϕ + w * z, big.(Z); init = big(0.0))]
+        trap(x) = sum((x[j] + x[j + 1]) / 2 for j in 1:n) * Δ
+        μ = [big(b) + (big(r0) - big(b)) * ϕ^j for j in 0:n]
+        B² = [((1 - exp(-A * big(j * dt))) / A)^2 for j in 0:n]
+        for σ in (0.0, 1.0e-300, 0.01)
+            Σ = big(σ)
+            I = trap(μ) + Σ * trap(ξ)
+            @test vas(σ) ≈ exp(-I) rtol = 1.0e-14
+            @test D(vas, σ) ≈ -exp(-I) * trap(ξ) rtol = 1.0e-13
+            Ih = trap(r0 .+ Σ^2 / 2 .* B²) + Σ * trap(ξ)
+            @test hw(σ) ≈ exp(-Ih) rtol = 1.0e-14
+            @test D(hw, σ) ≈ -exp(-Ih) * (trap(ξ) + Σ * trap(B²)) rtol = 1.0e-13
+        end
+    end
+    for f in (vas, hw)
+        @test D(s -> f(-s), 0.0) == -D(f, 0.0)
+        @test D(x -> D(y -> f((x - y)^2), 0.0), 0.0) ≈ -2D(f, 0.0) rtol = 1.0e-14
+    end
+    # the draws are unchanged: one standard normal per step
+    rng, ref = Random.Xoshiro(11), Random.Xoshiro(11)
+    simulate(ShortRate.Vasicek(a, b, 0.0, Continuous(r0)); n_scenarios = 3, timestep = dt, horizon = n * dt, rng)
+    foreach(_ -> randn(ref), 1:(3n))
+    @test rng == ref
+end

@@ -548,10 +548,11 @@ __sim_eltype(m::ShortRate.HullWhite, r0) =
 
 # Exact Ornstein-Uhlenbeck transition parameters over one step of length dt:
 #   x_{t+dt} | x_t ~ Normal(x_t·ϕ, sd²),  ϕ = exp(-a·dt),  sd² = σ²(1-ϕ²)/(2a)
+# σ ≥ 0, so sd = σ·√((1-ϕ²)/(2a)): √(σ²·…) has an infinite slope at σ = 0, where its derivative was
+# NaN, and σ² underflows below σ = 1e-154, where it gave sd = 0.
 function __ou_step_params(a, σ, dt)
     ϕ = exp(-a * dt)
-    var = σ^2 * __decay_integral(2a, dt)
-    return (ϕ = ϕ, sd = sqrt(var))
+    return (ϕ = ϕ, sd = σ * sqrt(__decay_integral(2a, dt)))
 end
 
 # The rate that enters the discount integral: identity except for CIR, where
