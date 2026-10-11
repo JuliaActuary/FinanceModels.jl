@@ -1,5 +1,27 @@
 # FinanceModels.jl release notes
 
+## v7.1.0 (unreleased)
+
+### Equity price paths
+
+`simulate(model::Equity.BlackScholesMerton; n_scenarios, timestep, horizon, rng)` returns
+Black–Scholes–Merton price paths as `PricePath`s, on the grid `simulate` uses for rate models.
+
+- **Transition:** each step is the exact lognormal transition, so prices at the grid times have no
+  discretisation bias.
+- **Scale:** a path starts at 1 and is the ex-dividend price relative to its start, so prices in
+  currency are the starting spot times `p.(FinanceModels.simulation_times(p))`.
+- **Grid times only:** `p(t)` answers only at grid times, up to roundoff, and throws a `DomainError`
+  elsewhere, like `short_rate`.
+- **Volatility:** σ is a number or a `Volatility.Constant`. `Volatility.Constant()` is zero
+  volatility. Other volatility models are a `MethodError`.
+- **Invalid inputs:** rates that are not finite, or a volatility that is negative or not finite,
+  throw an `ArgumentError`.
+- **Not a yield model:** a `PricePath` has no `discount`.
+
+The simulation loop is now shared by rate and equity models. A rate model's paths, their element
+types and its random draws are unchanged.
+
 ## v7.0.1 (unreleased)
 
 ### Parameter checks read values, not derivatives
