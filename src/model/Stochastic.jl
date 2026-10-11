@@ -476,56 +476,9 @@ function simulate(
         horizon::Real = 30.0,
         rng::Random.AbstractRNG = Random.default_rng()
     )
-    grid = simulation_steps(horizon, timestep)
-    n_steps = grid.nsteps
-    dt = Float64(timestep)
-    sqrt_dt = sqrt(dt)
-
-    cache = __sim_cache(model, dt, n_steps)
-
-    # Parameters other than the initial rate may carry an AD number type.
-    r0 = __sim_initial_rate(model)
-    T = __sim_eltype(model, r0)
-    # The recorded rates keep the precision of the states the integral is accumulated from: the
-    # shock and `dt` are Float64, so a Float32 model's states after the first step are Float64.
-    S = promote_type(T, Float64)
-
-    times = Vector{Float64}(undef, n_steps + 1)
-    times[1] = 0.0
-    for j in 1:n_steps
-        times[j + 1] = j * dt
-    end
-    # An aligned grid ends at the horizon itself: n_steps·dt can round to either side of it (three
-    # steps of 0.3 end at 0.8999999999999999, three of 0.1 at 0.30000000000000004), and the path
-    # covers exactly the horizon it was asked for. An unaligned grid ends at its extra step.
-    grid.aligned && (times[end] = horizon)
-
-    # `map` (rather than filling a Vector{RatePath}, a UnionAll eltype) infers the
-    # concrete RatePath{...} element type, so downstream pricing loops dispatch
-    # statically instead of dynamically per path
-    return map(1:n_scenarios) do _
-        cumulative = Vector{T}(undef, n_steps + 1)
-        cumulative[1] = zero(T)
-        rates = Vector{S}(undef, n_steps + 1)
-        r = r0
-        rates[1] = __observed_rate(model, r)
-        for j in 1:n_steps
-            Z = randn(rng)
-            t = (j - 1) * dt
-            r_new = __step(model, r, dt, sqrt_dt, Z, t, cache, j)
-            # the integral is accumulated from the working states, never from the recorded rates
-            cumulative[j + 1] = cumulative[j] +
-                0.5 * (__observed_rate(model, r) + __observed_rate(model, r_new)) * dt
-            rates[j + 1] = __observed_rate(model, r_new)
-            r = r_new
-        end
-        # no extrapolation: the path is defined only on its simulated grid
-        interp = DataInterpolations.LinearInterpolation(
-            cumulative, times;
-            extrapolation = DataInterpolations.ExtrapolationType.None
-        )
-        RatePath(interp, rates)
-    end
+    grid = __sim_grid(horizon, timestep)
+    kernel = __sim_kernel(model, grid, Float64)
+    return __simulate_paths(only, (kernel,), grid, n_scenarios, rng, __IndependentShocks{1}())
 end
 
 # Initial rate extractors for simulation
