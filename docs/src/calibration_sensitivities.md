@@ -35,8 +35,9 @@ table below).
 
 ## The contract at a glance
 
-- **First order only through solves.** Derivatives through `fit` and `implied_quote` are exact
-  first derivatives. Nested dual numbers (a Hessian, or convexity through a calibration) throw.
+- **First order only through solves.** Implicit derivatives through spline/FX `fit` and `implied_quote` are exact
+  first derivatives. Nested dual numbers (a Hessian, or convexity through these implicit solves) throw.
+  The closed-form Smith–Wilson fit is separate, as described below.
   `reconstruct` solves nothing: a curve rebuilt from dual knot rates has derivatives of any
   order, except at an interpolation kink, where nested dual numbers throw.
 - **With respect to what you differentiate.** Differentiating through `fit` gives risk to the
@@ -46,7 +47,7 @@ table below).
 - **Exact fits only.** A differentiated fit must reprice its quotes. Bootstrap does; a loss fit
   is accepted only when one Newton correction of its knot rates is at most `1e-6` in every
   component (see "Accuracy" below).
-- **Kinks.** Linear, quadratic, cubic, and B-spline interpolation are differentiable everywhere.
+- **Kinks.** Linear, quadratic, cubic, and B-spline interpolation are differentiable in their knot rates at fixed tenors. This does not imply smoothness in tenor at the knots.
   At a kink of `Spline.MonotoneConvex()` (a flat stretch of the curve, or two equal adjacent
   forwards), each partial is the centered response to a bump in its own direction. **On a flat
   stretch these responses need not add up to the response to a parallel shift, so they do not
@@ -83,7 +84,7 @@ A spline fit places one knot at each quote maturity, so the fitted knot rates `z
 square repricing system
 
 ```math
-R_i(z, p) = \operatorname{pv}(\text{curve}(z), q_i) - \text{price}_i = 0 .
+R_i(z, p) = \operatorname{pv}(\text{curve}(z), \text{instrument}_i) - \text{price}_i = 0 .
 ```
 
 `fit` solves it on primal copies of the quotes, then attaches

@@ -73,8 +73,9 @@ forward deviates, the difference is a riskless profit ("covered interest arbitra
 curve per currency, where each curve can be *any* yield model (constant, spline,
 Nelson–Siegel, a `CompositeYield` sum, …):
 
-```julia
+```@example fx
 using FinanceModels
+using Transducers: Map
 
 eurusd = FX.Pair(:EUR, :USD)
 usd = Yield.Constant(Continuous(0.05))
@@ -102,7 +103,7 @@ package's test suite.
 base currency and pay `strike` units of quote currency. Its value, in quote currency, is
 the discounted difference between the model forward and the strike:
 
-```julia
+```@example fx
 c = FX.Forward(eurusd, 1.1222, 1.0)  # receive €1, pay $1.1222, at t = 1
 present_value(m, c)                  # (forward(m, 1) - 1.1222) * discount(usd, 1)
 ```
@@ -111,7 +112,7 @@ A forward struck *at* the market rate costs nothing to enter. That is precisely 
 market quotes forwards, so FX quotes are zero-price `Quote`s — the FX analog of a par
 bond quoting at 1.0:
 
-```julia
+```@example fx
 quotes = FX.Outright.(eurusd, [1.1055, 1.1113, 1.1225, 1.1459], [0.25, 0.5, 1.0, 2.0])
 
 # equivalently, from screen points over spot (pips: 1/10_000 here, 1/100 for JPY quotes):
@@ -133,7 +134,7 @@ factor in closed form* — no optimizer, no iteration. Curve construction theref
 to a quote transformation followed by the ordinary fitting machinery, which is what the
 one-step `fit` methods do:
 
-```julia
+```@example fx
 m = fit(FX.Forwards(eurusd, 1.10, usd, Spline.Linear()), quotes, Fit.Bootstrap())
 
 forward(m, 1.0)                        # ≈ 1.1225: every quote reprices exactly
@@ -145,7 +146,7 @@ returning zero-coupon `Quote`s you can feed to *any* model or fitting method. Pa
 foreign curves calibrate through the generic optimizer path (the foreign curve's
 parameters are the free variables; spot and the domestic curve are inputs):
 
-```julia
+```@example fx
 m = fit(FX.Forwards(eurusd, 1.10, usd, Yield.Constant()), quotes)
 ```
 
@@ -170,12 +171,14 @@ reprices the FX market* rather than as any particular reference curve:
 - **Explicit basis.** Because curve arithmetic composes in zero-rate space, the basis is
   a first-class curve when you want to see it:
 
-  ```julia
-  # from an OIS curve and a fitted basis spread curve:
-  m = FX.Forwards(eurusd, 1.10, usd_ois, eur_ois + basis)
+  ```@example fx
+  usd_ois = Yield.Constant(Continuous(0.05))
+  eur_ois = Yield.Constant(Continuous(0.03))
+  m_fit = fit(FX.Forwards(eurusd, 1.10, usd_ois, Spline.Linear()), quotes)
 
-  # or extract the basis implied by a market-fit model:
+  # Extract the basis implied by the market-fit model, then reconstruct it:
   basis = m_fit.foreign - eur_ois
+  m = FX.Forwards(eurusd, 1.10, usd_ois, eur_ois + basis)
   ```
 
   A ``-20``bp EUR basis (`Yield.Constant(Continuous(-0.002))`) lowers effective EUR
@@ -197,7 +200,7 @@ up from the projection's model store by key — the same key/value pattern
 wrapper also carries the pair it expects, so a wrong-direction model under the key — an
 inverted model would silently multiply by reciprocal rates — errors by name instead:
 
-```julia
+```@example fx
 store = Dict("EURUSD" => m, "ESTR" => eur)
 eur_bond = Bond.Fixed(0.04, Periodic(1), 2.0)  # a EUR-denominated bond
 
@@ -240,7 +243,7 @@ compounded), spot is ¥110 = \$1, and an institution receives 5% annually on ¥1
 pays 8% annually on \$10M for three more years, with principals exchanged at maturity.
 A currency swap is just two bonds — one converted:
 
-```julia
+```@example fx
 jpyusd = FX.Pair(:JPY, :USD)
 usd9 = Yield.Constant(Continuous(0.09))
 jpy4 = Yield.Constant(Continuous(0.04))
@@ -268,18 +271,21 @@ Because a converted contract still sees the full model store, a converted
 while its cashflows are converted — so the market-standard constant-notional
 floating-for-floating cross-currency basis swap is also just a `Composite`:
 
-```julia
+```@example fx
+usd_ois = Yield.Constant(Continuous(0.05))
+eur_ois = Yield.Constant(Continuous(0.03))
+m = FX.Forwards(eurusd, 1.10, usd_ois, eur_ois)
 store = Dict("SOFR" => usd_ois, "ESTR" => eur_ois, "EURUSD" => m)
 
 basis_swap = Composite(
     FX.Converted(Bond.Floating(-0.0020, Periodic(4), 5.0, "ESTR"), eurusd, "EURUSD"), # receive €STR − 20bp, in USD terms
-    Bond.Floating(0.0, Periodic(4), 5.0, "SOFR") |> Map(-),                   # pay SOFR flat
+    Bond.Floating(0.0, Periodic(4), 5.0, "SOFR") |> Map(cf -> -1.10 * cf),    # pay SOFR on $1.10 principal
 )
 ```
 
 (The `Bond.Floating` legs are bond-style — they include the final principal — so the
-principal exchange at maturity is represented; a par basis swap's initial exchange nets
-against a unit `Cashflow` at time zero if you need it explicitly.)
+principal exchange at maturity is represented. The notionals are €1 against \$1.10,
+matched at spot. Their initial exchange has zero net value in USD at that spot rate.)
 
 ### Calibrating the long-dated basis from par basis-swap quotes
 
@@ -305,9 +311,9 @@ each quote materializes into a deterministic base-currency cashflow strip
 deterministic strips flow through the same fitting machinery as the implied zero-coupon
 quotes. One `fit` call takes both quote types:
 
-```julia
-estr = ...   # EUR projection curve, fitted from EUR OIS quotes
-sofr = ...   # USD discount curve
+```@example fx
+estr = Yield.Constant(Continuous(0.03))  # illustrative EUR projection curve
+sofr = Yield.Constant(Continuous(0.05))  # illustrative USD discount curve
 
 quotes = [
     # short end: outrights from screen points over spot (pips = 1/10_000)
@@ -319,10 +325,19 @@ quotes = [
 m = fit(FX.Forwards(eurusd, 1.10, sofr, Spline.Linear()), quotes, Fit.Bootstrap())
 ```
 
-Every quote reprices: an outright under the fitted model (`present_value(m, q.instrument) ≈ 0`),
-a basis-swap leg on its foreign curve (`present_value(m.foreign, q.instrument) ≈ 1`). The composite
-basis swap from the previous section values to zero under a context whose store holds the fitted
-model (the test suite asserts both). Practical notes:
+The outright quotes reprice under `m`, while the basis-swap strips reprice at par on `m.foreign`. To verify the five-year quote through the projected contracts, use its quoted spread and match notionals at spot:
+
+```@example fx
+basis_swap = Composite(
+    FX.Converted(Bond.Floating(-0.0015, Periodic(4), 5.0, "ESTR"), eurusd, "EURUSD"),
+    Bond.Floating(0.0, Periodic(4), 5.0, "SOFR") |> Map(cf -> -1.10 * cf),
+)
+ctx = Models(sofr, Dict("SOFR" => sofr, "ESTR" => estr, "EURUSD" => m))
+@assert abs(present_value(ctx, basis_swap)) < 1e-8 # hide
+present_value(ctx, basis_swap)  # approximately zero
+```
+
+Practical notes:
 
 - Bootstrapping requires `Spline.Linear`: with smoother interpolation, adding a knot
   reshapes earlier segments and drifts already-solved swaps off par, so `Fit.Bootstrap`

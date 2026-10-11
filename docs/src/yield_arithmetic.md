@@ -48,11 +48,7 @@ Adding nominal rates ignores the **cross-term**. If you invest \$1 at the base r
 
 The cross-term (`0.05 × 0.02 = 0.001`) is what gets dropped when you simply add `0.05 + 0.02 = 0.07`. Over a single year this is 10 bps; over 10 years it compounds.
 
-In continuous space, the cross-term doesn't exist — `exp(a) × exp(b) = exp(a + b)` exactly — so adding continuous zero rates is the correct way to combine deflators. `curve_a + curve_b` creates a [`CompositeYield`](@ref FinanceModels.Yield.CompositeYield) that, at each time `t`:
-
-1. Extracts continuous zero rates from each curve: ``z_i = -\log D_i(t) / t``
-2. Adds the zero rates: ``z = z_1 + z_2``
-3. Returns the combined DF: ``D(t) = e^{-z \, t}``
+In continuous space, adding zero rates combines deflators because `exp(a) × exp(b) = exp(a + b)`. Curve arithmetic evaluates the cumulative log discounts ``L_i(t) = -\log D_i(t)`` directly: addition gives ``L(t) = L_1(t) + L_2(t)`` and ``D(t) = \exp(-L(t))``. This also avoids dividing by zero at `t = 0`. Two constant curves combine into another `Yield.Constant`; other curve sums use [`CompositeYield`](@ref FinanceModels.Yield.CompositeYield).
 
 Subtraction works analogously — `curve_a - curve_b` divides discount factors, giving the implied spread curve.
 
@@ -71,7 +67,7 @@ zero(spread,1)  # Continuous(0.01887...) — not exactly 2% in nominal terms
 # Verify round-trip:
 discount(base + spread, 10.0) ≈ discount(target, 10.0)  # true
 
-# You can also add the spread Rate directly:
+# Here both curves are constant, so their spread is also a constant Rate:
 discount(base + spread.rate, 10.0) ≈ discount(target, 10.0)  # true
 ```
 
@@ -102,7 +98,7 @@ D_\alpha(t) = e^{-\alpha \, z(t) \, t} = \bigl[D(t)\bigr]^\alpha
 
 This creates a [`ScaledYield`](@ref FinanceModels.Yield.ScaledYield).
 
-A common use case is after-tax yields. If the tax rate is 21%, the after-tax curve is `curve * 0.79`:
+For example, if a model assumes a 21% tax applied continuously to interest accrual, scale the continuous rate by 0.79. Taxes on discrete coupons or realized gains require their own cashflow treatment:
 
 ```julia
 pretax = Yield.Constant(Continuous(0.05))
@@ -148,7 +144,7 @@ m + Yield.Constant(Continuous(0.01))
 | Space | The blend | Use it for |
 |:------|:----------|:-----------|
 | `Yield.DiscountFactors()` | ``D(t) = \sum_i w_i D_i(t)`` | a mixture: present value is linear in the curves, as for an expected discount factor over scenarios |
-| `Yield.ZeroRates()` | ``z(t) = \sum_i w_i z_i(t)`` | the same curve as `w * a + (1 - w) * b`, also with a weight that varies with tenor |
+| `Yield.ZeroRates()` | ``z(t) = \sum_i w_i z_i(t)`` | for constant `w`, the same curve as `w * a + (1 - w) * b`; `Blend` also accepts tenor-dependent weights |
 | `Yield.ForwardRates(period)` | ``f(t) = \sum_i w_i(kp)\, f_i(t)`` for ``kp \le t < (k+1)p`` | grading one curve's forwards into another's, period by period |
 
 ```julia
@@ -170,7 +166,7 @@ The spaces behave differently:
   - Rebased to a later time `s` (`ForwardStarting`), the mixture's weights become each curve's share of the discount factor at `s`, `wᵢ·Dᵢ(s)/D(s)`.
   - An expected discount factor gives the expected present value only of cashflows that don't vary by scenario.
 - **Zero rates.** The weights are used as given, so a negative weight extrapolates. With a weight that varies with tenor, the forward rate picks up the term ``w'(t)\,(L_a(t) - L_b(t))``, so it can bump where the weight changes.
-- **Forward rates.** Each period's forwards are blended with the weights at the period's start, so the forward is smooth within a period and jumps at its boundaries. The blend is built from the curves' interval factors, so it starts at `discount(blend, 0) == 1`. A weight that varies with tenor costs about `t / period` interval factors of each curve per evaluation at `t`.
+- **Forward rates.** Each period's forwards are blended with the weights at the period's start, so the forward inherits the component curves' within-period smoothness and may also jump where the weights change at period boundaries. The blend is built from the curves' interval factors, so it starts at `discount(blend, 0) == 1`. A weight that varies with tenor costs about `t / period` interval factors of each curve per evaluation at `t`.
 
 Weights that don't sum to 1, to rounding, throw an `ArgumentError`: number weights when the blend is built, and weights that vary with tenor where they are read. With weights that vary with tenor, `discount(blend, Inf)` is `NaN`, since the weights at infinity are not known.
 
@@ -178,8 +174,8 @@ Weights that don't sum to 1, to rounding, throw an `ArgumentError`: number weigh
 
 | Expression | Result type | Semantics |
 |:-----------|:------------|:----------|
-| `a + b` | `CompositeYield` | Compound deflators: ``D_a \cdot D_b`` |
-| `a - b` | `CompositeYield` | Spread between curves: ``D_a / D_b`` |
+| `a + b` | `CompositeYield` (or `Constant` for two constants) | Compound deflators: ``D_a \cdot D_b`` |
+| `a - b` | `CompositeYield` (or `Constant` for two constants) | Spread between curves: ``D_a / D_b`` |
 | `curve * α` | `ScaledYield` | ``D^\alpha`` (CZR scaling) |
 | `curve / α` | `ScaledYield` | ``D^{1/\alpha}`` (CZR scaling) |
 | `Yield.Blend(a, b, w, Yield.DiscountFactors())` | `Blend` | ``w D_a + (1-w) D_b`` |
@@ -187,8 +183,8 @@ Weights that don't sum to 1, to rounding, throw an `ArgumentError`: number weigh
 | `Yield.Blend(a, b, w, Yield.ForwardRates(p))` | `Blend` | ``f = w f_a + (1-w) f_b``, `w` read once per period |
 
 !!! warning "Par-rate spreads cannot be composed additively"
-    Curve arithmetic operates on zero rates. If your base rates and spreads are quoted as **par rates**, you cannot simply add the spread curve to the base curve and get the same result as fitting a single curve to the combined par rates. Par rates depend on the path of rates at earlier tenors, so they must be converted to zero rates (e.g. via bootstrap) before composition. See the examples in [`CompositeYield`](@ref FinanceModels.Yield.CompositeYield) for a demonstration of this difference.
+    Curve arithmetic operates on zero rates. If your base rates and spreads are quoted as **par rates**, you cannot simply add the spread curve to the base curve and get the same result as fitting a single curve to the combined par rates. To target base par yields plus par spreads, add the quoted rates first and fit one curve to those combined quotes. Fitting the two quote sets separately does not make curve addition equivalent. See the examples in [`CompositeYield`](@ref FinanceModels.Yield.CompositeYield) for a demonstration of this difference.
 
 ## Performance
 
-[`CompositeYield`](@ref FinanceModels.Yield.CompositeYield) and [`ScaledYield`](@ref FinanceModels.Yield.ScaledYield) evaluate both underlying curves on every call to `discount`. If you are using a composite curve in a hot loop, consider pre-computing the combined zero rates at the tenors you need and fitting a single spline curve to the result.
+[`CompositeYield`](@ref FinanceModels.Yield.CompositeYield) and [`ScaledYield`](@ref FinanceModels.Yield.ScaledYield) evaluate their component curves on every call to `discount`. If you are using a composite curve in a hot loop, consider pre-computing the combined zero rates at the tenors you need and constructing a single spline curve from the result. This is generally an approximation between the sampled tenors.

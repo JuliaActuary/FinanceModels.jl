@@ -29,7 +29,7 @@ Continuous(0.05)       # 5% continuously compounded
 Periodic(0.05,2)       # 5% compounded twice per period
 ```
 
-These are both subtypes of the parent `Rate` type and are instantiated as:
+These construct `Rate` values with the chosen compounding convention, equivalently:
 
 ```julia
 Rate(0.05,Continuous())       # 5% continuously compounded

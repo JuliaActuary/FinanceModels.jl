@@ -2,7 +2,7 @@
 
 ## **Contracts** - A composable way to represent financial instruments
 
-Contracts are a composable way to represent financial instruments. They are, in essence, anything that is a collection of cashflows. Contracts can be combined to represent more complex instruments. For example, a bond can be represented as a collection of cashflows that correspond to the coupon payments and the principal repayment.
+Contracts are a composable way to represent financial instruments. Many contracts project to a collection of cashflows; others, such as options, use a model-specific pricing formula. Contracts can be combined to represent more complex instruments. For example, a bond can be represented as a collection of cashflows that correspond to the coupon payments and the principal repayment.
 
 Examples:
 
@@ -32,7 +32,7 @@ The new solution: `Cashflow`s. Our example above would become: `[Cashflow(1,0.05
 
 ### Creating a new Contract
 
-A contract is anything that creates a vector of `Cashflow`s when `collect`ed. For example, let's create a bond which only pays down principal and offers no coupons.
+A contract with deterministic cashflows can define how it is collected into `Cashflow`s. For example, let's create a bond which only pays down principal and offers no coupons.
 
 ```julia
 using FinanceModels,FinanceCore
@@ -178,6 +178,8 @@ end
 # Pays principal plus the forward rate from t = 1 to 2 at t = 2.
 FinanceCore.present_value(ctx, c::OnePeriodFloater) = discount(ctx, 2.0) / discount(ctx[c.key], 1.0, 2.0)
 
+ois = Yield.Constant(Continuous(0.03))
+sofr = Yield.Constant(Continuous(0.04))
 present_value(Models(ois, Dict("SOFR" => sofr)), [OnePeriodFloater("SOFR"), Bond.Fixed(0.04, Periodic(2), 5.0)])
 ```
 
