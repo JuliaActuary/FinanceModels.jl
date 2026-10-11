@@ -50,3 +50,17 @@ stem(proj)
 Will produce:
 
 ![A stem plot of bond cashflows](https://github.com/JuliaActuary/ActuaryUtilities.jl/assets/711879/29480ce2-9691-4eb5-b656-a05394f7a2c2)
+
+# Copulas for Correlated Scenarios
+
+With [Copulas.jl](https://github.com/lrnv/Copulas.jl) loaded, `simulate` takes a copula in place of
+a correlation matrix, for scenarios whose models' innovations have that copula's dependence:
+
+```julia
+using FinanceModels, Copulas
+hw = ShortRate.HullWhite(0.1, 0.01, Yield.Constant(Continuous(0.03)))
+stock = Equity.BlackScholesMerton(0.03, 0.01, 0.2)
+scenarios = simulate((rates = hw, stock = stock), ClaytonCopula(2, 7.0); n_scenarios=1000)
+```
+
+See [Correlated Scenarios](@ref) in the stochastic models guide.
