@@ -96,5 +96,14 @@ struct SmileVolatility <: FinanceModels.Volatility.AbstractVolatilityModel end
         pd = only(simulate(Equity.BlackScholesMerton(ForwardDiff.Dual{Nothing}(r, 1.0), q, σ); n_scenarios = 1, timestep = 0.25, horizon = 2.0, rng = rng_d))
         @test rng_f == rng_d
         @test all(t -> ForwardDiff.value(pd(t)) == pf(t), FinanceModels.simulation_times(pf))
+        # a derivative through σ = 0: σ = (x - y)² is never negative, but its dual numbers at
+        # x = y = 0 carry signed partials, which the sign check must not read
+        Sσ(s) = only(simulate(Equity.BlackScholesMerton(r, q, s); n_scenarios = 1, timestep = 0.25, horizon = 2.0, rng = Random.Xoshiro(3)))(2.0)
+        mixed = ForwardDiff.derivative(x -> ForwardDiff.derivative(y -> Sσ((x - y)^2), 0.0), 0.0)
+        # ∂²/∂x∂y S((x - y)²) at 0 is -2S'(0); its central difference is 2(S(0) - S(h²))/h²
+        h = 1.0e-4
+        @test mixed ≈ 2 * (Sσ(0.0) - Sσ(h^2)) / h^2 rtol = 1.0e-3
+        # a negative seed at σ = 0
+        @test ForwardDiff.derivative(s -> Sσ(-s), 0.0) == -ForwardDiff.derivative(Sσ, 0.0)
     end
 end

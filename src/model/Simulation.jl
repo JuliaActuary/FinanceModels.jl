@@ -161,9 +161,11 @@ function __sim_kernel(m::Equity.BlackScholesMerton, g::__SimGrid, ::Type{W}) whe
     r, q, σ = m.r, m.q, __path_vol(m.σ)
     # Infinite rates give prices of 0 or Inf from the first step on. A negative σ gives the paths
     # of |σ| with the shocks' signs flipped, which reverses their correlation with other models.
+    # The sign is read from σ's value: under ForwardDiff 1, a dual number at 0 with a negative
+    # partial compares below 0, which would reject a derivative through σ = 0.
     (isfinite(r) && isfinite(q)) ||
         throw(ArgumentError("a simulated BlackScholesMerton needs finite rates, got r = $r and q = $q"))
-    (isfinite(σ) && σ >= 0) ||
+    (isfinite(σ) && __primal(σ) >= 0) ||
         throw(ArgumentError("a simulated BlackScholesMerton needs a finite, non-negative volatility, got σ = $σ"))
     drift = (r - q - σ^2 / 2) * g.dt
     vol = σ * g.sqrt_dt
