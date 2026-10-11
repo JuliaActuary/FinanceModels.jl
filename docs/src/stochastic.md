@@ -314,11 +314,14 @@ discount(s.rates, 5.0) * s.stock(5.0)    # the stock's year-5 price, discounted 
 
 Each model steps with its own transition. At each step the models' standardized innovations have
 correlation `ρ`: the step draws one standard normal per model and multiplies them by a factor `F`
-with `F Fᵀ = ρ`. This is not the correlation of the models' Brownian drivers in continuous time. An
-exact transition weights a step's increments by when they occur, so drivers with correlation `ρ`
-would give innovations correlated less strongly, by an amount that grows with the mean-reversion
-speed and the timestep. How the models' values at a later time depend on each other follows from
-the models and the timestep.
+with `F Fᵀ = ρ`. This is not, in general, the correlation of the models' Brownian drivers in
+continuous time. An exact transition weights a step's increments by when they occur, discounting
+the earlier ones at its mean-reversion speed. Models that weight them the same way, such as two
+Vasicek models with the same speed, have innovations with their drivers' correlation. Models that
+weight them differently, such as a mean-reverting rate and a stock, have innovations correlated
+less strongly than their drivers, by an amount that grows with the difference and the timestep.
+How the models' values at a later time depend on each other follows from the models and the
+timestep.
 
 Correlations of ±1 are allowed. A correlation matrix carrying ForwardDiff derivatives must be
 positive definite, because the derivatives don't exist at ±1. A single model with `ρ = [1;;]` gives

@@ -304,11 +304,13 @@ truncation for Cox–Ingersoll–Ross.
 `ρ` is the correlation between the standardized innovations the models receive at each step: a
 step draws `d` standard normals `z` and gives model `i` the `i`-th entry of `F z`, where
 `F Fᵀ = ρ`. It is not, in general, the Brownian-driver correlation of an exact continuous-time
-joint model. An exact transition weights a step's Brownian increments by when they occur (mean
-reversion discounts the earlier ones), so models whose drivers have correlation `ρ` would have
-innovations correlated less strongly, by an amount that grows with the mean-reversion speed and the
-timestep. The dependence of the models' values at a later time follows from the models and the
-timestep.
+joint model. An exact transition weights a step's Brownian increments by when they occur: mean
+reversion discounts the earlier ones, at its own speed, and a model without mean reversion weights
+them equally. Two models that weight them the same way, such as two Vasicek models with the same
+speed, have innovations with their drivers' correlation. Models that weight them differently have
+innovations correlated less strongly than their drivers, by an amount that grows with the
+difference in weighting and with the timestep. The dependence of the models' values at a later time
+follows from the models and the timestep.
 
 This is a scenario generator, not a hybrid pricing model: a Black–Scholes–Merton model keeps its
 constant-rate drift, so a `RatePath`'s discount factor times a `PricePath` is not a martingale.
