@@ -16,6 +16,28 @@ Cairns–Pritchard models. For example, a nested derivative through the nonnegat
 pass validation and produce a `NaN` derivative. Calculations retain the derivatives; the API
 and intended parameter domains are unchanged.
 
+### Option prices at zero and tiny volatility
+
+- **Bond options, caps, floors and swaptions** under Vasicek and Hull–White switched to intrinsic
+  values below a bond-price volatility of 1e-15, which dropped the volatility derivative of an
+  at-the-money option. For a one-into-two-year bond option under Vasicek, it fell from 0.34 just
+  above the switch to 0 below it and at σ = 0, where the one-sided derivative is 0.34. An
+  at-the-money cap's derivative was 0 up to σ = 1e-15 and jumped to 0.26 and then 1.11 as its
+  caplets crossed the switch.
+- **Black–Scholes** `eurocall` and `europut`, and the prices of `Equity.BlackScholesMerton` options
+  (including `Volatility.Constant()`, which is zero volatility), had `NaN` volatility derivatives at
+  σ = 0 and below about σ = 1e-155. At σ = 0 the price itself was `NaN` when the log-moneyness was
+  exactly 0, as with S = K and r = q. A negative σ now throws a `DomainError`; it gave a different
+  price, negative for an at-the-money call.
+
+Both now use one Black formula, with no switch, whose ForwardDiff derivatives are its Greeks: the
+formula differentiated loses every digit as the volatility goes to 0. Zero volatility gives the
+intrinsic value of the forward, and derivatives there are their limits as σ → 0⁺. At the money,
+where the forward price equals the strike exactly, the delta is ±1/2 and the price grows in
+proportion to the volatility. Elsewhere the delta is 1 or 0 and there is no vega. These are
+one-sided, and a forward a rounding error from the strike is in or out of the money. At zero
+volatility at the money, gamma is infinite. Prices otherwise change only by rounding.
+
 ## v7.0.0
 
 ### Valuation contexts (requires FinanceCore 3; changed numbers)

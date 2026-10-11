@@ -7,13 +7,64 @@ end
 
 __N(x) = __ϕ(x)
 
-function __d1(S, K, τ, r, σ, q)
-    return (log(S / K) + (r - q + σ^2 / 2) * τ) / (σ * √(τ))
+# the standard normal density
+__normal_density(x) = exp(-x^2 / 2) / sqrt(2 * oftype(float(x), π))
+
+# Black's formula: the prices `(call, put)` of European options on an asset whose forward price at
+# expiry is `F` and whose strike is `K`, both discounted to today, where `v ≥ 0` is the volatility of
+# the log forward price to expiry (σ√τ under Black–Scholes). The option is at the money when F = K:
+# the forward price equals the strike, with discounting and dividends included in both.
+#
+# Derivatives are Black's Greeks, not the formula differentiated: ∂/∂F is Φ(d₊) for the call and
+# -Φ(-d₊) for the put, ∂/∂K is -Φ(d₋) and Φ(-d₋), and ∂/∂v is F·φ(d₊) for both. Differentiating
+# the formula itself cancels terms of size m/v² (m the log-moneyness), which loses every digit as
+# v → 0 and overflows to NaN below about v = 1e-155. Each derivative term is a strong-zero product
+# (`__strong_zero_mul`), so a zero Greek contributes nothing where an input's derivative is infinite
+# (√τ at τ = 0).
+#
+# Zero volatility is the intrinsic value, and the derivatives there are the limits as v → 0⁺ at
+# fixed F and K: in the money Φ = 1 and no vega, out of the money Φ = 0 and no vega, and at the
+# money Φ = 1/2 and vega F/√(2π), as the price grows like F·v/√(2π) there. The price is not jointly
+# smooth in v and the moneyness at v = 0, so these are one-sided: a forward a rounding error away
+# from the strike is in or out of the money, with no vega. Second derivatives are the Greeks
+# differentiated; at v = 0 they are the limits (zero) away from the money and, at the money, in v
+# alone, while gamma there is infinite (it grows like 1/v) and second derivatives that move the
+# moneyness are not finite.
+__black(F, K, v) = __black(promote(float(F), float(K), float(v))...)
+function __black(F::T, K::T, v::T) where {T <: Real}
+    # a negative volatility is not |v|: d₊ and d₋ change places and an at-the-money call is negative
+    __primal(v) < 0 && throw(DomainError(v, "Black's formula needs a non-negative volatility"))
+    d₊, d₋ = __black_d(F, K, v)
+    return F * __black_Φ(d₊) - K * __black_Φ(d₋), K * __black_Φ(-d₋) - F * __black_Φ(-d₊)
+end
+function __black(F::D, K::D, v::D) where {Tag, D <: ForwardDiff.Dual{Tag}}
+    f, k, s = ForwardDiff.value(F), ForwardDiff.value(K), ForwardDiff.value(v)
+    call, put = __black(f, k, s)
+    d₊, d₋ = __black_d(f, k, s)
+    Φ₊, Φ₋, vega = __black_Φ(d₊), __black_Φ(d₋), f * __black_φ(d₊)
+    Φ₊ᶜ, Φ₋ᶜ = __black_Φ(-d₊), __black_Φ(-d₋)
+    ∂(w, p) = __strong_zero_mul(w, p)
+    pF, pK, pv = ForwardDiff.partials(F).values, ForwardDiff.partials(K).values, ForwardDiff.partials(v).values
+    ∂call = map((dF, dK, dv) -> ∂(Φ₊, dF) - ∂(Φ₋, dK) + ∂(vega, dv), pF, pK, pv)
+    ∂put = map((dF, dK, dv) -> ∂(Φ₋ᶜ, dK) - ∂(Φ₊ᶜ, dF) + ∂(vega, dv), pF, pK, pv)
+    return ForwardDiff.Dual{Tag}(call, ForwardDiff.Partials(∂call)), ForwardDiff.Dual{Tag}(put, ForwardDiff.Partials(∂put))
 end
 
-function __d2(S, K, τ, r, σ, q)
-    return __d1(S, K, τ, r, σ, q) - σ * √(τ)
+# d₊ = m/v + v/2 and d₋ = d₊ - v for the log-moneyness m = log(F/K). Within a factor of 2 of the money
+# F - K is exact (Sterbenz), so log1p((F - K)/K) has the relative accuracy of m itself, and d keeps
+# its digits where v is tiny; log(F/K) has an error of a rounding of 1. At v = 0, d₊ = d₋ is ±∞ by the
+# sign of m, and 0 at the money: the ratio m/v of an exact zero m is zero (`__ratio`).
+function __black_d(F, K, v)
+    m = __primal(K) / 2 <= __primal(F) <= 2 * __primal(K) ? log1p((F - K) / K) : log(F / K)
+    d₊ = __ratio(m, v) + v / 2
+    return d₊, d₊ - v
 end
+
+# Φ(d) and φ(d) for Black's formula: at an infinite d, constants with zero derivatives. d is infinite at
+# v = 0 away from the money, and where m/v overflows; their derivatives φ(d)·d′ are zero there beyond
+# any precision (the limits as v → 0⁺ at fixed m ≠ 0), where differentiating Φ or φ forms 0·∞ = NaN.
+__black_Φ(d) = isinf(__primal(d)) ? zero(d) + __N(__primal(d)) : __N(d)
+__black_φ(d) = isinf(__primal(d)) ? zero(float(d)) : __normal_density(d)
 
 """
     eurocall(;S=1.,K=1.,τ=1,r,σ,q=0.)
@@ -32,6 +83,14 @@ continuously compounded values.
 
 Rates should be input as rates (not percentages), e.g.: `0.05` instead of `5` for a rate of five percent.
 
+A zero volatility or time to maturity gives the intrinsic value of the forward,
+`max(S e^{-qτ} - K e^{-rτ}, 0)`, and a negative `σ` throws a `DomainError`. ForwardDiff derivatives are
+the Black–Scholes Greeks, accurate and finite down to `σ = 0`, where they are their limits as
+`σ → 0⁺`: at the money, when the forward price `S e^{(r-q)τ}` equals `K`, the delta is 1/2 and the vega
+`S e^{-qτ}√τ/√(2π)`; otherwise the delta is 1 or 0 and the vega 0. The price is not smooth in `σ`
+and the moneyness together at `σ = 0`, so these derivatives are one-sided, and a forward a rounding
+error away from `K` is in or out of the money.
+
 !!! warning "Experimental"
     This function is well-tested, but the derivatives functionality (API) may change in a future version of FinanceModels.
 
@@ -47,11 +106,8 @@ This is the same as the formulation presented in the [dividend extension of the 
 
 """
 function eurocall(; S = 1.0, K = 1.0, τ = 1, r, σ, q = 0.0)
-    iszero(τ) && return max(zero(S), S - K)
     r, q = __continuous(r), __continuous(q)
-    d₁ = __d1(S, K, τ, r, σ, q)
-    d₂ = __d2(S, K, τ, r, σ, q)
-    return (__N(d₁) * S * exp(τ * (r - q)) - __N(d₂) * K) * exp(-r * τ)
+    return first(__black(S * exp(-q * τ), K * exp(-r * τ), σ * __strong_zero_sqrt(τ)))
 end
 
 """
@@ -71,6 +127,9 @@ continuously compounded values.
 
 Rates should be input as rates (not percentages), e.g.: `0.05` instead of `5` for a rate of five percent.
 
+A zero volatility or time to maturity gives the intrinsic value of the forward,
+`max(K e^{-rτ} - S e^{-qτ}, 0)`, and derivatives at `σ = 0` are the one-sided limits described for
+[`eurocall`](@ref); the delta at the money is -1/2.
 
 !!! warning "Experimental"
     This function is well-tested, but the derivatives functionality (API) may change in a future version of FinanceModels.
@@ -87,11 +146,8 @@ This is the same as the formulation presented in the [dividend extension of the 
 
 """
 function europut(; S = 1.0, K = 1.0, τ = 1, r, σ, q = 0.0)
-    iszero(τ) && return max(zero(S), K - S)
     r, q = __continuous(r), __continuous(q)
-    d₁ = __d1(S, K, τ, r, σ, q)
-    d₂ = __d2(S, K, τ, r, σ, q)
-    return (__N(-d₂) * K - __N(-d₁) * S * exp(τ * (r - q))) * exp(-r * τ)
+    return last(__black(S * exp(-q * τ), K * exp(-r * τ), σ * __strong_zero_sqrt(τ)))
 end
 
 """
