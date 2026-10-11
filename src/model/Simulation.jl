@@ -225,3 +225,130 @@ function simulate(
     kernel = __sim_kernel(model, grid, Float64)
     return __simulate_paths(only, (kernel,), grid, n_scenarios, rng, __IndependentShocks{1}())
 end
+
+# ─── Correlated simulation ───────────────────────────────────────────────────
+
+# Shocks correlated through a factor F of the models' correlation matrix (F Fᵀ = ρ, d × rank): each
+# step draws d standard normals z, whatever the rank, and model i takes row i of F times z.
+struct __CorrelatedShocks{d, M <: AbstractMatrix}
+    F::M
+end
+@inline function __draw(s::__CorrelatedShocks{d}, rng) where {d}
+    z = ntuple(_ -> randn(rng), Val(d))
+    return ntuple(i -> __factor_row(s.F, i, z), Val(d))
+end
+# Row i of F times z, starting from F[i, 1]·z[1]: for ρ = [1;;] the shock is z[1] itself.
+@inline function __factor_row(F, i, z)
+    acc = F[i, 1] * z[1]
+    for l in 2:size(F, 2)
+        acc += F[i, l] * z[l]
+    end
+    return acc
+end
+
+# A factor F of the correlation matrix ρ of `d` models, with F Fᵀ = ρ. The checks guard against
+# silent wrong numbers: a matrix of the wrong size, a covariance matrix (its diagonal is not 1) and
+# an asymmetric matrix (Cholesky reads one triangle) would otherwise simulate something else.
+function __correlation_factor(ρ::AbstractMatrix, d::Int)
+    size(ρ) == (d, d) ||
+        throw(DimensionMismatch("$d models need a $d×$d correlation matrix, got $(join(size(ρ), '×'))"))
+    all(isfinite, ρ) || throw(ArgumentError("a correlation matrix's entries must be finite, got $ρ"))
+    tol = 8eps(float(typeof(__primal(zero(eltype(ρ))))))
+    for i in 1:d
+        abs(ρ[i, i] - 1) <= tol || throw(
+            ArgumentError("a correlation matrix has a unit diagonal, got $(ρ[i, i]) at [$i, $i]; scale a covariance matrix to correlations")
+        )
+        for j in 1:(i - 1)
+            abs(ρ[i, j] - ρ[j, i]) <= tol || throw(
+                ArgumentError("a correlation matrix is symmetric, got $(ρ[i, j]) at [$i, $j] and $(ρ[j, i]) at [$j, $i]")
+            )
+        end
+    end
+    if __ad_depth(eltype(ρ)) > 0
+        # Derivatives exist in the positive-definite interior only. The check is on the values: at
+        # a correlation of ±1 the Cholesky factor of a dual matrix reports success with an infinite
+        # derivative.
+        issuccess(cholesky(Symmetric(__primal.(ρ)); check = false)) || throw(
+            ArgumentError("correlation sensitivities need a positive-definite correlation matrix; this one is singular or not positive semidefinite")
+        )
+        return Matrix(cholesky(Symmetric(ρ)).L)
+    end
+    ρf = float.(ρ)
+    C = cholesky(Symmetric(ρf); check = false)
+    issuccess(C) && return Matrix(C.L)
+    # A singular positive-semidefinite matrix (correlations of ±1): pivoted Cholesky gives
+    # Pᵀ L Lᵀ P = ρ, so the factor is L's rows in the original order, its first `rank` columns.
+    eltype(ρf) <: Union{Float32, Float64} || throw(
+        ArgumentError("a singular correlation matrix is factored by pivoted Cholesky, which needs Float32 or Float64 entries, got $(eltype(ρf))")
+    )
+    P = cholesky(Symmetric(ρf), RowMaximum(); check = false)
+    F = Matrix(P.L)[invperm(P.p), 1:P.rank]
+    maximum(abs, F * F' - ρf) <= 8 * d * eps(eltype(ρf)) ||
+        throw(ArgumentError("a correlation matrix must be positive semidefinite; this one is not"))
+    return F
+end
+
+"""
+    simulate(models::Tuple, ρ::AbstractMatrix;
+             n_scenarios=1000, timestep=1/12, horizon=30.0,
+             rng=Random.default_rng())
+    simulate(models::NamedTuple, ρ::AbstractMatrix; ...)
+
+Simulate several models together with correlated shocks. Each scenario is a tuple of paths, one
+per model in order (a `NamedTuple` with the same names for a `NamedTuple` of models): a
+[`RatePath`](@ref) for a short-rate model and a [`PricePath`](@ref) for an
+`Equity.BlackScholesMerton` model, all on the grid a single model's `simulate` uses. Each model
+steps with its own transition: exact for Vasicek, Hull–White and Black–Scholes–Merton, full
+truncation for Cox–Ingersoll–Ross.
+
+`ρ` is the correlation between the standardized innovations the models receive at each step: a
+step draws `d` standard normals `z` and gives model `i` the `i`-th entry of `F z`, where
+`F Fᵀ = ρ`. It is not, in general, the Brownian-driver correlation of an exact continuous-time
+joint model. An exact transition weights a step's Brownian increments by when they occur (mean
+reversion discounts the earlier ones), so models whose drivers have correlation `ρ` would have
+innovations correlated less strongly, by an amount that grows with the mean-reversion speed and the
+timestep. The dependence of the models' values at a later time follows from the models and the
+timestep.
+
+This is a scenario generator, not a hybrid pricing model: a Black–Scholes–Merton model keeps its
+constant-rate drift, so a `RatePath`'s discount factor times a `PricePath` is not a martingale.
+
+`ρ` must be `d × d`, finite, with a unit diagonal and symmetric (within `8eps`), or a
+`DimensionMismatch` or `ArgumentError` is thrown. A positive-definite `ρ` is factored by Cholesky.
+A singular positive-semidefinite one, with correlations of ±1, is factored by pivoted Cholesky
+(`Float32` or `Float64` entries), and accepted when `F Fᵀ` reproduces it within `8 d eps`; any
+other matrix throws. A `ρ` carrying ForwardDiff derivatives must be positive definite, because the
+derivatives at a correlation of ±1 don't exist.
+
+A scenario draws `d` standard normals per step, in the order scenario, step, model. A single model
+with `ρ = [1;;]` gives exactly the paths of `simulate(model; rng)`.
+"""
+function simulate(
+        models::Tuple, ρ::AbstractMatrix;
+        n_scenarios::Int = 1000,
+        timestep::Real = 1 / 12,
+        horizon::Real = 30.0,
+        rng::Random.AbstractRNG = Random.default_rng()
+    )
+    return __simulate_correlated(identity, models, ρ, n_scenarios, timestep, horizon, rng)
+end
+
+function simulate(
+        models::NamedTuple{names}, ρ::AbstractMatrix;
+        n_scenarios::Int = 1000,
+        timestep::Real = 1 / 12,
+        horizon::Real = 30.0,
+        rng::Random.AbstractRNG = Random.default_rng()
+    ) where {names}
+    return __simulate_correlated(NamedTuple{names}, Tuple(models), ρ, n_scenarios, timestep, horizon, rng)
+end
+
+function __simulate_correlated(finish, models::Tuple, ρ, n_scenarios, timestep, horizon, rng)
+    d = length(models)
+    F = __correlation_factor(ρ, d)
+    grid = __sim_grid(horizon, timestep)
+    # the shocks' type: a correlation carrying derivatives passes them to every model's states
+    W = promote_type(eltype(F), Float64)
+    kernels = map(m -> __sim_kernel(m, grid, W), models)
+    return __simulate_paths(finish, kernels, grid, n_scenarios, rng, __CorrelatedShocks{d, typeof(F)}(F))
+end
