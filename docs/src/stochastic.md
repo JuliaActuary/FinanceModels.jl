@@ -46,7 +46,7 @@ ShortRate.Vasicek(0.136, 0.0168, 0.0119, Continuous(0.01))
 
 ### Cox-Ingersoll-Ross
 
-The CIR model is similar to Vasicek but the volatility is proportional to `√r`, which prevents negative rates when the Feller condition `2ab > σ²` is satisfied.
+The CIR model has volatility proportional to `√r`. With positive parameters its continuous-time rate is nonnegative; the Feller condition `2ab ≥ σ²` makes zero inaccessible from a positive initial rate. The discretized simulation uses full truncation, described below.
 
 ```julia
 cir = ShortRate.CoxIngersollRoss(0.3, 0.05, 0.1, Continuous(0.03))
@@ -57,7 +57,7 @@ cir = ShortRate.CoxIngersollRoss(0.3, 0.05, 0.1, Continuous(0.03))
 The Hull-White model takes an existing yield curve and adds stochastic dynamics. The drift is calibrated so that the model exactly reproduces the initial term structure.
 
 ```julia
-curve = fit(Spline.Linear(), CMTYield.([0.04, 0.05, 0.055, 0.06], [1, 5, 10, 30]), Fit.Bootstrap())
+curve = fit(Spline.Linear(), CMTYield.([0.04, 0.05, 0.055, 0.06], [1, 5, 10, 30]))
 hw = ShortRate.HullWhite(0.1, 0.01, curve)
 
 # discount factors match the initial curve exactly:
@@ -73,7 +73,7 @@ v = ShortRate.Vasicek(0.136, 0.0168, 0.0119, Continuous(0.01))
 
 # Discount factors (closed-form zero-coupon bond prices)
 discount(v, 5)        # P(0, 5)
-discount(v, 2, 10)    # P(2, 10)
+discount(v, 2, 10)    # P(0, 10) / P(0, 2): interval factor on the initial curve
 
 # Zero rates
 zero(v, 5)            # continuous zero rate at t=5
@@ -98,8 +98,7 @@ v = ShortRate.Vasicek(0.136, 0.0168, 0.0119, Continuous(0.01))
 discount(v, 2.0, 10.0, 0.04)
 ```
 
-This is distinct from the 2-argument form `discount(v, 10)` which gives the
-**unconditional** `P(0, T)` from the initial term structure.
+This uses the future state `r(t)`. In contrast, `discount(v, T)` gives the time-zero price `P(0, T)`, and `discount(v, t, T)` gives `P(0, T) / P(0, t)`. The latter is an interval factor on the initial curve, not a conditional bond price given a simulated future rate.
 
 The conditional form is used internally for derivative pricing (swaption
 Jamshidian decomposition) and can be useful for scenario analysis where
@@ -117,9 +116,7 @@ r5 = short_rate(path, 5.0)    # the simulated r(5) on this path
 discount(v, 5.0, 10.0, r5)    # P(5, 10 | r(5)) on this path
 ```
 
-`short_rate` answers only at the path's grid times, `FinanceModels.simulation_times(path)`. A time
-between them, or outside the grid, throws a `DomainError`, because the simulation has no rate
-there. `Yield.instantaneous_forward(path, t)` is the slope of the path's discount integral over the
+`short_rate` answers at the path's grid times, allowing floating-point rounding around a grid time. `FinanceModels.simulation_times(path)` returns a copy of that grid. Other times throw a `DomainError`, because the simulation has no recorded rate there. A hand-built `RatePath(interp)` has no recorded rates, so `short_rate` throws an `ArgumentError` on it. `Yield.instantaneous_forward(path, t)` is the slope of the path's discount integral over the
 step that starts at `t`, the average of that step's two rates. It uses the rate at the end of the
 step, so it is not the state at `t`.
 
@@ -149,8 +146,8 @@ v0 = ShortRate.Vasicek(0.1, 0.02, 0.01, Continuous(0.01))
 # Fit to market data
 v_fitted = fit(v0, quotes)
 
-# Verify: the fitted model reprices the quotes
-map(q -> present_value(v_fitted, q.instrument), quotes)
+# Compare fitted and observed prices; a parametric fit need not reprice exactly
+[(fitted=present_value(v_fitted, q.instrument), observed=q.price) for q in quotes]
 ```
 
 The default parameter bounds for fitting are:
@@ -167,7 +164,7 @@ Custom bounds can be passed via the `variables` keyword argument to `fit`.
 
 ### Generating Scenarios with `simulate`
 
-`simulate` generates interest-rate paths using the exact Gaussian transition density for Vasicek and Hull-White (no discretisation bias in the short rate at any timestep) and the full truncation scheme (Lord, Koekkoek & Van Dijk, 2010) for Cox-Ingersoll-Ross. Each path is returned as a [`RatePath`](@ref FinanceModels.RatePath), which is itself an `AbstractYieldModel` -- so `discount`, `zero`, `forward`, `par`, and `present_value` all work on individual scenarios. A path is defined only up to its simulated horizon: evaluating it at a later time throws, so choose a `horizon` that covers every cashflow you value.
+`simulate` generates interest-rate paths using the exact Gaussian transition density for Vasicek and Hull-White (no discretisation bias in the short rate at any timestep) and the full truncation scheme (Lord, Koekkoek & Van Dijk, 2010) for Cox-Ingersoll-Ross. Each path is returned as a [`RatePath`](@ref FinanceModels.RatePath), which is itself an `AbstractYieldModel` -- so `discount`, `zero`, `forward`, `par`, and `present_value` all work on individual scenarios. Path discount factors use trapezoidal integration of the short rate, so they still have time-discretization error even when rate transitions are exact. A path is defined only through its last grid time: evaluating it later throws. An aligned horizon is included exactly; otherwise the final full step ends just beyond the requested horizon. Choose a `horizon` that covers every cashflow you value and inspect `FinanceModels.simulation_times(path)` when grid alignment matters.
 
 ```julia
 using Random
@@ -204,7 +201,7 @@ mc = pv_mc(v, bond; n_scenarios=5000, timestep=1/12)
 # Compare to analytical (closed-form) PV
 analytical = present_value(v, bond)
 
-# These should be close (within ~1-2% for 5000 scenarios)
+# Differences reflect both sampling error and time-discretization error.
 ```
 
 The signature is:
@@ -252,47 +249,38 @@ collect(bond)
 #  Cashflow(1.025, 3.0)
 ```
 
-For **floating-rate bonds**, the cashflows depend on forward rates, which differ across scenarios. Use `Projection` with a `Dict` mapping the reference rate key to the scenario's yield model:
+For floating coupons fixed in advance, use the **conditional term structure at each reset**. A `RatePath` stores realized discount integrals: `forward(path, reset, payment)` uses rates realized after the reset and therefore cannot serve as a fixing known at that reset. Passing a path as the index curve to `Projection` does not perform conditional valuation automatically.
 
-```julia
+Here is a single-curve Vasicek example with a 2% margin, semiannual coupons, and unit principal. At each reset, convert the conditional bond price into the next period's simple interest accrual:
+
+```@example floating_scenarios
 using FinanceModels, Random
 
 v = ShortRate.Vasicek(0.136, 0.0168, 0.0119, Continuous(0.01))
-scenarios = simulate(v; n_scenarios=3, timestep=1/12, horizon=5.0,
+scenarios = simulate(v; n_scenarios=3, timestep=1/12, horizon=3.0,
                      rng=MersenneTwister(42))
 
-# Floating bond: 2% spread over "SOFR", semiannual, 3-year
-bond_float = Bond.Floating(0.02, Periodic(2), 3.0, "SOFR")
-
-for (i, sc) in enumerate(scenarios)
-    proj = Projection(bond_float, Dict("SOFR" => sc), CashflowProjection())
-    cfs = collect(proj)
-    println("Scenario $i cashflows:")
-    for cf in cfs
-        println("  t=$(cf.time): $(round(cf.amount; digits=4))")
-    end
+function floating_cashflows(model, path; maturity=3.0, accrual=0.5, margin=0.02)
+    [begin
+         reset = t - accrual
+         conditional_df = discount(model, reset, t, short_rate(path, reset))
+         coupon = inv(conditional_df) - 1 + margin * accrual
+         Cashflow(coupon + (t == maturity ? 1 : 0), t)
+     end for t in accrual:accrual:maturity]
 end
-# Each scenario produces different coupon amounts because the
-# forward rates from each RatePath are different.
+
+cashflows = [floating_cashflows(v, path) for path in scenarios]
+[present_value(path, cfs) for (path, cfs) in zip(scenarios, cashflows)]
 ```
 
-This also works with composite contracts like interest rate swaps, where the floating leg references a scenario:
-
-```julia
-curve = Yield.Constant(0.05)
-swap = InterestRateSwap(curve, 5; frequency = 1)
-
-sc = scenarios[1]
-proj = Projection(swap, Dict("OIS" => sc), CashflowProjection())
-cfs = collect(proj)  # net cashflows (received fixed, paid floating)
-```
+The reset dates must lie on the simulation grid. The example assumes full coupon periods and one curve for projection and discounting. Use a valuation callback with the appropriate fixing logic for more complex contracts; `pv_mc` does not supply that logic for a floating contract automatically.
 
 ## Mean Reversion Behaviour
 
-A key feature of these models is mean reversion. With strong mean reversion (`a` large), the long-term zero rate converges to `b`:
+The expected short rate in Vasicek and CIR tends toward `b`. The long-maturity zero rate is different because bond pricing averages discounted outcomes. For Vasicek with `a > 0`, its limit is `b - σ² / (2a²)`, close to `b` when mean reversion is strong relative to volatility:
 
 ```julia
-# Strong mean reversion: long-term rate approaches b=0.05
+# Strong mean reversion: long-maturity zero-rate limit is 0.0499875
 v_strong = ShortRate.Vasicek(2.0, 0.05, 0.01, Continuous(0.10))
 zero(v_strong, 30)  # close to Continuous(0.05)
 
@@ -373,18 +361,18 @@ hw_fit = fit(hw0, quotes)
 
 ### Model Behaviour
 
-- **CIR Feller condition:** The CIR model requires `2ab > σ²` for the short rate to stay strictly positive. When this condition is violated, the rate can reach zero. The simulation uses the full truncation scheme: an auxiliary process may go negative while the observed rate is floored at zero. Discretisation bias grows with `σ²/(2ab)`, so use a finer `timestep` (e.g. weekly instead of monthly) when the Feller condition is strongly violated.
+- **CIR Feller condition:** For the continuous-time CIR model started above zero, `2ab ≥ σ²` makes zero inaccessible. When this condition fails, the rate can reach zero. The simulation uses the full truncation scheme: an auxiliary process may go negative while the observed rate is floored at zero. Check convergence with a finer `timestep`, especially when the Feller condition is strongly violated. ForwardDiff derivatives through clipped states remain finite when the clipped state has zero derivatives; the clipping boundary itself is a kink.
 - **Vasicek negative rates:** The Vasicek model allows negative rates by design. For very negative rates or long horizons, discount factors may exceed 1 (equivalently, zero rates are negative). This is consistent with observed negative-rate environments.
 
 ### Performance Guidance
 
-- `simulate` allocates one `LinearInterpolation` and one vector of recorded short rates per scenario. For 100k scenarios with a 30-year monthly horizon, expect execution times on the order of seconds.
+- `simulate` allocates one `LinearInterpolation` and one vector of recorded short rates per scenario. Memory therefore grows with both path count and grid size; retaining the simulated rates adds one value per grid time per path.
 - `pv_mc` is embarrassingly parallel across scenarios but is not parallelised internally. For large-scale simulations, users can parallelise with `Threads.@threads` or `Distributed`:
 
 ```julia
 using Base.Threads
 
-scenarios = simulate(v; n_scenarios=100_000, timestep=1/12, horizon=31.0)
+scenarios = simulate(v; n_scenarios=10_000, timestep=1/12, horizon=31.0)
 pvs = Vector{Float64}(undef, length(scenarios))
 @threads for i in eachindex(scenarios)
     pvs[i] = present_value(scenarios[i], bond)
@@ -409,3 +397,5 @@ mean_pv = sum(pvs) / length(pvs)
 | `simulate(model; ...)` | Generate `Vector{RatePath}` scenarios |
 | `pv_mc(model, contract; ...)` | Monte Carlo expected present value |
 | `short_rate(path, t)` | The simulated `r(t)` at a grid time of a `RatePath`, a `Continuous` rate |
+
+`FinanceModels.simulation_times(path)` lists the grid times; `FinanceModels.simulation_steps(horizon, timestep)` reports the step count and whether the requested horizon is aligned.

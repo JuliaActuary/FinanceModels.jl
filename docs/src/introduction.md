@@ -19,7 +19,7 @@ The new solution: `Cashflow`s. Our example above would become: `[Cashflow(1,0.05
 
 ## 2. **Contracts** - A composable way to represent financial instruments
 
-Contracts are a composable way to represent financial instruments. They are, in essence, anything that is a collection of cashflows. Contracts can be combined to represent more complex instruments. For example, a bond can be represented as a collection of cashflows that correspond to the coupon payments and the principal repayment.
+Contracts are a composable way to represent financial instruments. Many contracts project to a collection of cashflows; others, such as options, use a model-specific pricing formula. Contracts can be combined to represent more complex instruments. For example, a bond can be represented as a collection of cashflows that correspond to the coupon payments and the principal repayment.
 
 Examples:
 
@@ -36,7 +36,7 @@ In the future, this notion may be extended to liabilities (e.g. insurance polici
 
 ### Creating a new Contract
 
-A contract is anything that creates a vector of `Cashflow`s when `collect`ed. For example, let's create a bond which only pays down principal and offers no coupons.
+A contract with deterministic cashflows can define how it is collected into `Cashflow`s. For example, let's create a bond which only pays down principal and offers no coupons.
 
 ```julia
 using FinanceModels,FinanceCore
@@ -89,7 +89,7 @@ julia> PrincipalOnlyBond(Periodic(2),5.) |> collect
  Cashflow{Float64, Float64}(0.1, 5.0)
 ```
 
-Note that all contracts in FinanceModels.jl are currently *unit* contracts in that they assume a unit par value. Scale assets down to unit values before constructing the default contracts.
+The built-in bond contracts use unit principal. Scale their projected cashflows for a position's notional; individual `Cashflow`s can carry any amount.
 
 #### More complex Contracts
 
@@ -125,47 +125,46 @@ A number of convenience functions are included to construct a `Quote`:
 
 ### Creating a new model
 
-Here we'll do a complete implementation of a yield curve model where the discount rate is approximated by a straight line (often called an AB line from the `y=ax+b` formula.
+Here we'll do a complete implementation of a yield curve model where the discount factor is approximated by a straight line (an AB line, `y = ax + b`). This is a simple extension example, not a general-purpose term-structure model.
 
-```julia
- using FinanceModels, FinanceCore
- using AccessibleModels 
- using IntervalSets
+```@example custom_model
+using FinanceModels, FinanceCore
+using AccessibleModels
+using IntervalSets
  
-struct ABDiscountLine{A} <: FinanceModels.Yield.AbstractYieldModel
+struct ABDiscountLine{A,B} <: FinanceModels.Yield.AbstractYieldModel
     a::A
-    b::A
+    b::B
 end
 
-ABDiscountLine() = ABDiscountLine(0.,0.)
+ABDiscountLine() = ABDiscountLine(-0.05, 1.0)
 
 function FinanceCore.discount(m::ABDiscountLine,t)
-    #discount rate is approximated by a straight line, floored at 0.0 and capped at 1.0
+    # The discount factor is approximated by a straight line, floored at 0.0 and capped at 1.0
     clamp(m.a*t + m.b, 0.0,1.0) 
 end
 
 
 # `@optic` indicates what in our model variables needs to be updated (from AccessibleModels.jl)
-# `-1.0 .. 1.0` says to bound the search from negative to positive one (from IntervalSets.jl)
+# IntervalSets supplies the bounds. Keep the initial guess inside them, away from clipping.
 FinanceModels.default_variables(m::ABDiscountLine) = (
     @optic(_.a) => -1.0 .. 1.0,
-    @optic(_.b) => -1.0 .. 1.0,
+    @optic(_.b) => 0.5 .. 1.5,
 )
 
 quotes = ZCBPrice([0.9, 0.8, 0.7,0.6])
 
-m = fit(ABDiscountLine(),quotes)
+m = fit(ABDiscountLine(), quotes)
+@assert all(isapprox(pv(m, q.instrument), q.price; atol=1e-8) for q in quotes) # hide
+nothing # hide
 ```
+
+The separate type parameters for `a` and `b` allow fitting to update either field with a ForwardDiff dual number.
 
 Now, `m` is a model like any of the other yield curve models provided and can be used in that context. For example, calculating the price of the bonds contained within our `quotes` where we indeed recover the prices for our contrived example:
 
-```julia-repl
-julia> map(q -> pv(m,q.instrument),quotes) 
-4-element Vector{Float64}:
- 0.9
- 0.8
- 0.7
- 0.6
+```@example custom_model
+round.([pv(m, q.instrument) for q in quotes]; digits=6)
 ```
 
 ## 5. `fit` - The standardized API for all models, quotes, and methods
@@ -199,14 +198,8 @@ Model fitting can be customized:
   - the default is `Fit.Loss(x->x^2)`
 - the **optimization algorithm** by defining a method `FinanceModels.default_optimizer(m::ABDiscountLine) = OptimizationOptimJL.Newton()`
   - you may need to change the `default_variables` to be unbounded (simply omit the `=>` and subsequent bounds)
-  - The default is `OptimizationOptimJL.LBFGS()` (spline least-squares fits default to `OptimizationOptimJL.Newton()`)
-- The **general algorithm** can be customized by creating a new method for fit:
-
- ```julia
-function FinanceModels.fit(m::ABDiscountLine, quotes, ...)
- # custom code for fitting your model here
-end
-```
+  - The default is `OptimizationOptimJL.LBFGS()` (polynomial, PCHIP, Akima, and B-spline least-squares fits default to `OptimizationOptimJL.Newton()`; MonotoneConvex uses `LBFGS()`)
+- The **general algorithm** can be customized by defining a new `Fit.FitMethod` subtype and a method `FinanceModels.fit(model, quotes, method::YourMethod)` for it.
 
 - As an example, the linear splines (`Spline.Linear()` and `Spline.BSpline(1)`) define a dedicated bootstrapping method which is used when `Fit.Bootstrap()` is passed explicitly: `fit(mod0::Spline.SplineCurve, quotes, method::Fit.Bootstrap)`. Note that the default `fit(spline, quotes)` (no third argument) performs a least-squares fit, not a bootstrap.
 
@@ -218,9 +211,9 @@ While many of the examples show models being fit to observed prices, you can ski
 
 A `Projection` is a generic way to work with various data that you can project forward. For example, getting the series of cashflows associated with a contract.
 
-What is a `Projection`?
+A `Projection` holds these three fields (a schematic view of the package type):
 
-```julia
+```text
 struct Projection{C,M,K} <: AbstractProjection
     contract::C    # the contract (or set of contracts) we want to project
     model::M       # the model that defines how the contract will behave
@@ -230,7 +223,7 @@ end
 
 `contract` is obvious, so let's talk more about the second two:
 
-- `model` is the same kind of thing we discussed above. Some contracts (e.g. a floating rate bond). We can still decompose a floating rate bond into a set of cashflows, but we need a model.
+- `model` is the same kind of thing we discussed above. Some contracts, such as floating-rate bonds, need a model to determine their projected cashflows.
   - There are also projections which don't need a model (e.g. fixed bonds) and for that there's the generic `NullModel()`
 - `kind` defines what we'll return from the projection.
   - `CashflowProjection()` says we just want a `Cashflow[...]` vector
@@ -239,53 +232,43 @@ end
 
 ### Contracts that depend on the model (or multiple models)
 
-For example, the cashflows you generate for a floating rate bond is the current reference rate. Or maybe you have a stochastic volatility model and want to project forward option values. This type of dependency is handled like this:
+For example, a floating-rate bond's projected coupons depend on its reference curve. Or maybe you have a stochastic volatility model and want to project forward option values. This type of dependency is handled like this:
 
 - define `model` as a relation that maps a key to a model. E.g. a `Dict("SOFR" => NelsonSiegelSvensson(...))`
 - when defining the logic for the reducible collection/foldl, you can reference the `Projection.model` by the associated key.
 - to value the contract, wrap the store with the discount model: `present_value(Models(curve, Dict("SOFR" => sofr)), bond)`.
 
-Here's how a floating bond is implemented:
-
-The contract struct. The `key` would be "SOFR" in our example above.
+Here is a simplified custom floating bond for full coupon periods. It has a distinct name so the example does not overwrite FinanceModels' built-in `Bond.Floating` implementation, which also handles stub periods.
 
 ```julia
-struct Floating{F<:FinanceCore.Frequency,N<:Real,M<:Timepoint,K} <: AbstractBond
-    coupon_rate::N # coupon_rate / frequency is the actual payment amount
+struct ExampleFloating{F<:FinanceCore.Frequency,N<:Real,M<:Real,K} <: FinanceModels.Bond.AbstractBond
+    coupon_rate::N
     frequency::F
     maturity::M
     key::K
 end
-```
 
-And how we can reference the associated model when projecting that contract. This is very similar to the definition of `__foldl__` for our `PrincipalOnlyBond`, except we are paying a coupon and referencing the scenario rate. The coupon is fixed in advance (the standard convention for floating rate notes): the coupon paid at time `t` references the forward rate observed at the *start* of the accrual period, i.e. `forward(model, t - 1/freq, t)`.
-
-```julia
-@inline function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:Bond.Floating,M,K}
+function Transducers.__foldl__(rf, val, p::Projection{C,M,K}) where {C<:ExampleFloating,M,K}
     b = p.contract
     ts = Bond.coupon_times(b)
-    freq = b.frequency # e.g. `Periodic(2)`
-    freq_scalar = freq.frequency  # the 2 from `Periodic(2)`
+    freq = b.frequency.frequency
+    isinteger(b.maturity * freq) || throw(ArgumentError("this example requires full coupon periods"))
     model = p.model[b.key]
     for t in ts
-        # Fix-in-advance: the coupon paid at t reflects the forward rate
-        # observed at the START of the accrual period [t - 1/freq, t],
-        # converted to the contract's periodicity. This matches the standard
-        # market convention for FRNs and avoids referencing a rate beyond
-        # the bond's maturity for the final coupon.
-        reference_rate = rate(freq(forward(model, t - 1 / freq_scalar, t)))
-        coup = (reference_rate + b.coupon_rate) / freq_scalar
-        amt = if t == last(ts)
-            1.0 + coup
-        else
-            coup
-        end
-        cf = Cashflow(amt, t)
+        # Project the next coupon from the index curve's interval factor.
+        coupon = inv(discount(model, t - 1 / freq, t)) - 1 + b.coupon_rate / freq
+        cf = Cashflow(coupon + (t == last(ts) ? 1 : 0), t)
         val = @next(rf, val, cf)
     end
     return complete(rf, val)
 end
+
+curve = Yield.Constant(0.04)
+floating = ExampleFloating(0.01, Periodic(2), 3.0, "SOFR")
+collect(Projection(floating, Models(curve)))
 ```
+
+This projects coupons from a supplied term structure. A realized stochastic path is not a sequence of conditional term structures at the reset dates; see [Stochastic Interest Rate Models](@ref) for a fixing example based on the simulated state.
 
 In this guide we've now defined two assets that can work seamlessly with projecting cashflows, fitting models, and determining valuations :)
 

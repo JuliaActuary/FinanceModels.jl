@@ -34,9 +34,9 @@
   path's discount integral over the step starting at `t`, the average of the rate at `t` and at
   the end of the step: half a step's move away, and dependent on the next draw (17bp standard
   deviation at monthly steps, 57bp at annual, for the Vasicek model in the stochastic guide).
-  It now returns the recorded rate, and only at the path's grid times,
-  `FinanceModels.simulation_times(path)`; other times throw a `DomainError`, and a path built
-  with `RatePath(interp)` has no recorded rates. **Migration:** read it at grid times; for the
+  It now returns the recorded rate at a grid time, allowing floating-point rounding.
+  `FinanceModels.simulation_times(path)` lists those times; other times throw a `DomainError`.
+  Calling `short_rate` on a hand-built `RatePath(interp)`, which has no recorded rates, throws an `ArgumentError`. **Migration:** read it at grid times; for the
   step slope use `Yield.instantaneous_forward(path, t)`.
 - **Forward-starting floating instruments change value.** `Forward(s, floater)` now
   fixes the floater's coupons on the index rates from `s` on; it read them from
@@ -77,6 +77,9 @@ To value, as of `t`, a contract's cashflows at or after `t` on a deterministic c
 from `t` (a cashflow at `t` counts, as under `cur_time`):
 
 ```julia
+using FinanceModels
+using Transducers: foldxl, Filter, Map
+
 asof(curve, c, t) = foldxl(+, Projection(c, curve) |> Filter(cf -> cf.time >= t) |>
     Map(cf -> cf.amount * discount(curve, t, cf.time)); init = zero(discount(curve, t, t)))
 ```

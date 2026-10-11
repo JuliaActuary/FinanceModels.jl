@@ -17,7 +17,7 @@ Additionally, the models can be used to project contracts through time: most bas
 
 ## QuickStart
 
-```julia
+```@example quickstart
 using FinanceModels
 
 # a set of market-observed prices we wish to calibrate the model to
@@ -26,8 +26,8 @@ q_rate = ZCBYield([0.01, 0.02, 0.03]);
 q_spread = ZCBYield([0.01, 0.01, 0.01]);
 
 # fit a linear spline yield model
-model_rate = fit(Spline.Linear(), q_rate, Fit.Bootstrap());
-model_spread = fit(Spline.Linear(), q_spread, Fit.Bootstrap());
+model_rate = fit(Spline.Linear(), q_rate);
+model_spread = fit(Spline.Linear(), q_spread);
 
 # curve addition operates in continuous zero-rate space:
 # discount(a + b, t) == discount(a, t) * discount(b, t)
@@ -57,7 +57,7 @@ That's just an example, and we can use the various components in different ways 
 
 ### Contracts and Quotes
 
-Contracts are a way to represent financial obligations. These can be valued using a model, projected into a future steam of values, or combined with assumed prices as a `Quote`.
+Contracts are a way to represent financial obligations. These can be valued using a model, projected into a future stream of values, or combined with assumed prices as a `Quote`.
 
 Included are a number of primitives and convenience methods for contracts:
 
@@ -72,7 +72,7 @@ Existing `struct`s:
 - `CommonEquity`
 - `Option.Cap`, `Option.Floor`, `Option.Swaption` (interest rate derivatives)
 
-Commonly, we deal with conventions that imply a contract and an observed price. For example, we may talk about a treasury yield of `0.03`. This is a description that implies a `Quote`ed price for an underling fixed bond. In FinanceModels, we could use `CMTYield(rate,tenor)` which would create a `Quote(price,Bond.Fixed(...))`. In this way, we can conveniently create a number of `Quote`s which can be used to fit models. Such convenience methods include:
+Commonly, we deal with conventions that imply a contract and an observed price. For example, we may talk about a treasury yield of `0.03`. This is a description that implies a `Quote`ed price for an underlying fixed bond. In FinanceModels, we could use `CMTYield(rate,tenor)` which would create a `Quote(price,Bond.Fixed(...))`. In this way, we can conveniently create a number of `Quote`s which can be used to fit models. Such convenience methods include:
 
 - `ZCBYield`
 - `ZCBPrice`
@@ -85,9 +85,9 @@ FinanceModels offers a way to define new contracts as well.
 
 #### Cashflows
 
-A `Cashflow`s obligation are themselves a contract, but other contracts can be considered as essentially anything that can be combined with assumptions (a **model**) to derive a collection of cashflows.
+A `Cashflow` is itself a contract. Many other contracts combine with assumptions (a **model**) to produce a collection of cashflows; options can instead use a model-specific pricing formula.
 
-For example, a obligation that pays 1.75 at time 2 could be represented as: `Cashflow(1.75,2)`.
+For example, an obligation that pays 1.75 at time 2 could be represented as: `Cashflow(1.75,2)`.
 
 ### Models
 
@@ -133,7 +133,7 @@ knot_rates(zrc), knot_tenors(zrc)                            # read-only views: 
 zrc_up = reconstruct(zrc; rates = rates .+ 0.001)            # a new curve, 10bp higher at every knot
 ```
 
-Knot rates may be ForwardDiff dual numbers, so `reconstruct(zrc; rates = dual_rates)` differentiates a valuation with respect to the curve's knot rates, and spline `fit`s differentiate with respect to their quotes. [ActuaryUtilities.jl](https://github.com/JuliaActuary/ActuaryUtilities.jl) builds its sensitivities on this. The derivatives are first order and have limits at interpolation kinks; see [Sensitivities Through Calibration](@ref).
+Knot rates may be ForwardDiff dual numbers, so `reconstruct(zrc; rates = dual_rates)` differentiates a valuation with respect to the curve's knot rates, and spline `fit`s differentiate with respect to their quotes. [ActuaryUtilities.jl](https://github.com/JuliaActuary/ActuaryUtilities.jl) can differentiate valuations through these fits. Implicit calibration derivatives are first order; direct knot-rate derivatives can also be higher order, away from interpolation kinks; see [Sensitivities Through Calibration](@ref).
 
 #### Stochastic short-rate models
 
@@ -247,19 +247,14 @@ Will produce:
 
 ### Fitting Models
 
-```plaintext
-       Model                                                                Method
-          |                                                                    |
-   |------------|                                                      |---------------|
-fit(Spline.Linear(), CMTYield.([0.04,0.05,0.055,0.06,0.055],[1,2,3,4,5]), Fit.Bootstrap())
-                    |-------------------------------------------------|
-                                              |
-                                              Quotes
+```julia
+quotes = CMTYield.([0.04, 0.05, 0.055, 0.06, 0.055], [1, 2, 3, 4, 5])
+model = fit(Spline.Linear(), quotes)  # least squares across all quotes
 ```
 
 - **Model** could be `Spline.Linear()`, `Yield.NelsonSiegelSvensson()`, `Equity.BlackScholesMerton(...)`, etc.
-- **Quote** could be `CMTYield`s, `ParYield`s, `Option.EuroCall`, etc.
-- **Method** could be `Fit.Loss(x->x^2)`, `Fit.Loss(x->abs(x))`, `Fit.Bootstrap()`, etc.
+- **Quotes** describe observed instrument prices, using constructors such as `CMTYield` or `ParYield`, or `Quote(price, Option.EuroCall(...))`.
+- **Method** defaults to least squares, `Fit.Loss(x -> x^2)`, when omitted. Pass another loss explicitly, such as `Fit.Loss(abs)`, to change the objective.
 
 This unified way to fit models offers a much simpler way to extend functionality to new models or contract types.
 
@@ -268,10 +263,11 @@ This unified way to fit models offers a much simpler way to extend functionality
 After being fit, models can be used to value contracts:
 
 ```julia
-present_value(model,cashflows)
+cashflows = [Cashflow(0.05, 1.0), Cashflow(1.05, 2.0)]
+present_value(model, cashflows)
 ```
 
-Additionally, [ActuaryUtilities.jl](https://github.com/JuliaActuary/ActuaryUtilities.jl) offers a number of other methods that can be used, such as `duration`, `convexity`, `price` which can be used for analysis with the fitted models.
+Additionally, [ActuaryUtilities.jl](https://github.com/JuliaActuary/ActuaryUtilities.jl) offers a number of other methods that can be used, such as `duration`, `convexity`, and `sensitivities` which can be used for analysis with the fitted models.
 
 ### Rates
 
@@ -289,7 +285,7 @@ Continuous(0.05)       # 5% continuously compounded
 Periodic(0.05,2)       # 5% compounded twice per period
 ```
 
-These are both subtypes of the parent `Rate` type and are instantiated as:
+These construct `Rate` values with the chosen compounding convention, equivalently:
 
 ```julia
 Rate(0.05,Continuous())       # 5% continuously compounded
