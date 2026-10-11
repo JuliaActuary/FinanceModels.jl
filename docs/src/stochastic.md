@@ -7,7 +7,7 @@ FinanceModels.jl includes stochastic short-rate models that are first-class yiel
 For stochastic-cashflow analysis (e.g. Monte Carlo valuation), `simulate()` generates scenario yield curves that also plug into the existing `present_value`.
 
 !!! note "Relationship to EconomicScenarioGenerators.jl"
-    Short-rate and equity scenario generators were previously provided by [EconomicScenarioGenerators.jl](https://github.com/JuliaActuary/EconomicScenarioGenerators.jl). The `FinanceModels.ShortRate` models and `Equity.BlackScholesMerton`, together with `simulate` and `pv_mc`, are the maintained successors of its interest-rate and equity generators. Its copula-correlated, multi-model simulation (the `Correlated` generator) remains in EconomicScenarioGenerators.jl.
+    Short-rate and equity scenario generators were previously provided by [EconomicScenarioGenerators.jl](https://github.com/JuliaActuary/EconomicScenarioGenerators.jl). The `FinanceModels.ShortRate` models and `Equity.BlackScholesMerton`, together with `simulate` and `pv_mc`, are the maintained successors of its interest-rate and equity generators. `simulate` with a tuple of models and a correlation matrix covers its `Correlated` generator with a Gaussian copula; other copulas remain in EconomicScenarioGenerators.jl.
 
 ## Available Models
 
@@ -298,6 +298,36 @@ The drift is the model's constant `r - q`: risk-neutral when `r` is the risk-fre
 when `r` is an expected return. It is never a simulated short rate. `σ` is a number or a
 `Volatility.Constant`; `Volatility.Constant()` is zero volatility, so its paths are deterministic.
 
+## Correlated Scenarios
+
+`simulate` takes a tuple of models and a correlation matrix and returns one tuple of paths per
+scenario, all on one grid. A `NamedTuple` of models gives `NamedTuple`s of paths:
+
+```julia
+hw = ShortRate.HullWhite(0.1, 0.01, Yield.Constant(Continuous(0.03)))
+stock = Equity.BlackScholesMerton(0.03, 0.01, 0.2)
+ρ = [1.0 -0.3; -0.3 1.0]
+scenarios = simulate((rates = hw, stock = stock), ρ; n_scenarios=1000, timestep=1/12, horizon=10.0)
+s = scenarios[1]
+discount(s.rates, 5.0) * s.stock(5.0)    # the stock's year-5 price, discounted on this path
+```
+
+Each model steps with its own transition. At each step the models' standardized innovations have
+correlation `ρ`: the step draws one standard normal per model and multiplies them by a factor `F`
+with `F Fᵀ = ρ`. This is not the correlation of the models' Brownian drivers in continuous time. An
+exact transition weights a step's increments by when they occur, so drivers with correlation `ρ`
+would give innovations correlated less strongly, by an amount that grows with the mean-reversion
+speed and the timestep. How the models' values at a later time depend on each other follows from
+the models and the timestep.
+
+Correlations of ±1 are allowed. A correlation matrix carrying ForwardDiff derivatives must be
+positive definite, because the derivatives don't exist at ±1. A single model with `ρ = [1;;]` gives
+exactly the paths of `simulate(model)`.
+
+These are joint scenarios, not a hybrid pricing model: the stock's drift is its own constant `r - q`,
+not the simulated short rate, so a path's discount factor times the stock's price is not a
+martingale.
+
 ## Mean Reversion Behaviour
 
 The expected short rate in Vasicek and CIR tends toward `b`. The long-maturity zero rate is different because bond pricing averages discounted outcomes. For Vasicek with `a > 0`, its limit is `b - σ² / (2a²)`, close to `b` when mean reversion is strong relative to volatility:
@@ -422,5 +452,6 @@ mean_pv = sum(pvs) / length(pvs)
 | `short_rate(path, t)` | The simulated `r(t)` at a grid time of a `RatePath`, a `Continuous` rate |
 | `simulate(Equity.BlackScholesMerton(...); ...)` | Generate `Vector{PricePath}` equity price paths |
 | `p(t)` | The simulated price at a grid time of a `PricePath`, relative to its start |
+| `simulate((m1, m2, ...), ρ; ...)` | Joint scenarios with correlated innovations: a tuple of paths per scenario |
 
 `FinanceModels.simulation_times(path)` lists the grid times of a `RatePath` or `PricePath`; `FinanceModels.simulation_steps(horizon, timestep)` reports the step count and whether the requested horizon is aligned.

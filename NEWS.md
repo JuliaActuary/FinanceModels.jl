@@ -22,6 +22,25 @@ Black–Scholes–Merton price paths as `PricePath`s, on the grid `simulate` use
 The simulation loop is now shared by rate and equity models. A rate model's paths, their element
 types and its random draws are unchanged.
 
+### Correlated scenarios
+
+`simulate(models::Tuple, ρ::AbstractMatrix; ...)` simulates several models together. It returns one
+tuple of paths per scenario (a `RatePath` or a `PricePath` per model), and a `NamedTuple` of models
+gives `NamedTuple`s of paths.
+
+- **What ρ is:** the correlation of the standardized innovations the models receive at each step,
+  through a factor `F` with `F Fᵀ = ρ`. Each model steps with its own transition. It is not the
+  Brownian-driver correlation of a continuous-time joint model, and the docstring explains the
+  difference.
+- **Checks:** ρ must be square of the models' size, finite, with a unit diagonal and symmetric;
+  otherwise a `DimensionMismatch` or `ArgumentError` (a covariance matrix is rejected).
+- **Factorization:** Cholesky, or pivoted Cholesky for a singular positive-semidefinite `Float32` or
+  `Float64` matrix (correlations of ±1), checked by reconstruction.
+- **Derivatives in ρ:** supported where ρ is positive definite; at a correlation of ±1 the call
+  throws before any draw.
+- **Draws:** each step draws one standard normal per model. A single model with `ρ = [1;;]` gives
+  exactly `simulate(model)`'s paths.
+
 ## v7.0.1 (unreleased)
 
 ### Parameter checks read values, not derivatives
