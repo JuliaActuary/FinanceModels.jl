@@ -15,7 +15,7 @@ module ShortRate
     import ..Yield
     import ..AbstractStochasticModel
     import ..FinanceCore
-    import ..__continuous
+    import ..__continuous, ..__primal
     using ..FinanceCore: Continuous, Rate
 
     """
@@ -41,7 +41,9 @@ module ShortRate
         σ::S
         initial::T
         function Vasicek(a::A, b::B, σ::S, initial::T) where {A, B, S, T}
-            σ >= 0 || throw(ArgumentError("volatility σ must be non-negative, got $σ"))
+            # signs are read from values: under ForwardDiff 1 a dual number at 0 with a negative
+            # partial compares below 0, which would reject a derivative through σ = 0
+            __primal(σ) >= 0 || throw(ArgumentError("volatility σ must be non-negative, got $σ"))
             return new{A, B, S, T}(a, b, σ, initial)
         end
     end
@@ -81,9 +83,9 @@ module ShortRate
         σ::S
         initial::T
         function CoxIngersollRoss(a::A, b::B, σ::S, initial::T) where {A, B, S, T}
-            σ >= 0 || throw(ArgumentError("volatility σ must be non-negative, got $σ"))
+            __primal(σ) >= 0 || throw(ArgumentError("volatility σ must be non-negative, got $σ"))
             initial_value = __continuous(initial)
-            initial_value >= 0 || throw(ArgumentError("initial rate must be non-negative for CIR, got $initial"))
+            __primal(initial_value) >= 0 || throw(ArgumentError("initial rate must be non-negative for CIR, got $initial"))
             return new{A, B, S, T}(a, b, σ, initial)
         end
     end
@@ -116,7 +118,7 @@ module ShortRate
         σ::S
         curve::C
         function HullWhite(a::A, σ::S, curve::C) where {A, S, C}
-            σ >= 0 || throw(ArgumentError("volatility σ must be non-negative, got $σ"))
+            __primal(σ) >= 0 || throw(ArgumentError("volatility σ must be non-negative, got $σ"))
             return new{A, S, C}(a, σ, curve)
         end
     end
@@ -660,8 +662,8 @@ Returns `(call_price, put_price)`.
 Reference: Brigo & Mercurio (2006), Proposition 3.2.1
 """
 function __zcb_option_price(m::__GaussianModel, T, S, K)
-    S > T || throw(ArgumentError("Bond maturity S=$S must be greater than option expiry T=$T"))
-    K > 0 || throw(ArgumentError("Strike K=$K must be positive"))
+    __primal(S) > __primal(T) || throw(ArgumentError("Bond maturity S=$S must be greater than option expiry T=$T"))
+    __primal(K) > 0 || throw(ArgumentError("Strike K=$K must be positive"))
     a, σ = m.a, m.σ
     P0T = FinanceCore.discount(m, T)
     P0S = FinanceCore.discount(m, S)

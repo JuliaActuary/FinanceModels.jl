@@ -1895,3 +1895,32 @@ end
     s32 = FinanceModels.__strong_zero_sqrt(D(4.0f0, 1.0f0))
     @test s32 isa ForwardDiff.Dual{Nothing, Float32} && ForwardDiff.partials(s32)[1] == 0.25f0
 end
+
+@testset "parameter checks read values, not derivatives" begin
+    # Under ForwardDiff 1 a dual number at 0 compares by its partials, Dual(0, -1) < 0 and
+    # Dual(0, 1) > 0, so a check on the whole number rejected derivatives through 0 and accepted an
+    # invalid 0. The checks read the value.
+    D = ForwardDiff.Dual{Nothing}
+    curve = Yield.Constant(Continuous(0.03))
+    for model in (
+            σ -> ShortRate.Vasicek(0.1, 0.03, σ, Continuous(0.03)),
+            σ -> ShortRate.CoxIngersollRoss(0.1, 0.03, σ, Continuous(0.03)),
+            σ -> ShortRate.HullWhite(0.1, σ, curve),
+        )
+        P(σ) = discount(model(σ), 5.0)
+        # a negative seed at σ = 0, and σ = (x - y)², never negative, at x = y = 0
+        @test ForwardDiff.derivative(s -> P(-s), 0.0) == -ForwardDiff.derivative(P, 0.0)
+        @test isfinite(ForwardDiff.derivative(x -> ForwardDiff.derivative(y -> P((x - y)^2), 0.0), 0.0))
+        @test_throws ArgumentError model(D(-1.0e-3, 1.0))
+    end
+    # a CIR initial rate of 0, with a negative seed
+    Pr(r) = discount(ShortRate.CoxIngersollRoss(0.1, 0.03, 0.02, r), 5.0)
+    @test ForwardDiff.derivative(s -> Pr(-s), 0.0) == -ForwardDiff.derivative(Pr, 0.0)
+    # an invalid 0 is rejected whatever its partials
+    v = ShortRate.Vasicek(0.1, 0.03, 0.01, Continuous(0.03))
+    @test_throws ArgumentError present_value(v, Option.ZCBCall(1.0, 2.0, D(0.0, 1.0)))
+    @test_throws ArgumentError present_value(v, Option.ZCBCall(D(1.0, 1.0), D(1.0, 0.0), 0.9))
+    @test_throws DomainError Yield.NelsonSiegelSvensson(D(0.0, 1.0), D(1.0, 0.0), D(0.04, 0.0), D(-0.02, 0.0), D(0.01, 0.0), D(-0.005, 0.0))
+    @test_throws DomainError Yield.CairnsPritchard(D(0.0, 1.0), D(1.0, 0.0), D(0.0, 0.0), D(0.0, 0.0), D(0.0, 0.0))
+    @test_throws DomainError Yield.CairnsPritchardExtended(D(1.0, 0.0), D(2.0, 0.0), D(0.0, 1.0), D(0.0, 0.0), D(0.0, 0.0), D(0.0, 0.0), D(0.0, 0.0))
+end

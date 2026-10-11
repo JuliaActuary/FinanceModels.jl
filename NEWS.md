@@ -159,6 +159,20 @@ nothing to a derivative of any order. With a = 0.1, b = 0.1, σ = 0.5 and r₀ =
 condition fails, the derivative in `a` of one path's 3-year discount factor was `NaN` and is now
 −0.0243687, matching a central difference. Values are unchanged.
 
+### Parameter checks read values, not derivatives
+
+Under ForwardDiff 1 a dual number at 0 compares by its partials: `Dual(0, -1) < 0` and
+`Dual(0, 1) > 0`. Several checks compared the whole number:
+
+- σ of the Vasicek, CIR and Hull–White models;
+- CIR's initial rate;
+- a ZCB option's strike and maturity;
+- the Nelson–Siegel–Svensson and Cairns–Pritchard decay parameters.
+
+So a derivative through σ = 0 with a negative seed, or the mixed derivative of σ = (x − y)² at
+x = y = 0, threw an `ArgumentError`, while an invalid 0 with a positive partial passed. The checks
+now read the value, as the knot-grid checks already did.
+
 `simulate` takes its number of steps from `FinanceModels.simulation_steps(horizon, timestep)`, which
 returns `(; nsteps, aligned)`. A horizon within `8eps` of a whole number of steps is aligned, so
 roundoff adds no step: `horizon = 0.07, timestep = 0.01` took 8 steps and now takes 7, which changes

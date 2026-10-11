@@ -151,7 +151,7 @@ struct NelsonSiegelSvensson{T} <: AbstractYieldModel
     β₃::T
 
     function NelsonSiegelSvensson(τ₁::T, τ₂::T, β₀::T, β₁::T, β₂::T, β₃::T) where {T}
-        (τ₁ <= 0 || τ₂ <= 0) && throw(DomainError((τ₁, τ₂), "τ₁ and τ₂ must be positive"))
+        (__primal(τ₁) <= 0 || __primal(τ₂) <= 0) && throw(DomainError((τ₁, τ₂), "τ₁ and τ₂ must be positive"))
         return new{T}(τ₁, τ₂, β₀, β₁, β₂, β₃)
     end
 end
