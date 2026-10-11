@@ -780,12 +780,13 @@ function short_rate(::RatePath{<:DataInterpolations.LinearInterpolation, Nothing
 end
 
 """
-    simulation_times(path::RatePath)
+    simulation_times(path)
 
-A copy of `path`'s time grid, from 0 to its last time. For a path from [`simulate`](@ref) it is a
-new `Vector{Float64}` of multiples of the timestep, ending at an aligned horizon or at the extra
-step that covers an unaligned one (see [`FinanceModels.simulation_steps`](@ref)).
-[`short_rate`](@ref) answers at these times only.
+A copy of the time grid of `path`, a [`RatePath`](@ref) or a [`PricePath`](@ref), from 0 to its
+last time. For a path from [`simulate`](@ref) it is a new `Vector{Float64}` of multiples of the
+timestep, ending at an aligned horizon or at the extra step that covers an unaligned one (see
+[`FinanceModels.simulation_steps`](@ref)). [`short_rate`](@ref) and a `PricePath`'s prices answer at
+these times only.
 """
 simulation_times(path::RatePath) = copy(path.interp.t)
 

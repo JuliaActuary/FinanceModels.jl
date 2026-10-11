@@ -46,7 +46,7 @@ export par, implied_quote
 
 export Equity, Volatility
 export FX
-export ShortRate, AbstractStochasticModel, RatePath, simulate, pv_mc, short_rate
+export ShortRate, AbstractStochasticModel, RatePath, PricePath, simulate, pv_mc, short_rate
 export Projection, CashflowProjection, Models, valuation_model
 export pv
 export Fit, fit, FitConvergenceError
