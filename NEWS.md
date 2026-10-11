@@ -1,6 +1,22 @@
 # FinanceModels.jl release notes
 
-## v7.0.0 (unreleased)
+## v7.0.1 (unreleased)
+
+### Parameter checks read values, not derivatives
+
+Parameter validation now checks a ForwardDiff dual number's value, independently of its
+derivatives. Under ForwardDiff 1, `Dual(0, -1) < 0` and `Dual(0, 1) > 0`: comparing the whole
+number rejected valid zero-valued parameters with negative derivatives and accepted invalid
+zero-valued parameters with positive derivatives.
+
+The fix covers short-rate volatilities, CIR's initial rate, ZCB option strike and maturity
+ordering, and the decay parameters of Nelson–Siegel, Nelson–Siegel–Svensson and both
+Cairns–Pritchard models. For example, a nested derivative through the nonnegative volatility
+σ = (x − y)² at x = y = 0 no longer throws, and a zero Nelson–Siegel decay parameter cannot
+pass validation and produce a `NaN` derivative. Calculations retain the derivatives; the API
+and intended parameter domains are unchanged.
+
+## v7.0.0
 
 ### Valuation contexts (requires FinanceCore 3; changed numbers)
 
@@ -158,20 +174,6 @@ zero, whose infinite slope times the zero derivative is `NaN`. The clipped state
 nothing to a derivative of any order. With a = 0.1, b = 0.1, σ = 0.5 and r₀ = 5%, where the Feller
 condition fails, the derivative in `a` of one path's 3-year discount factor was `NaN` and is now
 −0.0243687, matching a central difference. Values are unchanged.
-
-### Parameter checks read values, not derivatives
-
-Under ForwardDiff 1 a dual number at 0 compares by its partials: `Dual(0, -1) < 0` and
-`Dual(0, 1) > 0`. Several checks compared the whole number:
-
-- σ of the Vasicek, CIR and Hull–White models;
-- CIR's initial rate;
-- a ZCB option's strike and maturity;
-- the Nelson–Siegel–Svensson and Cairns–Pritchard decay parameters.
-
-So a derivative through σ = 0 with a negative seed, or the mixed derivative of σ = (x − y)² at
-x = y = 0, threw an `ArgumentError`, while an invalid 0 with a positive partial passed. The checks
-now read the value, as the knot-grid checks already did.
 
 `simulate` takes its number of steps from `FinanceModels.simulation_steps(horizon, timestep)`, which
 returns `(; nsteps, aligned)`. A horizon within `8eps` of a whole number of steps is aligned, so

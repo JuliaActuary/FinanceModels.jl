@@ -1910,17 +1910,26 @@ end
         P(σ) = discount(model(σ), 5.0)
         # a negative seed at σ = 0, and σ = (x - y)², never negative, at x = y = 0
         @test ForwardDiff.derivative(s -> P(-s), 0.0) == -ForwardDiff.derivative(P, 0.0)
-        @test isfinite(ForwardDiff.derivative(x -> ForwardDiff.derivative(y -> P((x - y)^2), 0.0), 0.0))
+        @test ForwardDiff.derivative(x -> ForwardDiff.derivative(y -> P((x - y)^2), 0.0), 0.0) == 0.0
         @test_throws ArgumentError model(D(-1.0e-3, 1.0))
     end
     # a CIR initial rate of 0, with a negative seed
     Pr(r) = discount(ShortRate.CoxIngersollRoss(0.1, 0.03, 0.02, r), 5.0)
     @test ForwardDiff.derivative(s -> Pr(-s), 0.0) == -ForwardDiff.derivative(Pr, 0.0)
+    h = 1.0e-5
+    @test ForwardDiff.derivative(Pr, 0.0) ≈ (-3Pr(0.0) + 4Pr(h) - Pr(2h)) / (2h) rtol = 1.0e-8
     # an invalid 0 is rejected whatever its partials
     v = ShortRate.Vasicek(0.1, 0.03, 0.01, Continuous(0.03))
-    @test_throws ArgumentError present_value(v, Option.ZCBCall(1.0, 2.0, D(0.0, 1.0)))
-    @test_throws ArgumentError present_value(v, Option.ZCBCall(D(1.0, 1.0), D(1.0, 0.0), 0.9))
-    @test_throws DomainError Yield.NelsonSiegelSvensson(D(0.0, 1.0), D(1.0, 0.0), D(0.04, 0.0), D(-0.02, 0.0), D(0.01, 0.0), D(-0.005, 0.0))
-    @test_throws DomainError Yield.CairnsPritchard(D(0.0, 1.0), D(1.0, 0.0), D(0.0, 0.0), D(0.0, 0.0), D(0.0, 0.0))
-    @test_throws DomainError Yield.CairnsPritchardExtended(D(1.0, 0.0), D(2.0, 0.0), D(0.0, 1.0), D(0.0, 0.0), D(0.0, 0.0), D(0.0, 0.0), D(0.0, 0.0))
+    for seed in (-1.0, 0.0, 1.0)
+        z = D(0.0, seed)
+        @test_throws ArgumentError present_value(v, Option.ZCBCall(1.0, 2.0, z))
+        @test_throws ArgumentError present_value(v, Option.ZCBCall(D(1.0, seed), 1.0, 0.9))
+        @test_throws DomainError Yield.NelsonSiegel(z, 0.04, -0.02, 0.01)
+        @test_throws DomainError Yield.NelsonSiegelSvensson(z, 1.0, 0.04, -0.02, 0.01, -0.005)
+        @test_throws DomainError Yield.CairnsPritchard(z, 1.0, 0.0, 0.0, 0.0)
+        @test_throws DomainError Yield.CairnsPritchardExtended(1.0, 2.0, z, 0.0, 0.0, 0.0, 0.0)
+    end
+    # a valid decay parameter retains its sensitivity after validation
+    Pτ(τ) = discount(Yield.NelsonSiegel(τ, 0.04, -0.02, 0.01), 5.0)
+    @test ForwardDiff.derivative(Pτ, 1.0) ≈ (Pτ(1.0 + h) - Pτ(1.0 - h)) / (2h) rtol = 1.0e-8
 end

@@ -37,7 +37,7 @@ struct NelsonSiegel{T} <: AbstractYieldModel
     β₂::T
 
     function NelsonSiegel(τ₁::T, β₀::T, β₁::T, β₂::T) where {T}
-        (τ₁ <= 0) && throw(DomainError(τ₁, "τ₁ must be positive"))
+        (__primal(τ₁) <= 0) && throw(DomainError(τ₁, "τ₁ must be positive"))
         return new{T}(τ₁, β₀, β₁, β₂)
     end
 end
