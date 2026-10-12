@@ -1895,3 +1895,256 @@ end
     s32 = FinanceModels.__strong_zero_sqrt(D(4.0f0, 1.0f0))
     @test s32 isa ForwardDiff.Dual{Nothing, Float32} && ForwardDiff.partials(s32)[1] == 0.25f0
 end
+
+@testset "parameter checks read values, not derivatives" begin
+    # Under ForwardDiff 1 a dual number at 0 compares by its partials, Dual(0, -1) < 0 and
+    # Dual(0, 1) > 0, so a check on the whole number rejected derivatives through 0 and accepted an
+    # invalid 0. The checks read the value.
+    D = ForwardDiff.Dual{Nothing}
+    curve = Yield.Constant(Continuous(0.03))
+    for model in (
+            σ -> ShortRate.Vasicek(0.1, 0.03, σ, Continuous(0.03)),
+            σ -> ShortRate.CoxIngersollRoss(0.1, 0.03, σ, Continuous(0.03)),
+            σ -> ShortRate.HullWhite(0.1, σ, curve),
+        )
+        P(σ) = discount(model(σ), 5.0)
+        # a negative seed at σ = 0, and σ = (x - y)², never negative, at x = y = 0
+        @test ForwardDiff.derivative(s -> P(-s), 0.0) == -ForwardDiff.derivative(P, 0.0)
+        @test ForwardDiff.derivative(x -> ForwardDiff.derivative(y -> P((x - y)^2), 0.0), 0.0) == 0.0
+        @test_throws ArgumentError model(D(-1.0e-3, 1.0))
+    end
+    # a CIR initial rate of 0, with a negative seed
+    Pr(r) = discount(ShortRate.CoxIngersollRoss(0.1, 0.03, 0.02, r), 5.0)
+    @test ForwardDiff.derivative(s -> Pr(-s), 0.0) == -ForwardDiff.derivative(Pr, 0.0)
+    h = 1.0e-5
+    @test ForwardDiff.derivative(Pr, 0.0) ≈ (-3Pr(0.0) + 4Pr(h) - Pr(2h)) / (2h) rtol = 1.0e-8
+    # an invalid 0 is rejected whatever its partials
+    v = ShortRate.Vasicek(0.1, 0.03, 0.01, Continuous(0.03))
+    for seed in (-1.0, 0.0, 1.0)
+        z = D(0.0, seed)
+        @test_throws ArgumentError present_value(v, Option.ZCBCall(1.0, 2.0, z))
+        @test_throws ArgumentError present_value(v, Option.ZCBCall(D(1.0, seed), 1.0, 0.9))
+        @test_throws DomainError Yield.NelsonSiegel(z, 0.04, -0.02, 0.01)
+        @test_throws DomainError Yield.NelsonSiegelSvensson(z, 1.0, 0.04, -0.02, 0.01, -0.005)
+        @test_throws DomainError Yield.CairnsPritchard(z, 1.0, 0.0, 0.0, 0.0)
+        @test_throws DomainError Yield.CairnsPritchardExtended(1.0, 2.0, z, 0.0, 0.0, 0.0, 0.0)
+    end
+    # a valid decay parameter retains its sensitivity after validation
+    Pτ(τ) = discount(Yield.NelsonSiegel(τ, 0.04, -0.02, 0.01), 5.0)
+    @test ForwardDiff.derivative(Pτ, 1.0) ≈ (Pτ(1.0 + h) - Pτ(1.0 - h)) / (2h) rtol = 1.0e-8
+end
+
+@testset "Gaussian bond options at zero and tiny volatility (#291)" begin
+    # 7.0.0 switched to intrinsic values below a bond-price volatility σ_P of 1e-15: at the money the
+    # σ-derivative dropped from 0.34 to 0 there, and was 0 at σ = 0. (`black_reference` is in Equity.jl.)
+    D(f, x) = ForwardDiff.derivative(f, x)
+    a, T, S = 0.1, 1.0, 2.0
+    curve = Yield.Constant(Continuous(0.03))
+    hw(σ) = ShortRate.HullWhite(a, σ, curve)
+    P0T, P0S = discount(curve, T), discount(curve, S)
+    # a strike exactly at the money, K·P(0,T) == P(0,S)
+    near(x) = [prevfloat(x, 2), prevfloat(x), x, nextfloat(x), nextfloat(x, 2)]
+    atm = filter(K -> K * P0T == P0S, near(P0S / P0T))
+    @test !isempty(atm)
+    Katm = first(atm)
+    # σ_P per unit σ, B(T,S)·√((1 - e^{-2aT})/(2a)), from 256-bit arithmetic
+    vP = setprecision(BigFloat, 256) do
+        A = big(a)
+        Float64((1 - exp(-A * (S - T))) / A * sqrt((1 - exp(-2A * T)) / (2A)))
+    end
+    cutoff = 1.0e-15 / vP
+
+    @testset "Hull-White against 256-bit references" begin
+        for K in (Katm, Katm * (1 + 1.0e-12), Katm * (1 - 1.0e-12), Katm * 1.05, Katm / 1.05),
+                σ in (0.0, 1.0e-300, 1.0e-200, 1.0e-160, 1.0e-20, prevfloat(cutoff), nextfloat(cutoff), 1.0e-10, 1.0e-4, 0.01)
+            call(s) = pv(hw(s), Option.ZCBCall(T, S, K))
+            put(s) = pv(hw(s), Option.ZCBPut(T, S, K))
+            Kd = K * P0T
+            if σ > 0
+                ref = black_reference(P0S, Kd, σ * vP)
+                @test abs(call(σ) - ref.call) <= 4eps()
+                @test abs(put(σ) - ref.put) <= 4eps()
+                @test abs(D(call, σ) - ref.Δcall[3] * vP) <= 1.0e-13
+            else
+                # the intrinsic value, and the one-sided vega: P(0,S)/√(2π) per unit σ_P at the money
+                @test call(σ) == max(P0S - Kd, 0) && put(σ) == max(Kd - P0S, 0)
+                @test D(call, σ) ≈ (P0S == Kd ? P0S * vP / sqrt(2π) : 0) rtol = 1.0e-14
+            end
+            @test abs((call(σ) - put(σ)) - (P0S - Kd)) <= 4eps()
+            @test D(call, σ) == D(put, σ)
+        end
+        # no jump at 7.0.0's switch, or between σ = 0 and it
+        f(s) = pv(hw(s), Option.ZCBCall(T, S, Katm))
+        @test D(f, prevfloat(cutoff)) ≈ D(f, nextfloat(cutoff)) rtol = 1.0e-14
+        @test D(f, 0.0) ≈ D(f, cutoff) rtol = 1.0e-14
+    end
+
+    @testset "Vasicek, whose forward also moves with σ" begin
+        vas(σ) = ShortRate.Vasicek(a, 0.04, σ, Continuous(0.03))
+        vT, vS = discount(vas(0.0), T), discount(vas(0.0), S)
+        Kv = first(filter(K -> K * vT == vS, near(vS / vT)))
+        for K in (Kv, Kv * 1.05, Kv / 1.05)
+            call(s) = pv(vas(s), Option.ZCBCall(T, S, K))
+            put(s) = pv(vas(s), Option.ZCBPut(T, S, K))
+            # the derivative at σ = 0 is the limit of those at σ → 0⁺: nonzero at the money, and away
+            # from it the forward's sensitivity, proportional to σ
+            @test isfinite(D(call, 0.0))
+            @test D(call, 0.0) ≈ D(call, 1.0e-300) rtol = 1.0e-14 atol = 1.0e-16
+            @test D(call, 0.0) ≈ D(call, 1.0e-200) rtol = 1.0e-14 atol = 1.0e-16
+            K == Kv && @test D(call, 0.0) ≈ vS * vP / sqrt(2π) rtol = 1.0e-14
+            # at an ordinary σ, against a central difference of the same prices in 256-bit arithmetic
+            fd = setprecision(BigFloat, 256) do
+                cb(s) = pv(ShortRate.Vasicek(big(a), big(0.04), s, Continuous(big(0.03))), Option.ZCBCall(big(T), big(S), big(K)))
+                h = big(1.0e-30)
+                Float64((cb(big(0.01) + h) - cb(big(0.01) - h)) / 2h)
+            end
+            @test D(call, 0.01) ≈ fd rtol = 1.0e-12
+            for σ in (0.0, 1.0e-300, 0.01)
+                @test call(σ) - put(σ) ≈ discount(vas(σ), S) - K * discount(vas(σ), T) atol = 4eps()
+            end
+        end
+    end
+
+    @testset "signed and nested derivatives at σ = 0" begin
+        vas(σ) = ShortRate.Vasicek(a, 0.04, σ, Continuous(0.03))
+        for model in (hw, vas), K in (Katm, Katm * 1.05)
+            f(s) = pv(model(s), Option.ZCBCall(T, S, K))
+            @test D(s -> f(-s), 0.0) == -D(f, 0.0)
+            # (x - y)² is never negative; the second derivative's term is weighted by zero
+            @test D(x -> D(y -> f((x - y)^2), 0.0), 0.0) == -2D(f, 0.0)
+        end
+    end
+
+    @testset "a derivative in the expiry at T = 0" begin
+        # √((1 - e^{-2aT})/(2a)) has an infinite slope at T = 0, which zero volatility doesn't multiply.
+        # The derivative is the one-sided limit at fixed σ_P: the discounted strike's drift times Φ(d₋),
+        # 1/2 at the money, where a positive σ makes it infinite
+        K0 = discount(curve, 1.0)
+        for σ in (0.0, 0.01)
+            θ(K) = D(t -> pv(hw(σ), Option.ZCBCall(t, 1.0, K)), 0.0)
+            @test θ(K0) ≈ (σ == 0 ? 0.03 * K0 / 2 : Inf)
+            @test θ(0.99 * K0) ≈ 0.03 * 0.99 * K0
+            @test θ(1.01 * K0) == 0
+        end
+    end
+end
+
+@testset "caps, floors and swaptions at zero and tiny volatility (#291)" begin
+    D(f, x) = ForwardDiff.derivative(f, x)
+    curve = Yield.Constant(Continuous(0.03))
+    hw(σ) = ShortRate.HullWhite(0.1, σ, curve)
+    vas(σ) = ShortRate.Vasicek(0.1, 0.04, σ, Continuous(0.03))
+    # the forward quarterly rate, and the 1-into-2-year forward swap rate, for at-the-money strikes
+    fwd_rate = 4 * expm1(0.03 / 4)
+    pays = 1.25:0.25:3.0
+    swap_rate = (discount(curve, 1.0) - discount(curve, 3.0)) / (0.25 * sum(t -> discount(curve, t), pays))
+    contracts = (
+        (Option.Cap(K, 4, 3.0) for K in (0.02, fwd_rate, 0.04))...,
+        (Option.Floor(K, 4, 3.0) for K in (0.02, fwd_rate, 0.04))...,
+        (Option.Swaption(1.0, 3.0, K, 4; payer) for K in (0.02, swap_rate, 0.04), payer in (true, false))...,
+    )
+    for model in (hw, vas), c in contracts
+        f(s) = pv(model(s), c)
+        # finite down to σ = 0, where the value and derivative are the limits from above
+        @test isfinite(f(0.0)) && isfinite(D(f, 0.0))
+        @test f(0.0) ≈ f(1.0e-300) atol = 1.0e-16
+        @test D(f, 0.0) ≈ D(f, 1.0e-300) rtol = 1.0e-12 atol = 1.0e-16
+        @test D(f, 1.0e-300) ≈ D(f, 1.0e-200) rtol = 1.0e-12 atol = 1.0e-16
+        # at an ordinary σ, against a central difference
+        h = 1.0e-6
+        @test D(f, 0.01) ≈ (f(0.01 + h) - f(0.01 - h)) / 2h rtol = 1.0e-6
+        @test D(s -> f(-s), 0.0) == -D(f, 0.0)
+        # a swaption's critical rate takes first-order derivatives only
+        c isa Option.Swaption || @test D(x -> D(y -> f((x - y)^2), 0.0), 0.0) ≈ -2D(f, 0.0) rtol = 1.0e-14 atol = 1.0e-16
+    end
+    # Hull-White caps and floors against 256-bit references (`black_reference` is in Equity.jl): each
+    # caplet is (1 + Kτ) puts on the bond paying at T_pay, struck at 1/(1 + Kτ), expiring at T_reset
+    A = big(0.1)
+    vP(T, S) = setprecision(() -> Float64((1 - exp(-A * (S - T))) / A * sqrt((1 - exp(-2A * T)) / (2A))), BigFloat, 256)
+    for K in (0.02, fwd_rate, 0.04), σ in (1.0e-300, 1.0e-16, 1.0e-15, 3.0e-15, 1.0e-14, 0.01)
+        cap_value = floor_value = cap_vega = floor_vega = 0.0
+        for i in 2:12
+            Tr, Tp = (i - 1) * 0.25, i * 0.25
+            w, v = 1.0 + K * 0.25, vP(Tr, Tp)
+            ref = black_reference(discount(curve, Tp), 1.0 / w * discount(curve, Tr), σ * v)
+            cap_value += w * ref.put
+            floor_value += w * ref.call
+            cap_vega += w * ref.Δput[3] * v
+            floor_vega += w * ref.Δcall[3] * v
+        end
+        @test abs(pv(hw(σ), Option.Cap(K, 4, 3.0)) - cap_value) <= 1.0e-14
+        @test abs(pv(hw(σ), Option.Floor(K, 4, 3.0)) - floor_value) <= 1.0e-14
+        @test abs(D(s -> pv(hw(s), Option.Cap(K, 4, 3.0)), σ) - cap_vega) <= 1.0e-12
+        @test abs(D(s -> pv(hw(s), Option.Floor(K, 4, 3.0)), σ) - floor_vega) <= 1.0e-12
+    end
+    # 7.0.0 dropped each bond option's vega below a bond-price volatility of 1e-15. At the money, a cap's
+    # and a swaption's vegas are continuous through the switch of their last bond option, and a
+    # swaption keeps most of its vega below every switch.
+    for (c, T, S) in ((Option.Cap(fwd_rate, 4, 3.0), 2.75, 3.0), (Option.Swaption(1.0, 3.0, swap_rate, 4), 1.0, 3.0))
+        f(s) = pv(hw(s), c)
+        σ = 1.0e-15 / vP(T, S)
+        @test D(f, σ * (1 - 1.0e-9)) ≈ D(f, σ * (1 + 1.0e-9)) rtol = 1.0e-6
+    end
+    swaption(s) = pv(hw(s), Option.Swaption(1.0, 3.0, swap_rate, 4))
+    @test D(swaption, 5.0e-16) > D(swaption, 1.0e-10) / 2
+    # parity: under Hull-White the curve is fixed, so a cap less a floor at the same strike, and a payer
+    # less a receiver swaption, are worth the same at every σ, including 0
+    for σ in (0.0, 1.0e-300, 0.01), K in (0.02, fwd_rate, 0.04)
+        @test pv(hw(σ), Option.Cap(K, 4, 3.0)) - pv(hw(σ), Option.Floor(K, 4, 3.0)) ≈
+            pv(hw(0.02), Option.Cap(K, 4, 3.0)) - pv(hw(0.02), Option.Floor(K, 4, 3.0)) atol = 1.0e-15
+    end
+    for σ in (0.0, 1.0e-300, 0.01), K in (0.02, swap_rate, 0.04)
+        sw(p, s) = pv(hw(s), Option.Swaption(1.0, 3.0, K, 4; payer = p))
+        @test sw(true, σ) - sw(false, σ) ≈ sw(true, 0.02) - sw(false, 0.02) atol = 1.0e-15
+    end
+end
+
+@testset "Gaussian simulation steps are linear in σ (#291)" begin
+    D(f, x) = ForwardDiff.derivative(f, x)
+    # the standard deviation of an exact Ornstein-Uhlenbeck step, σ·√((1 - e^{-2a·dt})/(2a)), against
+    # 256-bit arithmetic: √(σ²·…) had a NaN derivative at σ = 0, and σ² underflowed below σ = 1e-154
+    setprecision(BigFloat, 256) do
+        for a in (-0.5, 0.0, 1.0e-8, 0.1, 2.0), σ in (0.0, 1.0e-300, 1.0e-200, 1.0e-12, 0.01, 0.2), dt in (1 / 252, 1 / 12, 1.0)
+            A, Δ = big(a), big(dt)
+            w = iszero(A) ? sqrt(Δ) : sqrt((1 - exp(-2A * Δ)) / (2A))
+            @test FinanceModels.__ou_step_params(a, σ, dt).sd ≈ big(σ) * w rtol = 4eps()
+            @test D(s -> FinanceModels.__ou_step_params(a, s, dt).sd, σ) ≈ w rtol = 4eps()
+        end
+    end
+
+    # Simulated discount factors against an independent replay of the exact transitions in 256-bit
+    # arithmetic, with the same shocks. Given the shocks each rate is r_j = μ_j + σ·ξ_j (Hull-White's μ
+    # also has σ²/2·B(t)²), so the pathwise derivative is known exactly, at σ = 0 too.
+    a, b, r0, dt, n = 0.1, 0.04, 0.03, 1 / 12, 24
+    # scalar draws, as `simulate` makes them (a vector `randn` draws a different stream)
+    rng = Random.Xoshiro(11)
+    Z = [randn(rng) for _ in 1:n]
+    vas(s) = discount(only(simulate(ShortRate.Vasicek(a, b, s, Continuous(r0)); n_scenarios = 1, timestep = dt, horizon = n * dt, rng = Random.Xoshiro(11))), n * dt)
+    hw(s) = discount(only(simulate(ShortRate.HullWhite(a, s, Yield.Constant(Continuous(r0))); n_scenarios = 1, timestep = dt, horizon = n * dt, rng = Random.Xoshiro(11))), n * dt)
+    setprecision(BigFloat, 256) do
+        A, Δ = big(a), big(dt)
+        ϕ, w = exp(-A * Δ), sqrt((1 - exp(-2A * Δ)) / (2A))
+        ξ = [big(0.0); accumulate((x, z) -> x * ϕ + w * z, big.(Z); init = big(0.0))]
+        trap(x) = sum((x[j] + x[j + 1]) / 2 for j in 1:n) * Δ
+        μ = [big(b) + (big(r0) - big(b)) * ϕ^j for j in 0:n]
+        B² = [((1 - exp(-A * big(j * dt))) / A)^2 for j in 0:n]
+        for σ in (0.0, 1.0e-300, 0.01)
+            Σ = big(σ)
+            I = trap(μ) + Σ * trap(ξ)
+            @test vas(σ) ≈ exp(-I) rtol = 1.0e-14
+            @test D(vas, σ) ≈ -exp(-I) * trap(ξ) rtol = 1.0e-13
+            Ih = trap(r0 .+ Σ^2 / 2 .* B²) + Σ * trap(ξ)
+            @test hw(σ) ≈ exp(-Ih) rtol = 1.0e-14
+            @test D(hw, σ) ≈ -exp(-Ih) * (trap(ξ) + Σ * trap(B²)) rtol = 1.0e-13
+        end
+    end
+    for f in (vas, hw)
+        @test D(s -> f(-s), 0.0) == -D(f, 0.0)
+        @test D(x -> D(y -> f((x - y)^2), 0.0), 0.0) ≈ -2D(f, 0.0) rtol = 1.0e-14
+    end
+    # the draws are unchanged: one standard normal per step
+    rng, ref = Random.Xoshiro(11), Random.Xoshiro(11)
+    simulate(ShortRate.Vasicek(a, b, 0.0, Continuous(r0)); n_scenarios = 3, timestep = dt, horizon = n * dt, rng)
+    foreach(_ -> randn(ref), 1:(3n))
+    @test rng == ref
+end

@@ -15,7 +15,7 @@ module ShortRate
     import ..Yield
     import ..AbstractStochasticModel
     import ..FinanceCore
-    import ..__continuous
+    import ..__continuous, ..__primal
     using ..FinanceCore: Continuous, Rate
 
     """
@@ -41,7 +41,9 @@ module ShortRate
         σ::S
         initial::T
         function Vasicek(a::A, b::B, σ::S, initial::T) where {A, B, S, T}
-            σ >= 0 || throw(ArgumentError("volatility σ must be non-negative, got $σ"))
+            # signs are read from values: under ForwardDiff 1 a dual number at 0 with a negative
+            # partial compares below 0, which would reject a derivative through σ = 0
+            __primal(σ) >= 0 || throw(ArgumentError("volatility σ must be non-negative, got $σ"))
             return new{A, B, S, T}(a, b, σ, initial)
         end
     end
@@ -81,9 +83,9 @@ module ShortRate
         σ::S
         initial::T
         function CoxIngersollRoss(a::A, b::B, σ::S, initial::T) where {A, B, S, T}
-            σ >= 0 || throw(ArgumentError("volatility σ must be non-negative, got $σ"))
+            __primal(σ) >= 0 || throw(ArgumentError("volatility σ must be non-negative, got $σ"))
             initial_value = __continuous(initial)
-            initial_value >= 0 || throw(ArgumentError("initial rate must be non-negative for CIR, got $initial"))
+            __primal(initial_value) >= 0 || throw(ArgumentError("initial rate must be non-negative for CIR, got $initial"))
             return new{A, B, S, T}(a, b, σ, initial)
         end
     end
@@ -116,7 +118,7 @@ module ShortRate
         σ::S
         curve::C
         function HullWhite(a::A, σ::S, curve::C) where {A, S, C}
-            σ >= 0 || throw(ArgumentError("volatility σ must be non-negative, got $σ"))
+            __primal(σ) >= 0 || throw(ArgumentError("volatility σ must be non-negative, got $σ"))
             return new{A, S, C}(a, σ, curve)
         end
     end
@@ -546,10 +548,11 @@ __sim_eltype(m::ShortRate.HullWhite, r0) =
 
 # Exact Ornstein-Uhlenbeck transition parameters over one step of length dt:
 #   x_{t+dt} | x_t ~ Normal(x_t·ϕ, sd²),  ϕ = exp(-a·dt),  sd² = σ²(1-ϕ²)/(2a)
+# σ ≥ 0, so sd = σ·√((1-ϕ²)/(2a)): √(σ²·…) has an infinite slope at σ = 0, where its derivative was
+# NaN, and σ² underflows below σ = 1e-154, where it gave sd = 0.
 function __ou_step_params(a, σ, dt)
     ϕ = exp(-a * dt)
-    var = σ^2 * __decay_integral(2a, dt)
-    return (ϕ = ϕ, sd = sqrt(var))
+    return (ϕ = ϕ, sd = σ * sqrt(__decay_integral(2a, dt)))
 end
 
 # The rate that enters the discount integral: identity except for CIR, where
@@ -660,27 +663,19 @@ Returns `(call_price, put_price)`.
 Reference: Brigo & Mercurio (2006), Proposition 3.2.1
 """
 function __zcb_option_price(m::__GaussianModel, T, S, K)
-    S > T || throw(ArgumentError("Bond maturity S=$S must be greater than option expiry T=$T"))
-    K > 0 || throw(ArgumentError("Strike K=$K must be positive"))
+    __primal(S) > __primal(T) || throw(ArgumentError("Bond maturity S=$S must be greater than option expiry T=$T"))
+    __primal(K) > 0 || throw(ArgumentError("Strike K=$K must be positive"))
     a, σ = m.a, m.σ
     P0T = FinanceCore.discount(m, T)
     P0S = FinanceCore.discount(m, S)
 
-    # σ_P: volatility of the ZCB price at expiry, σ·B(T,S)·sqrt((1 - e^{-2aT})/(2a))
-    σ_P = σ * __decay_integral(a, S - T) * sqrt(__decay_integral(2a, T))
+    # σ_P: volatility of the ZCB price at expiry, σ·B(T,S)·sqrt((1 - e^{-2aT})/(2a)), linear in σ ≥ 0;
+    # a strong-zero product, as the square root has an infinite slope in T at T = 0
+    σ_P = __strong_zero_mul(σ * __decay_integral(a, S - T), __strong_zero_sqrt(__decay_integral(2a, T)))
 
-    if σ_P < 1.0e-15
-        # Degenerate case: no vol → intrinsic value
-        call = P0S - K * P0T
-        put = K * P0T - P0S
-        return (max(call, zero(call)), max(put, zero(put)))
-    end
-
-    h = (1 / σ_P) * log(P0S / (K * P0T)) + σ_P / 2
-
-    call = P0S * __N(h) - K * P0T * __N(h - σ_P)
-    put = K * P0T * __N(-h + σ_P) - P0S * __N(-h)
-    return (call, put)
+    # Black's formula on the bond's forward price P(0,S)/P(0,T): the intrinsic value at σ_P = 0, with
+    # the one-sided derivatives described at `__black`
+    return __black(P0S, K * P0T, σ_P)
 end
 
 # ─── present_value for ZCB options ───────────────────────────────────────────

@@ -13,14 +13,14 @@ jobs:
   actuaryutilities:
     # FinanceModels' integration tests with ActuaryUtilities, then ActuaryUtilities' own test
     # suite against this FinanceModels. ActuaryUtilities depends on FinanceModels, so it cannot
-    # be a test dependency of a FinanceModels version it does not support yet. Until
-    # ActuaryUtilities 6 (for FinanceModels 7) is registered, this tests its development branch
-    # with its FinanceModels compat set to this version's major (a bound, so Aqua's compat check
-    # still passes); afterwards, add the registered package instead.
+    # be a test dependency of a FinanceModels version it does not support yet. This tests its
+    # master branch with its FinanceModels compat set to this version's major (a bound, so Aqua's
+    # compat check still passes), so a new FinanceModels major is tested before ActuaryUtilities
+    # supports it.
     name: ActuaryUtilities
     runs-on: ubuntu-latest
     env:
-      ACTUARYUTILITIES_REF: refactor/shared-sensitivity-engine
+      ACTUARYUTILITIES_REF: master
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
