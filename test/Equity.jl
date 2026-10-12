@@ -95,6 +95,25 @@ function black_reference(F, K, v)
     end
 end
 
+# The Hessian in (F, K, v) of Black's formula, the same for the call and the put, in 256-bit arithmetic
+# from the closed forms of the Greeks' derivatives, with the larger of d₊² and d₋²: φ(d) has a relative
+# condition number of d², which bounds the accuracy of a computed Hessian
+function black_hessian_reference(F, K, v)
+    return setprecision(BigFloat, 256) do
+        φ(x) = exp(-x^2 / 2) / sqrt(2 * big(π))
+        F, K, v = big(F), big(K), big(v)
+        d₊ = log(F / K) / v + v / 2
+        d₋ = d₊ - v
+        φ₊, φ₋ = φ(d₊), φ(d₋)
+        H = [
+            φ₊ / (F * v) -φ₊ / (K * v) -φ₊ * d₋ / v
+            -φ₊ / (K * v) φ₋ / (K * v) φ₋ * d₊ / v
+            -φ₊ * d₋ / v φ₋ * d₊ / v F * φ₊ * d₊ * d₋ / v
+        ]
+        (H = H, d² = max(d₊^2, d₋^2))
+    end
+end
+
 @testset "Black's formula at zero and tiny volatility (#291)" begin
     black = FinanceModels.__black
     D(f, x) = ForwardDiff.derivative(f, x)
@@ -120,6 +139,29 @@ end
             # put-call parity, for the prices and their derivatives
             @test abs((call - put) - (F - K)) <= 4eps() * scale
             @test maximum(abs, (gc - gp) - [1, -1, 0]) <= 2eps()
+        end
+    end
+
+    @testset "prices are accurate to roundings of the forward, not relative to themselves" begin
+        # at the money the call and the put are F·erf(v/(2√2)), a reference with no cancellation, while
+        # Black's formula subtracts F·Φ(d₊) and K·Φ(d₋), each about F/2
+        erf = FinanceModels.SpecialFunctions.erf
+        for v in vols
+            ref = setprecision(() -> F * erf(big(v) / (2 * sqrt(big(2)))), BigFloat, 256)
+            call, put = black(F, F, v)
+            @test abs(call - ref) <= 4eps(F) && abs(put - ref) <= 4eps(F)
+        end
+        # so a time value below about a rounding of F has few or no correct digits
+        @test_broken first(black(F, F, 1.0e-16)) ≈ F * 1.0e-16 / sqrt(2π) rtol = 1.0e-10
+    end
+
+    @testset "second derivatives at tiny volatilities against 256-bit references" begin
+        # differentiating Φ(d) and φ(d) formed 0·∞ = NaN where φ(d) underflows and d′ ≈ -m/v² overflows
+        for K in strikes, v in filter(>=(floatmin()), vols), price in (first, last)
+            ref = black_hessian_reference(F, K, v)
+            H = ForwardDiff.hessian(x -> price(black(x...)), [F, K, v])
+            @test all(isfinite, H)
+            @test all(abs.(H - ref.H) .<= 4eps() * (1 + ref.d²) .* abs.(ref.H) .+ floatmin())
         end
     end
 
@@ -193,19 +235,27 @@ end
     Fd, Kd = S * exp(-q * τ), K -> K * exp(-r * τ)
     # at the money for the forward S·e^{(r - q)τ}, at the spot, near, in and out of the money
     for K in (S * exp((r - q) * τ), S, S * exp((r - q) * τ) * (1 + 1.0e-12), 0.9, 1.2),
-            σ in (0.0, 1.0e-300, 1.0e-200, 1.0e-15, 1.0e-8, 0.25)
+            σ in (0.0, 1.0e-300, 1.0e-200, 1.0e-150, 1.0e-15, 1.0e-8, 0.25)
         call(s) = FinanceModels.eurocall(; S, K, τ, r, σ = s, q)
         put(s) = FinanceModels.europut(; S, K, τ, r, σ = s, q)
-        # the helper's reference, from the discounted forward and strike as eurocall forms them
+        volga(price) = D(s -> D(price, s), σ)
+        # the helper's references, from the discounted forward and strike as eurocall forms them
         if σ > 0
             ref = black_reference(Fd, Kd(K), σ * sqrt(τ))
             @test abs(call(σ) - ref.call) <= 4eps()
             @test abs(put(σ) - ref.put) <= 4eps()
             @test abs(D(call, σ) - ref.Δcall[3] * sqrt(τ)) <= 1.0e-13
             @test abs(D(put, σ) - ref.Δput[3] * sqrt(τ)) <= 1.0e-13
+            # ∂²/∂σ² is τ·∂²/∂v², which was NaN at tiny σ
+            h = black_hessian_reference(Fd, Kd(K), σ * sqrt(τ))
+            for price in (call, put)
+                @test abs(volga(price) - h.H[3, 3] * τ) <= 4eps() * (1 + h.d²) * abs(h.H[3, 3] * τ) + floatmin()
+            end
         else
             @test call(σ) == max(Fd - Kd(K), 0) && put(σ) == max(Kd(K) - Fd, 0)
             @test D(call, σ) == (Fd == Kd(K) ? Fd * sqrt(τ) / sqrt(2π) : 0)
+            # the limits, zero at and away from the money
+            @test volga(call) == 0 && volga(put) == 0
         end
         @test abs((call(σ) - put(σ)) - (Fd - Kd(K))) <= 4eps()
         @test D(call, σ) == D(put, σ)
@@ -226,7 +276,20 @@ end
     @test θ(0.9) ≈ r * 0.9 - q * S
     @test θ(1.2) == 0
     @test θ(S) == Inf
-    # a negative volatility gave a negative price at the money
+    # and with zero volatility the same limits, at the money half the drift, as Φ = 1/2: √τ's infinite
+    # slope at τ = 0 gave 0·∞ = NaN
+    θ₀(K) = D(t -> FinanceModels.eurocall(; S, K, τ = t, r, q, σ = 0.0), 0.0)
+    @test θ₀(0.9) ≈ r * 0.9 - q * S
+    @test θ₀(1.2) == 0
+    @test θ₀(S) ≈ (r - q) * S / 2
+    # at the money at σ = 0 the spot deltas are ±e^{-qτ}/2, the forward's Φ = 1/2 discounted for dividends
+    Δ(option) = D(s -> option(; S = s, K = 1.0, τ, r = q, q, σ = 0.0), 1.0)
+    @test Δ(FinanceModels.eurocall) ≈ exp(-q * τ) / 2
+    @test Δ(FinanceModels.europut) ≈ -exp(-q * τ) / 2
+    # a negative volatility gave a negative price at the money, and at τ = 0, where σ√τ = 0, a τ-derivative
+    # of the wrong sign
     @test_throws DomainError FinanceModels.eurocall(S = 1.0, K = exp(0.02), τ = 1.0, r = 0.03, q = 0.01, σ = -0.2)
     @test_throws DomainError pv(Equity.BlackScholesMerton(r, q, -0.2), Option.EuroPut(CommonEquity(), 1.0, 1.0))
+    @test_throws DomainError FinanceModels.eurocall(S = 1.0, K = 1.0, τ = 0.0, r = 0.03, q = 0.01, σ = -0.2)
+    @test_throws DomainError pv(Equity.BlackScholesMerton(r, q, -0.2), Option.EuroPut(CommonEquity(), 1.0, 0.0))
 end

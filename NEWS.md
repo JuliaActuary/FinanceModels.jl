@@ -33,10 +33,16 @@ and intended parameter domains are unchanged.
 Both now use one Black formula, with no switch, whose ForwardDiff derivatives are its Greeks: the
 formula differentiated loses every digit as the volatility goes to 0. Zero volatility gives the
 intrinsic value of the forward, and derivatives there are their limits as σ → 0⁺. At the money,
-where the forward price equals the strike exactly, the delta is ±1/2 and the price grows in
-proportion to the volatility. Elsewhere the delta is 1 or 0 and there is no vega. These are
-one-sided, and a forward a rounding error from the strike is in or out of the money. At zero
-volatility at the money, gamma is infinite. Prices otherwise change only by rounding.
+where the forward price equals the strike exactly, the price grows in proportion to the volatility,
+and its derivative in the discounted forward price is ±1/2 (a Black–Scholes delta of ±e^{−qτ}/2).
+Elsewhere that derivative is ±1 or 0 and there is no vega. These are one-sided, and a forward a
+rounding error from the strike is in or out of the money. At zero volatility at the money, gamma is
+infinite. Second derivatives at tiny positive volatilities were `NaN` (below about σ = 1e-80 for a
+strike 10% from the forward) and are now finite. τ-derivatives at τ = 0 were `NaN` and are now the
+same one-sided limits, infinite at the money for a positive σ. Prices otherwise change only by
+rounding. As before, they are accurate to a few roundings of the discounted forward and strike, not
+relative to the price: an at-the-money option at a tiny volatility loses digits, and can round to
+zero below σ√τ ≈ 1e-16.
 
 - **Simulated Vasicek and Hull–White paths** took each step's standard deviation as √(σ²·…), whose
   σ-derivative is `NaN` at σ = 0, so pathwise sensitivities there were `NaN`. σ² also underflowed

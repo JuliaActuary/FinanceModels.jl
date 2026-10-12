@@ -669,8 +669,9 @@ function __zcb_option_price(m::__GaussianModel, T, S, K)
     P0T = FinanceCore.discount(m, T)
     P0S = FinanceCore.discount(m, S)
 
-    # σ_P: volatility of the ZCB price at expiry, σ·B(T,S)·sqrt((1 - e^{-2aT})/(2a)), linear in σ ≥ 0
-    σ_P = σ * __decay_integral(a, S - T) * __strong_zero_sqrt(__decay_integral(2a, T))
+    # σ_P: volatility of the ZCB price at expiry, σ·B(T,S)·sqrt((1 - e^{-2aT})/(2a)), linear in σ ≥ 0;
+    # a strong-zero product, as the square root has an infinite slope in T at T = 0
+    σ_P = __strong_zero_mul(σ * __decay_integral(a, S - T), __strong_zero_sqrt(__decay_integral(2a, T)))
 
     # Black's formula on the bond's forward price P(0,S)/P(0,T): the intrinsic value at σ_P = 0, with
     # the one-sided derivatives described at `__black`

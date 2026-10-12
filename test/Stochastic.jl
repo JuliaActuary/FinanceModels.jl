@@ -2014,6 +2014,19 @@ end
             @test D(x -> D(y -> f((x - y)^2), 0.0), 0.0) == -2D(f, 0.0)
         end
     end
+
+    @testset "a derivative in the expiry at T = 0" begin
+        # √((1 - e^{-2aT})/(2a)) has an infinite slope at T = 0, which zero volatility doesn't multiply.
+        # The derivative is the one-sided limit at fixed σ_P: the discounted strike's drift times Φ(d₋),
+        # 1/2 at the money, where a positive σ makes it infinite
+        K0 = discount(curve, 1.0)
+        for σ in (0.0, 0.01)
+            θ(K) = D(t -> pv(hw(σ), Option.ZCBCall(t, 1.0, K)), 0.0)
+            @test θ(K0) ≈ (σ == 0 ? 0.03 * K0 / 2 : Inf)
+            @test θ(0.99 * K0) ≈ 0.03 * 0.99 * K0
+            @test θ(1.01 * K0) == 0
+        end
+    end
 end
 
 @testset "caps, floors and swaptions at zero and tiny volatility (#291)" begin
