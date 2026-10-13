@@ -188,6 +188,8 @@ Note that combining two 1% (annual effective) curves gives a first-year rate of 
     # 0.8864384275063881
     ```
 
+    To apply par spreads over an existing curve without refitting it, use [`quote_shift`](@ref FinanceModels.Yield.quote_shift); it meets the shifted quotes at the quoted tenors only.
+
 #### Yield Shifts: `TenorShift` and `ProjectedShift`
 
 Two concrete subtypes of [`Yield.AbstractYieldShift`](@ref FinanceModels.Yield.AbstractYieldShift) apply lazy transformations to a base curve's zero rates without discretizing or refitting. They differ in whether the shift depends on one or two time axes.
@@ -258,6 +260,46 @@ Continuous(0.03379016416943201)
 The intended pattern: store `phase_in` once as a first-class, year-independent value, then call `ProjectedShift(base, phase_in, τ)` at each projection time `τ` in a projection loop.
 
 There is no `+` operator sugar for `ProjectedShift` — fixing `τ` at composition time defeats the purpose of storing the rule as a year-independent value. Always use the explicit constructor.
+
+#### Quote shifts: `quote_shift`
+
+`TenorShift` moves zero rates. To move *quoted* rates instead (par yields, CMT or OIS rates, swap rates), use [`quote_shift`](@ref FinanceModels.Yield.quote_shift). It takes a quote family and its tenors, applies a rule to each tenor's quote, and returns the curve plus continuous zero-rate bumps at those tenors that reprice every shifted quote. The rule receives the quote `q` that [`implied_quote`](@ref FinanceModels.Yield.implied_quote) gives at tenor `t`, and returns the new quote in the family's own units:
+
+```julia-repl
+julia> tenors = [1, 2, 3, 5, 7, 10, 20, 30];
+
+julia> par2(y, t) = ParYield(y, t; frequency = 2);
+
+julia> curve = fit(Spline.MonotoneConvex(), par2.([0.045, 0.042, 0.04, 0.039, 0.04, 0.042, 0.046, 0.045], tenors));
+
+julia> up = quote_shift(curve, par2, tenors) do q, t
+           q + 0.01   # every quoted par yield +100 bp
+       end;
+
+julia> implied_quote(curve, par2, 10.0), implied_quote(up, par2, 10.0)
+(0.04199999997286451, 0.05199999997286452)
+
+julia> implied_quote(curve, par2, 15.0), implied_quote(up, par2, 15.0)  # between tenors: about +100 bp
+(0.04464519250910856, 0.054628543967210313)
+
+julia> key_rate = quote_shift(curve, CMTYield, tenors) do q, t
+           t == 10 ? q + 0.0001 : q   # 10-year CMT +1 bp
+       end;
+
+julia> implied_quote(key_rate, CMTYield, 7.0) - implied_quote(curve, CMTYield, 7.0)
+0.0
+```
+
+The same call applies par spreads over an existing curve without refitting it, for example `quote_shift((q, t) -> q + spread[t], curve, par2, tenors)`.
+
+The result is a [`CompositeYield`](@ref FinanceModels.Yield.CompositeYield): `curve + ZeroRateCurve(bumps, tenors, Spline.Linear(); extrapolation = :flat_zero)`. Each bump is a continuous zero-rate hat, linear from the previous tenor to the next and flat beyond the first and last tenors. What holds:
+
+- **Exact at the tenors only.** Each shifted quote reprices within solver tolerance. Between tenors the quotes move approximately (above, +99.83 bp at 15 years), and forwards jump at the tenors.
+- **No shape guarantees.** The bumps do not keep the base curve's properties, such as `MonotoneConvex`'s positive forwards.
+- **Exact first-order derivatives**, through the base curve and the new quotes, as described in [Quote shifts and quote risk](@ref quote-shift-risk).
+- **Quotes it accepts.** Each quote may pay only up to its own tenor and must pay something after the previous tenor. There, its amounts may change sign at most once, from negative to positive, and must end positive. Its price must exceed the value of its payments that the bump cannot move. Every standard family qualifies, including at negative rates.
+
+To recalibrate instead, shifting the quotes that built the curve and fitting again with the same construction, call `fit` on the shifted quotes. That gives risk to the quotes passed to `fit`, and moves the curve between tenors as the construction dictates.
 
 ### Creating New Yield Models
 
