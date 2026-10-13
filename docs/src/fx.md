@@ -394,7 +394,8 @@ pairwise view a market object returns, so nothing in the current API forecloses 
   r_foreign, σ)` applied to one unit of base currency — the foreign rate plays the role
   of the dividend yield. Direct pricing methods for `FX` types and delta-conventioned
   volatility quotes (ATM/risk-reversal/butterfly) are future work.
-- **Stochastic FX** (simulated spot paths over correlated short-rate models, for
-  real-world/unhedged projection) would slot into the existing
-  `simulate`/[`RatePath`](@ref FinanceModels.RatePath) machinery and is likewise future
-  work.
+- **Stochastic FX**: with constant rates, simulated Garman–Kohlhagen spot paths are
+  `simulate(Equity.BlackScholesMerton(r_domestic, r_foreign, σ))`, whose
+  [`PricePath`](@ref FinanceModels.PricePath)s scaled by today's spot are the spot in domestic
+  currency. Spot paths over simulated short-rate models, for real-world or unhedged projection,
+  are future work.

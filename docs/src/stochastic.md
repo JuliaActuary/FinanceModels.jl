@@ -7,7 +7,7 @@ FinanceModels.jl includes stochastic short-rate models that are first-class yiel
 For stochastic-cashflow analysis (e.g. Monte Carlo valuation), `simulate()` generates scenario yield curves that also plug into the existing `present_value`.
 
 !!! note "Relationship to EconomicScenarioGenerators.jl"
-    Short-rate and equity scenario generators were previously provided by [EconomicScenarioGenerators.jl](https://github.com/JuliaActuary/EconomicScenarioGenerators.jl). The `FinanceModels.ShortRate` models together with `simulate` and `pv_mc` are the maintained successors of its interest-rate generators. Its equity generator and its copula-correlated, multi-model simulation (the `Correlated` generator) remain in EconomicScenarioGenerators.jl.
+    Short-rate and equity scenario generators were previously provided by [EconomicScenarioGenerators.jl](https://github.com/JuliaActuary/EconomicScenarioGenerators.jl). The `FinanceModels.ShortRate` models and `Equity.BlackScholesMerton`, together with `simulate` and `pv_mc`, are the maintained successors of its interest-rate and equity generators. Its copula-correlated, multi-model simulation (the `Correlated` generator) remains in EconomicScenarioGenerators.jl.
 
 ## Available Models
 
@@ -275,6 +275,29 @@ cashflows = [floating_cashflows(v, path) for path in scenarios]
 
 The reset dates must lie on the simulation grid. The example assumes full coupon periods and one curve for projection and discounting. Use a valuation callback with the appropriate fixing logic for more complex contracts; `pv_mc` does not supply that logic for a floating contract automatically.
 
+## Equity Price Paths
+
+`simulate` also takes an `Equity.BlackScholesMerton` model and returns [`PricePath`](@ref FinanceModels.PricePath)s on the
+same grid as rate paths:
+
+```julia
+m = Equity.BlackScholesMerton(0.03, 0.01, 0.2)   # r, q, σ
+paths = simulate(m; n_scenarios=1000, timestep=1/12, horizon=10.0)
+p = paths[1]
+p(5.0)                                            # the price at year 5, relative to the start
+100 .* p.(FinanceModels.simulation_times(p))      # prices in currency from a spot of 100
+```
+
+Each step is the exact lognormal transition, so the prices at grid times have no discretisation
+bias. A path starts at 1 and is the ex-dividend price relative to its start; one share with its
+dividends reinvested is worth `exp(q * t) * p(t)`. Like [`short_rate`](@ref), a path answers only
+at its grid times: the simulation has no price between them, so a payoff at a time needs a grid
+that contains it.
+
+The drift is the model's constant `r - q`: risk-neutral when `r` is the risk-free rate, real-world
+when `r` is an expected return. It is never a simulated short rate. `σ` is a number or a
+`Volatility.Constant`; `Volatility.Constant()` is zero volatility, so its paths are deterministic.
+
 ## Mean Reversion Behaviour
 
 The expected short rate in Vasicek and CIR tends toward `b`. The long-maturity zero rate is different because bond pricing averages discounted outcomes. For Vasicek with `a > 0`, its limit is `b - σ² / (2a²)`, close to `b` when mean reversion is strong relative to volatility:
@@ -397,5 +420,7 @@ mean_pv = sum(pvs) / length(pvs)
 | `simulate(model; ...)` | Generate `Vector{RatePath}` scenarios |
 | `pv_mc(model, contract; ...)` | Monte Carlo expected present value |
 | `short_rate(path, t)` | The simulated `r(t)` at a grid time of a `RatePath`, a `Continuous` rate |
+| `simulate(Equity.BlackScholesMerton(...); ...)` | Generate `Vector{PricePath}` equity price paths |
+| `p(t)` | The simulated price at a grid time of a `PricePath`, relative to its start |
 
-`FinanceModels.simulation_times(path)` lists the grid times; `FinanceModels.simulation_steps(horizon, timestep)` reports the step count and whether the requested horizon is aligned.
+`FinanceModels.simulation_times(path)` lists the grid times of a `RatePath` or `PricePath`; `FinanceModels.simulation_steps(horizon, timestep)` reports the step count and whether the requested horizon is aligned.
