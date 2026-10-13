@@ -37,6 +37,7 @@ include("Blend.jl")
 include("regressions.jl")
 include("bootstrap.jl")
 include("implied_quote.jl")
+include("quote_shift.jl")
 include("implicit_fit.jl")
 include("kinks.jl")
 

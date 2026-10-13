@@ -35,15 +35,18 @@ table below).
 
 ## The contract at a glance
 
-- **First order only through solves.** Implicit derivatives through spline/FX `fit` and `implied_quote` are exact
-  first derivatives. Nested dual numbers (a Hessian, or convexity through these implicit solves) throw.
+- **First order only through solves.** Implicit derivatives through spline/FX `fit`, `implied_quote`, and
+  `quote_shift` are exact first derivatives. Nested dual numbers (a Hessian, or convexity through these implicit solves) throw.
   The closed-form Smith–Wilson fit is separate, as described below.
   `reconstruct` solves nothing: a curve rebuilt from dual knot rates has derivatives of any
   order, except at an interpolation kink, where nested dual numbers throw.
 - **With respect to what you differentiate.** Differentiating through `fit` gives risk to the
-  quotes passed to it: the original market inputs. Quotes implied from a fitted curve in another
-  family (for example `implied_quote` at the curve's knots) are a synthetic family. Risk to them
-  equals risk to the market quotes only when the curve was fitted to that family at those tenors.
+  quotes passed to it, refitted with that construction. It is risk to the original calibration
+  only when those quotes and that construction reproduce the curve. Quotes implied from a fitted
+  curve in another family (for example `implied_quote` at the curve's knots) are a synthetic
+  family. Risk to them equals risk to the market quotes only when the curve was fitted to that
+  family at those tenors. Differentiating `quote_shift` at a zero shock gives local quote risk on
+  a given curve, with no refit (see [Quote shifts and quote risk](@ref quote-shift-risk)).
 - **Exact fits only.** A differentiated fit must reprice its quotes. Bootstrap does; a loss fit
   is accepted only when one Newton correction of its knot rates is at most `1e-6` in every
   component (see "Accuracy" below).
@@ -208,6 +211,43 @@ ForwardDiff.derivative(s -> implied_quote(bumped(s), OISYield, 7.0), 0.0)
 
 `implied_quote` agrees with [`par`](@ref FinanceModels.Yield.par) for par yields:
 `rate(par(curve, t; frequency = f)) ≈ implied_quote(curve, (r, T) -> ParYield(r, T; frequency = f), t)`.
+
+## [Quote shifts and quote risk](@id quote-shift-risk)
+
+[`quote_shift`](@ref FinanceModels.Yield.quote_shift) shifts a curve's quotes in one family at
+given tenors and returns the curve plus continuous zero-rate hats that reprice them. Its
+derivatives are exact first derivatives: each hat is solved by the implicit function theorem, and
+the partials flow through the base curve's parameters and the rule's new quotes, also at a shock
+whose value is zero. Nested dual numbers throw.
+
+Its gradient at a zero shock is the curve's **quote key-rate risk**:
+
+```julia
+tenors = [1, 2, 3, 5, 7, 10, 20, 30]
+par2(y, t) = ParYield(y, t; frequency = 2)
+curve = fit(Spline.MonotoneConvex(), par2.([0.045, 0.042, 0.04, 0.039, 0.04, 0.042, 0.046, 0.045], tenors))
+liability = Cashflow.(1.0, 1.0:0.5:25)
+
+quote_risk = ForwardDiff.gradient(zeros(length(tenors))) do s
+    shocked = quote_shift((q, t) -> q + s[findfirst(==(t), tenors)], curve, par2, tenors)
+    pv(shocked, liability)
+end
+```
+
+How it relates to other risks:
+
+- **Zero key rates on the same hats.** The quotes depend on the hats through a lower-triangular
+  Jacobian `J` (each quote moves only with the hats up to its tenor). With `K` the gradient with
+  respect to the hats themselves, `quote_risk == J' \ K`, to rounding.
+- **Differentiating through `fit`.** Refitting moves the curve as its construction dictates.
+  For a `Spline.Linear()` bootstrap of the same family at the same tenors, the two agree for
+  cashflows up to the last tenor: the refit moves the same hats. Beyond the last tenor they
+  differ, because the fit's default `:flat_forward` extrapolation holds the forward rate flat
+  and the hats hold the zero-rate bump flat. Other constructions redistribute the risk. For the
+  `Spline.MonotoneConvex()` curve above, the 10- and 20-year buckets are −53.0 and −195.6 by
+  refit, against −68.0 and −177.4 by `quote_shift`.
+- **Bucket sums.** The sum of the buckets is the response to a parallel shift of every quote in
+  the family's own units (here, semiannual par yield), not a parallel continuous-zero shift.
 
 ## Knot-rate sensitivities without refitting
 
