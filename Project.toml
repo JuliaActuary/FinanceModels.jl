@@ -1,6 +1,6 @@
 name = "FinanceModels"
 uuid = "77f2ae65-bdde-421f-ae9d-22f1af19dd76"
-version = "7.0.1"
+version = "7.1.0"
 authors = ["Alec Loudenback <alecloudenback@gmail.com> and contributors"]
 
 [deps]
@@ -23,10 +23,12 @@ SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 Transducers = "28d57a85-8fef-5791-bfe6-a80928e7c999"
 
 [weakdeps]
+Copulas = "ae264745-0b69-425e-9d9d-cf662c5eec93"
 Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
 UnicodePlots = "b8865327-cd53-5732-bb35-84acbb429228"
 
 [extensions]
+FinanceModelsCopulasExt = "Copulas"
 FinanceModelsMakieExt = "Makie"
 FinanceModelsUnicodePlots = "UnicodePlots"
 
@@ -34,6 +36,7 @@ FinanceModelsUnicodePlots = "UnicodePlots"
 AccessibleModels = "0.1.14"
 Accessors = "0.1.42"
 Compat = "4.15"
+Copulas = "0.1.29, 1"
 DataInterpolations = "9.2, 10"
 DifferentiationInterface = "0.7.4"
 FinanceCore = "3"

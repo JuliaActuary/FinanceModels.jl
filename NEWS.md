@@ -41,6 +41,20 @@ gives `NamedTuple`s of paths.
 - **Draws:** each step draws one standard normal per model. A single model with `ρ = [1;;]` gives
   exactly `simulate(model)`'s paths.
 
+### Copulas extension
+
+With Copulas.jl loaded, `simulate(models, copula; ...)` takes a copula in place of the correlation
+matrix (Copulas `0.1.29` or later, including 1.x).
+
+- **Sampling:** each step draws one sample of uniforms from the copula and maps each through the
+  standard normal quantile to a model's innovation.
+- **Gaussian and independence copulas:** a `GaussianCopula` is simulated as its correlation matrix,
+  and an `IndependentCopula` as the identity, giving exactly the matrix method's paths.
+- **Edge samples:** a copula sample of exactly 0 or 1 throws a `DomainError` rather than becoming an
+  infinite shock.
+
+The stochastic guide's note on EconomicScenarioGenerators.jl is now a migration table.
+
 ## v7.0.1 (unreleased)
 
 ### Parameter checks read values, not derivatives

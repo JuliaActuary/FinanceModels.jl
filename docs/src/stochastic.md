@@ -7,7 +7,7 @@ FinanceModels.jl includes stochastic short-rate models that are first-class yiel
 For stochastic-cashflow analysis (e.g. Monte Carlo valuation), `simulate()` generates scenario yield curves that also plug into the existing `present_value`.
 
 !!! note "Relationship to EconomicScenarioGenerators.jl"
-    Short-rate and equity scenario generators were previously provided by [EconomicScenarioGenerators.jl](https://github.com/JuliaActuary/EconomicScenarioGenerators.jl). The `FinanceModels.ShortRate` models and `Equity.BlackScholesMerton`, together with `simulate` and `pv_mc`, are the maintained successors of its interest-rate and equity generators. `simulate` with a tuple of models and a correlation matrix covers its `Correlated` generator with a Gaussian copula; other copulas remain in EconomicScenarioGenerators.jl.
+    Short-rate and equity scenario generators, and copula-correlated simulation across them, were previously provided by [EconomicScenarioGenerators.jl](https://github.com/JuliaActuary/EconomicScenarioGenerators.jl). FinanceModels' models and `simulate` are their maintained successors; [Migrating from EconomicScenarioGenerators.jl](@ref) maps one to the other.
 
 ## Available Models
 
@@ -331,6 +331,22 @@ These are joint scenarios, not a hybrid pricing model: the stock's drift is its 
 not the simulated short rate, so a path's discount factor times the stock's price is not a
 martingale.
 
+### Copulas
+
+With [Copulas.jl](https://github.com/lrnv/Copulas.jl) loaded, a copula of the models' dimension
+takes the place of the correlation matrix:
+
+```julia
+using Copulas
+scenarios = simulate((rates = hw, stock = stock), ClaytonCopula(2, 7.0); n_scenarios=1000)
+```
+
+Each step draws one sample of uniforms from the copula and maps each through the standard normal
+quantile to a model's innovation. The copula is therefore the dependence of each step's
+innovations, not of the models' values at a later time. A `GaussianCopula` is simulated as its
+correlation matrix and an `IndependentCopula` as the identity, exactly as the matrix method. A
+copula sample of exactly 0 or 1 throws a `DomainError` rather than becoming an infinite shock.
+
 ## Mean Reversion Behaviour
 
 The expected short rate in Vasicek and CIR tends toward `b`. The long-maturity zero rate is different because bond pricing averages discounted outcomes. For Vasicek with `a > 0`, its limit is `b - σ² / (2a²)`, close to `b` when mean reversion is strong relative to volatility:
@@ -456,5 +472,25 @@ mean_pv = sum(pvs) / length(pvs)
 | `simulate(Equity.BlackScholesMerton(...); ...)` | Generate `Vector{PricePath}` equity price paths |
 | `p(t)` | The simulated price at a grid time of a `PricePath`, relative to its start |
 | `simulate((m1, m2, ...), ρ; ...)` | Joint scenarios with correlated innovations: a tuple of paths per scenario |
+| `simulate((m1, m2, ...), copula; ...)` | The same with a Copulas.jl copula (with Copulas loaded) |
 
 `FinanceModels.simulation_times(path)` lists the grid times of a `RatePath` or `PricePath`; `FinanceModels.simulation_steps(horizon, timestep)` reports the step count and whether the requested horizon is aligned.
+
+## Migrating from EconomicScenarioGenerators.jl
+
+EconomicScenarioGenerators.jl is frozen at 0.7.1. Its generators map to FinanceModels as follows.
+
+| EconomicScenarioGenerators 0.7 | FinanceModels 7.1 | Differences |
+|:---|:---|:---|
+| `Vasicek(a, b, σ, Continuous(r0))`, `CoxIngersollRoss(...)` | `ShortRate.Vasicek(...)`, `ShortRate.CoxIngersollRoss(...)` | FinanceModels steps Vasicek with its exact transition and CIR with full truncation; ESG used Euler steps and partial truncation |
+| `HullWhite(a, σ, curve)`; `HullWhite(a, σ, r)` for a flat rate | `ShortRate.HullWhite(a, σ, curve)`; `ShortRate.HullWhite(a, σ, Yield.Constant(Continuous(r)))` | the exact transition, starting from the curve's instantaneous forward at 0 |
+| `BlackScholesMerton(r, q, σ, S0)` | `Equity.BlackScholesMerton(r, q, σ)`, with prices `S0 .* p.(FinanceModels.simulation_times(p))` | the same exact step; FinanceModels' paths start at 1 |
+| `collect(ScenarioGenerator(dt, T, m, rng))` | `p = only(simulate(m; n_scenarios=1, timestep=dt, horizon=T, rng))`, then `short_rate.(p, FinanceModels.simulation_times(p))` or `p.(FinanceModels.simulation_times(p))` | FinanceModels covers a `T` that isn't a whole number of steps with one more step |
+| `YieldCurve(sg)` | the `RatePath` itself | the discount integral is trapezoidal, and the path throws beyond its last simulated time |
+| `Correlated([s1, s2], GaussianCopula(Σ), rng)` | `simulate((m1, m2), Σ; rng)` | one tuple of paths per scenario; ESG gave one tuple of values per timestep for a single scenario |
+| `Correlated([s1, s2], ClaytonCopula(2, θ), rng)` | `using Copulas; simulate((m1, m2), ClaytonCopula(2, θ); rng)` | |
+| each generator's own `RNG` (which `Correlated` ignored) | one `rng` keyword | |
+| Transducers pipelines over a generator | `map` and loops over the returned `Vector` | |
+
+Seeded scenarios don't reproduce ESG's: FinanceModels draws standard normals directly, where ESG
+mapped uniforms through the normal quantile, and its transitions differ as above.
