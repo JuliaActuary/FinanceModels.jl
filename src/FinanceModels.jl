@@ -41,8 +41,8 @@ export NullModel, Yield, discount, accumulation, zero, forward
 using .Yield: ZeroRateCurve, knot_rates, knot_tenors, reconstruct
 export ZeroRateCurve, knot_rates, knot_tenors, reconstruct
 
-using .Yield: par, implied_quote
-export par, implied_quote
+using .Yield: par, implied_quote, quote_shift
+export par, implied_quote, quote_shift
 
 export Equity, Volatility
 export FX
