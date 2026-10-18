@@ -40,6 +40,21 @@ present_value(Models(Yield.Constant(0.05), Dict("speed" => Prepayment.CPR(0.08))
   derivatives exact at second order where a caller asks for it. Existing first-order solves are
   unchanged.
 
+### Callable and putable assets on a Hull–White lattice
+
+- `Bond.Callable(asset, times, prices)` and `Bond.Putable(asset, times, prices)`: one exercise
+  schedule on payment dates, immediately after the payment, at prices per unit of remaining
+  principal. They combine with `Credit.Defaultable` and `Bond.Pool` in any order.
+- `ShortRate.HullWhiteTree(hw; max_step = 1/12)` is the valuation model that values them on a
+  Hull–White (1996) trinomial lattice with variable time steps, calibrated to the curve at every
+  grid time; everything else forwards to `hw`. Survival and recovery within a step are exact
+  exponentials. Zero volatility and zero mean reversion are supported.
+- First derivatives follow the lattice's exercise decisions; second derivatives through an exercise
+  decision throw, because they would leave out the moving exercise boundary (measure convexity by
+  bumped revaluation).
+- `exercise_policy(ctx, asset)` returns the lattice's decisions as a function of the exercise time
+  and the observed short rate, on a lattice spanning ±8 standard deviations, for projections.
+
 ## v7.0.1 (unreleased)
 
 ### Parameter checks read values, not derivatives

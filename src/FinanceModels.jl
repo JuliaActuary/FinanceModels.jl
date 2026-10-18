@@ -32,6 +32,7 @@ include("fixed_income/cashflows.jl")
 include("fit_implicit.jl")
 include("fit.jl")
 include("fixed_income/defaultable.jl")
+include("fixed_income/lattice.jl")
 
 export Cashflow, Quote, Forward, CommonEquity, Option, InterestRateSwap
 
@@ -49,7 +50,7 @@ using .Yield: par, implied_quote
 export par, implied_quote
 
 export Equity, Volatility
-export Credit, Prepayment
+export Credit, Prepayment, exercise_policy
 export FX
 export ShortRate, AbstractStochasticModel, RatePath, simulate, pv_mc, short_rate
 export Projection, CashflowProjection, Models, valuation_model
@@ -57,7 +58,7 @@ export pv
 export Fit, fit, FitConvergenceError
 
 # Public, not exported
-Compat.@compat public simulation_steps, simulation_times, default_variables, default_optimizer, closed_form
+Compat.@compat public simulation_steps, simulation_times, default_variables, default_optimizer, closed_form, ExercisePolicy
 
 include("precompile.jl")
 end

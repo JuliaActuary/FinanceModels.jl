@@ -23,7 +23,7 @@ makedocs(;
             "Rates" => "Rates.md",
             "Yield Curve Arithmetic" => "yield_arithmetic.md",
             "Foreign Exchange" => "fx.md",
-            "Credit and Amortization" => "fixed_income.md",
+            "Credit, Amortization, and Optionality" => "fixed_income.md",
             "Migration Guide" => "migration.md",
         ],
         "Modules" => [

@@ -1,4 +1,4 @@
-# Credit and Amortization
+# Credit, Amortization, and Optionality
 
 FinanceModels values loans and bonds whose principal amortizes, pools of loans that prepay, and
 the default risk of their issuers. The assumptions a contract needs beyond the discount curve,
@@ -138,4 +138,51 @@ using ForwardDiff
 target = Credit.Defaultable(Bond.Fixed(0.06, Periodic(1), 7.0), "ACME")
 value(p) = present_value(Models(curve, Dict("ACME" => fit(template, Quote.(p, bonds), Fit.Bootstrap(); discount = curve))), target)
 ForwardDiff.gradient(value, [q.price for q in quotes])
+```
+
+## Callable and putable assets
+
+[`Bond.Callable`](@ref FinanceModels.Bond.Callable) gives the issuer the right to redeem an asset
+on payment dates, immediately after the payment, at a price per unit of the remaining principal;
+[`Bond.Putable`](@ref FinanceModels.Bond.Putable) gives the holder the right to sell it back. Their
+value depends on future interest rates, so they are valued on a Hull–White lattice:
+[`ShortRate.HullWhiteTree`](@ref FinanceModels.ShortRate.HullWhiteTree) wraps a
+`ShortRate.HullWhite` model as the valuation model. A plain curve has no volatility, so valuing a
+callable asset on one throws rather than assume none.
+
+```@example fixed_income
+curve = ZeroRateCurve([0.03, 0.035, 0.04, 0.042], [1.0, 3.0, 7.0, 12.0])
+hw = ShortRate.HullWhite(0.1, 0.01, curve)
+bond = Bond.Fixed(0.05, Periodic(2), 10)
+callable = Bond.Callable(bond, 3.0:0.5:9.5, 1.0)   # callable at par after three years
+present_value(ShortRate.HullWhiteTree(hw), callable), present_value(curve, bond)
+```
+
+The lattice reprices the curve at every grid time, so an exercise right that is never worth using
+leaves the asset's value unchanged to rounding, and a callable bond with one call date converges to
+the bond less a receiver swaption, Jamshidian's closed form. Credit and prepayment combine with
+exercise: a defaultable callable bond rolls back survival and recovery at each node, and a callable
+pool is redeemed after its scheduled payment and prepayment.
+
+```@example fixed_income
+acme = Credit.Assumptions(Credit.ConstantHazard(0.02); recovery = 0.4)
+ctx = Models(ShortRate.HullWhiteTree(hw), Dict("ACME" => acme))
+present_value(ctx, Credit.Defaultable(callable, "ACME"))
+```
+
+The lattice is part of the valuation model, so a value, its sensitivities and an option-adjusted
+spread (a spread added to the curve the lattice is calibrated to) all use the same lattice
+settings. First derivatives follow the exercise decisions the lattice makes. Second derivatives
+through an exercise decision throw: differentiating along fixed decisions leaves out the effect of
+the exercise boundary moving, which is where a callable bond's negative convexity comes from, so
+measure convexity by revaluing at bumped curves. Derivatives also converge more slowly than values
+as the steps shrink, so use a smaller `max_step` for sensitivities.
+
+[`exercise_policy`](@ref FinanceModels.exercise_policy) returns the lattice's decisions as a
+function of the exercise time and the short rate observed then, for projections along simulated
+rate paths:
+
+```@example fixed_income
+policy = exercise_policy(Models(ShortRate.HullWhiteTree(hw)), callable)
+policy(5.0, 0.02), policy(5.0, 0.08)
 ```

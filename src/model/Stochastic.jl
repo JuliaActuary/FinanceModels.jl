@@ -123,6 +123,49 @@ module ShortRate
         end
     end
 
+    """
+        HullWhiteTree(model::HullWhite; max_step = 1/12)
+
+    `model` with a recombining trinomial lattice for contracts whose value depends on decisions
+    along the rate path: [`Bond.Callable`](@ref FinanceModels.Bond.Callable) and
+    [`Bond.Putable`](@ref FinanceModels.Bond.Putable) assets. Everything else forwards to `model`:
+    discount factors are its curve's, caps and swaptions keep their closed forms, and `simulate`
+    simulates `model`. Because the lattice belongs to the valuation model, a value, its
+    sensitivities and an option-adjusted spread all use the same lattice.
+
+    The lattice follows Hull and White (1994, 1996), with variable time steps: its grid holds every
+    payment date (and so every exercise date) of the contract, and splits each gap into equal steps
+    no longer than `max_step`. The state `x = r - α(t)` is an Ornstein–Uhlenbeck process whose nodes
+    at each step are spaced `√3` standard deviations of that step apart; each node branches to the
+    three nodes nearest its conditional mean with probabilities that match its mean and variance and
+    are positive for every step size, also without mean reversion (`a = 0`). `α` is calibrated by
+    forward induction so that the lattice reprices the curve's discount factor at every grid time,
+    and a straight asset's value is exact. Within a step a node's rate is constant, so a defaultable
+    asset's survival and recovery over the step are exact exponentials, split where its hazard
+    changes. A zero volatility is the deterministic lattice of the curve's forward rates.
+
+    Values converge as `max_step` shrinks, roughly in proportion to it; derivatives converge more
+    slowly, because the lattice's value has a kink wherever a node's exercise decision switches. Use
+    a smaller `max_step` for sensitivities than for values.
+
+    ```julia
+    hw = ShortRate.HullWhite(0.1, 0.01, ZeroRateCurve([0.03, 0.035, 0.04], [1.0, 5.0, 10.0]))
+    bond = Bond.Callable(Bond.Fixed(0.05, Periodic(2), 10), 3.0:0.5:9.5, 1.0)
+    present_value(ShortRate.HullWhiteTree(hw), bond)
+    ```
+
+    See [`exercise_policy`](@ref FinanceModels.exercise_policy) for the decisions the lattice makes.
+    """
+    struct HullWhiteTree{M <: HullWhite, S <: Real} <: AbstractStochasticModel
+        model::M
+        max_step::S
+        function HullWhiteTree(model::M, max_step::S) where {M <: HullWhite, S <: Real}
+            (isfinite(max_step) && max_step > 0) || throw(ArgumentError("max_step must be finite and positive, got $max_step"))
+            return new{M, S}(model, max_step)
+        end
+    end
+    HullWhiteTree(model::HullWhite; max_step = 1 / 12) = HullWhiteTree(model, max_step)
+
 end # module ShortRate
 
 # ─── Closed-form discount (zero-coupon bond prices) ──────────────────────────
@@ -324,6 +367,14 @@ Yield.__log_tail(m::ShortRate.HullWhite) = Yield.__log_tail(m.curve)
 Yield.force_of_interest(m::ShortRate.HullWhite, T) = Yield.force_of_interest(m.curve, T)
 Base.zero(m::ShortRate.HullWhite, T) = Base.zero(m.curve, T)
 FinanceCore.discount(m::ShortRate.HullWhite, from, to) = FinanceCore.discount(m.curve, from, to)
+# A lattice valuation model is its Hull–White model for every curve capability.
+FinanceCore.discount(m::ShortRate.HullWhiteTree, T) = FinanceCore.discount(m.model, T)
+FinanceCore.discount(m::ShortRate.HullWhiteTree, from, to) = FinanceCore.discount(m.model, from, to)
+Yield.__log_discount(m::ShortRate.HullWhiteTree, T) = Yield.__log_discount(m.model, T)
+Yield.__log_interval(m::ShortRate.HullWhiteTree, from, to) = Yield.__log_interval(m.model, from, to)
+Yield.__log_tail(m::ShortRate.HullWhiteTree) = Yield.__log_tail(m.model)
+Yield.force_of_interest(m::ShortRate.HullWhiteTree, T) = Yield.force_of_interest(m.model, T)
+Base.zero(m::ShortRate.HullWhiteTree, T) = Base.zero(m.model, T)
 
 # ─── Conditional discount P(t,T|r(t)) ────────────────────────────────────────
 
@@ -358,6 +409,8 @@ Formula (Brigo & Mercurio 2006, Proposition 3.2.2):
 \\ln P(t,T) = \\ln\\frac{P(0,T)}{P(0,t)} + B(t,T) f(0,t) - \\frac{\\sigma^2}{4a} B(t,T)^2 (1 - e^{-2at}) - B(t,T) r_t
 ```
 """
+FinanceCore.discount(m::ShortRate.HullWhiteTree, t, T, r_t) = FinanceCore.discount(m.model, t, T, r_t)
+
 function FinanceCore.discount(m::ShortRate.HullWhite, t, T, r_t)
     a, σ = m.a, m.σ
     B_tT = __decay_integral(a, T - t)
@@ -527,6 +580,9 @@ function simulate(
         RatePath(interp, rates)
     end
 end
+
+# A lattice valuation model simulates its Hull–White model.
+simulate(m::ShortRate.HullWhiteTree; kwargs...) = simulate(m.model; kwargs...)
 
 # Initial rate extractors for simulation
 __sim_initial_rate(m::ShortRate.Vasicek) = __initial_rate(m)

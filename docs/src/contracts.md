@@ -232,5 +232,5 @@ modeled.
 ## Available Contracts & Modules
 
 See the Modules in the left navigation for details on available contracts/models/functions.
-Amortizing loans, loan pools and defaultable contracts are described in
-[Credit and Amortization](@ref).
+Amortizing loans, loan pools, defaultable contracts and callable and putable assets are described
+in [Credit, Amortization, and Optionality](@ref).
