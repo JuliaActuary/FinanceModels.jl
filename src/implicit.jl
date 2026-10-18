@@ -57,11 +57,11 @@ function __solve_primal_root(g::G, x0, bracket) where {G}
 end
 
 """
-    __implicit_root(g, g_primal, x0; bracket = (-1.0, 1.0), who, hint = "", slope = nothing, scale)
+    __implicit_root(g, g_primal, x0; bracket = (-1.0, 1.0), who, hint = "", slope = nothing, scale, max_order = 1)
 
 Solve `g_primal(x) = 0` from `x0`, falling back to a bracketed solve on `bracket`,
-and return the root with first-order ForwardDiff partials of `g` propagated by the
-implicit function theorem: `dx = -(∂g/∂θ) / (∂g/∂x)`.
+and return the root with the ForwardDiff partials of `g` propagated by the
+implicit function theorem: `dx = -(∂g/∂θ) / (∂g/∂x)` at first order.
 
 `g_primal` must be `g` evaluated without dual numbers, or `g` with its dual numbers
 stripped from the result. `slope(x)`, when given, is `∂g/∂x` on primal values in closed
@@ -71,11 +71,20 @@ most `sqrt(eps)` times it, and the slope must exceed `sqrt(eps)` times it. The c
 it for its residual: `implied_quote` passes the size of the quote's price and value, the
 swaption critical rate the size of the terms of its slope. The solvers stop on absolute
 tolerances, so `g` should already be expressed relative to such a scale. The value of the
-result is the primal root exactly; its partials come from one dual correction step. Nested
-dual numbers, a dual number in `g_primal`'s argument or value, a root that does not solve
-`g_primal`, and a vanishing slope throw an `ArgumentError` naming `who` (and `hint`).
+result is the primal root exactly.
+
+The partials come from chord corrections: Newton steps from the primal root that evaluate `g`
+with the caller's dual numbers but divide by the primal slope. A step multiplies the error in
+the partials by `1 - (∂g/∂x)/s`, which is itself of first order in them, so one step is exact at
+first order and a second step, which evaluates `g` at the first step's dual point, is exact at
+second order. `max_order` is the deepest nesting of dual numbers the caller supports: 1 for
+first derivatives only, 2 when `g` is twice differentiable at the root, so that nested
+`ForwardDiff.derivative` calls and `ForwardDiff.hessian` see exact second derivatives (`g` must
+then accept a dual `x`). Deeper nesting, a dual number in `g_primal`'s argument or value, a root
+that does not solve `g_primal`, and a vanishing slope throw an `ArgumentError` naming `who` (and
+`hint`).
 """
-function __implicit_root(g::G, g_primal::P, x0; bracket = (-1.0, 1.0), who, hint = "", slope::S = nothing, scale::C) where {G, P, S, C}
+function __implicit_root(g::G, g_primal::P, x0; bracket = (-1.0, 1.0), who, hint = "", slope::S = nothing, scale::C, max_order::Int = 1) where {G, P, S, C}
     residual = __PrimalResidual(g_primal, who, hint)
     x = __solve_primal_root(residual, x0, bracket)
     # A solver can accept a point whose residual is small in absolute terms only.
@@ -86,11 +95,20 @@ function __implicit_root(g::G, g_primal::P, x0; bracket = (-1.0, 1.0), who, hint
     gx = g(x)
     depth = __ad_depth(gx)
     depth == 0 && return x
-    depth == 1 || throw(ArgumentError("$who supports first-order ForwardDiff derivatives only; nested dual numbers are not supported"))
+    depth <= max_order || throw(
+        ArgumentError(
+            max_order == 1 ?
+                "$who supports first-order ForwardDiff derivatives only; nested dual numbers are not supported" :
+                "$who supports ForwardDiff derivatives up to order $max_order; got $depth nested dual numbers"
+        )
+    )
     s = slope === nothing ? ForwardDiff.derivative(residual, x) : slope(x)
     (isfinite(s) && abs(s) > sqrt(eps(typeof(s))) * scale(x)) ||
         throw(ArgumentError("$who has a vanishing or non-finite derivative at the solution ($s); its sensitivity is undefined"))
-    # `gx` has a primal value of zero at the root, so this step keeps the root's
-    # value and carries only the implicit-function partials.
-    return x - (gx - __primal(gx)) / s
+    # Subtracting each residual's primal value keeps the root's value exactly and leaves only the
+    # partials to correct.
+    x1 = x - (gx - __primal(gx)) / s
+    depth == 1 && return x1
+    gx1 = g(x1)
+    return x1 - (gx1 - __primal(gx1)) / s
 end
