@@ -44,6 +44,7 @@ include("amortizing.jl")
 include("defaultable.jl")
 include("lattice.jl")
 include("alm.jl")
+include("published_examples.jl")
 include("kinks.jl")
 
 include("extensions.jl")

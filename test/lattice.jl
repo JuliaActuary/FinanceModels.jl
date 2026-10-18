@@ -74,6 +74,21 @@ using Random
             m = ShortRate.HullWhite(a, σ, Yield.Constant(Continuous(r)))
             @test present_value(ShortRate.HullWhiteTree(m; max_step = 1 / 100), asset) ≈ ql1000 atol = 1.0e-11
         end
+
+        # QuantLib's test-suite case (callablebonds.cpp, testCached): a 5% semiannual 30/360 bond
+        # issued 24 Feb 2004 and maturing 24 Feb 2014, valued at settlement on 8 Jun 2004 on a flat
+        # 3.2% continuous Actual/365 curve with a = 0.1 and σ = 0.01. It is callable at 110 in 2006,
+        # 2008, 2010 and 2012, or putable at 100 in 2005, 2007, 2009, 2011 and 2013, on coupon dates.
+        # Payment times are days from settlement over 365, and coupons accrue 30/360 days, irregular
+        # where dates roll. QuantLib's cached clean prices (110.60975477, 115.16559362) use its own
+        # grid, which no `max_step` reproduces; on FinanceModels' grid QuantLib 1.44 gives these dirty
+        # prices, per 100 of face.
+        days = [77, 261, 442, 626, 807, 993, 1172, 1357, 1539, 1722, 1903, 2087, 2268, 2452, 2633, 2817, 2999, 3184, 3366, 3548]
+        accrued = [180, 180, 180, 180, 180, 182, 178, 181, 180, 179, 180, 180, 180, 180, 180, 180, 180, 181, 181, 178]
+        cached = Bond.Amortizing(0.05, days ./ 365, [zeros(19); 1.0]; accruals = accrued ./ 360)
+        qtree = ShortRate.HullWhiteTree(ShortRate.HullWhite(0.1, 0.01, Yield.Constant(Continuous(0.032))); max_step = 1 / 24)
+        @test 100 * present_value(qtree, Bond.Callable(cached, days[4:4:16] ./ 365, 1.1)) ≈ 112.053644014347 atol = 1.0e-9
+        @test 100 * present_value(qtree, Bond.Putable(cached, days[2:4:18] ./ 365, 1.0)) ≈ 116.608963772898 atol = 1.0e-9
     end
 
     @testset "zero volatility and no mean reversion" begin
