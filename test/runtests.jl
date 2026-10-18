@@ -41,6 +41,7 @@ include("implicit_fit.jl")
 include("implicit_root.jl")
 include("credit.jl")
 include("amortizing.jl")
+include("defaultable.jl")
 include("kinks.jl")
 
 include("extensions.jl")

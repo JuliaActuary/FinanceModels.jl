@@ -31,6 +31,7 @@ include("valuation_contexts.jl")
 include("fixed_income/cashflows.jl")
 include("fit_implicit.jl")
 include("fit.jl")
+include("fixed_income/defaultable.jl")
 
 export Cashflow, Quote, Forward, CommonEquity, Option, InterestRateSwap
 

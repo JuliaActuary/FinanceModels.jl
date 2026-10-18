@@ -27,8 +27,9 @@ import ..FinanceCore
 import ..AbstractModel
 import ..__primal
 import ..ReadOnlyVector
+import ..Yield: Unchecked
 
-export ConstantHazard, PiecewiseHazard, Assumptions
+export ConstantHazard, PiecewiseHazard, Assumptions, Defaultable
 
 """
     Credit.AbstractHazard
@@ -74,6 +75,9 @@ first), and `rates[end]` beyond the last tenor. The intensity is right-continuou
 it is the next interval's. Tenors are positive and strictly increasing, rates finite and
 nonnegative; both vectors are copied.
 
+`Credit.PiecewiseHazard()` has no tenors: it is the template a calibration fills in (see
+[`fit`](@ref FinanceModels.fit)), and evaluating it throws.
+
 ```julia
 h = Credit.PiecewiseHazard([0.01, 0.02], [2.0, 5.0])
 Credit.hazard(h, 2.0)       # 0.02
@@ -97,14 +101,27 @@ struct PiecewiseHazard{R <: Real, T <: Real, C <: Real} <: AbstractHazard
                 ArgumentError("PiecewiseHazard tenors must be finite, positive and strictly increasing; got $ts")
             )
         end
-        C = Vector{typeof(first(λs) * first(ts))}(undef, n)
-        acc = zero(eltype(C))
-        for i in 1:n
-            acc += λs[i] * (ts[i] - (i == 1 ? zero(ts[i]) : ts[i - 1]))
-            C[i] = acc
-        end
+        C = __cumulative(λs, ts)
         return new{eltype(λs), eltype(ts), eltype(C)}(ReadOnlyVector(λs), ReadOnlyVector(ts), C)
     end
+    # The template of a calibration (see `fit`): no tenors yet, so it cannot be evaluated.
+    PiecewiseHazard() = new{Float64, Float64, Float64}(ReadOnlyVector(Float64[]), ReadOnlyVector(Float64[]), Float64[])
+    # A calibration's trial curve: neither copied nor validated, so a solver may try a negative intensity.
+    function PiecewiseHazard(::Unchecked, rates::Vector{R}, tenors::Vector{T}) where {R <: Real, T <: Real}
+        C = __cumulative(rates, tenors)
+        return new{R, T, eltype(C)}(ReadOnlyVector(rates), ReadOnlyVector(tenors), C)
+    end
+end
+
+# Λ at each tenor, accumulated interval by interval.
+function __cumulative(λs, ts)
+    C = Vector{typeof(first(λs) * first(ts))}(undef, length(ts))
+    acc = zero(eltype(C))
+    for i in eachindex(ts)
+        acc += λs[i] * (ts[i] - (i == 1 ? zero(ts[i]) : ts[i - 1]))
+        C[i] = acc
+    end
+    return C
 end
 
 """
@@ -203,5 +220,35 @@ struct Assumptions{H <: AbstractHazard, R <: Real} <: AbstractModel
     end
 end
 Assumptions(hazard; recovery) = Assumptions(hazard, recovery)
+
+"""
+    Credit.Defaultable(asset, key)
+
+`asset` subject to the default of its issuer, whose [`Credit.Assumptions`](@ref) a valuation
+context holds under `key`. `asset` has principal: a `Bond.Fixed`, `Bond.Amortizing` or
+`Bond.Pool`. On default, at any time between payments, the holder recovers the `recovery`
+fraction of the principal outstanding immediately before it, and no later payment is made.
+
+Its cashflow projection is its expected cashflows: each payment weighted by survival to it, and
+the expected recoveries between payments at quadrature nodes (4-point Gauss–Legendre on each
+interval between payments and the hazard curve's tenors, in parts no longer than a month). Its
+value is the value of those cashflows, so it discounts on the context's curve and composes with
+portfolios. The nodes depend only on the times, so a value with dual numbers equals the value
+without them.
+
+`key` identifies the issuer: contracts with the same key default together in sampled projections.
+
+```julia
+bond = Credit.Defaultable(Bond.Fixed(0.05, Periodic(2), 10), "ACME")
+ctx = Models(Yield.Constant(0.04), Dict("ACME" => Credit.Assumptions(Credit.ConstantHazard(0.02); recovery = 0.4)))
+present_value(ctx, bond)
+collect(Projection(bond, ctx))   # expected payments and recoveries
+```
+"""
+struct Defaultable{A <: FinanceCore.AbstractContract, K} <: FinanceCore.AbstractContract
+    asset::A
+    key::K
+end
+FinanceCore.maturity(d::Defaultable) = FinanceCore.maturity(d.asset)
 
 end

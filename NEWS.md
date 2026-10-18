@@ -24,6 +24,22 @@ pool = Bond.Pool(Bond.LevelPayment(0.06, 12, 30), "speed")
 present_value(Models(Yield.Constant(0.05), Dict("speed" => Prepayment.CPR(0.08))), pool)
 ```
 
+### Defaultable contracts and hazard calibration
+
+- `Credit.Defaultable(asset, key)` subjects a fixed bond, amortizing loan or pool to the default of
+  the issuer whose `Credit.Assumptions` a `Models` store holds under `key`. On default the holder
+  recovers the recovery fraction of the principal outstanding immediately before it, without
+  accrued interest. Its projection is its expected cashflows (payments weighted by survival, and
+  recoveries at fixed Gauss–Legendre nodes), so its value is an ordinary present value that
+  composes with portfolios, and derivatives keep the value exactly.
+- `fit(Credit.Assumptions(Credit.PiecewiseHazard(); recovery), quotes, Fit.Bootstrap(); discount)`
+  bootstraps an issuer's hazard curve from the full prices of its nonoptional bonds, one segment
+  per maturity. First and second derivatives with respect to prices, coupons, recovery and the
+  discount curve's parameters are exact.
+- Internally, `__implicit_root` takes `max_order`: a second chord correction makes its
+  derivatives exact at second order where a caller asks for it. Existing first-order solves are
+  unchanged.
+
 ## v7.0.1 (unreleased)
 
 ### Parameter checks read values, not derivatives
