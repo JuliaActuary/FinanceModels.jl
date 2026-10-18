@@ -1,10 +1,11 @@
 # Credit, Amortization, and Optionality
 
-FinanceModels values loans and bonds whose principal amortizes, pools of loans that prepay, and
-the default risk of their issuers. The assumptions a contract needs beyond the discount curve,
-such as a prepayment speed or an issuer's hazard curve, live in a [`Models`](@ref
-FinanceModels.Models) store under a key the contract carries, as a floating-rate bond reads its
-index curve.
+FinanceModels values loans and bonds whose principal amortizes, pools of loans that prepay, the
+default risk of their issuers, and the call and put rights on them. The assumptions a contract
+needs beyond the discount curve, such as a prepayment speed or an issuer's hazard curve, live in a
+[`Models`](@ref FinanceModels.Models) store under a key the contract carries, as a floating-rate
+bond reads its index curve. [Worked Examples: a Callable Corporate Bond and a Mortgage Pool](@ref)
+puts the pieces together.
 
 ## Amortizing loans
 

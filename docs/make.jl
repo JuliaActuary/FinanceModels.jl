@@ -24,6 +24,7 @@ makedocs(;
             "Yield Curve Arithmetic" => "yield_arithmetic.md",
             "Foreign Exchange" => "fx.md",
             "Credit, Amortization, and Optionality" => "fixed_income.md",
+            "Worked Examples: Fixed Income" => "fixed_income_examples.md",
             "Migration Guide" => "migration.md",
         ],
         "Modules" => [

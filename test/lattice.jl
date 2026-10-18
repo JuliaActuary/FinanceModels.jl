@@ -60,6 +60,22 @@ using Random
         @test err(1 / 96) < err(1 / 12) / 4
     end
 
+    @testset "QuantLib's tree" begin
+        # test/reference/quantlib_callable.py: QuantLib 1.44's TreeCallableFixedRateBondEngine with 1000
+        # steps over 10 years, on the same conventions. Equal step counts give the same lattice (the
+        # script also shows 4000 steps agreeing with max_step = 1/400 to 1e-13).
+        cases = [
+            (0.04, 0.1, 0.01, 0.05, 3.0, Bond.Callable, 1.01432023176),
+            (0.04, 0.1, 0.01, 0.05, 3.0, Bond.Putable, 1.092517089406),
+            (0.02, 0.03, 0.015, 0.03, 2.0, Bond.Callable, 0.976477712818),
+        ]
+        for (r, a, σ, c, first, kind, ql1000) in cases
+            asset = kind(Bond.Fixed(c, Periodic(2), 10), first:0.5:9.5, 1.0)
+            m = ShortRate.HullWhite(a, σ, Yield.Constant(Continuous(r)))
+            @test present_value(ShortRate.HullWhiteTree(m; max_step = 1 / 100), asset) ≈ ql1000 atol = 1.0e-11
+        end
+    end
+
     @testset "zero volatility and no mean reversion" begin
         flat_hw = ShortRate.HullWhite(0.1, 0.0, curve)
         v0 = present_value(ShortRate.HullWhiteTree(flat_hw), call)
