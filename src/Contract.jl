@@ -392,6 +392,8 @@ module Bond
         )
     end
 
+    include("Bond/Amortizing.jl")
+    include("Bond/Pool.jl")
 
 end
 

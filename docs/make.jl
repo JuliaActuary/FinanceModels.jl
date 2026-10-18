@@ -23,6 +23,7 @@ makedocs(;
             "Rates" => "Rates.md",
             "Yield Curve Arithmetic" => "yield_arithmetic.md",
             "Foreign Exchange" => "fx.md",
+            "Credit and Amortization" => "fixed_income.md",
             "Migration Guide" => "migration.md",
         ],
         "Modules" => [
@@ -32,6 +33,8 @@ makedocs(;
             "Fit" => "API/Fit.md",
             "Yield" => "API/Yield.md",
             "Bond" => "API/Bond.md",
+            "Credit" => "API/Credit.md",
+            "Prepayment" => "API/Prepayment.md",
             "Equity" => "API/Equity.md",
             "FX" => "API/FX.md",
             "Option" => "API/Option.md",

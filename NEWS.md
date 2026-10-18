@@ -1,5 +1,29 @@
 # FinanceModels.jl release notes
 
+## v7.2.0 (unreleased)
+
+### Amortizing loans, loan pools and hazard curves
+
+- `Bond.Amortizing(rate, times, principal; accruals)` is a loan or bond with an explicit principal
+  schedule: simple interest on the balance outstanding since the previous payment, balloons as a
+  large last amount, and explicit accrual fractions for day counts. `Bond.LevelPayment(rate,
+  frequency, maturity)` builds a level-payment (mortgage) schedule, including the zero-rate limit.
+- `Bond.Pool(loan, key)` is a homogeneous pool of loans that prepay by the assumption under `key`
+  in a `Models` store: `Prepayment.CPR` (annual, converted to each payment interval as
+  `1 - (1 - CPR)^Δt`) or `Prepayment.SMM` (monthly payments), one rate for every payment or one per
+  payment. Prepayment shrinks the surviving share of the pool and leaves the loans' schedule
+  unchanged.
+- The `Credit` module adds nonnegative hazard curves, `Credit.ConstantHazard` and
+  `Credit.PiecewiseHazard`, with `Credit.hazard`, `Credit.cumhazard`, `Credit.survival` and
+  `Credit.default_probability` (computed as `-expm1(-cumhazard)`, so small probabilities keep their
+  digits), and `Credit.Assumptions(hazard; recovery)`, the store entry defaultable contracts will
+  read.
+
+```julia
+pool = Bond.Pool(Bond.LevelPayment(0.06, 12, 30), "speed")
+present_value(Models(Yield.Constant(0.05), Dict("speed" => Prepayment.CPR(0.08))), pool)
+```
+
 ## v7.0.1 (unreleased)
 
 ### Parameter checks read values, not derivatives

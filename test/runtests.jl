@@ -39,6 +39,8 @@ include("bootstrap.jl")
 include("implied_quote.jl")
 include("implicit_fit.jl")
 include("implicit_root.jl")
+include("credit.jl")
+include("amortizing.jl")
 include("kinks.jl")
 
 include("extensions.jl")

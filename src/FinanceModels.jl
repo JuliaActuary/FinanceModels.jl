@@ -24,8 +24,11 @@ include("utils.jl")
 include("implicit.jl")
 include("Contract.jl")
 include("model/Model.jl")
+include("Credit.jl")
+include("Prepayment.jl")
 include("Projection.jl")
 include("valuation_contexts.jl")
+include("fixed_income/cashflows.jl")
 include("fit_implicit.jl")
 include("fit.jl")
 
@@ -45,6 +48,7 @@ using .Yield: par, implied_quote
 export par, implied_quote
 
 export Equity, Volatility
+export Credit, Prepayment
 export FX
 export ShortRate, AbstractStochasticModel, RatePath, simulate, pv_mc, short_rate
 export Projection, CashflowProjection, Models, valuation_model
