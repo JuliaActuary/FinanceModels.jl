@@ -33,6 +33,7 @@ include("fit_implicit.jl")
 include("fit.jl")
 include("fixed_income/defaultable.jl")
 include("fixed_income/lattice.jl")
+include("fixed_income/alm.jl")
 
 export Cashflow, Quote, Forward, CommonEquity, Option, InterestRateSwap
 
@@ -53,7 +54,7 @@ export Equity, Volatility
 export Credit, Prepayment, exercise_policy
 export FX
 export ShortRate, AbstractStochasticModel, RatePath, simulate, pv_mc, short_rate
-export Projection, CashflowProjection, Models, valuation_model
+export Projection, CashflowProjection, AssetProjection, Models, valuation_model
 export pv
 export Fit, fit, FitConvergenceError
 

@@ -43,6 +43,7 @@ include("credit.jl")
 include("amortizing.jl")
 include("defaultable.jl")
 include("lattice.jl")
+include("alm.jl")
 include("kinks.jl")
 
 include("extensions.jl")

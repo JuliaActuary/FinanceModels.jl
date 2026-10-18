@@ -55,6 +55,16 @@ present_value(Models(Yield.Constant(0.05), Dict("speed" => Prepayment.CPR(0.08))
 - `exercise_policy(ctx, asset)` returns the lattice's decisions as a function of the exercise time
   and the observed short rate, on a lattice spanning ±8 standard deviations, for projections.
 
+### Asset-liability projections
+
+- `AssetProjection(; pricing, default_times, rng)` is a `ProjectionKind` whose rows give each payment
+  date's opening and closing principal, interest, scheduled principal, prepayment, defaulted
+  principal and recovery, and redeemed principal and redemption cash; rows reconcile to rounding.
+- Defaults are expected by default; with `default_times` or an `rng`, each issuer defaults at one
+  sampled time (inverse cumulative hazard) shared by its bonds. Pools use expected defaults.
+- Exercisable assets apply `exercise_policy(pricing, asset)` at the short rate of the projection's
+  rate path on each exercise date, reading no later rates.
+
 ## v7.0.1 (unreleased)
 
 ### Parameter checks read values, not derivatives

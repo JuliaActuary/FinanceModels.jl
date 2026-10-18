@@ -186,3 +186,46 @@ rate paths:
 policy = exercise_policy(Models(ShortRate.HullWhiteTree(hw)), callable)
 policy(5.0, 0.02), policy(5.0, 0.08)
 ```
+
+## Asset-liability projections
+
+[`AssetProjection`](@ref FinanceModels.AssetProjection) projects an asset's balance movements under
+projection assumptions, which need not be the pricing ones: one row per payment date with the
+opening and closing principal, interest, scheduled principal, prepayment, the principal outstanding
+at default and its recovery, and the principal called or put and the cash paid for it. Every row
+reconciles, and each closing balance is the next opening one:
+
+```@example fixed_income
+loan = Bond.LevelPayment(0.06, 12, 10)
+pool = Credit.Defaultable(Bond.Pool(loan, "speed"), "ACME")
+store = Dict(
+    "speed" => Prepayment.CPR(0.08),
+    "ACME" => Credit.Assumptions(Credit.ConstantHazard(0.01); recovery = 0.5),
+)
+rows = collect(Projection(pool, Models(curve, store), AssetProjection()))
+first(rows)
+```
+
+```@example fixed_income
+maximum(abs(r.opening - r.principal - r.prepayment - r.defaulted - r.redeemed - r.closing) for r in rows)
+```
+
+By default, defaults are expected: survival weights the payments, and each row reports the expected
+default and recovery over the interval it ends. With `default_times` or an `rng`, a bond's issuer
+defaults at one sampled time, shared by every bond with the same key (pools keep expected
+defaults). Supplying the default times lets a portfolio carry any dependence between issuers.
+
+An exercisable asset follows the decisions of its pricing lattice along a simulated rate path:
+`AssetProjection(; pricing)` computes [`exercise_policy`](@ref FinanceModels.exercise_policy) once
+per asset, and each exercise date reads only the short rate of the path then. The simulation's
+time grid must include the exercise dates. Along paths of the pricing model, the average discounted
+projection converges to the lattice price:
+
+```@example fixed_income
+using Random
+paths = simulate(hw; n_scenarios = 2000, timestep = 1 / 12, horizon = 10.0, rng = Xoshiro(1))
+kind = AssetProjection(; pricing = Models(ShortRate.HullWhiteTree(hw)))
+cash(r) = r.interest + r.principal + r.recovery + r.redemption
+pv_path(path) = sum(cash(r) * discount(path, r.time) for r in collect(Projection(callable, Models(path), kind)))
+sum(pv_path, paths) / length(paths), present_value(ShortRate.HullWhiteTree(hw), callable)
+```

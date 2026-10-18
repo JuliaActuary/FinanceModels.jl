@@ -193,6 +193,22 @@ The probability of default from 0 (or `from`) to `t` (or `to`), given survival t
 default_probability(c::AbstractHazard, t) = -expm1(-cumhazard(c, t))
 default_probability(c::AbstractHazard, from, to) = -expm1(-cumhazard(c, from, to))
 
+# The default time of an issuer whose cumulative hazard reaches `E`: Λ⁻¹(E), the first time Λ = E,
+# and `Inf` when it never does. With `E` an exponential draw, it samples the default time.
+function __default_time(c::ConstantHazard, E)
+    return iszero(c.rate) ? oftype(float(E / one(c.rate)), Inf) : E / c.rate
+end
+function __default_time(c::PiecewiseHazard, E)
+    ts, λs, C = c.tenors, c.rates, c._cumhazard
+    i = searchsortedfirst(C, E)   # the first interval whose end reaches E
+    if i > length(ts)
+        λ = λs[end]
+        return iszero(λ) ? oftype(float(E), Inf) : ts[end] + (E - C[end]) / λ
+    end
+    start, base = i == 1 ? (zero(ts[1]), zero(C[1])) : (ts[i - 1], C[i - 1])
+    return start + (E - base) / λs[i]
+end
+
 # The times at which the intensity can jump.
 __breakpoints(::ConstantHazard) = ()
 __breakpoints(c::PiecewiseHazard) = c.tenors
