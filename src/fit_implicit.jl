@@ -120,9 +120,15 @@ function __implicit_knot_curve(curve, quotes, primal_quotes, extrapolation)
     # The primal copies are the inputs themselves (`===`) when those carry no dual numbers.
     (extrapolation === curve.extrapolation && all(splat(===), zip(quotes, primal_quotes))) && return curve
     residuals(c, qs) = [present_value(c, q.instrument) - q.price for q in qs]
+    # `reconstruct(curve; rates, extrapolation)`, built through the fitted curve's own
+    # interpolation so that the curve's type is inferable.
+    interpolation = Yield.__interpolation(curve)
+    rebuild(rates, extrapolation) = Yield.__build_public(
+        curve.spline, Yield.KnotGrid(rates, Yield.knot_tenors(curve), curve.spline; who = "ZeroRateCurve"), interpolation; extrapolation
+    )
     # R at the fitted rates, carrying the caller's partials: quotes and the extrapolation
     # policy are the only places they can enter.
-    dual_curve = extrapolation === curve.extrapolation ? curve : Yield.reconstruct(curve; extrapolation)
+    dual_curve = extrapolation === curve.extrapolation ? curve : rebuild(Yield.knot_rates(curve), extrapolation)
     Rd = residuals(dual_curve, quotes)
     D = __common_dual_type((Rd..., __extrapolation_dual(extrapolation)...))
     D === nothing && return curve
@@ -138,7 +144,7 @@ function __implicit_knot_curve(curve, quotes, primal_quotes, extrapolation)
     # MonotoneConvex's centered one), not the refit's.
     Yield.__near_kink(curve, z0) && throw(__fit_kink_error(curve))
 
-    A = ForwardDiff.jacobian(z -> residuals(__trial_curve(curve.spline, z, tenors, curve.extrapolation), primal_quotes), z0)
+    A = ForwardDiff.jacobian(z -> residuals(__trial_curve(curve.spline, interpolation, z, tenors, curve.extrapolation), primal_quotes), z0)
     # Equilibrate each residual by its sensitivity to the knot rates, so that the conditioning
     # check does not depend on the instruments' notionals.
     w = [maximum(abs, view(A, i, :)) for i in axes(A, 1)]
@@ -173,7 +179,7 @@ function __implicit_knot_curve(curve, quotes, primal_quotes, extrapolation)
     W = promote_type(ForwardDiff.valtype(D), eltype(z0), eltype(dZ))
     Dz = ForwardDiff.Dual{ForwardDiff.tagtype(D), W, K}
     zd = [Dz(W(z0[i]), ForwardDiff.Partials{K, W}(ntuple(k -> W(dZ[i, k]), K))) for i in eachindex(z0)]
-    return Yield.reconstruct(curve; rates = zd, extrapolation)
+    return rebuild(zd, extrapolation)
 end
 
 __fit_kink_error(curve) = ArgumentError(

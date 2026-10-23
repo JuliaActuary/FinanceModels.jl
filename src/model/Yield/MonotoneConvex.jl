@@ -481,4 +481,4 @@ end
     return t_prev * rates[i - 1] + (t - t_prev) * fᵈ[i] + (times[i] - t_prev) * G
 end
 
-__build(::Sp.MonotoneConvex, g::KnotGrid; extrapolation = :flat_forward) = MonotoneConvex(g; extrapolation)
+__build(::Sp.MonotoneConvex, interpolation, g::KnotGrid; extrapolation = :flat_forward) = MonotoneConvex(g; extrapolation)

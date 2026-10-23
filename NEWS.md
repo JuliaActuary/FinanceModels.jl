@@ -1,5 +1,17 @@
 # FinanceModels.jl release notes
 
+## v7.0.2 (unreleased)
+
+### Faster first fits of linear, quadratic and cubic splines
+
+A fit of `Spline.Linear()`, `Spline.Quadratic()` or `Spline.Cubic()` compiled all three
+interpolations for its trial curves, because a polynomial spline's order is a runtime value. Trial
+curves are compiled for the fit's dual numbers, whose width depends on the number of quotes, so
+each new quote count paid for all three. The first `fit(Spline.Linear(), quotes)` with 10 par
+quotes took 27 s and 5.8 GiB on Julia 1.13, and now takes 6.5 s and 1.8 GiB. The first gradient
+through a differentiated `Fit.Bootstrap()` fit fell from 15 s to 5.4 s. Fitted curves, their
+derivatives and warm-call speed are unchanged; a bootstrap is about 5% faster.
+
 ## v7.0.1 (unreleased)
 
 ### Parameter checks read values, not derivatives

@@ -68,11 +68,40 @@ Spline(spline::Union{Sp.PolynomialSpline, Sp.BSpline, Sp.PCHIP, Sp.Akima}, tenor
 
 # The one builder per interpolation method, over an owned grid: validated, or an internal
 # optimizer trial grid. `ZeroRateCurve`, `Yield.Spline`, `reconstruct`, and `fit` all end here,
-# so the descriptor → curve-type mapping lives in one place.
-function __build(s::Sp.SplineCurve, g::KnotGrid; extrapolation = :flat_forward)
-    interpolant = __interpolant(s, __interpolation_grid(g), __interpolation_extrapolation(extrapolation))
+# so the descriptor → curve-type mapping lives in one place. `interpolation` is
+# `__interpolation(s, length(g.tenors))`.
+function __build(s::Sp.SplineCurve, interpolation, g::KnotGrid; extrapolation = :flat_forward)
+    interpolant = __interpolant(interpolation, __interpolation_grid(g), __interpolation_extrapolation(extrapolation))
     return Spline(Unchecked(), s, g, extrapolation, interpolant, __spline_tail(interpolant, g, extrapolation), extrapolation === :extension)
 end
+__build(s::Sp.SplineCurve, g::KnotGrid; extrapolation = :flat_forward) = __build(s, __interpolation(s, length(g.tenors)), g; extrapolation)
+# Branching on the order keeps a public polynomial-spline curve's type inferable as a union of the
+# three curve types.
+function __build(b::Sp.PolynomialSpline, g::KnotGrid; extrapolation = :flat_forward)
+    order = __polynomial_order(b, length(g.tenors))
+    order == 1 && return __build(b, Val(1), g; extrapolation)
+    order == 2 && return __build(b, Val(2), g; extrapolation)
+    return __build(b, Val(3), g; extrapolation)
+end
+
+# The interpolation a descriptor uses on `n` knots. Code that builds many curves on one grid (a
+# fit's trial curves and Jacobian, a bootstrap's steps) resolves it once and builds through it, so
+# that each of those curves has one concrete type. A polynomial spline's order is a runtime field,
+# so its interpolation is a `Val` of the order: branching on the order inside an AD-traced loss
+# made every trial curve a union of the linear, quadratic, and cubic curve types, and all three
+# were compiled for each width of dual number.
+__interpolation(s::Sp.SplineCurve, n) = s
+__interpolation(b::Sp.PolynomialSpline, n) = Val(__polynomial_order(b, n))
+# A built curve's interpolation, read from its type so that it is inferable.
+__interpolation(c::AbstractInterpolatedZeroCurve) = __interpolation(c.spline, length(knot_tenors(c)))
+__interpolation(c::Spline{<:Sp.PolynomialSpline}) = __polynomial_interpolation(c._interp)
+__polynomial_interpolation(::DataInterpolations.LinearInterpolation) = Val(1)
+__polynomial_interpolation(::DataInterpolations.QuadraticSpline) = Val(2)
+__polynomial_interpolation(::DataInterpolations.CubicSpline) = Val(3)
+
+# documented short-grid rule (`Spline.PolynomialSpline`): the order reduces to `k - 1` on `k`
+# knots, and a single knot is interpolated over two points (`__interpolation_grid`)
+__polynomial_order(b::Sp.PolynomialSpline, n) = min(max(n, 2) - 1, b.order)
 
 # DataInterpolations needs two points. A one-knot curve is flat, so its interpolant runs a flat
 # segment from the knot to one year beyond it; the curve's own knots, tail, and short end are
@@ -97,23 +126,17 @@ __interpolant(::Sp.PCHIP, g::KnotGrid, extrapolation_kwargs) =
 __interpolant(::Sp.Akima, g::KnotGrid, extrapolation_kwargs) =
     DataInterpolations.AkimaInterpolation(g.rates, g.tenors; extrapolation_kwargs...)
 
-function __interpolant(b::Sp.PolynomialSpline, g::KnotGrid, extrapolation_kwargs)
-    xs, ys = g.tenors, g.rates
-    # documented short-grid rule (`Spline.PolynomialSpline`): the order reduces to `k - 1` on `k` knots
-    order = min(length(xs) - 1, b.order)
-    # `cache_parameters = true` precomputes per-segment parameters at construction so that evaluation is
-    # read-only and therefore thread-safe — notably for `QuadraticSpline`, which is B-spline-based and
-    # otherwise overwrites a shared internal coefficient buffer on every call. It also avoids recomputing
-    # parameters on each evaluation. (Curves here are built immutably, so the "do not mutate u/t" caveat
-    # of cached parameters does not apply.)
-    return if order == 1
-        DataInterpolations.LinearInterpolation(ys, xs; extrapolation_kwargs..., cache_parameters = true)
-    elseif order == 2
-        DataInterpolations.QuadraticSpline(ys, xs; extrapolation_kwargs..., cache_parameters = true)
-    else
-        DataInterpolations.CubicSpline(ys, xs; extrapolation_kwargs..., cache_parameters = true)
-    end
-end
+# A polynomial spline of the resolved order (`__interpolation`). `cache_parameters = true` precomputes
+# per-segment parameters at construction so that evaluation is read-only and therefore thread-safe —
+# notably for `QuadraticSpline`, which is B-spline-based and otherwise overwrites a shared internal
+# coefficient buffer on every call. It also avoids recomputing parameters on each evaluation. (Curves
+# here are built immutably, so the "do not mutate u/t" caveat of cached parameters does not apply.)
+__interpolant(::Val{1}, g::KnotGrid, extrapolation_kwargs) =
+    DataInterpolations.LinearInterpolation(g.rates, g.tenors; extrapolation_kwargs..., cache_parameters = true)
+__interpolant(::Val{2}, g::KnotGrid, extrapolation_kwargs) =
+    DataInterpolations.QuadraticSpline(g.rates, g.tenors; extrapolation_kwargs..., cache_parameters = true)
+__interpolant(::Val{3}, g::KnotGrid, extrapolation_kwargs) =
+    DataInterpolations.CubicSpline(g.rates, g.tenors; extrapolation_kwargs..., cache_parameters = true)
 
 # DataInterpolations handles the short end (a flat zero rate before the first knot) and, only
 # for `:extension`, the long end; every other long-end policy is a `CurveTail` (Extrapolation.jl).
