@@ -133,12 +133,20 @@ function __last_discrete_forward(rates, tenors)
     return (zₙ * tₙ - zₘ * tₘ) / (tₙ - tₘ)
 end
 
+# The interpolant's left-hand slope at the last knot `t`: `DataInterpolations.derivative(interpolant, t)`
+# at a time inside the grid, which is `_derivative(interpolant, t, interpolant.iguesser)` (DataInterpolations
+# 9.2 through 10.1). `derivative` branches on a runtime `order`, so calling it compiled its second-order
+# branch, a ForwardDiff derivative of the interpolant at a dual time, for every interpolant and element type
+# a curve is built with: each policy's curve compiles this slope, `:linear` or not. That made the first
+# gradient through `ZeroRateCurve(rates, tenors, Spline.Linear())` take 6.8 s instead of 1.9 s.
+__boundary_slope(interpolant, t) = DataInterpolations._derivative(interpolant, t, interpolant.iguesser)
+
 # The long-end tail of a DataInterpolations-backed curve. `:extension` continues the interpolant
 # instead, and gets a tail of the same type as `:flat_zero` that is never evaluated.
 function __spline_tail(interpolant, g::KnotGrid, method)
     t, z = last(g.tenors), last(g.rates)
     method === :extension && return __curve_tail(t, z, zero(z), zero(z), false)
     forward = () -> __last_discrete_forward(g.rates, g.tenors)
-    slope = () -> DataInterpolations.derivative(interpolant, t)
+    slope = () -> __boundary_slope(interpolant, t)
     return __build_tail(method, t, z, forward, slope)
 end

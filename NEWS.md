@@ -1,5 +1,19 @@
 # FinanceModels.jl release notes
 
+## v7.0.2 (unreleased)
+
+### Faster first derivatives through spline curves
+
+Building a DataInterpolations-backed curve (`Spline.Linear()`, `Spline.Cubic()`, `Spline.PCHIP()`,
+…) compiled the `:linear` long-end slope under every extrapolation policy. It came from
+`DataInterpolations.derivative`, whose runtime `order` argument also compiled a second-derivative
+path. That compilation ran for each element type the curve was built with, so each new dual-number
+width paid for it. With 10 knots, the first `ForwardDiff.gradient` of a value through
+`ZeroRateCurve(rates, tenors, Spline.Linear())` took 6.8 s on Julia 1.13 (1.3 s on 6.3.0) and now
+takes 1.8 s. The first gradient through a differentiated `Fit.Bootstrap()` fit fell from 15 s to
+5.5 s, and the first 10-quote `fit(Spline.Linear(), quotes)` from 27 s to 15 s. Curves, their
+tail slopes and warm-call speed are unchanged.
+
 ## v7.0.1 (unreleased)
 
 ### Parameter checks read values, not derivatives

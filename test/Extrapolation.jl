@@ -151,6 +151,23 @@ spline_zero_curve_with_policy(d, r, t, policy::Symbol) = ZeroRateCurve(r, t, d; 
         @test ForwardDiff.derivative(zf, fixed.forward) ≈ 1 - tn / horizon
     end
 
+    # The `:linear` tail reads its slope from DataInterpolations' order-1 kernel
+    # (`Yield.__boundary_slope`), which must equal the public `derivative` exactly.
+    @testset ":linear slope is DataInterpolations.derivative" begin
+        DI = FinanceModels.DataInterpolations
+        D = ForwardDiff.Dual{Nothing, Float64, 2}
+        same(a, b) = isequal(a, b) && (!(a isa ForwardDiff.Dual) || ForwardDiff.partials(a) == ForwardDiff.partials(b))
+        for d in descriptors, k in (1, 2, 3, length(rates)), U in (Float64, BigFloat)
+            d isa Spline.MonotoneConvex && continue
+            k < 3 && d isa Union{Spline.PCHIP, Spline.Akima} && continue
+            duals = [D(x, ForwardDiff.Partials((Float64(i), -1.0))) for (i, x) in enumerate(rates[1:k])]
+            for r in (rates[1:k], Float32.(rates[1:k]), duals)
+                c = ZeroRateCurve(r, U.(times[1:k]), d; extrapolation = :linear)
+                @test same(c._tail.γ, convert(typeof(c._tail.γ), DI.derivative(c._interp, last(c.tenors))))
+            end
+        end
+    end
+
     @testset "policy reconstruction" begin
         CB = Accessors.ConstructionBase
         for curve in (Yield.MonotoneConvex(rates, times), ZeroRateCurve(rates, times, Spline.Cubic()))
