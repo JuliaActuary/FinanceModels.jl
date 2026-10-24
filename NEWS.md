@@ -1,20 +1,16 @@
 # FinanceModels.jl release notes
 
-## v7.0.1 (unreleased)
+## v7.0.2 (unreleased)
 
-### Parameter checks read values, not derivatives
+### Faster first fits of linear, quadratic and cubic splines
 
-Parameter validation now checks a ForwardDiff dual number's value, independently of its
-derivatives. Under ForwardDiff 1, `Dual(0, -1) < 0` and `Dual(0, 1) > 0`: comparing the whole
-number rejected valid zero-valued parameters with negative derivatives and accepted invalid
-zero-valued parameters with positive derivatives.
-
-The fix covers short-rate volatilities, CIR's initial rate, ZCB option strike and maturity
-ordering, and the decay parameters of Nelson–Siegel, Nelson–Siegel–Svensson and both
-Cairns–Pritchard models. For example, a nested derivative through the nonnegative volatility
-σ = (x − y)² at x = y = 0 no longer throws, and a zero Nelson–Siegel decay parameter cannot
-pass validation and produce a `NaN` derivative. Calculations retain the derivatives; the API
-and intended parameter domains are unchanged.
+A fit of `Spline.Linear()`, `Spline.Quadratic()` or `Spline.Cubic()` compiled all three
+interpolations for its trial curves, because a polynomial spline's order is a runtime value. Trial
+curves are compiled for the fit's dual numbers, whose width depends on the number of quotes, so
+each new quote count paid for all three. The first `fit(Spline.Linear(), quotes)` with 10 par
+quotes took 27 s and 5.8 GiB on Julia 1.13, and now takes 6.5 s and 1.8 GiB. The first gradient
+through a differentiated `Fit.Bootstrap()` fit fell from 15 s to 5.4 s. Fitted curves, their
+derivatives and warm-call speed are unchanged; a bootstrap is about 5% faster.
 
 ### Option prices and simulations at zero and tiny volatility
 
@@ -47,8 +43,24 @@ zero below σ√τ ≈ 1e-16.
 - **Simulated Vasicek and Hull–White paths** took each step's standard deviation as √(σ²·…), whose
   σ-derivative is `NaN` at σ = 0, so pathwise sensitivities there were `NaN`. σ² also underflowed
   below σ = 1e-154, so a positive σ was simulated as zero. The standard deviation is now σ·√(…).
-  The random draws are unchanged, but the standard deviation can differ from 7.0.0's in its last
+  The random draws are unchanged, but the standard deviation can differ from 7.0.1's in its last
   bit, as it did in 36 of 144 parameter sets checked, and so can simulated paths.
+
+## v7.0.1
+
+### Parameter checks read values, not derivatives
+
+Parameter validation now checks a ForwardDiff dual number's value, independently of its
+derivatives. Under ForwardDiff 1, `Dual(0, -1) < 0` and `Dual(0, 1) > 0`: comparing the whole
+number rejected valid zero-valued parameters with negative derivatives and accepted invalid
+zero-valued parameters with positive derivatives.
+
+The fix covers short-rate volatilities, CIR's initial rate, ZCB option strike and maturity
+ordering, and the decay parameters of Nelson–Siegel, Nelson–Siegel–Svensson and both
+Cairns–Pritchard models. For example, a nested derivative through the nonnegative volatility
+σ = (x − y)² at x = y = 0 no longer throws, and a zero Nelson–Siegel decay parameter cannot
+pass validation and produce a `NaN` derivative. Calculations retain the derivatives; the API
+and intended parameter domains are unchanged.
 
 ## v7.0.0
 
