@@ -25,10 +25,9 @@ instantaneous forward instead). Pass `extrapolation=:flat_zero`, `:linear`, `:ex
 select a different long-end policy. `:extension` is unavailable for MonotoneConvex.
 
 Notes on Fitting:
-- `fit(spline,quotes)` will fit entire curve at once, with knots equal to the maturity points of the `Quote`s
-- `fit(spline, quotes, Fit.Bootstrap())` solves one knot at a time with `Spline.Linear()`. Other strategies require full-curve loss fitting because adding a knot changes earlier segments.
-
-Generally, the former will be preferred for performance reasons.
+- `fit(spline, quotes)` fits the entire curve at once, with knots at the maturities of the `Quote`s: it solves for the knot rates that reprice every quote.
+- `fit(spline, quotes, Fit.Bootstrap())` solves one knot at a time, with `Spline.Linear()` only: for the other strategies, adding a knot changes earlier segments.
+- `fit(spline, quotes, Fit.Loss(f))` minimizes the loss `f` of the pricing residuals with an optimizer.
 
 ## Examples
 
@@ -39,8 +38,8 @@ rates = [0.07, 0.16, 0.35, 0.92, 1.4, 1.74, 2.31, 2.41] ./ 100
 mats = [1, 2, 3, 5, 7, 10, 20, 30]
 
 qs = CMTYield.(rates, mats)
-c = fit(Spline.Linear(), qs) # will fit entire curve at once, with knots equal to the maturity points of the `Quote`s
-c = fit(Spline.Linear(), qs, Fit.Bootstrap()) # will curve one knot at a time, with knots equal to the maturity points of the `Quote`s
+c = fit(Spline.Linear(), qs) # fits the entire curve at once, with knots at the maturities of the `Quote`s
+c = fit(Spline.Linear(), qs, Fit.Bootstrap()) # fits one knot at a time, with knots at the maturities of the `Quote`s
 
 ```
 """

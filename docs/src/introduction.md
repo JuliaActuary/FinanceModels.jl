@@ -195,10 +195,10 @@ Model fitting can be customized:
 
 - The **loss function** (least squares, absolute difference, etc.) via the third argument to `fit`:
   - e.g. `fit(ABDiscountLine(), quotes, Fit.Loss(x -> abs(x)))`
-  - the default is `Fit.Loss(x->x^2)`
+  - the default is `Fit.Loss(x->x^2)` (a spline fit without a method reprices every quote instead)
 - the **optimization algorithm** by defining a method `FinanceModels.default_optimizer(m::ABDiscountLine) = OptimizationOptimJL.Newton()`
   - you may need to change the `default_variables` to be unbounded (simply omit the `=>` and subsequent bounds)
-  - The default is `OptimizationOptimJL.LBFGS()` (polynomial, PCHIP, Akima, and B-spline least-squares fits default to `OptimizationOptimJL.Newton()`; MonotoneConvex uses `LBFGS()`)
+  - The default is `OptimizationOptimJL.LBFGS()` (polynomial, PCHIP, Akima, and B-spline loss fits default to `OptimizationOptimJL.Newton()`; MonotoneConvex uses `LBFGS()`)
 - The **general algorithm** can be customized by defining a new `Fit.FitMethod` subtype and a method `FinanceModels.fit(model, quotes, method::YourMethod)` for it.
 
 - As an example, the linear splines (`Spline.Linear()` and `Spline.BSpline(1)`) define a dedicated bootstrapping method which is used when `Fit.Bootstrap()` is passed explicitly: `fit(mod0::Spline.SplineCurve, quotes, method::Fit.Bootstrap)`. Note that the default `fit(spline, quotes)` (no third argument) performs a least-squares fit, not a bootstrap.

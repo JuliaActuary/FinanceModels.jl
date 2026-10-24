@@ -746,8 +746,13 @@ using ForwardDiff
         qs = ZCBYield.([0.02, 0.025, 0.03], [1.0, 2.0, 5.0])
         fitted = fit(Spline.MonotoneConvex(), qs)
         @test fitted isa Yield.MonotoneConvex
-        @test fit(Spline.MonotoneConvex(), qs, Fit.Loss(x -> x^2)) == fitted
-        @test maximum(abs(present_value(fitted, q.instrument) - q.price) for q in qs) < 1.0e-7
+        # the exact fit reprices the zero-coupon quotes at the analytic knot rates; a loss fit
+        # reaches them to its optimizer's tolerance
+        @test rate.(knot_rates(fitted)) ≈ log1p.([0.02, 0.025, 0.03]) atol = 1.0e-15
+        lossfit = fit(Spline.MonotoneConvex(), qs, Fit.Loss(x -> x^2))
+        @test lossfit isa Yield.MonotoneConvex
+        @test rate.(knot_rates(lossfit)) ≈ rate.(knot_rates(fitted)) atol = 1.0e-7
+        @test maximum(abs(present_value(fitted, q.instrument) - q.price) for q in qs) < 1.0e-14
         @test_throws ArgumentError fit(Spline.MonotoneConvex(), qs; extrapolation = :extension)
         @test_throws "fit(Spline.MonotoneConvex(), quotes)" fit(Spline.MonotoneConvex(), qs, Fit.Bootstrap())
         # refitting an existing curve varies only its knot rates

@@ -20,7 +20,7 @@ These smoothness statements concern tenor, not derivatives with respect to knot 
 
 Since v6.0, `Spline.Linear()`, `Spline.Quadratic()`, and `Spline.Cubic()` return `PolynomialSpline` interpolants, which are fast and safe to evaluate concurrently across threads. Only `Spline.Linear()` is local; the quadratic and natural cubic splines are global. For a B-spline (e.g. as a least-squares fitting basis) request `Spline.BSpline(d)` explicitly; it is **not** thread-safe for concurrent evaluation on a shared curve.
 
-`Fit.Bootstrap()` supports linear interpolation (`Spline.Linear()` or `Spline.BSpline(1)`): bootstrapping requires that each new knot leaves earlier segments unchanged. Fit other methods across the whole quote set with `Fit.Loss`.
+`Fit.Bootstrap()` supports linear interpolation (`Spline.Linear()` or `Spline.BSpline(1)`): bootstrapping requires that each new knot leaves earlier segments unchanged. Fit other methods to the whole quote set at once with `fit(spline, quotes)`, which reprices every quote.
 
 ```julia
 using FinanceModels

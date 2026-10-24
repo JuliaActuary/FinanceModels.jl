@@ -370,7 +370,7 @@ Transducers.asfoldable(p::Projection{AsfoldableContract}) = [Cashflow(1.0, 1.0),
                 @test err.retcode == FinanceModels.Optimization.SciMLBase.ReturnCode.Failure
                 msg = sprint(showerror, err)
                 @test startswith(msg, "FitConvergenceError: ")
-                @test occursin("optimizer return code Failure", msg)
+                @test occursin("(return code Failure)", msg)
             end
         end
     end

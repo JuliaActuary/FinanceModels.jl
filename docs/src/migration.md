@@ -10,7 +10,8 @@
   silently stopped repricing: on uneven par quotes the residuals reached 0.40%
   (quadratic) and 0.11% (cubic). These strategies now throw an `ArgumentError`.
   **Migration:** use `Spline.Linear()` with `Fit.Bootstrap()`, or fit the smoother
-  strategy to all quotes at once with `Fit.Loss(x -> x^2)`; fit a monotone convex
+  strategy to all quotes at once with `fit(spline, quotes)` (since v7.2 an exact fit; a
+  `Fit.Loss(x -> x^2)` loss fit before); fit a monotone convex
   curve with `fit(Spline.MonotoneConvex(), quotes)` (bootstrap previously switched
   to this loss fit silently). Zero-coupon quote sets were exact with every strategy,
   so their fitted curves change only if you switch to a loss fit.

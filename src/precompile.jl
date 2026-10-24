@@ -27,9 +27,9 @@ using PrecompileTools
         Yield.Spline(Spline.Cubic(), times, curve_rates)
         Yield.Spline(Spline.BSpline(3), times, curve_rates)
 
-        # Retain one spline fit and one generic optic-based fit so both core
-        # Optimization/AD dispatch paths remain warm without repeating them for
-        # every interpolation implementation.
+        # Retain one exact spline fit and one generic optic-based fit, which
+        # minimizes with Optimization, so both core solve/AD paths remain warm
+        # without repeating them for every interpolation implementation.
         fit(Spline.Linear(), q_rate)
         fit(Yield.NelsonSiegelSvensson(), q_rate)
 

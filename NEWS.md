@@ -1,5 +1,46 @@
 # FinanceModels.jl release notes
 
+## v7.2.0
+
+### Spline fits solve for the curve that reprices the quotes
+
+`fit(spline, quotes)` places one knot at each quote maturity, so repricing the quotes is a square
+system of equations in the knot rates. Without a method, an `optimizer` or `solve_kwargs`, a spline
+fit now solves that system by Newton's method with a line search. It used to minimize the squared
+pricing residuals with Optim's `Newton()` (`LBFGS()` for `Spline.MonotoneConvex()`). The solve
+needs the Jacobian of the residuals, not the Hessian of the loss, so its first call compiles much
+less code, and that code no longer grows with the square of the number of quotes. On Julia 1.13:
+
+| first call | v7.1.1 | v7.2.0 |
+|---|---:|---:|
+| `Spline.Linear()`, 5 CMT quotes | 1.78 s | 0.58 s |
+| `Spline.Cubic()`, 5 CMT quotes | 4.21 s | 1.37 s |
+| `Spline.MonotoneConvex()`, 5 CMT quotes | 0.88 s | 0.59 s |
+| `Spline.Linear()`, 12 CMT quotes | 3.60 s | 0.83 s |
+| `Spline.PCHIP()`, 12 CMT quotes | 6.03 s | 1.62 s |
+| `Spline.Cubic()`, 12 CMT quotes | 14.8 s | 1.66 s |
+
+Warm fits are 3 to 10 times faster (39 times for a 12-quote monotone convex fit), and the fitted
+curve reprices every quote to rounding: relative residuals of about `1e-16`, against up to `2e-8` at
+the optimizer's default tolerance. Fitted knot rates move by that tolerance: up to about `1e-7`
+for monotone convex fits, `1e-10` for the others. Precompiling FinanceModels takes 2.4 s less than
+with v7.1.1 (pkgimage 41 MB to 36 MB).
+
+- Quotes that no curve with the interpolation method reprices, such as a price that implies a
+  negative discount factor, throw a `FitConvergenceError`. The loss fit returned its closest curve
+  and reported success. In a sweep of 840 random quote sets over every interpolation method, the
+  exact fit repriced all but one; on that one (quadratic interpolation of alternating zero-coupon
+  and par quotes at 15%), the loss fit's curve mispriced a quote by 9%.
+- An explicit `Fit.Loss(f)` still minimizes `f`, and an `optimizer` or `solve_kwargs` without a
+  method still minimize the squared loss, as before. To reproduce a v7.1 fit, pass
+  `optimizer = FinanceModels.default_optimizer(spline)`.
+- `fit(curve, quotes)`, refitting a knot curve whose knots are at the quote maturities, reprices
+  the quotes as the spline fit does. Other knot grids still minimize the squared loss.
+  `FX.Forwards` with a spline or knot-curve foreign curve follow the same rules.
+- Derivatives through a fit are taken as before, at the now exact fit; through a linear fit they
+  match `Fit.Bootstrap()` to `1e-13`.
+- `FitConvergenceError` messages end in "(return code …)" rather than "(optimizer return code …)".
+
 ## v7.1.1
 
 ### Faster first calls on common curves and quotes

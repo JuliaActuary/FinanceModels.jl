@@ -249,12 +249,12 @@ Will produce:
 
 ```julia
 quotes = CMTYield.([0.04, 0.05, 0.055, 0.06, 0.055], [1, 2, 3, 4, 5])
-model = fit(Spline.Linear(), quotes)  # least squares across all quotes
+model = fit(Spline.Linear(), quotes)  # the curve that reprices every quote
 ```
 
 - **Model** could be `Spline.Linear()`, `Yield.NelsonSiegelSvensson()`, `Equity.BlackScholesMerton(...)`, etc.
 - **Quotes** describe observed instrument prices, using constructors such as `CMTYield` or `ParYield`, or `Quote(price, Option.EuroCall(...))`.
-- **Method** defaults to least squares, `Fit.Loss(x -> x^2)`, when omitted. Pass another loss explicitly, such as `Fit.Loss(abs)`, to change the objective.
+- **Method** defaults to least squares, `Fit.Loss(x -> x^2)`, when omitted. Pass another loss explicitly, such as `Fit.Loss(abs)`, to change the objective. A spline fit without a method instead solves for the curve that reprices every quote, with one knot per quote maturity.
 
 This unified way to fit models offers a much simpler way to extend functionality to new models or contract types.
 
