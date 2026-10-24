@@ -1,5 +1,27 @@
 # FinanceModels.jl release notes
 
+## v7.1.1
+
+### Faster first calls on common curves and quotes
+
+The precompile workload now covers coupon-bond quotes (`CMTYield`, `ParYield`), monotone convex and
+cubic spline fits, and the curve queries (`discount`, `accumulation`, `zero`, `forward`, `par` and
+`present_value` of cashflows and bonds) on bootstrapped, `ZeroRateCurve`, cubic `Yield.Spline` and
+`Yield.Constant` curves. On Julia 1.13, first calls are faster:
+
+| first call | v7.1.0 | v7.1.1 |
+|---|---:|---:|
+| linear bootstrap of 12 CMT quotes | 0.61 s | 0.06 s |
+| queries on a cubic spline curve | 0.62 s | 0.13 s |
+| `ZeroRateCurve` (monotone convex) and its queries | 0.17 s | 0.06 s |
+| monotone convex fit of 5 CMT quotes | 1.47 s | 0.88 s |
+| cubic fit of 3 zero-coupon quotes | 2.59 s | 0.01 s |
+
+Fits of other quote counts still compile on their first call, since the compiled code is specific
+to the number of quotes. Precompiling FinanceModels takes about 4.5 s longer, its pkgimage grows
+from 26 MB to 41 MB, and loading it takes about 0.05 s longer. Results and warm-call speed are
+unchanged.
+
 ## v7.0.2 (unreleased)
 
 ### Faster first derivatives through spline curves
