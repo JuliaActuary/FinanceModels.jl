@@ -240,8 +240,9 @@ different `optimizer`, tighter or longer solver settings (for example `Fit.Loss(
 `solve_kwargs = (; maxiters = 10_000)`, or `Fit.Exact(maxiters = 500)`), or quotes that the model
 can fit. A spline fit's exact solve fails when no curve of its interpolation method reprices the
 quotes (a price that implies a non-positive discount factor, for example); minimizing a loss with
-`Fit.Loss()` returns the closest curve instead. Choose the model deliberately; switching to another
-interpolation method on failure changes the curve.
+`Fit.Loss()` returns a local minimum of the loss instead, reached from fixed starting rates.
+Choose the model deliberately; switching to another interpolation method on failure changes the
+curve.
 """
 struct FitConvergenceError{R} <: Exception
     retcode::R
@@ -303,7 +304,8 @@ Fit a model to a collection of quotes using a loss function and optimization met
 - `solve_kwargs=(;)`: Keyword arguments passed to `Optimization.solve` with the optimizer, such as
   `(; maxiters = 10_000, abstol = 1e-12)` or Optim.jl's `g_tol`. Use them to tighten a loss fit. The
   `optimizer` and `solve_kwargs` configure a `Fit.Loss` fit: given to a knot-curve fit without a
-  `method`, they select `Fit.Loss()`, which returns the closest curve where `Fit.Exact()` throws.
+  `method`, they select `Fit.Loss()`, which returns a local minimum of the loss, reached from fixed
+  starting rates, where `Fit.Exact()` throws.
 - `extrapolation=:flat_forward`: For `Spline.SplineCurve` fits (including
   `Spline.MonotoneConvex()`), the long-end policy beyond the last knot (see
   [`Yield.Spline`](@ref FinanceModels.Yield.Spline)). Also accepts `:flat_zero`, `:linear`,
@@ -317,8 +319,8 @@ on the quotes' pricing residuals, with a line search, from a fixed starting curv
 no optimizer. The returned curve reprices each quote to within `sqrt(eps())` of its size (the gross
 value of its cashflows; in practice to rounding), and a solve that cannot reprice them, because no
 curve with this interpolation does, throws a
-[`FitConvergenceError`](@ref FinanceModels.FitConvergenceError) rather than return the closest
-curve. `Fit.Loss(f)` fits the spline by minimizing the loss (`Fit.Loss()`: the squared loss, which an
+[`FitConvergenceError`](@ref FinanceModels.FitConvergenceError) rather than return a curve that
+misprices them. `Fit.Loss(f)` fits the spline by minimizing the loss (`Fit.Loss()`: the squared loss, which an
 `optimizer` or `solve_kwargs` without a method also select) with an Optimization.jl solver instead: `LBFGS()` for `Spline.MonotoneConvex()`, `Newton()` otherwise. With quotes that a
 curve reprices, the loss fit converges to the same curve, to the optimizer's tolerance.
 `Fit.Bootstrap()` accepts `Spline.Linear()` only. Fitting an existing knot curve
