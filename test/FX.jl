@@ -157,9 +157,11 @@
             m0 = FX.Forwards(eurusd, S, usd_boot, Spline.Cubic())
             m_tight = fit(m0, quotes, Fit.Loss(abs2); solve_kwargs = (; g_tol = 1.0e-12))
             @test all(abs(pv(m_tight, q.instrument)) < 1.0e-6 for q in quotes)
-            m_tight2 = fit(m0, quotes; solve_kwargs = (; g_tol = 1.0e-12))   # default loss
+            m_tight2 = fit(m0, quotes, Fit.Loss(); solve_kwargs = (; g_tol = 1.0e-12))   # the squared loss
             @test all(abs(pv(m_tight2, q.instrument)) < 1.0e-6 for q in quotes)
-            @test_throws FinanceModels.FitConvergenceError fit(m0, quotes; solve_kwargs = (; maxiters = 1))
+            @test_throws FinanceModels.FitConvergenceError fit(m0, quotes, Fit.Loss(); solve_kwargs = (; maxiters = 1))
+            @test_throws "Fit.Loss()" fit(m0, quotes; solve_kwargs = (; maxiters = 1))
+            @test isequal(fit(m0, quotes, Fit.Exact()).foreign, fit(m0, quotes).foreign)
             m_lin = FX.Forwards(eurusd, S, usd_boot, Spline.Linear())
             m_flat = fit(m_lin, quotes, Fit.Bootstrap(); extrapolation = :flat_zero)
             @test m_flat.foreign.extrapolation === :flat_zero
