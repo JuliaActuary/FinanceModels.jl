@@ -101,7 +101,7 @@ internal derivatives never mix with yours.
 | `fit(spline, quotes, Fit.Loss(f))` (or with `optimizer`/`solve_kwargs`) | yes | the fit must reprice its quotes; see below |
 | `fit(Spline.Linear(), quotes, Fit.Bootstrap())` | yes | exact to root-finder precision |
 | `fit(FX.Forwards(pair, spot, domestic, spline), quotes, …)` | yes | through the implied foreign quotes |
-| `fit(curve, quotes)`, refitting an existing knot curve | with one knot per quote | knots at the quote maturities: the spline fit; other knots: a loss fit; another number of knots throws a `DimensionMismatch` |
+| `fit(curve, quotes)`, refitting an existing knot curve | yes, for quotes with fixed cashflows | knots at the quote maturities: the spline fit; other knots: the least-squares fit (`Fit.LeastSquares`), differentiated through its optimality condition; a `Fit.Loss` refit with another number of knots than quotes throws |
 | `fit(Yield.SmithWilson(…), quotes)` | quote prices and cashflow amounts (such as `Bond.Fixed` coupons) | differentiates the closed form directly; values match the primal fit to rounding, not bitwise |
 | other models (`Yield.NelsonSiegel`, `Yield.Constant`, short-rate models) | no | `fit` throws an `ArgumentError` |
 

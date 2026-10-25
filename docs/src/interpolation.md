@@ -126,6 +126,36 @@ stored as its continuously compounded value and stays fixed when knot rates are 
 fitted. Appending a synthetic far knot does not generally impose a chosen terminal
 instantaneous forward and can also change interior interpolation.
 
+## Fitting More Quotes Than Knots
+
+`fit(spline, quotes)` places one knot at each quote maturity and reprices every quote. To fit a
+curve to more quotes than you want knots (the bonds of a credit index, say, whose maturities
+repeat and whose prices no single curve reprices), choose the knots and refit a curve that has
+them. The refit is a least-squares fit, [`Fit.LeastSquares`](@ref FinanceModels.Fit.LeastSquares):
+the knot rates that minimize the squared pricing residuals.
+
+```julia
+knots = [0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0, 15.0, 20.0, 30.0]
+c0 = ZeroRateCurve(fill(0.05, length(knots)), knots, Spline.Cubic())
+bbb = fit(c0, bond_quotes)                 # e.g. 1000 `Quote(price, Bond.Fixed(...))`s
+```
+
+Unweighted residuals are price errors, which grow with a bond's duration, so long bonds dominate
+the fit. Weights of `1 / (price * duration)^2` make each residual approximately a yield error:
+
+```julia
+w = [1 / (q.price * duration(q))^2 for q in bond_quotes]   # duration from ActuaryUtilities, say
+bbb = fit(c0, bond_quotes, Fit.LeastSquares(weights = w))
+```
+
+The fit solves the least-squares problem by Levenberg–Marquardt. Quotes with fixed cashflows
+(`Cashflow` and `Bond.Fixed` instruments, which every FinanceModels quote type is) are priced
+through their cashflow matrix: the curve is evaluated once per distinct cashflow date rather than
+once per cashflow. The quotes must determine every knot rate (at least as many quotes as knots,
+each knot moving some quote's price), or the fit throws. Fits of fixed cashflows are
+differentiable with respect to the quote prices, coupons and weights; see
+[Sensitivities Through Calibration](@ref).
+
 ## Key Tradeoffs
 
 ### Forward Curve Smoothness

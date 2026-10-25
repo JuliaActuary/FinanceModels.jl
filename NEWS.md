@@ -2,6 +2,49 @@
 
 ## v7.2.0
 
+### Least-squares fits of a knot curve to many quotes: `Fit.LeastSquares`
+
+A knot curve can be fitted to more quotes than it has knots, such as a credit curve of ten knots
+fitted to an index of a thousand bonds whose maturities repeat and whose prices no single curve
+reprices. Choose the knots and refit a curve that has them:
+
+```julia
+c0 = ZeroRateCurve(fill(0.05, length(knots)), knots, Spline.Cubic())
+curve = fit(c0, bond_quotes)                                   # least squares
+curve = fit(c0, bond_quotes, Fit.LeastSquares(weights = w))    # weighted, e.g. w = 1 ./ (price .* duration).^2
+```
+
+`Fit.LeastSquares(; weights)` minimizes the weighted squared pricing residuals by
+Levenberg–Marquardt, and is the default method for knot curves. When the knots are at the quote
+maturities, as in `fit(spline, quotes)`, it is the exact fit. Quotes with fixed cashflows
+(`Cashflow` and `Bond.Fixed`, which covers every FinanceModels quote type) are priced through
+their cashflow matrix, so the curve is evaluated once per distinct cashflow date. A refit with
+other knots used to minimize the squared loss with Optim's `Newton()`, and finds the same knot
+rates (to 6e-12 on the index below). On Julia 1.13, with 1,000 semiannual bonds, 28,456 cashflows
+on 360 dates, and 10 cubic knots:
+
+| refit | v7.1 | v7.2.0 |
+|---|---:|---:|
+| first call | 11.0 s | 2.6 s |
+| warm | 28 ms | 3.1 ms |
+
+Least-squares fits are differentiable with ForwardDiff with respect to quote prices, cashflow
+amounts (such as coupons) and the weights. The derivatives come from the implicit function theorem
+on the fit's optimality condition. They include the curvature of the residuals, which a
+Gauss–Newton approximation leaves out: on the index above, leaving it out would put them 0.07% off.
+A refit with another number of knots than quotes used to throw a `DimensionMismatch` when
+differentiated.
+
+The fit throws an `ArgumentError` when the quotes do not determine the knot rates:
+- fewer quotes than knots;
+- a knot that moves no quote's price, such as a knot of a linear curve beyond the last cashflow;
+- an ill-conditioned problem.
+
+A spline fit with repeated quote maturities still throws, since it places one knot at each
+maturity, and its error now points to the refit. Refits whose quotes include contracts with
+curve-dependent cashflows (such as `Bond.Floating`) are priced one quote at a time and are not
+differentiated.
+
 ### Spline fits solve for the curve that reprices the quotes
 
 `fit(spline, quotes)` places one knot at each quote maturity, so repricing the quotes is a square

@@ -46,9 +46,10 @@
             c0 = ZeroRateCurve(fill(0.02, length(tenors)), tenors, spline)
             @test isequal(fit(c0, cmt), fit(spline, cmt))
         end
-        # other knot grids minimize the squared loss, as before
+        # other knot grids minimize the squared loss, by least squares (test/least_squares.jl)
         c0 = ZeroRateCurve(fill(0.02, 4), [0.5, 2.0, 10.0, 30.0], Spline.Linear())
-        @test isequal(fit(c0, cmt), fit(c0, cmt, FinanceModels.__default_loss(c0)))
+        @test isequal(fit(c0, cmt), fit(c0, cmt, Fit.LeastSquares()))
+        @test rate.(knot_rates(fit(c0, cmt))) ≈ rate.(knot_rates(fit(c0, cmt, Fit.Loss(abs2); solve_kwargs = (; g_tol = 1.0e-12)))) atol = 1.0e-9
     end
 
     @testset "an optimizer or its settings fit the squared loss" begin
