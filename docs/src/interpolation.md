@@ -149,8 +149,9 @@ w = [1 / (q.price * duration(q))^2 for q in bond_quotes]   # duration from Actua
 bbb = fit(c0, bond_quotes, Fit.LeastSquares(weights = w))
 ```
 
-The fit solves the least-squares problem by Levenberg–Marquardt, and returns only a minimum: at
-the fitted knot rates, the Hessian of the sum of squares (with the residuals' curvature) is positive
+The fit solves the least-squares problem by Levenberg–Marquardt from FinanceModels' fixed starting
+rates, and returns only a local minimum, which need not be the best fit of all curves: at the fitted
+knot rates, the Hessian of the sum of squares (with the residuals' curvature) is positive
 definite, and the Newton step to the minimum is at most `1e-10`. Quotes with fixed cashflows
 (`Cashflow` and `Bond.Fixed` instruments, which every FinanceModels quote type is) are priced
 through their cashflow matrix: the curve is evaluated once per distinct cashflow date rather than

@@ -83,7 +83,7 @@ end
             end
         end
         # Quotes that no curve with the interpolation reprices, here a quadratic spline through alternating
-        # zero-coupon and par yields at 15%: the exact fit throws, and least squares returns the closest curve.
+        # zero-coupon and par yields at 15%: the exact fit throws, and least squares returns a local minimum.
         t = [0.25, 0.5, 1, 2, 3, 5, 7, 10, 20, 30]
         y = 0.15 .+ 0.01 .* (1 .- exp.(-t ./ 5))
         qq = [isodd(i) ? ZCBYield(y[i], t[i]) : CMTYield(y[i], t[i]) for i in eachindex(t)]

@@ -46,8 +46,8 @@ module Fit
     whose cashflows depend on the curve. When no curve of its interpolation method reprices the quotes
     (a price that implies a non-positive discount factor, for example), the fit throws a
     [`FitConvergenceError`](@ref FinanceModels.FitConvergenceError); `Fit.LeastSquares()` (or `Fit.Loss()`,
-    with an optimizer) minimizes the squared residuals instead and returns the closest curve. A refit
-    with `Fit.Exact()` needs as many quotes as knots.
+    with an optimizer) minimizes the squared residuals instead, and returns a local minimum reached from
+    fixed starting rates. A refit with `Fit.Exact()` needs as many quotes as knots.
 
     A subtype of FitMethod.
     """
@@ -107,13 +107,14 @@ module Fit
     a curve of ten knots fitted to an index of a thousand bonds: refit a curve that has the knots you
     choose, with `fit(ZeroRateCurve(rates, knots, spline), quotes)`. Quote maturities may repeat, and
     there must be at least as many quotes with a positive weight as knots, each knot moving some
-    quote's price. With knots at the quote maturities (`fit(spline, quotes, Fit.LeastSquares())`),
-    the minimum reprices the quotes when a curve with the interpolation method does, and it is the
-    closest curve when none does, where [`Fit.Exact`](@ref FinanceModels.Fit.Exact) throws. The fit
-    returns only a minimum: at the fitted knot rates, the Hessian of the sum of squares (with the
-    residuals' curvature) is positive definite, and the Newton step to the minimum is at most `1e-10`.
-    A minimization that does not reach one throws a
-    [`FitConvergenceError`](@ref FinanceModels.FitConvergenceError).
+    quote's price. The minimization is local, from FinanceModels' fixed starting rates: the fit returns
+    a local least-squares minimum, which need not be the best fit of all curves. At the fitted knot
+    rates, the Hessian of the sum of squares (with the residuals' curvature) is positive definite, and
+    the Newton step to the minimum is at most `1e-10`; a minimization that does not reach such a point
+    throws a [`FitConvergenceError`](@ref FinanceModels.FitConvergenceError). With knots at the quote
+    maturities (`fit(spline, quotes, Fit.LeastSquares())`), a curve that reprices the quotes is a
+    global minimum, which the fit returns when it reaches it; where no curve reprices them, it returns a
+    local minimum, where [`Fit.Exact`](@ref FinanceModels.Fit.Exact) throws.
 
     The fit is differentiable with ForwardDiff with respect to quote prices, cashflow amounts (such
     as `Bond.Fixed` coupons) and the weights, when every quote's cashflows are fixed (`Cashflow` and
@@ -594,8 +595,8 @@ function fit(mod0::T, quotes, method::Fit.Exact; extrapolation = :flat_forward) 
     return __fit_knot_rates(mod0, tenors, quotes, primal_quotes, method, extrapolation; optimizer = nothing, solve_kwargs = nothing)
 end
 
-# A least-squares spline fit has one knot per quote maturity. Its minimum reprices the quotes when a curve
-# with its interpolation does; otherwise it is the closest curve, where `Fit.Exact()` throws.
+# A least-squares spline fit has one knot per quote maturity. A curve that reprices the quotes is a global
+# minimum; where none does, the fit returns a local one, where `Fit.Exact()` throws.
 function fit(mod0::T, quotes, method::Fit.LeastSquares; extrapolation = :flat_forward) where {T <: Spline.SplineCurve}
     quotes, primal_quotes = __calibration_quotes(quotes)
     tenors = __spline_fit_tenors(mod0, primal_quotes)
@@ -805,8 +806,8 @@ function __exact_fit_error(who, retcode, maxiters, z, residual, maturity)
         "$who $stopped: the largest relative residual is $residual, on the quote maturing at $maturity. No " *
             "curve with this interpolation may reprice the quotes (for example, a price that implies a " *
             "non-positive discount factor), or the quote prices may not determine every knot rate (a quote " *
-            "whose cashflows do not depend on its own maturity's knot). Fit.LeastSquares() returns the closest " *
-            "curve instead."
+            "whose cashflows do not depend on its own maturity's knot). Fit.LeastSquares() minimizes the " *
+            "squared residuals instead."
     )
 end
 

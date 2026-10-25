@@ -19,7 +19,9 @@ Levenberg–Marquardt. It is the default for refitting a knot curve whose knots 
 maturities (with knots at the quote maturities, a refit is `Fit.Exact()`; with an `optimizer` or
 `solve_kwargs`, it is `Fit.Loss()`, as in v7.1). With knots at the quote
 maturities, `fit(spline, quotes, Fit.LeastSquares())` reaches the exact fit's curve when a curve
-reprices the quotes, and returns the closest curve when none does, where `Fit.Exact()` throws.
+reprices the quotes (to 1e-12 in the tests), and returns a local least-squares minimum when none
+does, where `Fit.Exact()` throws. The minimization is local, from FinanceModels' fixed starting
+rates, so its minimum need not be the best fit of all curves.
 Quotes with fixed cashflows (`Cashflow` and `Bond.Fixed`, which covers every FinanceModels quote
 type) are priced through their cashflow matrix, so the curve is evaluated once per distinct
 cashflow date. A refit with other knots used to minimize the squared loss with Optim's `Newton()`,
@@ -38,7 +40,7 @@ Gauss–Newton approximation leaves out: on the index above, leaving it out woul
 A refit with another number of knots than quotes used to throw a `DimensionMismatch` when
 differentiated.
 
-A fit is accepted only at a minimum: at the fitted knot rates, the Hessian of the sum of squares,
+A fit is accepted only at a local minimum: at the fitted knot rates, the Hessian of the sum of squares,
 with the residuals' curvature, is positive definite, and the Newton step with it (the distance to
 the minimum) is at most `1e-10` in knot rates (`1e-6` bp). Otherwise the fit throws a
 `FitConvergenceError`. The curvature comes from central differences of the residuals' Jacobian, so
