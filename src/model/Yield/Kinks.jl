@@ -5,7 +5,9 @@
 #
 # - `__check_dual_kinks(spline, grid)`: run by the public constructors' build (`__build_public`),
 #   it throws when the caller's dual knot rates move a PCHIP or Akima kink;
-# - `__near_kink(curve, z[, δ])`: whether knots `z` lie on a kink (a differentiated fit's check).
+# - `__near_kink(curve, z[, δ])`: whether knots `z` lie on a kink (a differentiated fit's check);
+# - `__crosses_kink(curve, z, δ)`: whether knots `z` and `z .+ δ` lie on different sides of a kink (a
+#   least-squares fit's check of its differenced curvature).
 #
 # `__kink_quantities(spline, z, tenors)` returns the scalar functions of the knot rates `z` whose
 # zeros are the switches (none for interpolants that are linear in the knot rates).
@@ -32,6 +34,15 @@ function __near_kink(c::AbstractInterpolatedZeroCurve, z, δ = zero(z))
     q0 = __kink_quantities(c, z)
     q1 = __kink_quantities(c, z .- δ)
     return any(i -> abs(q1[i]) <= abs(q0[i] - q1[i]) + tol, eachindex(q0, q1))
+end
+
+# Whether the knots `z` and `z .+ δ` of `curve` lie on different sides of a kink, or either lies on one,
+# up to rounding: whether a difference over `δ` measures the derivatives of a single formula.
+function __crosses_kink(c::AbstractInterpolatedZeroCurve, z, δ)
+    tol = 16 * __knot_noise(z, c.tenors)
+    q0 = __kink_quantities(c, z)
+    q1 = __kink_quantities(c, z .+ δ)
+    return any(i -> abs(q0[i]) <= tol || abs(q1[i]) <= tol || signbit(q0[i]) != signbit(q1[i]), eachindex(q0, q1))
 end
 
 __check_dual_kinks(::Sp.SplineCurve, g::KnotGrid) = nothing   # smooth, or MonotoneConvex's own semantics

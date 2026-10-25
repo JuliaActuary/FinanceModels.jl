@@ -16,7 +16,8 @@ curve = fit(c0, bond_quotes, Fit.LeastSquares(weights = w))    # weighted, e.g. 
 
 `Fit.LeastSquares(; weights, maxiters = 200)` minimizes the weighted squared pricing residuals by
 Levenberg–Marquardt. It is the default for refitting a knot curve whose knots are not at the quote
-maturities (with knots at the quote maturities, a refit is `Fit.Exact()`). With knots at the quote
+maturities (with knots at the quote maturities, a refit is `Fit.Exact()`; with an `optimizer` or
+`solve_kwargs`, it is `Fit.Loss()`, as in v7.1). With knots at the quote
 maturities, `fit(spline, quotes, Fit.LeastSquares())` reaches the exact fit's curve when a curve
 reprices the quotes, and returns the closest curve when none does, where `Fit.Exact()` throws.
 Quotes with fixed cashflows (`Cashflow` and `Bond.Fixed`, which covers every FinanceModels quote
@@ -28,7 +29,7 @@ bonds, 28,456 cashflows on 360 dates, and 10 cubic knots:
 | refit | v7.1 | v7.2.0 |
 |---|---:|---:|
 | first call | 11.0 s | 2.6 s |
-| warm | 28 ms | 3.1 ms |
+| warm | 28 ms | 2.8 ms |
 
 Least-squares fits are differentiable with ForwardDiff with respect to quote prices, cashflow
 amounts (such as coupons) and the weights. The derivatives come from the implicit function theorem
@@ -37,10 +38,16 @@ Gauss–Newton approximation leaves out: on the index above, leaving it out woul
 A refit with another number of knots than quotes used to throw a `DimensionMismatch` when
 differentiated.
 
-A fit is accepted when its last step is at most `1e-10` in knot rates (`1e-6` bp), its first-order
-distance to the minimum; otherwise it throws a `FitConvergenceError`. Where the sum of squares stops
-registering a decrease, the fit finishes with Gauss–Newton steps and, when those contract slowly,
-Newton steps with the full Hessian.
+A fit is accepted only at a minimum: at the fitted knot rates, the Hessian of the sum of squares,
+with the residuals' curvature, is positive definite, and the Newton step with it (the distance to
+the minimum) is at most `1e-10` in knot rates (`1e-6` bp). Otherwise the fit throws a
+`FitConvergenceError`. The curvature comes from central differences of the residuals' Jacobian, so
+the check compiles no second-order dual numbers. A Gauss–Newton step can understate that distance
+without bound where the residuals' curvature nearly cancels the Gauss–Newton Hessian, and an
+acceptance of such steps alone could return a point that is not a minimum. Where the sum of squares
+stops registering a decrease, the fit finishes with Gauss–Newton steps while they contract, then
+Newton steps. Derivatives are taken only where the Newton step with the exact Hessian is at most
+`1e-10` too.
 
 Monotone convex, PCHIP and Akima curves switch formulas between regions of knot rates, so their
 least-squares objective has kinks, and its minimum can lie on one, where the fit cannot converge: it
@@ -94,7 +101,8 @@ with v7.1.1 (pkgimage 41 MB to 36 MB).
   curve where `Fit.Exact()` throws. `Fit.Exact` takes its iteration limit as
   `Fit.Exact(maxiters = …)`.
 - `fit(curve, quotes)`, refitting a knot curve whose knots are at the quote maturities, reprices
-  the quotes as the spline fit does. Other knot grids still minimize the squared loss.
+  the quotes as the spline fit does. Other knot grids minimize the squared pricing residuals
+  (`Fit.LeastSquares()`, above).
   `fit(curve, quotes, Fit.Exact())` solves any refit with one quote per knot.
 - An exact fit measures each residual against its quote's size on the fitted curve: the gross
   value of its cashflows (their absolute amounts, discounted), or the price of a contract whose

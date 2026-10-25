@@ -127,6 +127,27 @@ end
         end
     end
 
+    @testset "a fit is accepted on the full Hessian, not on a Gauss-Newton step" begin
+        # One knot and two zero-coupon prices, chosen so that at 5% the residuals' curvature cancels JᵀJ but
+        # for 1e-5, with a gradient of 1e-9: a Gauss-Newton step there is 5.6e-11, while the minimum is
+        # 1.1e-6 away, where the curvature is 1.8e-3. (From a review of the fit.)
+        ts = [1.0, 50.0]
+        ps = [0.5704183799730305, 0.17034440723747699]
+        c1 = ZeroRateCurve([0.04], [1.5], Spline.Linear())
+        grad(x) = sum(ts .* exp.(-ts .* x) .* (ps .- exp.(-ts .* x)))   # of half the sum of squares
+        curv(x) = sum(ts .^ 2 .* exp.(-ts .* x) .* (2 .* exp.(-ts .* x) .- ps))
+        lo, hi = 0.04999, 0.05   # brackets the minimum
+        for _ in 1:60
+            mid = (lo + hi) / 2
+            grad(mid) > 0 ? (hi = mid) : (lo = mid)
+        end
+        zmin = (lo + hi) / 2
+        kn(p) = rate(only(knot_rates(fit(c1, ZCBPrice.(p, ts)))))
+        @test kn(ps) ≈ zmin atol = 1.0e-12
+        # the derivatives of the minimum: dz/dp = -(∂grad/∂p)/curv
+        @test ForwardDiff.gradient(kn, ps) ≈ -ts .* exp.(-ts .* zmin) ./ curv(zmin) rtol = 1.0e-6
+    end
+
     @testset "quotes that do not determine the knots throw" begin
         @test_throws "at least as many quotes" fit(c0, qs[1:5])
         cl = ZeroRateCurve(fill(0.05, 4), [1.0, 2.0, 3.0, 40.0], Spline.Linear())

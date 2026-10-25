@@ -124,19 +124,24 @@ function __check_determined(J, tenors, who)
     return nothing
 end
 
-# Levenberg-Marquardt: the cosine between the residuals and every Jacobian column at which it has
-# converged, and the step (in knot rates) below which it stops. The sum of squares stops registering a
-# decrease near a cosine of sqrt(eps), its rounding, which can be short of that tolerance. The fit then
-# takes Gauss-Newton steps while they contract, for at most `__LSQ_POLISH` steps; when they contract
-# slowly (the residuals' curvature nearly cancels the Gauss-Newton Hessian JᵀJ in some direction), Newton
-# steps on the gradient, with the full Hessian, for at most `__LSQ_NEWTON` steps. It is accepted when its
-# last step (its first-order distance to the minimum) is at most `__LSQ_ACCEPT` in knot rates, 1e-6 bp.
-# A fit whose weighted residuals are within `__EXACT_FIT_FTOL` of their quotes' sizes has converged too: it
-# reprices its quotes, and the cosine of residuals at rounding says nothing.
+# Levenberg-Marquardt stops where its steps no longer register: its step (in knot rates) falls below
+# `__LSQ_STEPTOL`, or a step's predicted decrease of the sum of squares ϕ is within `__LSQ_FLAT` of ϕ,
+# which rounding can produce or hide (near a cosine of sqrt(eps) between the residuals and the Jacobian's
+# columns), or that cosine is at most `__LSQ_GTOL`. Where it stops is accepted only as a minimum: the
+# Hessian of ϕ, JᵀJ plus the residuals' curvature, is positive definite there, and the Newton step with
+# it (the distance to the minimum) is at most `__LSQ_ACCEPT` in knot rates, 1e-6 bp. A Gauss-Newton step,
+# with JᵀJ alone, can understate that distance without bound when the residuals' curvature nearly cancels
+# JᵀJ. The fit first takes Gauss-Newton steps while they contract and are longer than `__LSQ_ACCEPT`, for
+# at most `__LSQ_POLISH` steps; then at most `__LSQ_NEWTON` Newton steps, each halved until it keeps ϕ
+# within `__LSQ_FLAT` and decreases the gradient, at most `__LSQ_HALVINGS` times. A fit whose weighted
+# residuals are within `__EXACT_FIT_FTOL` of their quotes' sizes has converged too: it reprices its
+# quotes, and its residuals' curvature is zero to rounding.
 const __LSQ_GTOL = 1.0e-12
 const __LSQ_STEPTOL = 1.0e-15
+const __LSQ_FLAT = 1.0e-12
 const __LSQ_POLISH = 10
-const __LSQ_NEWTON = 5
+const __LSQ_NEWTON = 10
+const __LSQ_HALVINGS = 30
 const __LSQ_ACCEPT = 1.0e-10
 
 # The largest cosine between the residuals `f` and a column of `J`: zero at a minimum, whatever the
@@ -149,11 +154,14 @@ end
 
 # The least-squares solve's vector arithmetic, which does not depend on the quotes' types, kept out of
 # line as the exact solve's is. `__lm_step` solves the damped normal equations (JᵀJ + μD²)δ = -Jᵀf as a
-# least-squares problem (QR); `__gauss_newton_step` is its undamped step.
+# least-squares problem (QR); `__gauss_newton_step` is its undamped step, from the pivoted QR factorization
+# `F` of J.
 @noinline __weighted(sw, x) = sw .* x
 @noinline __lm_step(J, f, μ, D) = -(vcat(J, sqrt(μ) .* Diagonal(D)) \ vcat(f, zeros(length(D))))
-@noinline __gauss_newton_step(J, f) = -(J \ f)
+@noinline __qr(J) = qr(J, ColumnNorm())
+@noinline __gauss_newton_step(F, f) = -(F \ f)
 @noinline __lm_trial(z, δ) = z .+ δ
+@noinline __lm_trial(z, α, δ) = z .+ α .* δ
 @noinline __predicted_decrease(ϕ, f, J, δ) = ϕ - sum(abs2, f .+ J * δ)
 @noinline __column_norms(J) = [norm(view(J, :, k)) for k in axes(J, 2)]
 @noinline __widen_scaling!(D, J) = (D .= max.(D, __column_norms(J)))
@@ -164,25 +172,67 @@ function __lsq_point(r, sw, z, config, ::Type{T}) where {T}
     J = __weighted(sw, __residual_jacobian(r, z, config, T))
     return f, J, __gradient(J, f)
 end
-# The Hessian of half the weighted sum of squares at `z`, by central differences of its analytic gradient:
-# it needs only the Jacobian's code (no second-order dual numbers to compile), and is accurate to about
-# 1e-10 relative, which keeps Newton's method quadratic to rounding.
-function __lsq_hessian(r, sw, z, config, ::Type{T}) where {T}
-    n = length(z)
-    H = Matrix{T}(undef, n, n)
-    for k in 1:n
-        zp, zm = copy(z), copy(z)
-        zp[k] += 1.0e-5 * max(1, abs(z[k]))
-        zm[k] -= zp[k] - z[k]
-        H[:, k] = (last(__lsq_point(r, sw, zp, config, T)) .- last(__lsq_point(r, sw, zm, config, T))) ./ (zp[k] - zm[k])
+
+# The residuals' curvature S = Σᵢ fᵢ ∇²fᵢ at `z`, the Hessian of ϕ/2 less JᵀJ: central differences, in
+# steps of `h`, of its gradient with the weighted residuals `f` held fixed, (∂d/∂z)ᵀ Aᵀ (sw .* f) through
+# the discount factors' Jacobian (per quote, (∂r/∂z)ᵀ (sw .* f)). It needs only the Jacobian's code (no
+# second-order dual numbers to compile), and JᵀJ, which it leaves out, is exact.
+__curvature_weights(r::__CashflowResiduals, v) = r.A' * v
+__curvature_weights(r::__RepricingResiduals, v) = v
+__inner_jacobian(r::__CashflowResiduals, z, config, ::Type{T}) where {T} = ForwardDiff.jacobian(__DiscountsAt(r), z, config)::Matrix{T}
+__inner_jacobian(r::__RepricingResiduals, z, config, ::Type{T}) where {T} = ForwardDiff.jacobian(r, z, config)::Matrix{T}
+@noinline __curvature_column(Jp, Jm, c, Δ) = (Jp' * c .- Jm' * c) ./ Δ
+@noinline __symmetric_part(S) = (S .+ S') ./ 2
+function __curvature(r, sw, f, z, config, ::Type{T}, h) where {T}
+    c = __curvature_weights(r, __weighted(sw, f))
+    S = Matrix{T}(undef, length(z), length(z))
+    zp = copy(z)
+    for k in eachindex(z)
+        zp[k] = z[k] + h
+        Jp = __inner_jacobian(r, zp, config, T)
+        zp[k] = z[k] - h
+        Jm = __inner_jacobian(r, zp, config, T)
+        S[:, k] = __curvature_column(Jp, Jm, c, (z[k] + h) - (z[k] - h))
+        zp[k] = z[k]
     end
-    return (H .+ H') ./ 2
+    return __symmetric_part(S)
 end
-@noinline function __newton_direction(H, g)
-    F = lu(H; check = false)
-    (all(isfinite, H) && issuccess(F)) || return nothing
-    return -(F \ g)
+# The difference step: the cube root of eps (the balance of the differences' truncation and rounding) in
+# the time scale of the knot rates' effect, 1/t at the last cashflow time or quote maturity t.
+__curvature_step(r::__CashflowResiduals) = cbrt(eps(Float64)) / max(1, last(r.times))
+__curvature_step(r::__RepricingResiduals) = cbrt(eps(Float64)) / max(1, maximum(q -> float(maturity(q)), r.quotes))
+
+# The Newton step with the Hessian JᵀJ + S, through the pivoted QR factorization `F` of J (J P = QR):
+# with C = R⁻ᵀ PᵀSP R⁻¹, the Hessian is P Rᵀ(I + C)R Pᵀ, so the step solves (I + C) R Pᵀδ = -(Qᵀf)₁…ₙ, and
+# the Hessian is positive definite where I + C is. This holds where JᵀJ itself is too ill-conditioned to
+# factor. `nothing` when I + C is not positive definite: not a minimum.
+@noinline function __lsq_newton_step(F, f, S)
+    n = size(S, 1)
+    R = UpperTriangular(F.R)
+    y = -(F.Q' * f)[1:n]
+    C = R' \ (R' \ S[F.p, F.p])'   # R⁻ᵀ (R⁻ᵀ Sₚ)ᵀ = R⁻ᵀ Sₚ R⁻¹, Sₚ symmetric
+    M = (C .+ C') ./ 2 + I
+    all(isfinite, M) || return nothing
+    K = cholesky(Symmetric(M); check = false)
+    issuccess(K) || return nothing
+    δ = similar(y)
+    δ[F.p] = R \ (K \ y)
+    return δ
 end
+# Whether a central difference about `z` in steps of `h` crosses a switch of the interpolation's formulas,
+# where the curvature it measures is that of no formula.
+function __stencil_kink(r, z, h)
+    curve = __trial_curve(r.spline, r.interpolation, z, r.tenors, r.extrapolation)
+    isempty(Yield.__kink_quantities(curve, z)) && return false
+    e = zero(z)
+    for k in eachindex(z)
+        e[k] = h
+        (Yield.__crosses_kink(curve, z, e) || Yield.__crosses_kink(curve, z, -e)) && return true
+        e[k] = zero(h)
+    end
+    return false
+end
+
 # Whether every weighted residual `f` is within `__EXACT_FIT_FTOL` of its quote's size: for quotes of
 # nonnegative cashflows (no `gross` matrix), their value, checked without allocating, which stops at the
 # first quote a fit with more quotes than knots does not reprice.
@@ -220,17 +270,18 @@ function __solve_least_squares(r, sw, z0, tenors, maxiters, who)
     retcode = ReturnCode.MaxIters
     cosine = __gradient_cosine(J, f)
     for _ in 1:maxiters
-        (cosine <= __LSQ_GTOL || __reprices(r, f, sw, z, ru, d, state)) &&
-            (retcode = ReturnCode.Success; break)
+        __reprices(r, f, sw, z, ru, d, state) && return z
+        cosine <= __LSQ_GTOL && (retcode = ReturnCode.Stalled; break)
         δ = __lm_step(J, f, μ, D)
         maximum(abs, δ) <= __LSQ_STEPTOL && (retcode = ReturnCode.Stalled; break)
+        predicted = __predicted_decrease(ϕ, f, J, δ)
+        predicted <= __LSQ_FLAT * ϕ && (retcode = ReturnCode.Stalled; break)
         zt = __lm_trial(z, δ)
         rut, dt = __evaluate(r, zt)
         ft = __weighted(sw, rut)
         ϕt = sum(abs2, ft)
-        predicted = __predicted_decrease(ϕ, f, J, δ)
         ρ = (ϕ - ϕt) / predicted   # NaN or negative for a non-finite or worse trial
-        if predicted > 0 && ρ > 1.0e-4
+        if ρ > 1.0e-4
             z, ru, d, f, ϕ = zt, rut, dt, ft, ϕt
             J = __weighted(sw, __residual_jacobian(r, z, config, T))
             __widen_scaling!(D, J)
@@ -243,48 +294,66 @@ function __solve_least_squares(r, sw, z0, tenors, maxiters, who)
             μ > 1.0e16 && (retcode = ReturnCode.Stalled; break)
         end
     end
-    retcode == ReturnCode.Success && return z
-    # Stalled where the sum of squares no longer registers a decrease: Gauss-Newton steps still move the
-    # knot rates towards the minimum, by the residuals' curvature ratio each, while they contract.
-    δ = __gauss_newton_step(J, f)
+    F = __qr(J)
+    δ = __gauss_newton_step(F, f)
     zs, δs = z, δ   # where it stopped, and its step towards the minimum
+    kink, definite = false, true
     if retcode == ReturnCode.Stalled
+        # Gauss-Newton steps move the knot rates towards the minimum, by the residuals' curvature ratio
+        # each, while they contract
         for _ in 1:__LSQ_POLISH
             step = maximum(abs, δ)
-            step <= __LSQ_STEPTOL && break
+            step <= __LSQ_ACCEPT && break
             zt = __lm_trial(z, δ)
             ft = __weighted(sw, first(__evaluate(r, zt)))
             ϕt = sum(abs2, ft)
-            ϕt <= ϕ * (1 + 1.0e-12) || break
+            ϕt <= ϕ * (1 + __LSQ_FLAT) || break
             Jt = __weighted(sw, __residual_jacobian(r, zt, config, T))
-            δt = __gauss_newton_step(Jt, ft)
+            Ft = __qr(Jt)
+            δt = __gauss_newton_step(Ft, ft)
             maximum(abs, δt) <= step / 2 || break
-            z, f, J, ϕ, δ = zt, ft, Jt, ϕt, δt
+            z, f, J, F, ϕ, δ = zt, ft, Jt, Ft, ϕt, δt
         end
-        maximum(abs, δ) <= __LSQ_ACCEPT && return z
-        # Newton's method on the gradient, which (unlike the sum of squares) still measures progress
+        # Newton steps with the full Hessian, which measure the distance to the minimum; the gradient
+        # (unlike the sum of squares) still measures progress
+        h = __curvature_step(r)
         g = __gradient(J, f)
         for _ in 1:__LSQ_NEWTON
-            δn = __newton_direction(__lsq_hessian(r, sw, z, config, T), g)
-            isnothing(δn) && break
+            kink = __stencil_kink(r, z, h)
+            kink && break
+            δn = __lsq_newton_step(F, f, __curvature(r, sw, f, z, config, T, h))
+            definite = !isnothing(δn)
+            definite || break
             δ = δn
-            maximum(abs, δ) <= __LSQ_STEPTOL && break
-            zt = __lm_trial(z, δ)
-            ft, Jt, gt = __lsq_point(r, sw, zt, config, T)
-            (sum(abs2, ft) <= ϕ * (1 + 1.0e-12) && norm(gt) < norm(g)) || break
-            z, f, J, ϕ, g = zt, ft, Jt, sum(abs2, ft), gt
+            maximum(abs, δ) <= __LSQ_ACCEPT && return __lm_trial(z, δ)
+            kept = false
+            α = 1.0
+            for _ in 1:__LSQ_HALVINGS
+                zt = __lm_trial(z, α, δ)
+                ft, Jt, gt = __lsq_point(r, sw, zt, config, T)
+                ϕt = sum(abs2, ft)
+                if ϕt <= ϕ * (1 + __LSQ_FLAT) && norm(gt) < norm(g)
+                    z, f, J, ϕ, g, kept = zt, ft, Jt, ϕt, gt, true
+                    break
+                end
+                α /= 2
+            end
+            kept || break
+            F = __qr(J)
         end
-        maximum(abs, δ) <= __LSQ_ACCEPT && return z
     end
     # whether that step crosses a switch of the interpolation's formulas (`Yield.__near_kink`, whose step is
     # subtracted): a minimum on a kink, which the iterations cannot reach
-    kink = Yield.__near_kink(__trial_curve(r.spline, r.interpolation, zs, r.tenors, r.extrapolation), zs, -δs)
-    throw(__least_squares_error(who, retcode, maxiters, maximum(abs, δ), __gradient_cosine(J, f), kink))
+    kink = kink || Yield.__near_kink(__trial_curve(r.spline, r.interpolation, zs, r.tenors, r.extrapolation), zs, -δs)
+    throw(__least_squares_error(who, retcode, maxiters, maximum(abs, δ), __gradient_cosine(J, f), kink, definite))
 end
-function __least_squares_error(who, retcode, maxiters, step, cosine, kink)
+function __least_squares_error(who, retcode, maxiters, step, cosine, kink, definite)
     stopped = retcode == Optimization.SciMLBase.ReturnCode.MaxIters ?
         "did not converge within $maxiters iterations (Fit.LeastSquares(maxiters = …) raises the limit)" :
         "cannot reduce its quotes' weighted squared pricing residuals further"
+    where_ = definite ?
+        "its last step from the fitted knot rates is $step (at most $(__LSQ_ACCEPT) accepted)" :
+        "the Hessian of the sum of squares is not positive definite where it stopped, so that is not a minimum"
     cause = if kink
         "The fit stopped where the interpolation switches formulas, so the objective has a kink there: a " *
             "least-squares minimum of a monotone convex, PCHIP or Akima curve can lie on such a switch, where " *
@@ -296,9 +365,8 @@ function __least_squares_error(who, retcode, maxiters, step, cosine, kink)
     end
     return FitConvergenceError(
         retcode,
-        "$who $stopped: its last step from the fitted knot rates is $step (at most $(__LSQ_ACCEPT) " *
-            "accepted), and the largest cosine between the residuals and a column of their Jacobian is " *
-            "$cosine (zero at a minimum). " * cause
+        "$who $stopped: $where_, and the largest cosine between the residuals and a column of their " *
+            "Jacobian is $cosine (zero at a minimum). " * cause
     )
 end
 
@@ -366,11 +434,21 @@ function __implicit_least_squares(curve, r::__CashflowResiduals, quotes, weights
     c = r.A' * (w .* (r.A * d .- r.prices))
     J = r.A * ∂d
     H = J' * (w .* J) .+ ForwardDiff.hessian(z -> dot(c, __discounts(r, z)), z)
-    F = lu(H; check = false)
+    F = cholesky(Symmetric((H .+ H') ./ 2); check = false)
     (issuccess(F) && cond(H) <= 1.0e12) || throw(
         ArgumentError(
-            "fit cannot differentiate this least-squares fit: the Hessian of its objective is singular or " *
-                "ill-conditioned (condition number $(cond(H))) at the fitted knot rates."
+            "fit cannot differentiate this least-squares fit: the Hessian of its objective is not positive " *
+                "definite, or is ill-conditioned (condition number $(cond(H))), at the fitted knot rates."
+        )
+    )
+    # The derivatives are those of the minimum only as near it as the fit's acceptance: the Newton step
+    # with the exact Hessian is at most `__LSQ_ACCEPT`, as the fit's own (with differenced curvature) was.
+    step = maximum(abs, F \ (∂d' * c))
+    step <= __LSQ_ACCEPT || throw(
+        FitConvergenceError(
+            Optimization.SciMLBase.ReturnCode.Stalled,
+            "fit cannot differentiate this least-squares fit: its knot rates are a Newton step of $step from " *
+                "the minimum, more than the $(__LSQ_ACCEPT) its derivatives need."
         )
     )
     # The optimality condition at the fitted, primal rates: its value is zero to the fit's precision, and

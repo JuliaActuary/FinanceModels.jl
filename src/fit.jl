@@ -109,8 +109,10 @@ module Fit
     there must be at least as many quotes with a positive weight as knots, each knot moving some
     quote's price. With knots at the quote maturities (`fit(spline, quotes, Fit.LeastSquares())`),
     the minimum reprices the quotes when a curve with the interpolation method does, and it is the
-    closest curve when none does, where [`Fit.Exact`](@ref FinanceModels.Fit.Exact) throws. A
-    minimization that does not converge throws a
+    closest curve when none does, where [`Fit.Exact`](@ref FinanceModels.Fit.Exact) throws. The fit
+    returns only a minimum: at the fitted knot rates, the Hessian of the sum of squares (with the
+    residuals' curvature) is positive definite, and the Newton step to the minimum is at most `1e-10`.
+    A minimization that does not reach one throws a
     [`FitConvergenceError`](@ref FinanceModels.FitConvergenceError).
 
     The fit is differentiable with ForwardDiff with respect to quote prices, cashflow amounts (such
