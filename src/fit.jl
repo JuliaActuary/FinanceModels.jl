@@ -5,8 +5,11 @@ module Fit
 
     """
         Fit.Loss(function)
+        Fit.Loss()
 
-    `function` should be a loss measure, such as `x->x^2` or `x->abs(x)`. This is used by the optimization algorithm in `fit` to determine optimal parameters as defined by this loss function.
+    `function` should be a loss measure, such as `x->x^2` or `x->abs(x)`. This is used by the optimization algorithm in `fit` to determine optimal parameters as defined by this loss function. `Fit.Loss()` is the squared loss, the default for models other than knot curves.
+
+    The optimizer and its settings (`fit`'s `optimizer` and `solve_kwargs`) configure a `Fit.Loss` fit: a knot-curve fit takes them only with an explicit `Fit.Loss`, such as `fit(spline, quotes, Fit.Loss(); solve_kwargs = (; g_tol = 1e-12))`.
 
     A subtype of FitMethod.
 
@@ -24,6 +27,32 @@ module Fit
     """
     struct Loss{T} <: FitMethod
         fn::T
+    end
+    Loss() = Loss(__squared)
+    __squared(x) = x^2
+
+    """
+        Fit.Exact(; maxiters = 100)
+
+    Fit a knot curve that reprices every quote: with one knot per quote, the quotes' repricing
+    conditions are a square system in the knot rates, which `fit` solves by Newton's method with a
+    line search, for at most `maxiters` iterations. It is the default for `fit(spline, quotes)`, which
+    places one knot at each quote maturity, and for refitting a knot curve whose knots are at the quote
+    maturities.
+
+    The fitted curve reprices each quote to within `sqrt(eps())` of its size: the gross value of its
+    cashflows on the curve (the sum of their absolute values, discounted), or its price for a contract
+    whose cashflows depend on the curve. When no curve of its interpolation method reprices the quotes
+    (a price that implies a non-positive discount factor, for example), the fit throws a
+    [`FitConvergenceError`](@ref FinanceModels.FitConvergenceError); `Fit.Loss()` minimizes the squared
+    residuals instead. A refit with `Fit.Exact()` needs as many quotes as knots.
+
+    A subtype of FitMethod.
+    """
+    struct Exact <: FitMethod
+        maxiters::Int
+        # Constructed by keyword only, so that options can be added without changing existing calls.
+        Exact(; maxiters::Integer = 100) = new(maxiters)
     end
 
     """
@@ -143,9 +172,9 @@ __fx_foreign_optic(o) = Accessors.opcompose(@optic(_.foreign), o)
 
 The optimizer [`fit`](@ref FinanceModels.fit) uses for `model` when none is given:
 `OptimizationOptimJL.LBFGS()`, and `OptimizationOptimJL.Newton()` for a spline other than
-`Spline.MonotoneConvex()`. A spline is fitted with its optimizer only for a `Fit.Loss`, an
-`optimizer` or `solve_kwargs`: without them, `fit(spline, quotes)` solves for the curve that
-reprices every quote, and runs no optimizer. To change a custom model's default:
+`Spline.MonotoneConvex()`. A spline is fitted with its optimizer only for a `Fit.Loss`: without
+one, `fit(spline, quotes)` solves for the curve that reprices every quote (`Fit.Exact()`), and runs
+no optimizer. To change a custom model's default:
 
 ```julia
 FinanceModels.default_optimizer(m::MyModel) = OptimizationOptimJL.NelderMead()
@@ -155,7 +184,7 @@ default_optimizer(m) = OptimizationOptimJL.LBFGS()
 default_optimizer(m::T) where {T <: Spline.SplineCurve} = OptimizationOptimJL.Newton()
 default_optimizer(::Spline.MonotoneConvex) = OptimizationOptimJL.LBFGS()
 
-__default_loss(m) = Fit.Loss(x -> x^2)
+__default_loss(m) = Fit.Loss()
 
 # The AD backend of one solve. `SecondOrder` serves both first-order optimizers (LBFGS/Fminbox use
 # the gradient, via the inner backend) and second-order ones (Newton/IPNewton use the Hessian), so
@@ -206,11 +235,11 @@ or when a spline fit's exact solve does not reprice its quotes. `retcode` is the
 
 A failed solve can leave the parameters at the starting guess, so `fit` throws rather than
 return an unfitted model. Address the cause and fit again: a different starting model, a
-different `optimizer`, tighter or longer `solve_kwargs` (for example
-`solve_kwargs = (; maxiters = 10_000)`), or quotes that the model can fit. A spline fit's exact
-solve fails when no curve of its interpolation method reprices the quotes (a price that implies
-a non-positive discount factor, for example); minimizing a loss with `Fit.Loss(x -> x^2)`
-returns the closest curve instead. Choose the model deliberately; switching to another
+different `optimizer`, tighter or longer solver settings (for example `Fit.Loss()` with
+`solve_kwargs = (; maxiters = 10_000)`, or `Fit.Exact(maxiters = 500)`), or quotes that the model
+can fit. A spline fit's exact solve fails when no curve of its interpolation method reprices the
+quotes (a price that implies a non-positive discount factor, for example); minimizing a loss with
+`Fit.Loss()` returns the closest curve instead. Choose the model deliberately; switching to another
 interpolation method on failure changes the curve.
 """
 struct FitConvergenceError{R} <: Exception
@@ -267,11 +296,13 @@ Fit a model to a collection of quotes using a loss function and optimization met
 - `model`: The initial model to fit, which is generally an instantiated but un-optimized model.
 - `quotes`: A collection of quotes to fit the model to.
 - `method::F=Fit.Loss(x -> x^2)`: The loss function to use for fitting the model. Defaults to the squared loss function.
-  - `method` can also be `Bootstrap()` with `Spline.Linear()`. A spline fit without a `method` reprices its quotes exactly (see below).
+  - `method` can also be `Bootstrap()` with `Spline.Linear()`, or [`Fit.Exact`](@ref FinanceModels.Fit.Exact) for a knot curve: a spline fit without a `method` reprices its quotes exactly (see below).
 - `variables=default_variables(model)`: The variables to optimize over. This is a tuple of optic => interval pairs specifying which parameters of the model can vary. See extended help for more. Spline and knot-curve fits vary the knot rates and do not take `variables`.
 - `optimizer=default_optimizer(model)`: The optimization algorithm to use. The default optimization for a given model is `LBFGS()` from Optim.jl (via OptimizationOptimJL), a quasi-Newton method with automatic differentiation via ForwardDiff. See extended help for more on customizing the solver.
 - `solve_kwargs=(;)`: Keyword arguments passed to `Optimization.solve` with the optimizer, such as
-  `(; maxiters = 10_000, abstol = 1e-12)` or Optim.jl's `g_tol`. Use them to tighten a loss fit.
+  `(; maxiters = 10_000, abstol = 1e-12)` or Optim.jl's `g_tol`. Use them to tighten a loss fit. The
+  `optimizer` and `solve_kwargs` configure a `Fit.Loss` fit, so a knot-curve fit takes them only with
+  an explicit one: `fit(spline, quotes, Fit.Loss(); solve_kwargs = …)`.
 - `extrapolation=:flat_forward`: For `Spline.SplineCurve` fits (including
   `Spline.MonotoneConvex()`), the long-end policy beyond the last knot (see
   [`Yield.Spline`](@ref FinanceModels.Yield.Spline)). Also accepts `:flat_zero`, `:linear`,
@@ -280,21 +311,21 @@ Fit a model to a collection of quotes using a loss function and optimization met
 Fitting a `Spline.SplineCurve` places one knot at each quote maturity and returns the same
 curve type as [`ZeroRateCurve`](@ref): a `Yield.MonotoneConvex` for `Spline.MonotoneConvex()`
 and a `Yield.Spline` otherwise. With one knot per quote, `fit(spline, quotes)` solves for the
-knot rates that reprice every quote: Newton's method on the quotes' pricing residuals, with a
-line search, from a fixed starting curve near 5%. It runs no optimizer. The returned curve
-reprices each quote to within `sqrt(eps())` of its price (in practice to rounding), and a solve
-that cannot reprice them, because no curve with this interpolation does, throws a
+knot rates that reprice every quote ([`Fit.Exact`](@ref FinanceModels.Fit.Exact)): Newton's method
+on the quotes' pricing residuals, with a line search, from a fixed starting curve near 5%. It runs
+no optimizer. The returned curve reprices each quote to within `sqrt(eps())` of its size (the gross
+value of its cashflows; in practice to rounding), and a solve that cannot reprice them, because no
+curve with this interpolation does, throws a
 [`FitConvergenceError`](@ref FinanceModels.FitConvergenceError) rather than return the closest
-curve. A `Fit.Loss`, an `optimizer` or `solve_kwargs` fit the spline by minimizing the loss
-(squared, if only an optimizer or its settings are given) with an Optimization.jl solver
-instead: `LBFGS()` for `Spline.MonotoneConvex()`, `Newton()` otherwise. With quotes that a
+curve. `Fit.Loss(f)` fits the spline by minimizing the loss (`Fit.Loss()`: the squared loss) with an
+Optimization.jl solver instead: `LBFGS()` for `Spline.MonotoneConvex()`, `Newton()` otherwise. With quotes that a
 curve reprices, the loss fit converges to the same curve, to the optimizer's tolerance.
 `Fit.Bootstrap()` accepts `Spline.Linear()` only. Fitting an existing knot curve
 (`fit(curve, quotes)`, a [`Yield.AbstractInterpolatedZeroCurve`](@ref)) fits new knot rates at
 its tenors with its interpolation method and `extrapolation`. When its knots are at the quote
-maturities, it reprices the quotes as the spline fit does. Otherwise, or with a `Fit.Loss`, an
-`optimizer` or `solve_kwargs`, it minimizes the loss, from the same starting rates as a spline
-fit (not the curve's own); its default optimizer is the spline's.
+maturities, it reprices the quotes as the spline fit does (`Fit.Exact()`). Otherwise, or with a
+`Fit.Loss`, it minimizes the loss (by default the squared loss), from the same starting rates as a
+spline fit (not the curve's own); its default optimizer is the spline's.
 With fewer quotes than a polynomial or B-spline needs for its order, the order is reduced to one
 less than the number of knots (see
 [`Spline.PolynomialSpline`](@ref FinanceModels.Spline.PolynomialSpline)): `fit(Spline.Cubic(), quotes)`
@@ -473,19 +504,33 @@ function fit(
     return __fit_knot_rates(mod0, tenors, quotes, primal_quotes, method, extrapolation; optimizer, solve_kwargs)
 end
 
-# Without a loss, it reprices its quotes: one knot per quote makes the repricing conditions a square
-# system, which Newton's method solves (`__solve_knot_rates`). An optimizer or its settings ask for a
-# loss fit, of the squared loss.
+# Without a method, it reprices its quotes (`Fit.Exact()`): one knot per quote makes the repricing
+# conditions a square system, which Newton's method solves (`__solve_knot_rates`). The optimizer and its
+# settings configure a loss fit, so they come only with an explicit `Fit.Loss`.
 function fit(
         mod0::T, quotes; optimizer = nothing, solve_kwargs = nothing, extrapolation = :flat_forward
     ) where {T <: Spline.SplineCurve}
-    (optimizer === nothing && solve_kwargs === nothing) || return fit(
-        mod0, quotes, __default_loss(mod0); extrapolation,
-        optimizer = something(optimizer, default_optimizer(mod0)), solve_kwargs = something(solve_kwargs, (;)),
-    )
+    __no_loss_settings(mod0, optimizer, solve_kwargs)
+    return fit(mod0, quotes, Fit.Exact(); extrapolation)
+end
+function fit(mod0::T, quotes, method::Fit.Exact; extrapolation = :flat_forward) where {T <: Spline.SplineCurve}
     quotes, primal_quotes = __calibration_quotes(quotes)
     tenors = sort!([maturity(q) for q in primal_quotes])
-    return __fit_knot_rates(mod0, tenors, quotes, primal_quotes, __ExactFit(), extrapolation; optimizer, solve_kwargs)
+    return __fit_knot_rates(mod0, tenors, quotes, primal_quotes, method, extrapolation; optimizer = nothing, solve_kwargs = nothing)
+end
+
+# `optimizer` and `solve_kwargs` without a method: they configure a `Fit.Loss` fit, which a knot curve's
+# default is not, so the fit throws rather than switch its objective to a loss.
+function __no_loss_settings(model, optimizer, solve_kwargs)
+    (optimizer === nothing && solve_kwargs === nothing) && return nothing
+    throw(
+        ArgumentError(
+            "fit($model, quotes; optimizer, solve_kwargs): the optimizer and its settings configure a loss " *
+                "fit, so pass that method: fit($model, quotes, Fit.Loss(); solve_kwargs = …) minimizes the " *
+                "squared loss. Without a method, a knot-curve fit reprices its quotes (Fit.Exact(), whose " *
+                "iteration limit is Fit.Exact(maxiters = …))."
+        )
+    )
 end
 
 # Refitting a knot curve keeps its knot tenors, interpolation method and extrapolation policy, and
@@ -500,26 +545,27 @@ function fit(
     return __fit_knot_rates(c.spline, Yield.knot_tenors(c), quotes, primal_quotes, method, c.extrapolation; optimizer, solve_kwargs)
 end
 
-# Without a loss, a refit whose knots are at the quote maturities is a spline fit, and reprices its
-# quotes as one does. Other knot grids have no exact fit in general, so they minimize the squared loss,
-# as an optimizer or its settings ask.
+# Without a method, a refit whose knots are at the quote maturities is a spline fit, and reprices its
+# quotes as one does (`Fit.Exact()`). Other knot grids have no exact fit in general, so they minimize the
+# squared loss (`Fit.Loss()`).
 function fit(c::Yield.AbstractInterpolatedZeroCurve, quotes; optimizer = nothing, solve_kwargs = nothing)
-    quotes, primal_quotes = __calibration_quotes(quotes)
+    __no_loss_settings(c.spline, optimizer, solve_kwargs)
+    quotes = collect(quotes)   # read twice: a single-pass iterator is collected once
     tenors = Yield.knot_tenors(c)
-    exact = optimizer === nothing && solve_kwargs === nothing &&
-        length(tenors) == length(primal_quotes) && sort!([float(maturity(q)) for q in primal_quotes]) == tenors
-    exact || return fit(
-        c, quotes, __default_loss(c);
-        optimizer = something(optimizer, default_optimizer(c.spline)), solve_kwargs = something(solve_kwargs, (;)),
-    )
-    return __fit_knot_rates(c.spline, tenors, quotes, primal_quotes, __ExactFit(), c.extrapolation; optimizer, solve_kwargs)
+    maturities = sort!([float(maturity(q)) for q in quotes])
+    aligned = length(tenors) == length(maturities) && maturities == tenors
+    return fit(c, quotes, aligned ? Fit.Exact() : __default_loss(c))
+end
+function fit(c::Yield.AbstractInterpolatedZeroCurve, quotes, method::Fit.Exact)
+    quotes, primal_quotes = __calibration_quotes(quotes)
+    return __fit_knot_rates(c.spline, Yield.knot_tenors(c), quotes, primal_quotes, method, c.extrapolation; optimizer = nothing, solve_kwargs = nothing)
 end
 
 # Every fit of knot rates, exact or by loss, for every interpolation method including
 # `Spline.MonotoneConvex()`: one trial curve per candidate built by the same `Yield.__build` as
 # `ZeroRateCurve`, and a validated `ZeroRateCurve` as the result. The callers collect the quotes
-# once, with their primal copies (`__calibration_quotes`). `method` is a `Fit.Loss`, or
-# `__ExactFit()` to reprice the quotes.
+# once, with their primal copies (`__calibration_quotes`). `method` is a `Fit.Loss`, or `Fit.Exact`
+# to reprice the quotes.
 function __fit_knot_rates(spline, tenors, quotes, primal_quotes, method, extrapolation; optimizer, solve_kwargs)
     # The solve runs on primal quotes; dual numbers in the quotes or the extrapolation policy
     # are propagated afterwards by the implicit function theorem (see `__implicit_knot_curve`).
@@ -535,14 +581,20 @@ function __fit_knot_rates(spline, tenors, quotes, primal_quotes, method, extrapo
     return __implicit_knot_curve(curve, quotes, primal_quotes, extrapolation)
 end
 
-struct __ExactFit end
-
 function __solve_knots(method::Fit.Loss, spline, interpolation, grid0, primal_quotes, primal_extrapolation, who; optimizer, solve_kwargs)
     loss(u, qs) = __quote_loss(__trial_curve(spline, interpolation, u, grid0.tenors, primal_extrapolation), method, qs)
     return __minimize(loss, grid0.rates, primal_quotes, optimizer, solve_kwargs; who, hint = __SPLINE_FIT_HINT)
 end
-__solve_knots(::__ExactFit, spline, interpolation, grid0, primal_quotes, primal_extrapolation, who; optimizer, solve_kwargs) =
-    __solve_knot_rates(__RepricingResiduals(spline, interpolation, grid0.tenors, primal_quotes, primal_extrapolation, who), grid0.rates)
+function __solve_knots(method::Fit.Exact, spline, interpolation, grid0, primal_quotes, primal_extrapolation, who; optimizer, solve_kwargs)
+    length(primal_quotes) == length(grid0.tenors) || throw(
+        ArgumentError(
+            "$who: Fit.Exact() solves the repricing conditions of one quote per knot; got $(length(primal_quotes)) " *
+                "quotes for $(length(grid0.tenors)) knots. Fit.Loss() minimizes the squared residuals instead."
+        )
+    )
+    r = __RepricingResiduals(spline, interpolation, grid0.tenors, primal_quotes, primal_extrapolation, who)
+    return __solve_knot_rates(r, grid0.rates, method.maxiters)
+end
 
 # The repricing residuals of an exact knot-curve fit, Rᵢ(z) = present_value(curve(z), qᵢ.instrument) - qᵢ.price,
 # over trial curves built as in a loss fit. Like a loss fit's objective, every evaluation checks that the only
@@ -561,59 +613,73 @@ function (r::__RepricingResiduals)(z)
     return map(q -> __own_duals(c -> __quote_value(c, q) - q.price, curve, eltype(z), own, r.who, __SPLINE_FIT_HINT), r.quotes)
 end
 
-# An exact fit's iteration limit, the relative residual at which it has converged, the size of a Newton step
-# (in knot rates) below which it stops, and the largest relative residual it accepts when it stops: a result
-# that does not reprice every quote to `sqrt(eps)`, as `__implicit_root` requires, throws.
-const __EXACT_FIT_MAXITERS = 100
+# An exact fit's relative residual at which it has converged, the size of a Newton step (in knot rates) below
+# which it stops, and the largest relative residual it accepts when it stops: a result that does not reprice
+# every quote to `sqrt(eps)`, as `__implicit_root` requires, throws. Its iteration limit is `Fit.Exact`'s.
 const __EXACT_FIT_FTOL = 1.0e-14
 const __EXACT_FIT_STEPTOL = 1.0e-14
 const __EXACT_FIT_RTOL = sqrt(eps(Float64))
 
-# Newton's method on the repricing residuals `r` from the seed `z0`. Each residual is taken relative to its
-# quote's size (its price, or its value at the seed for a zero-price quote, as in the bootstrap), so that the
-# line search and the stopping rules do not depend on notionals; the Newton steps do not depend on that
-# scaling. A backtracking line search on the sum of squared residuals accepts only steps that decrease it. The
-# iteration stops at rounding: residuals within `__EXACT_FIT_FTOL`, a step within `__EXACT_FIT_STEPTOL`, or a
-# step that no longer decreases the residuals.
-function __solve_knot_rates(r::__RepricingResiduals, z0)
+# Newton's method on the repricing residuals `r` from the seed `z0`, for at most `maxiters` iterations. The
+# line search on the sum of squared residuals takes each residual relative to its quote's size at the seed
+# (`__quote_size`), so that it does not depend on notionals; the Newton steps do not depend on that scaling.
+# It accepts only steps that decrease the sum. The stopping and acceptance rules take each residual relative
+# to its quote's size on the curve reached, not at the seed: a long zero-coupon price far below its value at
+# the seed would otherwise be repriced only to the seed's precision. The iteration stops at rounding:
+# residuals within `__EXACT_FIT_FTOL`, a step within `__EXACT_FIT_STEPTOL`, or a step that no longer
+# decreases the residuals.
+function __solve_knot_rates(r::__RepricingResiduals, z0, maxiters)
+    # One Jacobian configuration, of the default chunk, built here: `ForwardDiff.jacobian` without one picks
+    # the chunk at run time, and the iterations below would not be inferred.
+    return __solve_knot_rates(r, z0, maxiters, ForwardDiff.JacobianConfig(r, z0))
+end
+function __solve_knot_rates(r::__RepricingResiduals, z0, maxiters, config)
     ReturnCode = Optimization.SciMLBase.ReturnCode
-    v = r(z0)
-    scale = map(r.quotes, v) do q, vᵢ
-        s = max(abs(q.price), abs(vᵢ + q.price))
-        iszero(s) ? one(s) : s
-    end
-    z, f = copy(z0), v ./ scale
+    v0 = r(z0)
+    seed_values = v0 .+ map(q -> q.price, r.quotes)
+    # each residual of `v` (at `z`) relative to its quote's size there (its value, for nonnegative cashflows),
+    # and the largest
+    nonnegative = map(q -> __nonnegative_cashflows(q.instrument), r.quotes)
+    quote_size(i, z, v) = nonnegative[i] ? float(abs(v[i] + r.quotes[i].price)) :
+        __quote_size(r.quotes[i], v[i] + r.quotes[i].price, seed_values[i], () -> __trial_curve(r.spline, r.interpolation, z, r.tenors, r.extrapolation))
+    relative(z, v) = [__relative_residual(v[i], quote_size(i, z, v)) for i in eachindex(v)]
+    largest(z, v) = maximum(i -> __relative_residual(v[i], quote_size(i, z, v)), eachindex(v))
+    search = [__nonzero(quote_size(i, z0, v0)) for i in eachindex(v0)]
+    z, v, f = copy(z0), v0, v0 ./ search
     ϕ = sum(abs2, f)
     retcode = ReturnCode.MaxIters
-    for _ in 1:__EXACT_FIT_MAXITERS
-        maximum(abs, f) <= __EXACT_FIT_FTOL && (retcode = ReturnCode.Success; break)
-        J = ForwardDiff.jacobian(r, z) ./ scale
+    for _ in 1:maxiters
+        largest(z, v) <= __EXACT_FIT_FTOL && (retcode = ReturnCode.Success; break)
+        J = ForwardDiff.jacobian(r, z, config) ./ search
         F = lu(J; check = false)
         (all(isfinite, J) && issuccess(F)) || (retcode = ReturnCode.InternalLinearSolveFailed; break)
         δ = F \ f
         if maximum(abs, δ) <= __EXACT_FIT_STEPTOL
             z = z .- δ
-            f = r(z) ./ scale
+            v = r(z)
+            f = v ./ search
             retcode = ReturnCode.Success
             break
         end
         α, accepted = 1.0, false
         for _ in 1:30
             zt = z .- α .* δ
-            ft = r(zt) ./ scale
+            vt = r(zt)
+            ft = vt ./ search
             ϕt = sum(abs2, ft)
             if ϕt <= (1 - 1.0e-4 * α) * ϕ   # false for a non-finite trial
-                z, f, ϕ, accepted = zt, ft, ϕt, true
+                z, v, f, ϕ, accepted = zt, vt, ft, ϕt, true
                 break
             end
             α /= 2
         end
         accepted || (retcode = ReturnCode.Stalled; break)
     end
-    worst = argmax(abs.(f))
-    abs(f[worst]) <= __EXACT_FIT_RTOL && return z
+    final = relative(z, v)
+    worst = argmax(final)
+    final[worst] <= __EXACT_FIT_RTOL && return z
     stopped = if retcode == ReturnCode.MaxIters
-        "did not reprice its quotes within $(__EXACT_FIT_MAXITERS) Newton iterations"
+        "did not reprice its quotes within $maxiters Newton iterations"
     elseif retcode == ReturnCode.InternalLinearSolveFailed
         "stopped at knot rates $z, where the Jacobian of the quotes' pricing residuals is singular or not finite"
     else
@@ -622,11 +688,11 @@ function __solve_knot_rates(r::__RepricingResiduals, z0)
     throw(
         FitConvergenceError(
             retcode == ReturnCode.Success ? ReturnCode.Stalled : retcode,
-            "$(r.who) $stopped: the largest relative residual is $(f[worst]), on the quote maturing at " *
+            "$(r.who) $stopped: the largest relative residual is $(final[worst]), on the quote maturing at " *
                 "$(maturity(r.quotes[worst])). No curve with this interpolation may reprice the quotes (for " *
                 "example, a price that implies a non-positive discount factor), or the quote prices may not " *
                 "determine every knot rate (a quote whose cashflows do not depend on its own maturity's knot). " *
-                "fit(spline, quotes, Fit.Loss(x -> x^2)) minimizes the squared residuals instead."
+                "fit(spline, quotes, Fit.Loss()) minimizes the squared residuals instead."
         )
     )
 end
@@ -650,6 +716,8 @@ fit(mod0::FX.Forwards{P, S, D, F}, quotes; kwargs...) where {P, S, D, F <: Union
     __fit_fx_via_implied(mod0, quotes; kwargs...)
 fit(mod0::FX.Forwards{P, S, D, F}, quotes, method::Fit.Bootstrap; kwargs...) where {P, S, D, F <: Spline.SplineCurve} = __fit_fx_via_implied(mod0, quotes, method; kwargs...)
 fit(mod0::FX.Forwards{P, S, D, F}, quotes, method::Fit.Loss; kwargs...) where {P, S, D, F <: Union{Spline.SplineCurve, Yield.AbstractInterpolatedZeroCurve}} =
+    __fit_fx_via_implied(mod0, quotes, method; kwargs...)
+fit(mod0::FX.Forwards{P, S, D, F}, quotes, method::Fit.Exact; kwargs...) where {P, S, D, F <: Union{Spline.SplineCurve, Yield.AbstractInterpolatedZeroCurve}} =
     __fit_fx_via_implied(mod0, quotes, method; kwargs...)
 
 # Appending a knot must preserve every earlier segment, not merely the earlier
@@ -688,14 +756,17 @@ function fit(
     grid0 = Yield.KnotGrid(zeros(n), times, mod0; who)
     # Bootstrapped interpolants are linear (`__supports_bootstrap`), and no grid size reduces a
     # linear interpolation, so every step builds its trial curve through the full grid's.
-    zs, scales = __bootstrap_knots(mod0, Yield.__interpolation(mod0, n), primal_quotes, times, primal_extrapolation, who)
+    zs, seed_values = __bootstrap_knots(mod0, Yield.__interpolation(mod0, n), primal_quotes, times, primal_extrapolation, who)
     curve = Yield.ZeroRateCurve(zs, times, mod0; extrapolation = primal_extrapolation)
     # Every quote's cashflows must end at its maturity for later knots to leave
     # it priced. Check the returned curve so a contract that pays beyond its
-    # maturity cannot drift silently.
-    for (q, scale) in zip(primal_quotes, scales)
+    # maturity cannot drift silently. Each residual is measured against its quote's size on the
+    # returned curve (`__quote_size`).
+    for (q, seed_value) in zip(primal_quotes, seed_values)
         residual = present_value(curve, q.instrument) - q.price
-        abs(residual) <= 1.0e-8 * scale || throw(
+        size = __nonnegative_cashflows(q.instrument) ? float(abs(residual + q.price)) :
+            __quote_size(q, residual + q.price, seed_value, () -> curve)
+        __relative_residual(residual, size) <= 1.0e-8 || throw(
             ArgumentError(
                 "bootstrap could not reprice the quote maturing at $(maturity(q)) " *
                     "(residual $residual); its cashflows may extend beyond its maturity"
@@ -705,12 +776,17 @@ function fit(
     return __implicit_knot_curve(curve, quotes, primal_quotes, extrapolation)
 end
 
-# The bootstrap's knot rates, solved in maturity order, and each quote's residual scale. A function
+# A bootstrap step's quote size at knot rate `z`, for cashflows that are not all nonnegative (`__quote_size`). A
+# function, so that the step's loop does not capture the knot rate it reassigns.
+__bootstrap_size(q, value, seed_value, mod0, interpolation, zs, i, times, extrapolation, z) =
+    __quote_size(q, value, seed_value, () -> (zs[i] = z; __trial_curve(mod0, interpolation, zs[1:i], times[1:i], extrapolation)))
+
+# The bootstrap's knot rates, solved in maturity order, and each quote's value at its step's seed. A function
 # barrier on the resolved `interpolation`, so that every step's trial curve has one concrete type.
 function __bootstrap_knots(mod0, interpolation, primal_quotes, times, primal_extrapolation, who)
     n = length(primal_quotes)
     zs = zeros(n)
-    scales = zeros(n)
+    seed_values = zeros(n)
     for i in eachindex(primal_quotes)
         q = primal_quotes[i]
         # The i-th continuous zero rate is the only unknown — earlier knots are
@@ -727,15 +803,27 @@ function __bootstrap_knots(mod0, interpolation, primal_quotes, times, primal_ext
             end, who, __SPLINE_FIT_HINT
         )
         seed = i == 1 ? 0.0 : zs[i - 1] # seed with the previous zero rate
-        # Solve the residual relative to the quote's size (its price, or its value at the seed
-        # for a zero-price quote), so the root's precision does not depend on its notional.
-        s = max(abs(q.price), abs(f(seed) + q.price))
-        scales[i] = iszero(s) ? one(s) : s
-        g(z) = f(z) / scales[i]
-        # a generous continuous-zero-rate range for the bracketed fallback
-        zs[i] = __solve_primal_root(g, seed, (-1.0, 1.0))
+        seed_values[i] = f(seed) + q.price
+        # Solve the residual relative to the quote's size (`__quote_size`), so the root's precision does not
+        # depend on its notional. The size is taken at the seed; where the quote is much smaller at the root (a
+        # long zero-coupon price far below its value at the seed), the root is solved again from there,
+        # relative to its size at the root, where its value is its price.
+        nonnegative = __nonnegative_cashflows(q.instrument)
+        z = seed
+        s = __nonzero(nonnegative ? float(abs(seed_values[i])) : __bootstrap_size(q, seed_values[i], seed_values[i], mod0, interpolation, zs, i, times, primal_extrapolation, z))
+        for _ in 1:3
+            g = let s = s
+                z -> f(z) / s
+            end
+            # a generous continuous-zero-rate range for the bracketed fallback
+            z = __solve_primal_root(g, z, (-1.0, 1.0))
+            s_root = nonnegative ? float(abs(q.price)) : __bootstrap_size(q, q.price, seed_values[i], mod0, interpolation, zs, i, times, primal_extrapolation, z)
+            s_root >= s / 2 && break
+            s = __nonzero(s_root)
+        end
+        zs[i] = z
     end
-    return zs, scales
+    return zs, seed_values
 end
 
 function fit(mod0::Yield.SmithWilson, quotes)

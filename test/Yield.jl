@@ -477,7 +477,7 @@ end
         # depends on the optimizer's iterates
         tight = (; g_tol = 1.0e-14)
         zs = ZCBYield.([0.0, 0.05], [1, 2])
-        z = fit(Spline.Cubic(), zs; solve_kwargs = tight)
+        z = fit(Spline.Cubic(), zs, Fit.Loss(); solve_kwargs = tight)
 
         @test isapprox(zero(z, 1), Periodic(0.0, 1); atol = 1.0e-12)
         @test discount(z, 1) ≈ 1.0
@@ -485,7 +485,7 @@ end
 
         # test no times constructor
         zs = ZCBYield([0.0, 0.05])
-        z = fit(Spline.Cubic(), zs; solve_kwargs = tight)
+        z = fit(Spline.Cubic(), zs, Fit.Loss(); solve_kwargs = tight)
         @test isapprox(zero(z, 1), Periodic(0.0, 1); atol = 1.0e-12)
         @test discount(z, 1) ≈ 1.0
         @test zero(z, 2) ≈ Periodic(0.05, 1)
