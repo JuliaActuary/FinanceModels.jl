@@ -101,23 +101,26 @@ module Fit
         Σᵢ wᵢ (present_value(curve, qᵢ.instrument) - qᵢ.price)²
 
     over the quotes `qᵢ`, with `wᵢ = 1` when `weights` is `nothing`. Weights are a vector with one
-    finite, non-negative number per quote; a weight of zero leaves its quote out. For example, weights
-    of `1 / (price * duration)^2` make the residuals approximately yield errors, so that long bonds
-    do not dominate the fit. The minimization (Levenberg-Marquardt) runs for at most `maxiters`
-    iterations.
+    finite, non-negative number per quote; a weight of zero leaves its quote out. For example, with `D`
+    a bond's modified duration, weights of `1 / (price * D)^2` make each weighted residual
+    approximately a yield error, so that long bonds do not dominate the fit.
 
-    It is the default for refitting a knot curve whose knots are not at the quote maturities, such as
-    a curve of ten knots fitted to an index of a thousand bonds: refit a curve that has the knots you
-    choose, with `fit(ZeroRateCurve(rates, knots, spline), quotes)`. Quote maturities may repeat, and
-    there must be at least as many quotes with a positive weight as knots, each knot moving some
-    quote's price. The minimization is local, from FinanceModels' fixed starting rates: the fit returns
-    a local least-squares minimum, which need not be the best fit of all curves. At the fitted knot
-    rates, the Hessian of the sum of squares (with the residuals' curvature) is positive definite, and
-    the Newton step to the minimum is at most `1e-10`; a minimization that does not reach such a point
-    throws a [`FitConvergenceError`](@ref FinanceModels.FitConvergenceError). With knots at the quote
-    maturities (`fit(spline, quotes, Fit.LeastSquares())`), a curve that reprices the quotes is a
-    global minimum, which the fit returns when it reaches it; where no curve reprices them, it returns a
-    local minimum, where [`Fit.Exact`](@ref FinanceModels.Fit.Exact) throws.
+    Refit a curve on its existing knots, `fit(ZeroRateCurve(rates, knots, spline), quotes)`: this is the
+    default for a refit whose knots are not at the quote maturities, such as a curve of ten knots
+    fitted to an index of a thousand bonds. Quote maturities may repeat, and there must be at least as
+    many quotes with a positive weight as knots, each knot moving some quote's price. The solver starts
+    from FinanceModels' standard initial rates, rather than the supplied curve's rates, and seeks a
+    local minimum, which need not be the best fit of all curves.
+
+    The minimization is Levenberg–Marquardt. `maxiters` limits its iterations; final polishing may take
+    additional Gauss–Newton and Newton steps. A fit is accepted only where the Hessian of half the sum
+    of squares (with the residuals' curvature) is positive definite, and the Newton correction, a local
+    estimate of the remaining error in the knot rates, is at most `1e-10`. Otherwise the fit throws a
+    [`FitConvergenceError`](@ref FinanceModels.FitConvergenceError).
+
+    With knots at the quote maturities (`fit(spline, quotes, Fit.LeastSquares())`), a curve that
+    reprices the quotes is a global minimum, which the fit returns when it reaches it. Where no curve
+    reprices them, it returns a local minimum, where [`Fit.Exact`](@ref FinanceModels.Fit.Exact) throws.
 
     The fit is differentiable with ForwardDiff with respect to quote prices, cashflow amounts (such
     as `Bond.Fixed` coupons) and the weights, when every quote's cashflows are fixed (`Cashflow` and

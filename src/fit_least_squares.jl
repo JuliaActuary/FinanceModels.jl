@@ -15,7 +15,7 @@
 #
 #     g(z) = (∂d/∂z)ᵀ Aᵀ W r(z) = 0:   dz = -H⁻¹ ∂g,   H = (A ∂d/∂z)ᵀ W (A ∂d/∂z) + Σⱼ cⱼ ∇²dⱼ(z),
 #
-# with c = Aᵀ W r(z), where ∂g (the caller's partials of g) is plain arithmetic in their dual numbers
+# where H is the Hessian of ϕ/2 and c = Aᵀ W r(z), where ∂g (the caller's partials of g) is plain arithmetic in their dual numbers
 # at the fitted, primal z. The second term of H, the residuals' curvature, does not vanish when the
 # residuals do not: without it the derivatives are those of the Gauss-Newton approximation.
 
@@ -124,28 +124,22 @@ function __check_determined(J, tenors, who)
     return nothing
 end
 
-# Levenberg-Marquardt stops where its steps no longer register: its step (in knot rates) falls below
-# `__LSQ_STEPTOL`, or a step's predicted decrease of the sum of squares ϕ is within `__LSQ_FLAT` of ϕ,
-# which rounding can produce or hide (near a cosine of sqrt(eps) between the residuals and the Jacobian's
-# columns), or that cosine is at most `__LSQ_GTOL`. Where it stops is accepted only as a minimum: the
-# Hessian of ϕ, JᵀJ plus the residuals' curvature, is positive definite there, and the Newton step with
-# it (the distance to the minimum) is at most `__LSQ_ACCEPT` in knot rates, 1e-6 bp. A Gauss-Newton step,
-# with JᵀJ alone, can understate that distance without bound when the residuals' curvature nearly cancels
-# JᵀJ. The fit first takes Gauss-Newton steps while they contract and are longer than `__LSQ_ACCEPT`, for
-# at most `__LSQ_POLISH` steps; then at most `__LSQ_NEWTON` Newton steps, each halved until it keeps ϕ
-# within `__LSQ_FLAT` and decreases the gradient, at most `__LSQ_HALVINGS` times. A fit whose weighted
-# residuals are within `__EXACT_FIT_FTOL` of their quotes' sizes has converged too: it reprices its
-# quotes, and its residuals' curvature is zero to rounding.
-const __LSQ_GTOL = 1.0e-12
-const __LSQ_STEPTOL = 1.0e-15
-const __LSQ_FLAT = 1.0e-12
-const __LSQ_POLISH = 10
-const __LSQ_NEWTON = 10
-const __LSQ_HALVINGS = 30
-const __LSQ_ACCEPT = 1.0e-10
+# Levenberg-Marquardt can stall when the reductions of the sum of squares ϕ reach floating-point
+# precision. The fit then polishes with contracting Gauss-Newton steps, then Newton steps with the full
+# Hessian of ϕ/2 (JᵀJ plus the residuals' curvature S). It accepts on the full Newton correction: a small
+# Gauss-Newton correction can hide a substantial error in the knot rates when S nearly cancels JᵀJ. A fit
+# that reprices its quotes (weighted residuals within `__EXACT_FIT_FTOL` of their sizes) has converged
+# without this check: its residuals' curvature is zero to rounding.
+const __LSQ_GTOL = 1.0e-12      # LM stops at this cosine between the residuals and the Jacobian's columns
+const __LSQ_STEPTOL = 1.0e-15   # LM stops at this step, in knot rates
+const __LSQ_FLAT = 1.0e-12      # relative change of ϕ treated as rounding (LM's stop; polishing's allowance)
+const __LSQ_POLISH = 10         # Gauss-Newton steps, while they contract and exceed __LSQ_ACCEPT
+const __LSQ_NEWTON = 10         # Newton steps, each kept if ϕ stays within __LSQ_FLAT and the gradient falls
+const __LSQ_HALVINGS = 30       # halvings of a Newton step before it is given up
+const __LSQ_ACCEPT = 1.0e-10    # largest accepted Newton correction, in knot rates (1e-6 bp)
 
-# The largest cosine between the residuals `f` and a column of `J`: zero at a minimum, whatever the
-# scale of the residuals or of the knot rates.
+# The largest cosine between the residuals `f` and a column of `J`: zero at a stationary point, whatever
+# the scale of the residuals or of the knot rates.
 function __gradient_cosine(J, f)
     nf = norm(f)
     iszero(nf) && return zero(nf)
@@ -202,10 +196,11 @@ end
 __curvature_step(r::__CashflowResiduals) = cbrt(eps(Float64)) / max(1, last(r.times))
 __curvature_step(r::__RepricingResiduals) = cbrt(eps(Float64)) / max(1, maximum(q -> float(maturity(q)), r.quotes))
 
-# The Newton step with the Hessian JᵀJ + S, through the pivoted QR factorization `F` of J (J P = QR):
+# The Newton step with JᵀJ + S, the Hessian of half the sum of squares, through the pivoted QR
+# factorization `F` of J (J P = QR):
 # with C = R⁻ᵀ PᵀSP R⁻¹, the Hessian is P Rᵀ(I + C)R Pᵀ, so the step solves (I + C) R Pᵀδ = -(Qᵀf)₁…ₙ, and
 # the Hessian is positive definite where I + C is. This holds where JᵀJ itself is too ill-conditioned to
-# factor. `nothing` when I + C is not positive definite: not a minimum.
+# factor. `nothing` when I + C is not positive definite, which the fit's acceptance requires.
 @noinline function __lsq_newton_step(F, f, S)
     n = size(S, 1)
     R = UpperTriangular(F.R)
@@ -314,8 +309,8 @@ function __solve_least_squares(r, sw, z0, tenors, maxiters, who)
             maximum(abs, δt) <= step / 2 || break
             z, f, J, F, ϕ, δ = zt, ft, Jt, Ft, ϕt, δt
         end
-        # Newton steps with the full Hessian, which measure the distance to the minimum; the gradient
-        # (unlike the sum of squares) still measures progress
+        # Newton steps with the full Hessian, whose correction estimates the remaining error in the knot
+        # rates; the gradient (unlike the sum of squares) still measures progress
         h = __curvature_step(r)
         g = __gradient(J, f)
         for _ in 1:__LSQ_NEWTON
@@ -353,7 +348,8 @@ function __least_squares_error(who, retcode, maxiters, step, cosine, kink, defin
         "cannot reduce its quotes' weighted squared pricing residuals further"
     where_ = definite ?
         "its last step from the fitted knot rates is $step (at most $(__LSQ_ACCEPT) accepted)" :
-        "the Hessian of the sum of squares is not positive definite where it stopped, so that is not a minimum"
+        "the Hessian of half the sum of squares is not positive definite where it stopped, so the fit fails its " *
+        "required positive-definiteness check"
     cause = if kink
         "The fit stopped where the interpolation switches formulas, so the objective has a kink there: a " *
             "least-squares minimum of a monotone convex, PCHIP or Akima curve can lie on such a switch, where " *
@@ -366,7 +362,7 @@ function __least_squares_error(who, retcode, maxiters, step, cosine, kink, defin
     return FitConvergenceError(
         retcode,
         "$who $stopped: $where_, and the largest cosine between the residuals and a column of their " *
-            "Jacobian is $cosine (zero at a minimum). " * cause
+            "Jacobian is $cosine (zero at a stationary point). " * cause
     )
 end
 

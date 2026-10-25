@@ -40,16 +40,10 @@ Gauss–Newton approximation leaves out: on the index above, leaving it out woul
 A refit with another number of knots than quotes used to throw a `DimensionMismatch` when
 differentiated.
 
-A fit is accepted only at a local minimum: at the fitted knot rates, the Hessian of the sum of squares,
-with the residuals' curvature, is positive definite, and the Newton step with it (the distance to
-the minimum) is at most `1e-10` in knot rates (`1e-6` bp). Otherwise the fit throws a
-`FitConvergenceError`. The curvature comes from central differences of the residuals' Jacobian, so
-the check compiles no second-order dual numbers. A Gauss–Newton step can understate that distance
-without bound where the residuals' curvature nearly cancels the Gauss–Newton Hessian, and an
-acceptance of such steps alone could return a point that is not a minimum. Where the sum of squares
-stops registering a decrease, the fit finishes with Gauss–Newton steps while they contract, then
-Newton steps. Derivatives are taken only where the Newton step with the exact Hessian is at most
-`1e-10` too.
+Fits check the full objective curvature and the Newton correction before accepting a local
+solution: the Hessian of half the sum of squares must be positive definite, and the correction (a
+local estimate of the remaining error in the knot rates) at most `1e-10`; otherwise the fit throws a
+`FitConvergenceError`. Differentiated fits repeat the accuracy check with an AD-computed Hessian.
 
 Monotone convex, PCHIP and Akima curves switch formulas between regions of knot rates, so their
 least-squares objective has kinks, and its minimum can lie on one, where the fit cannot converge: it

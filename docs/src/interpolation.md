@@ -141,18 +141,23 @@ c0 = ZeroRateCurve(fill(0.05, length(knots)), knots, Spline.Cubic())
 bbb = fit(c0, bond_quotes)                 # e.g. 1000 `Quote(price, Bond.Fixed(...))`s
 ```
 
-Unweighted residuals are price errors, which grow with a bond's duration, so long bonds dominate
-the fit. Weights of `1 / (price * duration)^2` make each residual approximately a yield error:
+Unweighted residuals are price errors. For a given yield error, longer-duration bonds generally
+have larger price errors, so long bonds dominate the fit. With `D` a bond's modified duration at its
+own yield, a price error is about `-price * D` times the yield error, so weights
+`w = 1 / (price * D)^2` make each weighted residual, `sqrt(w)` times the price error, approximately a
+yield error:
 
 ```julia
-w = [1 / (q.price * duration(q))^2 for q in bond_quotes]   # duration from ActuaryUtilities, say
+# D[i]: bond i's modified duration, e.g. ActuaryUtilities' duration(Modified(), yield, cashflows, times)
+w = [1 / (q.price * D[i])^2 for (i, q) in enumerate(bond_quotes)]
 bbb = fit(c0, bond_quotes, Fit.LeastSquares(weights = w))
 ```
 
 The fit solves the least-squares problem by Levenberg–Marquardt from FinanceModels' fixed starting
 rates, and returns only a local minimum, which need not be the best fit of all curves: at the fitted
-knot rates, the Hessian of the sum of squares (with the residuals' curvature) is positive
-definite, and the Newton step to the minimum is at most `1e-10`. Quotes with fixed cashflows
+knot rates, the Hessian of half the sum of squares (with the residuals' curvature) is positive
+definite, and the Newton correction, a local estimate of the remaining error in the knot rates, is
+at most `1e-10`. Quotes with fixed cashflows
 (`Cashflow` and `Bond.Fixed` instruments, which every FinanceModels quote type is) are priced
 through their cashflow matrix: the curve is evaluated once per distinct cashflow date rather than
 once per cashflow. The quotes must determine every knot rate (at least as many quotes with a
@@ -160,12 +165,11 @@ positive weight as knots, each knot moving some quote's price), or the fit throw
 cashflows are differentiable with respect to the quote prices, coupons and weights; see
 [Sensitivities Through Calibration](@ref).
 
-Choose an interpolation that is smooth in its knot rates, such as `Spline.Linear()` or
-`Spline.Cubic()`. Monotone convex, PCHIP and Akima curves switch formulas between regions of knot
-rates, so the least-squares objective has kinks, and its minimum can lie on one, where the fit
-cannot converge: it then throws a [`FitConvergenceError`](@ref FinanceModels.FitConvergenceError)
-that says so. In a sweep of random 80-bond indices, about half the monotone convex and PCHIP fits
-did, and none of the linear, quadratic or cubic ones.
+Prefer `Spline.Linear()` or `Spline.Cubic()` for least-squares fitting. `Spline.MonotoneConvex()`,
+`Spline.PCHIP()` and `Spline.Akima()` switch formulas as knot rates change; the solver may stall near
+these boundaries and raise a [`FitConvergenceError`](@ref FinanceModels.FitConvergenceError), which
+says so. In a sweep of random 80-bond indices, about half the monotone convex and PCHIP fits failed
+to converge, and none of the linear, quadratic or cubic ones.
 
 ## Key Tradeoffs
 
