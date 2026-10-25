@@ -142,18 +142,19 @@ __fx_foreign_optic(o) = Accessors.opcompose(@optic(_.foreign), o)
     default_optimizer(model)
 
 The optimizer [`fit`](@ref FinanceModels.fit) uses for `model` when none is given:
-`OptimizationOptimJL.LBFGS()`, and `OptimizationOptimJL.Newton()` for a spline other than
+`Optim.LBFGS()`, and `Optim.Newton()` for a spline other than
 `Spline.MonotoneConvex()`. A spline is fitted with its optimizer only for a `Fit.Loss`, an
 `optimizer` or `solve_kwargs`: without them, `fit(spline, quotes)` solves for the curve that
 reprices every quote, and runs no optimizer. To change a custom model's default:
 
 ```julia
-FinanceModels.default_optimizer(m::MyModel) = OptimizationOptimJL.NelderMead()
+using Optim
+FinanceModels.default_optimizer(m::MyModel) = Optim.NelderMead()
 ```
 """
-default_optimizer(m) = OptimizationOptimJL.LBFGS()
-default_optimizer(m::T) where {T <: Spline.SplineCurve} = OptimizationOptimJL.Newton()
-default_optimizer(::Spline.MonotoneConvex) = OptimizationOptimJL.LBFGS()
+default_optimizer(m) = Optim.LBFGS()
+default_optimizer(m::T) where {T <: Spline.SplineCurve} = Optim.Newton()
+default_optimizer(::Spline.MonotoneConvex) = Optim.LBFGS()
 
 __default_loss(m) = Fit.Loss(x -> x^2)
 
@@ -200,14 +201,15 @@ __trial_curve(spline, interpolation, z, tenors, extrapolation) =
     FitConvergenceError(retcode, msg)
 
 Thrown by [`fit`](@ref FinanceModels.fit) when the optimizer does not report a successful solve,
-or when a spline fit's exact solve does not reprice its quotes. `retcode` is the solver's
-`SciMLBase.ReturnCode` (for example `ReturnCode.MaxIters`, `ReturnCode.Stalled` or
-`ReturnCode.Failure`) and `msg` describes the failed fit.
+or when a spline fit's exact solve does not reprice its quotes. `retcode` is a `Symbol`: for an
+optimizer, `:MaxIters` (it reached its iteration limit) or `:Failure` (it stopped without
+converging); for an exact solve, `:MaxIters`, `:Stalled` (no step reduced the residuals) or
+`:InternalLinearSolveFailed` (a singular or non-finite Jacobian). `msg` describes the failed fit.
 
 A failed solve can leave the parameters at the starting guess, so `fit` throws rather than
 return an unfitted model. Address the cause and fit again: a different starting model, a
 different `optimizer`, tighter or longer `solve_kwargs` (for example
-`solve_kwargs = (; maxiters = 10_000)`), or quotes that the model can fit. A spline fit's exact
+`solve_kwargs = (; iterations = 10_000)`), or quotes that the model can fit. A spline fit's exact
 solve fails when no curve of its interpolation method reprices the quotes (a price that implies
 a non-positive discount factor, for example); minimizing a loss with `Fit.Loss(x -> x^2)`
 returns the closest curve instead. Choose the model deliberately; switching to another
@@ -222,14 +224,15 @@ function Base.showerror(io::IO, e::FitConvergenceError)
     return print(io, "FitConvergenceError: ", e.msg, " (return code ", e.retcode, ")")
 end
 
-# Minimize `loss(x, quotes)` from `x0` and return the solution. The quotes are the problem's data
-# (capturing them in `loss` made a Nelson-Siegel fit about 8% slower). Every optimizer-backed fit
+# Minimize `loss(x, quotes)` from `x0` with Optim and return the solution. The quotes are the problem's
+# data (capturing them in `loss` made a Nelson-Siegel fit about 8% slower). Every optimizer-backed fit
 # either returns a successful solution or throws: a failed solve may leave the solution equal to
 # `x0`, and a model built from it would make optimizer failure look like a valid (but unfitted)
-# result. Every evaluation runs through `__own_duals`; SciMLBase gives `x` the type of a dual number
-# it finds in the quotes, so that case throws at the first evaluation. `who` and `hint` name the fit
-# in the error. The solve holds its owner number until it returns or throws.
+# result. The solve differentiates none of the quotes, so a dual number in them throws up front;
+# every evaluation also runs through `__own_duals`. `who` and `hint` name the fit in the error. The
+# solve holds its owner number until it returns or throws.
 function __minimize(loss, x0, quotes, optimizer, solve_kwargs; lb = nothing, ub = nothing, who, hint)
+    __holds_dual(quotes) && throw(__foreign_dual_error(who, hint))
     owner = __lease_fit_owner()
     try
         return __minimize(Val(owner), loss, x0, quotes, optimizer, solve_kwargs; lb, ub, who, hint)
@@ -241,15 +244,48 @@ function __minimize(::Val{O}, loss, x0, quotes, optimizer, solve_kwargs; lb, ub,
     outer = ForwardDiff.Tag(__FitTagKey{O, :outer}(), eltype(x0))
     inner = ForwardDiff.Tag(__FitTagKey{O, :inner}(), eltype(x0))  # created second, so it nests inside `outer`
     own = Tuple{typeof(outer), typeof(inner)}
-    adtype = DifferentiationInterface.SecondOrder(AutoForwardDiff(; tag = outer), AutoForwardDiff(; tag = inner))
+    gradient = AutoForwardDiff(; tag = inner)
+    hessian = DifferentiationInterface.SecondOrder(AutoForwardDiff(; tag = outer), gradient)
     objective(x, qs) = convert(eltype(x), __own_duals(x -> loss(x, qs), x, eltype(x), own, who, hint))
-    prob = Optimization.OptimizationProblem(Optimization.OptimizationFunction(objective, adtype), x0, quotes; lb, ub)
-    sol = Optimization.solve(prob, optimizer; solve_kwargs...)
-    Optimization.SciMLBase.successful_retcode(sol.retcode) || throw(
-        FitConvergenceError(sol.retcode, "model fitting did not converge")
-    )
-    return sol.u
+    opt = __bounded_optimizer(optimizer, lb, ub)
+    d = __objective(objective, x0, quotes, opt, gradient, hessian)
+    res = __optimize(d, x0, opt, lb, ub, Optim.Options(; solve_kwargs...))
+    retcode = Optim.converged(res) ? :Success : Optim.iteration_limit_reached(res) ? :MaxIters : :Failure
+    retcode === :Success || throw(FitConvergenceError(retcode, "model fitting did not converge"))
+    return Optim.minimizer(res)
 end
+
+# The optimizer of a solve with bounds `lb` and `ub`: an optimizer that takes no bounds runs inside
+# `Fminbox`, and a `ParticleSwarm` takes them itself.
+function __bounded_optimizer(opt, lb, ub)
+    lb === nothing && ub === nothing && return opt
+    opt isa Optim.AbstractConstrainedOptimizer && return opt
+    opt isa Optim.ParticleSwarm && return Optim.ParticleSwarm(; lower = lb, upper = ub, n_particles = opt.n_particles)
+    return Optim.Fminbox(opt)
+end
+
+# The objective `opt` minimizes, with the derivatives it uses: the gradient from the inner ForwardDiff
+# backend, and the Hessian (for `Newton`, `NewtonTrustRegion` and `IPNewton`) from both.
+function __objective(objective, x0, quotes, opt, gradient, hessian)
+    p = DifferentiationInterface.Constant(quotes)
+    f(x) = objective(x, quotes)
+    opt isa Optim.ZerothOrderOptimizer && return Optim.NonDifferentiable(f, x0)
+    gprep = DifferentiationInterface.prepare_gradient(objective, gradient, x0, p)
+    g!(G, x) = DifferentiationInterface.gradient!(objective, G, gprep, gradient, x, p)
+    fg!(G, x) = first(DifferentiationInterface.value_and_gradient!(objective, G, gprep, gradient, x, p))
+    opt isa Union{Optim.Newton, Optim.NewtonTrustRegion, Optim.IPNewton} || return Optim.OnceDifferentiable(f, g!, fg!, x0)
+    hprep = DifferentiationInterface.prepare_hessian(objective, hessian, x0, p)
+    h!(H, x) = DifferentiationInterface.hessian!(objective, H, hprep, hessian, x, p)
+    return Optim.TwiceDifferentiable(f, g!, fg!, h!, x0, real(zero(eltype(x0))))
+end
+
+# Run `opt`: without bounds (or a `ParticleSwarm` holding them), within the bounds (`Fminbox`, `SAMIN`),
+# or under box constraints (`IPNewton`).
+__optimize(d, x0, opt, lb, ub, options) = Optim.optimize(d, x0, opt, options)
+__optimize(d, x0, opt::Optim.AbstractConstrainedOptimizer, lb, ub, options) = Optim.optimize(d, lb, ub, x0, opt, options)
+__optimize(d, x0, opt::Optim.ConstrainedOptimizer, lb, ub, options) = Optim.optimize(
+    d, Optim.TwiceDifferentiableConstraints(something(lb, eltype(x0)[]), something(ub, eltype(x0)[])), x0, opt, options
+)
 
 """
     fit(
@@ -269,9 +305,9 @@ Fit a model to a collection of quotes using a loss function and optimization met
 - `method::F=Fit.Loss(x -> x^2)`: The loss function to use for fitting the model. Defaults to the squared loss function.
   - `method` can also be `Bootstrap()` with `Spline.Linear()`. A spline fit without a `method` reprices its quotes exactly (see below).
 - `variables=default_variables(model)`: The variables to optimize over. This is a tuple of optic => interval pairs specifying which parameters of the model can vary. See extended help for more. Spline and knot-curve fits vary the knot rates and do not take `variables`.
-- `optimizer=default_optimizer(model)`: The optimization algorithm to use. The default optimization for a given model is `LBFGS()` from Optim.jl (via OptimizationOptimJL), a quasi-Newton method with automatic differentiation via ForwardDiff. See extended help for more on customizing the solver.
-- `solve_kwargs=(;)`: Keyword arguments passed to `Optimization.solve` with the optimizer, such as
-  `(; maxiters = 10_000, abstol = 1e-12)` or Optim.jl's `g_tol`. Use them to tighten a loss fit.
+- `optimizer=default_optimizer(model)`: The optimization algorithm, an Optim.jl optimizer. The default for a given model is `Optim.LBFGS()`, a quasi-Newton method with automatic differentiation via ForwardDiff. See extended help for more on customizing the solver.
+- `solve_kwargs=(;)`: Keyword arguments for `Optim.Options`, such as `(; iterations = 10_000)`,
+  `g_tol` or `f_abstol`. Use them to tighten a loss fit.
 - `extrapolation=:flat_forward`: For `Spline.SplineCurve` fits (including
   `Spline.MonotoneConvex()`), the long-end policy beyond the last knot (see
   [`Yield.Spline`](@ref FinanceModels.Yield.Spline)). Also accepts `:flat_zero`, `:linear`,
@@ -286,7 +322,7 @@ reprices each quote to within `sqrt(eps())` of its price (in practice to roundin
 that cannot reprice them, because no curve with this interpolation does, throws a
 [`FitConvergenceError`](@ref FinanceModels.FitConvergenceError) rather than return the closest
 curve. A `Fit.Loss`, an `optimizer` or `solve_kwargs` fit the spline by minimizing the loss
-(squared, if only an optimizer or its settings are given) with an Optimization.jl solver
+(squared, if only an optimizer or its settings are given) with an Optim.jl optimizer
 instead: `LBFGS()` for `Spline.MonotoneConvex()`, `Newton()` otherwise. With quotes that a
 curve reprices, the loss fit converges to the same curve, to the optimizer's tolerance.
 `Fit.Bootstrap()` accepts `Spline.Linear()` only. Fitting an existing knot curve
@@ -355,12 +391,11 @@ FinanceModels.Yield.Constant{Rate{Float64, Periodic}}(Periodic(0.128229218822544
 
 ## Customizing the Solver
 
-The default solver is `LBFGS()` from Optim.jl (via OptimizationOptimJL). This is a quasi-Newton method that uses automatic differentiation (ForwardDiff) to compute gradients efficiently.
- - Any solver from OptimizationOptimJL can be used, e.g. `fit(...; optimizer=OptimizationOptimJL.Newton())` or `fit(...; optimizer=OptimizationOptimJL.NelderMead())`.
- - Solver settings go in `solve_kwargs`, e.g. `fit(...; solve_kwargs = (; maxiters = 10_000, g_tol = 1e-12))`.
+The default solver is `LBFGS()` from Optim.jl. This is a quasi-Newton method that uses automatic differentiation (ForwardDiff) to compute gradients efficiently.
+ - Any Optim.jl optimizer can be used, e.g. `using Optim` and `fit(...; optimizer = Optim.NelderMead())`. When the variables are bounded, an optimizer that takes no bounds runs inside `Optim.Fminbox`, which does not take `Newton()`; `IPNewton()` takes the bounds as constraints.
+ - Solver settings go in `solve_kwargs`, the keywords of `Optim.Options`, e.g. `fit(...; solve_kwargs = (; iterations = 10_000, g_tol = 1e-12))`. Under `Fminbox`, `iterations` limits each inner solve and `outer_iterations` the number of them.
  - More documentation is available from the upstream packages:
    - [Optim.jl](https://julianlsolvers.github.io/Optim.jl/stable/)
-   - [Optimization.jl](https://docs.sciml.ai/Optimization/stable/)
    - [AccessibleModels.jl](https://github.com/JuliaAPlavin/AccessibleModels.jl)
 
 ## Defining the variables
@@ -576,7 +611,6 @@ const __EXACT_FIT_RTOL = sqrt(eps(Float64))
 # iteration stops at rounding: residuals within `__EXACT_FIT_FTOL`, a step within `__EXACT_FIT_STEPTOL`, or a
 # step that no longer decreases the residuals.
 function __solve_knot_rates(r::__RepricingResiduals, z0)
-    ReturnCode = Optimization.SciMLBase.ReturnCode
     v = r(z0)
     scale = map(r.quotes, v) do q, vᵢ
         s = max(abs(q.price), abs(vᵢ + q.price))
@@ -584,17 +618,17 @@ function __solve_knot_rates(r::__RepricingResiduals, z0)
     end
     z, f = copy(z0), v ./ scale
     ϕ = sum(abs2, f)
-    retcode = ReturnCode.MaxIters
+    retcode = :MaxIters
     for _ in 1:__EXACT_FIT_MAXITERS
-        maximum(abs, f) <= __EXACT_FIT_FTOL && (retcode = ReturnCode.Success; break)
+        maximum(abs, f) <= __EXACT_FIT_FTOL && (retcode = :Success; break)
         J = ForwardDiff.jacobian(r, z) ./ scale
         F = lu(J; check = false)
-        (all(isfinite, J) && issuccess(F)) || (retcode = ReturnCode.InternalLinearSolveFailed; break)
+        (all(isfinite, J) && issuccess(F)) || (retcode = :InternalLinearSolveFailed; break)
         δ = F \ f
         if maximum(abs, δ) <= __EXACT_FIT_STEPTOL
             z = z .- δ
             f = r(z) ./ scale
-            retcode = ReturnCode.Success
+            retcode = :Success
             break
         end
         α, accepted = 1.0, false
@@ -608,20 +642,20 @@ function __solve_knot_rates(r::__RepricingResiduals, z0)
             end
             α /= 2
         end
-        accepted || (retcode = ReturnCode.Stalled; break)
+        accepted || (retcode = :Stalled; break)
     end
     worst = argmax(abs.(f))
     abs(f[worst]) <= __EXACT_FIT_RTOL && return z
-    stopped = if retcode == ReturnCode.MaxIters
+    stopped = if retcode === :MaxIters
         "did not reprice its quotes within $(__EXACT_FIT_MAXITERS) Newton iterations"
-    elseif retcode == ReturnCode.InternalLinearSolveFailed
+    elseif retcode === :InternalLinearSolveFailed
         "stopped at knot rates $z, where the Jacobian of the quotes' pricing residuals is singular or not finite"
     else
         "cannot reduce its quotes' pricing residuals further"
     end
     throw(
         FitConvergenceError(
-            retcode == ReturnCode.Success ? ReturnCode.Stalled : retcode,
+            retcode === :Success ? :Stalled : retcode,
             "$(r.who) $stopped: the largest relative residual is $(f[worst]), on the quote maturing at " *
                 "$(maturity(r.quotes[worst])). No curve with this interpolation may reprice the quotes (for " *
                 "example, a price that implies a non-positive discount factor), or the quote prices may not " *

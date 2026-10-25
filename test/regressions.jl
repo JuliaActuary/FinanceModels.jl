@@ -1,14 +1,14 @@
-# Test-only solver that deterministically exercises `fit`'s unsuccessful-retcode path.
-struct FailingFitOptimizer end
-function FinanceModels.Optimization.solve(
-        prob::FinanceModels.Optimization.OptimizationProblem,
-        ::FailingFitOptimizer
-    )
-    return (
-        u = prob.u0,
-        retcode = FinanceModels.Optimization.SciMLBase.ReturnCode.Failure,
-    )
+# Test-only optimizer that deterministically exercises `fit`'s unsuccessful-retcode path: it stops at
+# the start without converging, with or without bounds (under `Fminbox`).
+struct FailingFitOptimizer <: FinanceModels.Optim.FirstOrderOptimizer end
+struct FailedFit{X}
+    x::X
 end
+FinanceModels.Optim.optimize(d::FinanceModels.Optim.OnceDifferentiable, x0::AbstractArray, ::FailingFitOptimizer, ::FinanceModels.Optim.Options) = FailedFit(x0)
+FinanceModels.Optim.optimize(d::FinanceModels.Optim.OnceDifferentiable, lb::AbstractArray, ub::AbstractArray, x0::AbstractArray, ::FinanceModels.Optim.Fminbox{FailingFitOptimizer}, ::FinanceModels.Optim.Options) = FailedFit(x0)
+FinanceModels.Optim.converged(::FailedFit) = false
+FinanceModels.Optim.iteration_limit_reached(::FailedFit) = false
+FinanceModels.Optim.minimizer(r::FailedFit) = r.x
 
 # Regression tests from the 2026-06 ecosystem audit
 # A contract defined through the documented `asfoldable` extension point
@@ -339,11 +339,14 @@ Transducers.asfoldable(p::Projection{AsfoldableContract}) = [Cashflow(1.0, 1.0),
         end
     end
 
-    @testset "fit passes solve_kwargs to the optimizer" begin
+    @testset "fit passes solve_kwargs to Optim.Options" begin
         qs = CMTYield.([0.03, 0.032, 0.035, 0.037], [1.0, 2.0, 3.0, 5.0])
-        @test_throws FitConvergenceError fit(Spline.MonotoneConvex(), qs; solve_kwargs = (; maxiters = 1))
-        @test_throws FitConvergenceError fit(Spline.Cubic(), qs, Fit.Loss(abs2); solve_kwargs = (; maxiters = 1))
-        @test_throws FitConvergenceError fit(Yield.NelsonSiegel(), qs; solve_kwargs = (; maxiters = 1))
+        @test_throws FitConvergenceError fit(Spline.MonotoneConvex(), qs; solve_kwargs = (; iterations = 1))
+        @test_throws FitConvergenceError fit(Spline.Cubic(), qs, Fit.Loss(abs2); solve_kwargs = (; iterations = 1))
+        # a bounded fit runs inside Fminbox, whose iterations are `outer_iterations`
+        @test_throws FitConvergenceError fit(Yield.NelsonSiegel(), qs; solve_kwargs = (; outer_iterations = 1))
+        # Optimization.jl's names are not Optim's: they throw rather than being ignored
+        @test_throws MethodError fit(Yield.NelsonSiegel(), qs; solve_kwargs = (; maxiters = 1))
         # a solver-specific setting reaches Optim
         tight = fit(Spline.MonotoneConvex(), qs; solve_kwargs = (; g_tol = 1.0e-14))
         @test maximum(abs(present_value(tight, q.instrument) - q.price) for q in qs) < 1.0e-10
@@ -367,7 +370,7 @@ Transducers.asfoldable(p::Projection{AsfoldableContract}) = [Cashflow(1.0, 1.0),
             @test err isa FitConvergenceError
             @test err isa Exception
             if err isa FitConvergenceError
-                @test err.retcode == FinanceModels.Optimization.SciMLBase.ReturnCode.Failure
+                @test err.retcode === :Failure
                 msg = sprint(showerror, err)
                 @test startswith(msg, "FitConvergenceError: ")
                 @test occursin("(return code Failure)", msg)
@@ -400,24 +403,22 @@ Transducers.asfoldable(p::Projection{AsfoldableContract}) = [Cashflow(1.0, 1.0),
         @test discount(c, 2.0) ≈ 0.95 atol = 1.0e-8
     end
 
-    @testset "second-order optimizer fit does not warn about ADtype" begin
-        # The generic and MonotoneConvex loss functions declared first-order
-        # `AutoForwardDiff`, so a second-order optimizer made OptimizationBase warn and
-        # auto-promote to `SecondOrder` once per fit. They now declare `SecondOrder` AD.
-        # The bare `@test_logs` (default `min_level = Warn`) asserts no warnings; the
-        # default `LBFGS` path only requests gradients, so it is unaffected.
+    @testset "second-order optimizer fits do not warn" begin
+        # Under Optimization.jl, a first-order AD declaration made a second-order optimizer warn
+        # and auto-promote it once per fit. The bare `@test_logs` (default `min_level = Warn`)
+        # asserts that second-order fits stay quiet.
         qs = ZCBPrice.([0.97, 0.93, 0.88, 0.8], [1.0, 2.0, 3.0, 5.0])
         reprice(c) = maximum(abs, present_value(c, q.instrument) - q.price for q in qs)
 
         # generic (bounded) path: IPNewton is the bounds-compatible second-order method
         # (plain Newton is rejected by Optim's Fminbox for box-constrained problems).
-        ipn = FinanceModels.OptimizationOptimJL.IPNewton()
+        ipn = FinanceModels.Optim.IPNewton()
         cp = @test_logs fit(Yield.CairnsPritchard(), qs; optimizer = ipn)
         @test reprice(cp) < 1.0e-8
         @test_logs fit(Yield.NelsonSiegel(), qs; optimizer = ipn)  # smooth 4-param fit: assert only quiet
 
         # MonotoneConvex (unbounded) path: Newton is the canonical second-order method.
-        mc = @test_logs fit(Spline.MonotoneConvex(), qs; optimizer = FinanceModels.OptimizationOptimJL.Newton())
+        mc = @test_logs fit(Spline.MonotoneConvex(), qs; optimizer = FinanceModels.Optim.Newton())
         @test reprice(mc) < 1.0e-10
     end
 end

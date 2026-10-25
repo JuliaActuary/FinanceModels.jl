@@ -1,5 +1,65 @@
 # FinanceModels.jl release notes
 
+## v8.0.0
+
+### Optimizers run through Optim.jl directly
+
+FinanceModels calls Optim.jl itself instead of going through Optimization.jl and
+OptimizationOptimJL. The optimizers are the same objects (`OptimizationOptimJL.LBFGS` is
+`Optim.LBFGS`), and FinanceModels sets them up as OptimizationOptimJL did:
+- bounded variables run an optimizer inside `Optim.Fminbox`;
+- `IPNewton()` takes the bounds as box constraints, and a `ParticleSwarm` takes them itself;
+- gradients and Hessians come from the same ForwardDiff backends.
+
+Fitted models are unchanged to the last bit. This was checked on 32 fits covering every optimizer
+path, spline and knot-curve loss fits, and a derivative through a loss fit.
+
+Optimization, OptimizationBase, OptimizationOptimJL, SciMLBase, SparseConnectivityTracer and 21 other
+packages leave FinanceModels' dependency tree (140 → 114 packages). On Julia 1.13:
+
+| | v7.2.0 | v8.0.0 |
+|---|---:|---:|
+| `using FinanceModels` | 1.27 s | 0.89 s |
+| first `fit(Yield.NelsonSiegel(), quotes)` | 1.18 s | 0.38 s |
+| first fit of a `BlackScholesMerton` volatility | 0.90 s | 0.30 s |
+| first `fit(Spline.Cubic(), quotes, Fit.Loss(abs2))`, 6 CMT quotes | 5.57 s | 5.25 s |
+| precompilation | 11.7 s | 10.6–11.4 s |
+| pkgimage | 35.5 MB | 33.3 MB |
+
+Warm fits are faster and allocate less. OptimizationOptimJL always switched on Optim's extended
+trace and passed a callback, which copied the optimizer's state at every iteration:
+
+| warm fit | v7.2.0 | v8.0.0 | allocations |
+|---|---:|---:|---:|
+| `Yield.Constant()`, 4 ZCB prices | 23.9 µs | 13.6 µs | −45% |
+| `Yield.NelsonSiegel()`, 6 CMT quotes | 1.54 ms | 1.48 ms | −30% |
+| `Yield.NelsonSiegelSvensson()`, 6 CMT quotes | 13.3 ms | 13.1 ms | −24% |
+| `BlackScholesMerton` volatility, 3 calls | 30.3 µs | 19.6 µs | −44% |
+| `ShortRate.Vasicek`, 3 ZCB yields | 314 µs | 274 µs | −33% |
+| `BlackScholesMerton` volatility with `IPNewton()` | 166 µs | 129 µs | −34% |
+| `fit(Spline.Cubic(), quotes, Fit.Loss(abs2))` (Newton) | 80.0 µs | 56.6 µs | −39% |
+| `fit(Spline.MonotoneConvex(), quotes, Fit.Loss(abs2))` (LBFGS) | 107 µs | 98.0 µs | −47% |
+
+A loss fit checks its quotes for dual numbers before it starts, and throws the same error as
+before. SciMLBase used to make this check, by promoting the optimizer's start to the dual type.
+
+### Breaking changes
+
+The migration guide ("v7.x to v8.0") has the steps for each one.
+- `optimizer` takes an Optim.jl optimizer. Objects written `OptimizationOptimJL.X()` still work,
+  since they are Optim's; other Optimization.jl packages' optimizers do not.
+- `solve_kwargs` are the keywords of `Optim.Options`. `maxiters` is `iterations`, or
+  `outer_iterations` for a fit with bounded variables. `abstol` is `f_abstol`. Optimization.jl's
+  names throw a `MethodError`.
+- `FitConvergenceError.retcode` is a `Symbol` (`:MaxIters`, `:Failure`, `:Stalled`,
+  `:InternalLinearSolveFailed`) instead of a `SciMLBase.ReturnCode`. The message is unchanged.
+- The internal bindings `FinanceModels.Optimization` and `FinanceModels.OptimizationOptimJL` are
+  gone.
+
+Packages that require `FinanceModels = "7"`, such as ActuaryUtilities 6, need a release that
+allows 8. ActuaryUtilities 6.0.0's test suite passes against FinanceModels 8 with only its
+compat widened to `"7, 8"`.
+
 ## v7.2.0
 
 ### Spline fits solve for the curve that reprices the quotes

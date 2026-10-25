@@ -286,9 +286,9 @@
         qs = sort(CMTYield.(pars, tenors); by = maturity)
         reprice(c) = maximum(abs, present_value(c, q.instrument) - q.price for q in qs)
         for opt in (
-                FinanceModels.OptimizationOptimJL.LBFGS(),
-                FinanceModels.OptimizationOptimJL.BFGS(),
-                FinanceModels.OptimizationOptimJL.Newton(),
+                FinanceModels.Optim.LBFGS(),
+                FinanceModels.Optim.BFGS(),
+                FinanceModels.Optim.Newton(),
             )
             c = fit(Spline.MonotoneConvex(), qs; optimizer = opt)
             @test reprice(c) < 1.0e-6   # finite (not NaN) and actually fits
@@ -354,7 +354,7 @@
         # requests gradients, still computed via the inner `AutoForwardDiff`.
         qs = CMTYield.([0.04, 0.045, 0.05, 0.052], [1.0, 5.0, 10.0, 30.0])
         reprice(c) = maximum(abs, present_value(c, q.instrument) - q.price for q in qs)
-        N = FinanceModels.OptimizationOptimJL.Newton()
+        N = FinanceModels.Optim.Newton()
 
         c = @test_logs fit(Spline.MonotoneConvex(), qs; optimizer = N)
         @test reprice(c) < 1.0e-10

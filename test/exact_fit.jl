@@ -52,14 +52,14 @@
     end
 
     @testset "an optimizer or its settings fit the squared loss" begin
-        @test_throws FitConvergenceError fit(Spline.Cubic(), zcb; solve_kwargs = (; maxiters = 1))
+        @test_throws FitConvergenceError fit(Spline.Cubic(), zcb; solve_kwargs = (; iterations = 1))
         @test_throws FitConvergenceError fit(Spline.Cubic(), zcb; optimizer = FailingFitOptimizer())
         @test isequal(
             fit(Spline.Cubic(), zcb; solve_kwargs = (; g_tol = 1.0e-12)),
             fit(Spline.Cubic(), zcb, FinanceModels.__default_loss(Spline.Cubic()); solve_kwargs = (; g_tol = 1.0e-12)),
         )
         c0 = ZeroRateCurve(fill(0.02, 4), [1.0, 2.0, 3.0, 5.0], Spline.Cubic())
-        @test_throws FitConvergenceError fit(c0, zcb; solve_kwargs = (; maxiters = 1))
+        @test_throws FitConvergenceError fit(c0, zcb; solve_kwargs = (; iterations = 1))
     end
 
     @testset "quotes that no curve reprices throw" begin
