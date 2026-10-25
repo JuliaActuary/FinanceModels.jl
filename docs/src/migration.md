@@ -60,8 +60,8 @@
   0.1.14); environments pinned to Optimization 4 must upgrade it together with
   FinanceModels. Under Optim 2 (OptimizationOptimJL 0.4.9 and later) a loss fit
   at the default tolerance can land about 1e-9 from the exact fit; pass
-  `solve_kwargs = (; g_tol = 1e-12)` to fit to rounding (since v7.2, with an explicit
-  `Fit.Loss()`: a spline fit without a method reprices its quotes exactly).
+  `solve_kwargs = (; g_tol = 1e-12)` to fit to rounding (since v7.2, a spline fit without a method
+  or solver settings reprices its quotes exactly).
 
 ### Valuation contexts (FinanceCore 3)
 

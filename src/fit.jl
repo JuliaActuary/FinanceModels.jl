@@ -9,7 +9,7 @@ module Fit
 
     `function` should be a loss measure, such as `x->x^2` or `x->abs(x)`. This is used by the optimization algorithm in `fit` to determine optimal parameters as defined by this loss function. `Fit.Loss()` is the squared loss, the default for models other than knot curves.
 
-    The optimizer and its settings (`fit`'s `optimizer` and `solve_kwargs`) configure a `Fit.Loss` fit: a knot-curve fit takes them only with an explicit `Fit.Loss`, such as `fit(spline, quotes, Fit.Loss(); solve_kwargs = (; g_tol = 1e-12))`.
+    The optimizer and its settings (`fit`'s `optimizer` and `solve_kwargs`) configure a `Fit.Loss` fit: passed to a knot-curve fit without a method, they select `Fit.Loss()`, so `fit(spline, quotes; solve_kwargs = (; g_tol = 1e-12))` is `fit(spline, quotes, Fit.Loss(); solve_kwargs = (; g_tol = 1e-12))`.
 
     A subtype of FitMethod.
 
@@ -38,7 +38,8 @@ module Fit
     conditions are a square system in the knot rates, which `fit` solves by Newton's method with a
     line search, for at most `maxiters` iterations. It is the default for `fit(spline, quotes)`, which
     places one knot at each quote maturity, and for refitting a knot curve whose knots are at the quote
-    maturities.
+    maturities. An `optimizer` or `solve_kwargs` passed without a method configure a loss fit instead,
+    and select `Fit.Loss()`.
 
     The fitted curve reprices each quote to within `sqrt(eps())` of its size: the gross value of its
     cashflows on the curve (the sum of their absolute values, discounted), or its price for a contract
@@ -348,8 +349,8 @@ Fit a model to a collection of quotes using a loss function and optimization met
 - `optimizer=default_optimizer(model)`: The optimization algorithm to use. The default optimization for a given model is `LBFGS()` from Optim.jl (via OptimizationOptimJL), a quasi-Newton method with automatic differentiation via ForwardDiff. See extended help for more on customizing the solver.
 - `solve_kwargs=(;)`: Keyword arguments passed to `Optimization.solve` with the optimizer, such as
   `(; maxiters = 10_000, abstol = 1e-12)` or Optim.jl's `g_tol`. Use them to tighten a loss fit. The
-  `optimizer` and `solve_kwargs` configure a `Fit.Loss` fit, so a knot-curve fit takes them only with
-  an explicit one: `fit(spline, quotes, Fit.Loss(); solve_kwargs = …)`.
+  `optimizer` and `solve_kwargs` configure a `Fit.Loss` fit: given to a knot-curve fit without a
+  `method`, they select `Fit.Loss()`, which returns the closest curve where `Fit.Exact()` throws.
 - `extrapolation=:flat_forward`: For `Spline.SplineCurve` fits (including
   `Spline.MonotoneConvex()`), the long-end policy beyond the last knot (see
   [`Yield.Spline`](@ref FinanceModels.Yield.Spline)). Also accepts `:flat_zero`, `:linear`,
@@ -364,8 +365,8 @@ no optimizer. The returned curve reprices each quote to within `sqrt(eps())` of 
 value of its cashflows; in practice to rounding), and a solve that cannot reprice them, because no
 curve with this interpolation does, throws a
 [`FitConvergenceError`](@ref FinanceModels.FitConvergenceError) rather than return the closest
-curve. `Fit.Loss(f)` fits the spline by minimizing the loss (`Fit.Loss()`: the squared loss) with an
-Optimization.jl solver instead: `LBFGS()` for `Spline.MonotoneConvex()`, `Newton()` otherwise. With quotes that a
+curve. `Fit.Loss(f)` fits the spline by minimizing the loss (`Fit.Loss()`: the squared loss, which an
+`optimizer` or `solve_kwargs` without a method also select) with an Optimization.jl solver instead: `LBFGS()` for `Spline.MonotoneConvex()`, `Newton()` otherwise. With quotes that a
 curve reprices, the loss fit converges to the same curve, to the optimizer's tolerance.
 `Fit.Bootstrap()` accepts `Spline.Linear()` only. Fitting an existing knot curve
 (`fit(curve, quotes)`, a [`Yield.AbstractInterpolatedZeroCurve`](@ref)) fits new knot rates at
@@ -373,9 +374,10 @@ its tenors with its interpolation method and `extrapolation`. When its knots are
 maturities, it reprices the quotes as the spline fit does (`Fit.Exact()`). Otherwise it is the
 least-squares fit, [`Fit.LeastSquares`](@ref FinanceModels.Fit.LeastSquares): the knot rates that
 minimize the (optionally weighted) squared pricing residuals, for example a curve of ten knots fitted
-to an index of a thousand bonds whose maturities repeat. With a `Fit.Loss`, it minimizes the loss with
-the optimizer instead; its default optimizer is the spline's. Every refit starts from the same
-starting rates as a spline fit (not the curve's own).
+to an index of a thousand bonds whose maturities repeat. With a `Fit.Loss`, or with an `optimizer` or
+`solve_kwargs` (which select `Fit.Loss()`), it minimizes the loss with the optimizer instead; its
+default optimizer is the spline's. Every refit starts from the same starting rates as a spline fit
+(not the curve's own).
 With fewer quotes than a polynomial or B-spline needs for its order, the order is reduced to one
 less than the number of knots (see
 [`Spline.PolynomialSpline`](@ref FinanceModels.Spline.PolynomialSpline)): `fit(Spline.Cubic(), quotes)`
@@ -570,34 +572,22 @@ function fit(
 end
 
 # Without a method, it reprices its quotes (`Fit.Exact()`): one knot per quote makes the repricing
-# conditions a square system, which Newton's method solves (`__solve_knot_rates`). The optimizer and its
-# settings configure a loss fit, so they come only with an explicit `Fit.Loss`.
+# conditions a square system, which Newton's method solves (`__solve_knot_rates`). An optimizer or its
+# settings configure a loss fit, so with them the default is the squared loss (`Fit.Loss()`), as it was
+# for every spline fit before `Fit.Exact`.
 function fit(
         mod0::T, quotes; optimizer = nothing, solve_kwargs = nothing, extrapolation = :flat_forward
     ) where {T <: Spline.SplineCurve}
-    __no_loss_settings(mod0, optimizer, solve_kwargs)
+    (optimizer === nothing && solve_kwargs === nothing) || return fit(
+        mod0, quotes, Fit.Loss(); extrapolation,
+        optimizer = something(optimizer, default_optimizer(mod0)), solve_kwargs = something(solve_kwargs, (;)),
+    )
     return fit(mod0, quotes, Fit.Exact(); extrapolation)
 end
 function fit(mod0::T, quotes, method::Fit.Exact; extrapolation = :flat_forward) where {T <: Spline.SplineCurve}
     quotes, primal_quotes = __calibration_quotes(quotes)
     tenors = __spline_fit_tenors(mod0, primal_quotes)
     return __fit_knot_rates(mod0, tenors, quotes, primal_quotes, method, extrapolation; optimizer = nothing, solve_kwargs = nothing)
-end
-
-# `optimizer` and `solve_kwargs` without a method: they configure a `Fit.Loss` fit, which a knot curve's
-# default is not, so the fit throws rather than switch its objective to a loss.
-function __no_loss_settings(model, optimizer, solve_kwargs)
-    (optimizer === nothing && solve_kwargs === nothing) && return nothing
-    throw(
-        ArgumentError(
-            "fit($model, quotes; optimizer, solve_kwargs): the optimizer and its settings configure a loss " *
-                "fit, so pass that method: fit($model, quotes, Fit.Loss(); solve_kwargs = …) minimizes the " *
-                "squared loss. Without a method, a knot-curve fit reprices its quotes (Fit.Exact()) or, for a " *
-                "refit whose knots are not at the quote maturities, minimizes the squared residuals " *
-                "(Fit.LeastSquares()); their iteration limits are Fit.Exact(maxiters = …) and " *
-                "Fit.LeastSquares(maxiters = …)."
-        )
-    )
 end
 
 # A least-squares spline fit has one knot per quote maturity. Its minimum reprices the quotes when a curve
@@ -622,10 +612,13 @@ end
 
 # Without a method, a refit whose knots are at the quote maturities is a spline fit, and reprices its
 # quotes as one does (`Fit.Exact()`). Other knot grids have no exact fit in general: they minimize the
-# squared pricing residuals (`Fit.LeastSquares()`). The optimizer and its settings configure a loss fit,
-# so they come only with an explicit `Fit.Loss`.
+# squared pricing residuals (`Fit.LeastSquares()`). An optimizer or its settings configure a loss fit, and
+# select the squared loss (`Fit.Loss()`).
 function fit(c::Yield.AbstractInterpolatedZeroCurve, quotes; optimizer = nothing, solve_kwargs = nothing)
-    __no_loss_settings(c.spline, optimizer, solve_kwargs)
+    (optimizer === nothing && solve_kwargs === nothing) || return fit(
+        c, quotes, Fit.Loss();
+        optimizer = something(optimizer, default_optimizer(c.spline)), solve_kwargs = something(solve_kwargs, (;)),
+    )
     quotes = collect(quotes)   # read twice: a single-pass iterator is collected once
     tenors = Yield.knot_tenors(c)
     maturities = sort!([float(maturity(q)) for q in quotes])
