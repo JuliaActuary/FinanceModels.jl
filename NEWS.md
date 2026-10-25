@@ -52,6 +52,44 @@ with v7.1.1 (pkgimage 41 MB to 36 MB).
   match `Fit.Bootstrap()` to `1e-13`.
 - `FitConvergenceError` messages end in "(return code …)" rather than "(optimizer return code …)".
 
+### A linear spline curve has one concrete type
+
+`Spline.PolynomialSpline`'s order is now a type parameter: `Spline.Linear()` is a
+`Spline.PolynomialSpline{1}`. With the order a runtime field, a curve built from `Spline.Linear()`
+was inferred as a union of the linear, quadratic, and cubic curve types, and code that built one
+compiled all three for its element type, including every gradient through
+`ZeroRateCurve(rates, tenors, Spline.Linear())`. A quadratic or cubic spline still reduces its order
+on a short grid, so its curve type is a union of the orders it can reduce to.
+
+The knot curves' `zero`, `discount`, and instantaneous forward are no longer constant-propagated.
+Before, a function that queried a curve compiled the evaluation again for each of its call sites.
+The precompile workload now also covers queries on quadratic curves and on the curve types a cubic
+spline reduces to, and a four-quote cubic fit. On Julia 1.13, against v7.2.0 without these
+changes:
+
+| first call | before | after |
+|---|---:|---:|
+| gradient of a value through `ZeroRateCurve(rates, tenors, Spline.Linear())` | 1.97 s | 0.49 s |
+| ActuaryUtilities `sensitivities` of a value on `ZeroRateCurve(…, Spline.Linear())` | 2.48 s | 0.80 s |
+| ActuaryUtilities par-quote risk (a bootstrap inside a gradient) | 2.38 s | 1.97 s |
+| `ZeroRateCurve(…, Spline.Linear())` and three queries, in a function | 0.059 s | 0.027 s |
+| `ZeroRateCurve(rates, tenors)` (monotone convex) and four queries, in a function | 0.060 s | 0.030 s |
+| cubic `Yield.Spline` and five queries, in a function | 0.139 s | 0.106 s |
+| `fit(Spline.Cubic(), quotes)`, 5 CMT quotes | 1.55 s | 1.46 s |
+| `fit(Spline.Linear(), quotes)`, 12 CMT quotes | 0.92 s | 0.86 s |
+
+Other first calls, including cubic and PCHIP fits of 12 quotes, are unchanged. Run time is
+unchanged or faster: building a linear curve allocates 416 bytes instead of 608, and valuing
+cashflows on a newly built linear curve takes 156 ns instead of 165 ns. Precompiling FinanceModels
+takes about 1.5 s longer (pkgimage 35.5 MB to 39.4 MB); loading it is unchanged.
+
+- `Spline.PolynomialSpline(n)`, `Spline.Linear()`, `Spline.Quadratic()`, `Spline.Cubic()`, `s.order`,
+  `==`, `hash`, printing (`PolynomialSpline(3)`), and `@set s.order = 2` behave as before.
+- `typeof(Spline.Cubic())` is `Spline.PolynomialSpline{3}`, and `Spline.PolynomialSpline` has no
+  fields. Type parameters are invariant, so code that names a concrete curve type, such as
+  `Yield.Spline{Spline.PolynomialSpline, Float64, …}`, must write `<:Spline.PolynomialSpline` or the
+  order, such as `Spline.PolynomialSpline{1}`.
+
 ## v7.1.1
 
 ### Faster first calls on common curves and quotes

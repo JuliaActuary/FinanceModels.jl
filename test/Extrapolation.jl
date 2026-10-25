@@ -28,9 +28,10 @@ spline_zero_curve_with_policy(d, r, t, policy::Symbol) = ZeroRateCurve(r, t, d; 
             end
         end
         # DataInterpolations-backed curves: every policy Symbol, including `:extension`,
-        # builds the same concrete type. (`PolynomialSpline` stores its order as a runtime
-        # value, so its interpolant type is not inferable from the descriptor type.)
-        for d in (Spline.PCHIP(), Spline.Akima(), Spline.BSpline(3))
+        # builds the same concrete type. (A quadratic or cubic spline reduces its order on a
+        # short grid, so its interpolant type is not inferable from the descriptor type; a
+        # linear spline's is.)
+        for d in (Spline.Linear(), Spline.PCHIP(), Spline.Akima(), Spline.BSpline(3))
             for T in (Float32, Float64), U in (Float64, BigFloat)
                 r, t = T.(rates), U.(times)
                 types = map((:flat_forward, :flat_zero, :linear, :extension)) do policy

@@ -75,21 +75,21 @@ function __build(s::Sp.SplineCurve, interpolation, g::KnotGrid; extrapolation = 
     return Spline(Unchecked(), s, g, extrapolation, interpolant, __spline_tail(interpolant, g, extrapolation), extrapolation === :extension)
 end
 __build(s::Sp.SplineCurve, g::KnotGrid; extrapolation = :flat_forward) = __build(s, __interpolation(s, length(g.tenors)), g; extrapolation)
-# Branching on the order keeps a public polynomial-spline curve's type inferable as a union of the
-# three curve types.
-function __build(b::Sp.PolynomialSpline, g::KnotGrid; extrapolation = :flat_forward)
+# Branching on the order keeps a public polynomial-spline curve's type inferable: one concrete type
+# for a linear spline, and a union of the types of the orders a short grid can reduce it to otherwise.
+function __build(b::Sp.PolynomialSpline{O}, g::KnotGrid; extrapolation = :flat_forward) where {O}
     order = __polynomial_order(b, length(g.tenors))
     order == 1 && return __build(b, Val(1), g; extrapolation)
-    order == 2 && return __build(b, Val(2), g; extrapolation)
+    (O == 2 || order == 2) && return __build(b, Val(2), g; extrapolation)
     return __build(b, Val(3), g; extrapolation)
 end
 
 # The interpolation a descriptor uses on `n` knots. Code that builds many curves on one grid (a
 # fit's trial curves and Jacobian, a bootstrap's steps) resolves it once and builds through it, so
-# that each of those curves has one concrete type. A polynomial spline's order is a runtime field,
-# so its interpolation is a `Val` of the order: branching on the order inside an AD-traced loss
-# made every trial curve a union of the linear, quadratic, and cubic curve types, and all three
-# were compiled for each width of dual number.
+# that each of those curves has one concrete type. A polynomial spline's interpolation depends on
+# the number of knots (a short grid reduces the order), so it is a `Val` of the reduced order:
+# branching on the order inside an AD-traced loss made every trial curve a union of the linear,
+# quadratic, and cubic curve types, and all three were compiled for each width of dual number.
 __interpolation(s::Sp.SplineCurve, n) = s
 __interpolation(b::Sp.PolynomialSpline, n) = Val(__polynomial_order(b, n))
 # A built curve's interpolation, read from its type so that it is inferable.
@@ -101,7 +101,8 @@ __polynomial_interpolation(::DataInterpolations.CubicSpline) = Val(3)
 
 # documented short-grid rule (`Spline.PolynomialSpline`): the order reduces to `k - 1` on `k`
 # knots, and a single knot is interpolated over two points (`__interpolation_grid`)
-__polynomial_order(b::Sp.PolynomialSpline, n) = min(max(n, 2) - 1, b.order)
+__polynomial_order(::Sp.PolynomialSpline{O}, n) where {O} = min(max(n, 2) - 1, O)
+__polynomial_order(::Sp.PolynomialSpline{1}, n) = 1   # on every grid, so it is inferred
 
 # DataInterpolations needs two points. A one-knot curve is flat, so its interpolant runs a flat
 # segment from the knot to one year beyond it; the curve's own knots, tail, and short end are
