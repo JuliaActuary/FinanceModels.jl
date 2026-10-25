@@ -111,7 +111,7 @@
                 e
             end
             @test err isa FitConvergenceError
-            @test occursin("Fit.Loss()", sprint(showerror, err))
+            @test occursin("Fit.LeastSquares()", sprint(showerror, err))
         end
     end
 

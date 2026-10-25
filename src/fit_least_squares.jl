@@ -44,8 +44,10 @@ function __cashflow_matrix(quotes)
 end
 
 # The residuals of a least-squares fit of fixed-cashflow quotes, on primal (or the solve's own dual) knot
-# rates `z`: their cashflow matrix `A` (primal), its distinct `times`, and the quotes' `prices`.
-struct __CashflowResiduals{S, I, T, E, M, V}
+# rates `z`: their cashflow matrix `A` (primal), its distinct `times`, and the quotes' `prices`. `gross` is
+# the matrix of the cashflows' absolute amounts when some quote has cashflows of both signs, and `nothing`
+# otherwise.
+struct __CashflowResiduals{S, I, T, E, M, V, G}
     spline::S
     interpolation::I
     tenors::T
@@ -53,20 +55,47 @@ struct __CashflowResiduals{S, I, T, E, M, V}
     A::M
     times::V
     prices::V
+    gross::G
 end
 function __discounts(r::__CashflowResiduals, z)
     curve = __trial_curve(r.spline, r.interpolation, z, r.tenors, r.extrapolation)
     return map(t -> discount(curve, t), r.times)
 end
-__residuals(r::__CashflowResiduals, z) = r.A * __discounts(r, z) .- r.prices
-__residual_jacobian(r::__CashflowResiduals, z) = r.A * ForwardDiff.jacobian(z -> __discounts(r, z), z)
+# The discount factors at the cashflow times as a callable, whose type tags the Jacobian's dual numbers.
+struct __DiscountsAt{R}
+    r::R
+end
+(f::__DiscountsAt)(z) = __discounts(f.r, z)
+
+# The residuals at `z`, with what the quotes' sizes need (the discount factors, or nothing).
+function __evaluate(r::__CashflowResiduals, z)
+    d = __discounts(r, z)
+    return r.A * d .- r.prices, d
+end
+__evaluate(r::__RepricingResiduals, z) = (r(z), nothing)
+
+# The Jacobian's configuration, built once per fit: its chunk follows the number of knots, so its type is
+# known only at run time, and the solve asserts the Jacobian's type `T` to stay inferred (as the exact
+# solve does).
+__jacobian_config(r::__CashflowResiduals, z0) = ForwardDiff.JacobianConfig(__DiscountsAt(r), z0)
+__jacobian_config(r::__RepricingResiduals, z0) = ForwardDiff.JacobianConfig(r, z0)
+__residual_jacobian(r::__CashflowResiduals, z, config, ::Type{T}) where {T} = r.A * (ForwardDiff.jacobian(__DiscountsAt(r), z, config)::Matrix{T})
+__residual_jacobian(r::__RepricingResiduals, z, config, ::Type{T}) where {T} = ForwardDiff.jacobian(r, z, config)::Matrix{T}
 
 __quote_prices(r::__CashflowResiduals) = r.prices
-
-# Quotes whose cashflows depend on the curve are priced one by one, as an exact fit prices them.
-__residuals(r::__RepricingResiduals, z) = r(z)
-__residual_jacobian(r::__RepricingResiduals, z) = ForwardDiff.jacobian(r, z)
 __quote_prices(r::__RepricingResiduals) = [q.price for q in r.quotes]
+
+# Each quote's size with residuals `ru` (and `d`, from `__evaluate`) at `z`, as an exact fit measures it
+# (`__quote_size`): the gross value of its cashflows. (`__reprices` takes the value of quotes whose
+# cashflows are all nonnegative, which is their gross value.)
+__least_squares_sizes(r::__CashflowResiduals, z, ru, d, state) = r.gross * d
+__least_squares_sizes(r::__RepricingResiduals, z, ru, d, state) = __quote_sizes!(similar(ru), r, z, ru, state.nonnegative, state.seed_values)
+__least_squares_state(r::__CashflowResiduals, ru) = nothing
+function __least_squares_state(r::__RepricingResiduals, ru)
+    seed_values = ru .+ __quote_prices(r)
+    nonnegative = [__nonnegative_cashflows(q.instrument) for q in r.quotes]
+    return (; seed_values, nonnegative)
+end
 
 # The quotes must determine every knot rate: each knot moves some quote's price, and the Jacobian with its
 # columns scaled to unit length is well conditioned. `J` is the weighted residuals' Jacobian.
@@ -95,15 +124,20 @@ function __check_determined(J, tenors, who)
     return nothing
 end
 
-# Levenberg-Marquardt: iteration limit; the cosine between the residuals and every Jacobian column at
-# which it has converged; the largest cosine it accepts when it stops otherwise (a step or a damping at
-# rounding); and the step (in knot rates) below which it stops. A fit whose weighted residuals are all
-# within `__EXACT_FIT_FTOL` of their quotes' sizes has converged too: it reprices its quotes, and the
-# cosine of residuals at rounding says nothing.
-const __LSQ_MAXITERS = 200
+# Levenberg-Marquardt: the cosine between the residuals and every Jacobian column at which it has
+# converged, and the step (in knot rates) below which it stops. The sum of squares stops registering a
+# decrease near a cosine of sqrt(eps), its rounding, which can be short of that tolerance. The fit then
+# takes Gauss-Newton steps while they contract, for at most `__LSQ_POLISH` steps; when they contract
+# slowly (the residuals' curvature nearly cancels the Gauss-Newton Hessian JᵀJ in some direction), Newton
+# steps on the gradient, with the full Hessian, for at most `__LSQ_NEWTON` steps. It is accepted when its
+# last step (its first-order distance to the minimum) is at most `__LSQ_ACCEPT` in knot rates, 1e-6 bp.
+# A fit whose weighted residuals are within `__EXACT_FIT_FTOL` of their quotes' sizes has converged too: it
+# reprices its quotes, and the cosine of residuals at rounding says nothing.
 const __LSQ_GTOL = 1.0e-12
-const __LSQ_ACCEPT = 1.0e-8
 const __LSQ_STEPTOL = 1.0e-15
+const __LSQ_POLISH = 10
+const __LSQ_NEWTON = 5
+const __LSQ_ACCEPT = 1.0e-10
 
 # The largest cosine between the residuals `f` and a column of `J`: zero at a minimum, whatever the
 # scale of the residuals or of the knot rates.
@@ -113,96 +147,173 @@ function __gradient_cosine(J, f)
     return maximum(k -> (c = view(J, :, k); abs(dot(c, f)) / (norm(c) * nf)), axes(J, 2))
 end
 
-# Minimize the sum of the squared residuals `r`, each multiplied by `sw` (the square roots of the weights),
-# from the seed `z0`. Steps solve the damped normal equations (JᵀJ + μD²)δ = -Jᵀf as a least-squares
-# problem (QR), with D the largest column norms of J seen so far (Marquardt's scaling); a step is kept if
-# it decreases the sum, and μ follows the ratio of the actual to the predicted decrease (Nielsen's rule).
-function __solve_least_squares(r, sw, z0, tenors, who)
-    ReturnCode = Optimization.SciMLBase.ReturnCode
-    weighted(z) = sw .* __residuals(r, z)
-    jacobian(z) = sw .* __residual_jacobian(r, z)
-    z = copy(z0)
-    r0 = __residuals(r, z)
-    f = sw .* r0
-    J = jacobian(z)
-    # each quote's size, as an exact fit scales its residuals: its price, or its value at the seed
-    scale = map(__quote_prices(r), r0) do p, rᵢ
-        s = max(abs(p), abs(rᵢ + p))
-        iszero(s) ? one(s) : s
-    end
-    reprices(f) = all(i -> abs(f[i]) <= __EXACT_FIT_FTOL * sw[i] * scale[i], eachindex(f))
-    __check_determined(J, tenors, who)
+# The least-squares solve's vector arithmetic, which does not depend on the quotes' types, kept out of
+# line as the exact solve's is. `__lm_step` solves the damped normal equations (JᵀJ + μD²)δ = -Jᵀf as a
+# least-squares problem (QR); `__gauss_newton_step` is its undamped step.
+@noinline __weighted(sw, x) = sw .* x
+@noinline __lm_step(J, f, μ, D) = -(vcat(J, sqrt(μ) .* Diagonal(D)) \ vcat(f, zeros(length(D))))
+@noinline __gauss_newton_step(J, f) = -(J \ f)
+@noinline __lm_trial(z, δ) = z .+ δ
+@noinline __predicted_decrease(ϕ, f, J, δ) = ϕ - sum(abs2, f .+ J * δ)
+@noinline __column_norms(J) = [norm(view(J, :, k)) for k in axes(J, 2)]
+@noinline __widen_scaling!(D, J) = (D .= max.(D, __column_norms(J)))
+@noinline __gradient(J, f) = J' * f
+# The weighted residuals, their Jacobian and the gradient Jᵀf at `z`.
+function __lsq_point(r, sw, z, config, ::Type{T}) where {T}
+    f = __weighted(sw, first(__evaluate(r, z)))
+    J = __weighted(sw, __residual_jacobian(r, z, config, T))
+    return f, J, __gradient(J, f)
+end
+# The Hessian of half the weighted sum of squares at `z`, by central differences of its analytic gradient:
+# it needs only the Jacobian's code (no second-order dual numbers to compile), and is accurate to about
+# 1e-10 relative, which keeps Newton's method quadratic to rounding.
+function __lsq_hessian(r, sw, z, config, ::Type{T}) where {T}
     n = length(z)
-    D = [norm(view(J, :, k)) for k in 1:n]
+    H = Matrix{T}(undef, n, n)
+    for k in 1:n
+        zp, zm = copy(z), copy(z)
+        zp[k] += 1.0e-5 * max(1, abs(z[k]))
+        zm[k] -= zp[k] - z[k]
+        H[:, k] = (last(__lsq_point(r, sw, zp, config, T)) .- last(__lsq_point(r, sw, zm, config, T))) ./ (zp[k] - zm[k])
+    end
+    return (H .+ H') ./ 2
+end
+@noinline function __newton_direction(H, g)
+    F = lu(H; check = false)
+    (all(isfinite, H) && issuccess(F)) || return nothing
+    return -(F \ g)
+end
+# Whether every weighted residual `f` is within `__EXACT_FIT_FTOL` of its quote's size: for quotes of
+# nonnegative cashflows (no `gross` matrix), their value, checked without allocating, which stops at the
+# first quote a fit with more quotes than knots does not reprice.
+function __reprices(r::__CashflowResiduals{S, I, T, E, M, V, Nothing}, f, sw, z, ru, d, state) where {S, I, T, E, M, V}
+    for i in eachindex(f, sw, ru)
+        abs(f[i]) <= __EXACT_FIT_FTOL * sw[i] * abs(ru[i] + r.prices[i]) || return false
+    end
+    return true
+end
+function __reprices(r, f, sw, z, ru, d, state)
+    sizes = __least_squares_sizes(r, z, ru, d, state)
+    for i in eachindex(f, sw, sizes)
+        abs(f[i]) <= __EXACT_FIT_FTOL * sw[i] * sizes[i] || return false
+    end
+    return true
+end
+
+# Minimize the sum of the squared residuals `r`, each multiplied by `sw` (the square roots of the weights),
+# from the seed `z0`, in at most `maxiters` iterations. Steps solve the damped normal equations with D the
+# largest column norms of J seen so far (Marquardt's scaling); a step is kept if it decreases the sum, and
+# μ follows the ratio of the actual to the predicted decrease (Nielsen's rule).
+function __solve_least_squares(r, sw, z0, tenors, maxiters, who)
+    ReturnCode = Optimization.SciMLBase.ReturnCode
+    config = __jacobian_config(r, z0)
+    z = copy(z0)
+    ru, d = __evaluate(r, z)
+    T = eltype(ru)
+    state = __least_squares_state(r, ru)
+    f = __weighted(sw, ru)
+    J = __weighted(sw, __residual_jacobian(r, z, config, T))
+    __check_determined(J, tenors, who)
+    D = __column_norms(J)
     ϕ = sum(abs2, f)
     μ, ν = 1.0e-3, 2.0
     retcode = ReturnCode.MaxIters
     cosine = __gradient_cosine(J, f)
-    for _ in 1:__LSQ_MAXITERS
-        (cosine <= __LSQ_GTOL || reprices(f)) && (retcode = ReturnCode.Success; break)
-        δ = -(vcat(J, sqrt(μ) .* Diagonal(D)) \ vcat(f, zeros(n)))
-        if maximum(abs, δ) <= __LSQ_STEPTOL
-            retcode = cosine <= __LSQ_ACCEPT ? ReturnCode.Success : ReturnCode.Stalled
-            break
-        end
-        zt = z .+ δ
-        ft = weighted(zt)
+    for _ in 1:maxiters
+        (cosine <= __LSQ_GTOL || __reprices(r, f, sw, z, ru, d, state)) &&
+            (retcode = ReturnCode.Success; break)
+        δ = __lm_step(J, f, μ, D)
+        maximum(abs, δ) <= __LSQ_STEPTOL && (retcode = ReturnCode.Stalled; break)
+        zt = __lm_trial(z, δ)
+        rut, dt = __evaluate(r, zt)
+        ft = __weighted(sw, rut)
         ϕt = sum(abs2, ft)
-        predicted = ϕ - sum(abs2, f .+ J * δ)
+        predicted = __predicted_decrease(ϕ, f, J, δ)
         ρ = (ϕ - ϕt) / predicted   # NaN or negative for a non-finite or worse trial
         if predicted > 0 && ρ > 1.0e-4
-            z, f, ϕ = zt, ft, ϕt
-            J = jacobian(z)
-            D .= max.(D, [norm(view(J, :, k)) for k in 1:n])
+            z, ru, d, f, ϕ = zt, rut, dt, ft, ϕt
+            J = __weighted(sw, __residual_jacobian(r, z, config, T))
+            __widen_scaling!(D, J)
             cosine = __gradient_cosine(J, f)
             μ *= max(1 / 3, 1 - (2ρ - 1)^3)
             ν = 2.0
         else
             μ *= ν
             ν *= 2
-            if μ > 1.0e16
-                retcode = cosine <= __LSQ_ACCEPT ? ReturnCode.Success : ReturnCode.Stalled
-                break
-            end
-        end
-    end
-    # Stopped where the sum of squares no longer registers a decrease (its rounding), short of the gradient
-    # tolerance: Gauss-Newton steps still move the knot rates towards the minimum by the residuals'
-    # curvature ratio each, which the cosine (not the sum) shows.
-    if retcode == ReturnCode.Success && cosine > __LSQ_GTOL && !reprices(f)
-        for _ in 1:5
-            zt = z .- (J \ f)
-            ft = weighted(zt)
-            sum(abs2, ft) <= ϕ * (1 + 1.0e-12) || break
-            Jt = jacobian(zt)
-            ct = __gradient_cosine(Jt, ft)
-            ct < cosine || break
-            z, f, J, cosine, ϕ = zt, ft, Jt, ct, sum(abs2, ft)
-            cosine <= __LSQ_GTOL && break
+            μ > 1.0e16 && (retcode = ReturnCode.Stalled; break)
         end
     end
     retcode == ReturnCode.Success && return z
-    stopped = retcode == ReturnCode.MaxIters ? "did not converge within $(__LSQ_MAXITERS) iterations" :
+    # Stalled where the sum of squares no longer registers a decrease: Gauss-Newton steps still move the
+    # knot rates towards the minimum, by the residuals' curvature ratio each, while they contract.
+    δ = __gauss_newton_step(J, f)
+    zs, δs = z, δ   # where it stopped, and its step towards the minimum
+    if retcode == ReturnCode.Stalled
+        for _ in 1:__LSQ_POLISH
+            step = maximum(abs, δ)
+            step <= __LSQ_STEPTOL && break
+            zt = __lm_trial(z, δ)
+            ft = __weighted(sw, first(__evaluate(r, zt)))
+            ϕt = sum(abs2, ft)
+            ϕt <= ϕ * (1 + 1.0e-12) || break
+            Jt = __weighted(sw, __residual_jacobian(r, zt, config, T))
+            δt = __gauss_newton_step(Jt, ft)
+            maximum(abs, δt) <= step / 2 || break
+            z, f, J, ϕ, δ = zt, ft, Jt, ϕt, δt
+        end
+        maximum(abs, δ) <= __LSQ_ACCEPT && return z
+        # Newton's method on the gradient, which (unlike the sum of squares) still measures progress
+        g = __gradient(J, f)
+        for _ in 1:__LSQ_NEWTON
+            δn = __newton_direction(__lsq_hessian(r, sw, z, config, T), g)
+            isnothing(δn) && break
+            δ = δn
+            maximum(abs, δ) <= __LSQ_STEPTOL && break
+            zt = __lm_trial(z, δ)
+            ft, Jt, gt = __lsq_point(r, sw, zt, config, T)
+            (sum(abs2, ft) <= ϕ * (1 + 1.0e-12) && norm(gt) < norm(g)) || break
+            z, f, J, ϕ, g = zt, ft, Jt, sum(abs2, ft), gt
+        end
+        maximum(abs, δ) <= __LSQ_ACCEPT && return z
+    end
+    # whether that step crosses a switch of the interpolation's formulas (`Yield.__near_kink`, whose step is
+    # subtracted): a minimum on a kink, which the iterations cannot reach
+    kink = Yield.__near_kink(__trial_curve(r.spline, r.interpolation, zs, r.tenors, r.extrapolation), zs, -δs)
+    throw(__least_squares_error(who, retcode, maxiters, maximum(abs, δ), __gradient_cosine(J, f), kink))
+end
+function __least_squares_error(who, retcode, maxiters, step, cosine, kink)
+    stopped = retcode == Optimization.SciMLBase.ReturnCode.MaxIters ?
+        "did not converge within $maxiters iterations (Fit.LeastSquares(maxiters = …) raises the limit)" :
         "cannot reduce its quotes' weighted squared pricing residuals further"
-    throw(
-        FitConvergenceError(
-            retcode,
-            "$who $stopped: the residuals and the Jacobian of the knot rates are not orthogonal (largest " *
-                "cosine $cosine, at most $(__LSQ_ACCEPT) accepted). Check the quotes for prices that no curve " *
-                "with this interpolation comes near, or use fewer knots."
-        )
+    cause = if kink
+        "The fit stopped where the interpolation switches formulas, so the objective has a kink there: a " *
+            "least-squares minimum of a monotone convex, PCHIP or Akima curve can lie on such a switch, where " *
+            "this fit cannot converge. Use an interpolation that is smooth in its knot rates (such as " *
+            "Spline.Linear() or Spline.Cubic()), knots at the quote maturities (Fit.Exact()), or a minimizer " *
+            "that does not use derivatives: fit(curve, quotes, Fit.Loss(); optimizer = NelderMead())."
+    else
+        "Check the quotes for prices that no curve with this interpolation comes near, or use fewer knots."
+    end
+    return FitConvergenceError(
+        retcode,
+        "$who $stopped: its last step from the fitted knot rates is $step (at most $(__LSQ_ACCEPT) " *
+            "accepted), and the largest cosine between the residuals and a column of their Jacobian is " *
+            "$cosine (zero at a minimum). " * cause
     )
 end
 
 # Fit the knot rates at `tenors` to `quotes` by weighted least squares (`Fit.LeastSquares`), with the knot
 # grid validated and seeded as a spline fit's, and return the curve, differentiated by the implicit
 # function theorem when the quotes or the weights carry dual numbers.
-function __fit_least_squares(spline, tenors, quotes, primal_quotes, weights, extrapolation)
+function __fit_least_squares(spline, tenors, quotes, primal_quotes, method::Fit.LeastSquares, extrapolation)
     who = "fit($(spline))"
-    length(primal_quotes) >= length(tenors) || throw(
+    weights = __least_squares_weights(method.weights, length(primal_quotes))
+    w = float.(__primal.(weights))
+    weighted = count(>(0), w)
+    weighted >= length(tenors) || throw(
         ArgumentError(
-            "$who: a least-squares fit of $(length(tenors)) knots needs at least as many quotes; got " *
-                "$(length(primal_quotes)). Use fewer knots."
+            "$who: a least-squares fit of $(length(tenors)) knots needs at least as many quotes with a " *
+                "positive weight; got $weighted of $(length(primal_quotes)) quotes. Use fewer knots."
         )
     )
     any(x -> __ad_depth(x) > 0, __extrapolation_dual(extrapolation)) && throw(
@@ -219,13 +330,15 @@ function __fit_least_squares(spline, tenors, quotes, primal_quotes, weights, ext
         prices = float.([q.price for q in primal_quotes])
         # a dual number in a contract that `__primal_contract` does not strip
         (__ad_depth(eltype(A)) == 0 && __ad_depth(eltype(prices)) == 0) || throw(__foreign_dual_error(who, __SPLINE_FIT_HINT))
-        __CashflowResiduals(spline, interpolation, grid0.tenors, extrapolation, A, times, convert(typeof(times), prices))
+        gross = any(<(0), SparseArrays.nonzeros(A)) ? abs.(A) : nothing
+        __CashflowResiduals(spline, interpolation, grid0.tenors, extrapolation, A, times, convert(typeof(times), prices), gross)
     else
         __RepricingResiduals(spline, interpolation, grid0.tenors, primal_quotes, extrapolation, who)
     end
-    rates = __solve_least_squares(r, sqrt.(float.(__primal.(weights))), grid0.rates, grid0.tenors, who)
+    rates = __solve_least_squares(r, sqrt.(w), grid0.rates, grid0.tenors, method.maxiters, who)
     curve = Yield.ZeroRateCurve(rates, grid0.tenors, spline; extrapolation)   # public result: validated (finite rates)
-    (all(splat(===), zip(quotes, primal_quotes)) && __ad_depth(eltype(weights)) == 0) && return curve
+    # the weights' dual numbers are found by element: a vector of abstract element type can hold them
+    (all(splat(===), zip(quotes, primal_quotes)) && !any(x -> __ad_depth(x) > 0, weights)) && return curve
     fixed || throw(
         ArgumentError(
             "$who cannot differentiate a least-squares fit of quotes whose cashflows depend on the curve " *
@@ -262,7 +375,8 @@ function __implicit_least_squares(curve, r::__CashflowResiduals, quotes, weights
     )
     # The optimality condition at the fitted, primal rates: its value is zero to the fit's precision, and
     # its partials are those of the caller's dual numbers.
-    g = ∂d' * (A' * (weights .* (A * d .- p)))
+    # (the weights in the dual type, so that a vector of abstract element type multiplies the sparse matrix)
+    g = ∂d' * (A' * (map(x -> convert(D, x), weights) .* (A * d .- p)))
     K = ForwardDiff.npartials(D)
     P = [ForwardDiff.partials(convert(D, g[i]), k) for i in eachindex(g), k in 1:K]
     dZ = -(F \ P)

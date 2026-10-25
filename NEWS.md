@@ -14,14 +14,16 @@ curve = fit(c0, bond_quotes)                                   # least squares
 curve = fit(c0, bond_quotes, Fit.LeastSquares(weights = w))    # weighted, e.g. w = 1 ./ (price .* duration).^2
 ```
 
-`Fit.LeastSquares(; weights)` minimizes the weighted squared pricing residuals by
-Levenberg–Marquardt, and is the default method for knot curves. When the knots are at the quote
-maturities, as in `fit(spline, quotes)`, it is the exact fit. Quotes with fixed cashflows
-(`Cashflow` and `Bond.Fixed`, which covers every FinanceModels quote type) are priced through
-their cashflow matrix, so the curve is evaluated once per distinct cashflow date. A refit with
-other knots used to minimize the squared loss with Optim's `Newton()`, and finds the same knot
-rates (to 6e-12 on the index below). On Julia 1.13, with 1,000 semiannual bonds, 28,456 cashflows
-on 360 dates, and 10 cubic knots:
+`Fit.LeastSquares(; weights, maxiters = 200)` minimizes the weighted squared pricing residuals by
+Levenberg–Marquardt. It is the default for refitting a knot curve whose knots are not at the quote
+maturities (with knots at the quote maturities, a refit is `Fit.Exact()`). With knots at the quote
+maturities, `fit(spline, quotes, Fit.LeastSquares())` reaches the exact fit's curve when a curve
+reprices the quotes, and returns the closest curve when none does, where `Fit.Exact()` throws.
+Quotes with fixed cashflows (`Cashflow` and `Bond.Fixed`, which covers every FinanceModels quote
+type) are priced through their cashflow matrix, so the curve is evaluated once per distinct
+cashflow date. A refit with other knots used to minimize the squared loss with Optim's `Newton()`,
+and finds the same knot rates (to 6e-12 on the index below). On Julia 1.13, with 1,000 semiannual
+bonds, 28,456 cashflows on 360 dates, and 10 cubic knots:
 
 | refit | v7.1 | v7.2.0 |
 |---|---:|---:|
@@ -35,8 +37,20 @@ Gauss–Newton approximation leaves out: on the index above, leaving it out woul
 A refit with another number of knots than quotes used to throw a `DimensionMismatch` when
 differentiated.
 
+A fit is accepted when its last step is at most `1e-10` in knot rates (`1e-6` bp), its first-order
+distance to the minimum; otherwise it throws a `FitConvergenceError`. Where the sum of squares stops
+registering a decrease, the fit finishes with Gauss–Newton steps and, when those contract slowly,
+Newton steps with the full Hessian.
+
+Monotone convex, PCHIP and Akima curves switch formulas between regions of knot rates, so their
+least-squares objective has kinks, and its minimum can lie on one, where the fit cannot converge: it
+throws a `FitConvergenceError` that says so. In a sweep of 20 random 80-bond indices, every
+linear, quadratic and cubic fit converged (75 of 75, including quotes priced one at a time), against
+13 of 25 monotone convex and 12 of 25 PCHIP fits. Least-squares fits are best done with an
+interpolation that is smooth in its knot rates.
+
 The fit throws an `ArgumentError` when the quotes do not determine the knot rates:
-- fewer quotes than knots;
+- fewer quotes with a positive weight than knots;
 - a knot that moves no quote's price, such as a knot of a linear curve beyond the last cashflow;
 - an ill-conditioned problem.
 

@@ -132,7 +132,8 @@ instantaneous forward and can also change interior interpolation.
 curve to more quotes than you want knots (the bonds of a credit index, say, whose maturities
 repeat and whose prices no single curve reprices), choose the knots and refit a curve that has
 them. The refit is a least-squares fit, [`Fit.LeastSquares`](@ref FinanceModels.Fit.LeastSquares):
-the knot rates that minimize the squared pricing residuals.
+the knot rates that minimize the squared pricing residuals. (A refit whose knots are at the quote
+maturities is the exact fit, `Fit.Exact()`.)
 
 ```julia
 knots = [0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0, 15.0, 20.0, 30.0]
@@ -151,10 +152,17 @@ bbb = fit(c0, bond_quotes, Fit.LeastSquares(weights = w))
 The fit solves the least-squares problem by Levenberg–Marquardt. Quotes with fixed cashflows
 (`Cashflow` and `Bond.Fixed` instruments, which every FinanceModels quote type is) are priced
 through their cashflow matrix: the curve is evaluated once per distinct cashflow date rather than
-once per cashflow. The quotes must determine every knot rate (at least as many quotes as knots,
-each knot moving some quote's price), or the fit throws. Fits of fixed cashflows are
-differentiable with respect to the quote prices, coupons and weights; see
+once per cashflow. The quotes must determine every knot rate (at least as many quotes with a
+positive weight as knots, each knot moving some quote's price), or the fit throws. Fits of fixed
+cashflows are differentiable with respect to the quote prices, coupons and weights; see
 [Sensitivities Through Calibration](@ref).
+
+Choose an interpolation that is smooth in its knot rates, such as `Spline.Linear()` or
+`Spline.Cubic()`. Monotone convex, PCHIP and Akima curves switch formulas between regions of knot
+rates, so the least-squares objective has kinks, and its minimum can lie on one, where the fit
+cannot converge: it then throws a [`FitConvergenceError`](@ref FinanceModels.FitConvergenceError)
+that says so. In a sweep of random 80-bond indices, about half the monotone convex and PCHIP fits
+did, and none of the linear, quadratic or cubic ones.
 
 ## Key Tradeoffs
 

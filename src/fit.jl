@@ -44,8 +44,9 @@ module Fit
     cashflows on the curve (the sum of their absolute values, discounted), or its price for a contract
     whose cashflows depend on the curve. When no curve of its interpolation method reprices the quotes
     (a price that implies a non-positive discount factor, for example), the fit throws a
-    [`FitConvergenceError`](@ref FinanceModels.FitConvergenceError); `Fit.Loss()` minimizes the squared
-    residuals instead. A refit with `Fit.Exact()` needs as many quotes as knots.
+    [`FitConvergenceError`](@ref FinanceModels.FitConvergenceError); `Fit.LeastSquares()` (or `Fit.Loss()`,
+    with an optimizer) minimizes the squared residuals instead and returns the closest curve. A refit
+    with `Fit.Exact()` needs as many quotes as knots.
 
     A subtype of FitMethod.
     """
@@ -88,7 +89,7 @@ module Fit
     end
 
     """
-        Fit.LeastSquares(; weights = nothing)
+        Fit.LeastSquares(; weights = nothing, maxiters = 200)
 
     Fit a knot curve (a `Spline.SplineCurve` or an existing knot curve such as a `ZeroRateCurve`) by
     weighted least squares: the knot rates that minimize
@@ -98,15 +99,18 @@ module Fit
     over the quotes `qᵢ`, with `wᵢ = 1` when `weights` is `nothing`. Weights are a vector with one
     finite, non-negative number per quote; a weight of zero leaves its quote out. For example, weights
     of `1 / (price * duration)^2` make the residuals approximately yield errors, so that long bonds
-    do not dominate the fit.
+    do not dominate the fit. The minimization (Levenberg-Marquardt) runs for at most `maxiters`
+    iterations.
 
-    It is the default method for knot curves. When the knots are at the quote maturities, as in
-    `fit(spline, quotes)`, the minimum reprices every quote (the weights do not matter), and a fit
-    that cannot reprice them throws a [`FitConvergenceError`](@ref FinanceModels.FitConvergenceError).
-    With other knots, such as a curve of ten knots fitted to an index of a thousand bonds, it
-    returns the best fit: refit a curve that has the knots you choose, with
-    `fit(ZeroRateCurve(rates, knots, spline), quotes)`. Quote maturities may repeat, and there must
-    be at least as many quotes as knots, each knot moving some quote's price.
+    It is the default for refitting a knot curve whose knots are not at the quote maturities, such as
+    a curve of ten knots fitted to an index of a thousand bonds: refit a curve that has the knots you
+    choose, with `fit(ZeroRateCurve(rates, knots, spline), quotes)`. Quote maturities may repeat, and
+    there must be at least as many quotes with a positive weight as knots, each knot moving some
+    quote's price. With knots at the quote maturities (`fit(spline, quotes, Fit.LeastSquares())`),
+    the minimum reprices the quotes when a curve with the interpolation method does, and it is the
+    closest curve when none does, where [`Fit.Exact`](@ref FinanceModels.Fit.Exact) throws. A
+    minimization that does not converge throws a
+    [`FitConvergenceError`](@ref FinanceModels.FitConvergenceError).
 
     The fit is differentiable with ForwardDiff with respect to quote prices, cashflow amounts (such
     as `Bond.Fixed` coupons) and the weights, when every quote's cashflows are fixed (`Cashflow` and
@@ -123,10 +127,11 @@ module Fit
         Fit.LeastSquares(weights = w))
     ```
     """
-    # Constructed by keyword only, so that options can be added without changing existing calls.
     struct LeastSquares{W} <: FitMethod
         weights::W
-        LeastSquares(; weights = nothing) = new{typeof(weights)}(weights)
+        maxiters::Int
+        # Constructed by keyword only, so that options can be added without changing existing calls.
+        LeastSquares(; weights = nothing, maxiters::Integer = 200) = new{typeof(weights)}(weights, maxiters)
     end
 
 
@@ -587,19 +592,20 @@ function __no_loss_settings(model, optimizer, solve_kwargs)
         ArgumentError(
             "fit($model, quotes; optimizer, solve_kwargs): the optimizer and its settings configure a loss " *
                 "fit, so pass that method: fit($model, quotes, Fit.Loss(); solve_kwargs = …) minimizes the " *
-                "squared loss. Without a method, a knot-curve fit reprices its quotes (Fit.Exact(), whose " *
-                "iteration limit is Fit.Exact(maxiters = …))."
+                "squared loss. Without a method, a knot-curve fit reprices its quotes (Fit.Exact()) or, for a " *
+                "refit whose knots are not at the quote maturities, minimizes the squared residuals " *
+                "(Fit.LeastSquares()); their iteration limits are Fit.Exact(maxiters = …) and " *
+                "Fit.LeastSquares(maxiters = …)."
         )
     )
 end
 
-# A least-squares spline fit has one knot per quote, so its minimum reprices the quotes: it is the
-# exact fit, whatever the weights.
+# A least-squares spline fit has one knot per quote maturity. Its minimum reprices the quotes when a curve
+# with its interpolation does; otherwise it is the closest curve, where `Fit.Exact()` throws.
 function fit(mod0::T, quotes, method::Fit.LeastSquares; extrapolation = :flat_forward) where {T <: Spline.SplineCurve}
     quotes, primal_quotes = __calibration_quotes(quotes)
-    __least_squares_weights(method.weights, length(primal_quotes))
     tenors = __spline_fit_tenors(mod0, primal_quotes)
-    return __fit_knot_rates(mod0, tenors, quotes, primal_quotes, Fit.Exact(), extrapolation; optimizer = nothing, solve_kwargs = nothing)
+    return __fit_least_squares(mod0, tenors, quotes, primal_quotes, method, extrapolation)
 end
 
 # Refitting a knot curve keeps its knot tenors, interpolation method and extrapolation policy, and
@@ -631,16 +637,11 @@ function fit(c::Yield.AbstractInterpolatedZeroCurve, quotes, method::Fit.Exact)
     return __fit_knot_rates(c.spline, Yield.knot_tenors(c), quotes, primal_quotes, method, c.extrapolation; optimizer = nothing, solve_kwargs = nothing)
 end
 
-# A least-squares refit whose knots are at the quote maturities is a spline fit, and reprices its quotes
-# as one does. Other knot grids have no exact fit in general: they minimize the weighted squared
-# residuals (`__fit_least_squares`).
+# A least-squares refit minimizes the weighted squared pricing residuals on the curve's knots, wherever
+# they are (`__fit_least_squares`).
 function fit(c::Yield.AbstractInterpolatedZeroCurve, quotes, method::Fit.LeastSquares)
     quotes, primal_quotes = __calibration_quotes(quotes)
-    weights = __least_squares_weights(method.weights, length(primal_quotes))
-    tenors = Yield.knot_tenors(c)
-    aligned = length(tenors) == length(primal_quotes) && sort!([float(maturity(q)) for q in primal_quotes]) == tenors
-    aligned && return __fit_knot_rates(c.spline, tenors, quotes, primal_quotes, Fit.Exact(), c.extrapolation; optimizer = nothing, solve_kwargs = nothing)
-    return __fit_least_squares(c.spline, tenors, quotes, primal_quotes, weights, c.extrapolation)
+    return __fit_least_squares(c.spline, Yield.knot_tenors(c), quotes, primal_quotes, method, c.extrapolation)
 end
 
 # Every fit of knot rates, exact or by loss, for every interpolation method including
@@ -671,7 +672,7 @@ function __solve_knots(method::Fit.Exact, spline, interpolation, grid0, primal_q
     length(primal_quotes) == length(grid0.tenors) || throw(
         ArgumentError(
             "$who: Fit.Exact() solves the repricing conditions of one quote per knot; got $(length(primal_quotes)) " *
-                "quotes for $(length(grid0.tenors)) knots. Fit.Loss() minimizes the squared residuals instead."
+                "quotes for $(length(grid0.tenors)) knots. Fit.LeastSquares() minimizes the squared residuals instead."
         )
     )
     r = __RepricingResiduals(spline, interpolation, grid0.tenors, primal_quotes, primal_extrapolation, who)
@@ -807,8 +808,8 @@ function __exact_fit_error(who, retcode, maxiters, z, residual, maturity)
         "$who $stopped: the largest relative residual is $residual, on the quote maturing at $maturity. No " *
             "curve with this interpolation may reprice the quotes (for example, a price that implies a " *
             "non-positive discount factor), or the quote prices may not determine every knot rate (a quote " *
-            "whose cashflows do not depend on its own maturity's knot). fit(spline, quotes, Fit.Loss()) " *
-            "minimizes the squared residuals instead."
+            "whose cashflows do not depend on its own maturity's knot). Fit.LeastSquares() returns the closest " *
+            "curve instead."
     )
 end
 

@@ -18,8 +18,8 @@ end
     norm2(v) = sqrt(sum(abs2, v))
     objective(spline, w = ones(length(qs))) = z -> sum(w[i] * (pv(ZeroRateCurve(z, knots, spline), q.instrument) - q.price)^2 for (i, q) in enumerate(qs))
 
-    # (PCHIP and Akima fits also converge, but their objective has kinks where their formula switches, so
-    # its gradient is not checked here.)
+    # (Monotone convex, PCHIP and Akima curves switch formulas, so their objective has kinks: see the
+    # robustness testset below.)
     @testset "$spline minimizes the squared pricing residuals" for spline in (Spline.Linear(), Spline.Quadratic(), Spline.Cubic(), Spline.MonotoneConvex())
         c0 = ZeroRateCurve(fill(0.04, length(knots)), knots, spline)
         c = fit(c0, qs)
@@ -51,6 +51,8 @@ end
         @test rate.(knot_rates(fit(c0, qs, Fit.LeastSquares(weights = float.(keep))))) ≈ rate.(knot_rates(fit(c0, qs[keep]))) atol = 1.0e-10
         @test Fit.LeastSquares(weights = w).weights === w
         @test_throws MethodError Fit.LeastSquares(w)      # keyword only
+        @test Fit.LeastSquares(maxiters = 5).maxiters == 5
+        @test_throws "within 1 iterations" fit(c0, qs, Fit.LeastSquares(maxiters = 1))
         @test_throws DimensionMismatch fit(c0, qs, Fit.LeastSquares(weights = w[1:10]))
         @test_throws ArgumentError fit(c0, qs, Fit.LeastSquares(weights = -w))
         @test_throws ArgumentError fit(Spline.Cubic(), qs[1:3], Fit.LeastSquares(weights = [1.0, NaN, 1.0]))
@@ -66,12 +68,62 @@ end
         @test r[1] * r[2] < 0 && r[3] * r[4] < 0
     end
 
-    @testset "knots at the quote maturities: the exact fit" begin
+    @testset "knots at the quote maturities" begin
         cmt = CMTYield.([0.04, 0.042, 0.045, 0.047], [1, 2, 5, 10])
+        reprice(c) = maximum(abs(pv(c, q.instrument) - q.price) / q.price for q in cmt)
         for spline in (Spline.Linear(), Spline.Cubic(), Spline.MonotoneConvex())
-            @test isequal(fit(spline, cmt, Fit.LeastSquares()), fit(spline, cmt))
-            @test isequal(fit(spline, cmt, Fit.LeastSquares(weights = [1.0, 2.0, 3.0, 4.0])), fit(spline, cmt))
-            @test isequal(fit(ZeroRateCurve(fill(0.03, 4), [1.0, 2.0, 5.0, 10.0], spline), cmt), fit(spline, cmt))
+            exact = fit(spline, cmt)
+            # a refit without a method is the exact fit
+            @test isequal(fit(ZeroRateCurve(fill(0.03, 4), [1.0, 2.0, 5.0, 10.0], spline), cmt), exact)
+            # least squares minimizes, and reaches the same curve, whatever the weights
+            for method in (Fit.LeastSquares(), Fit.LeastSquares(weights = [1.0, 2.0, 3.0, 4.0]))
+                c = fit(spline, cmt, method)
+                @test reprice(c) < 1.0e-12
+                @test rate.(knot_rates(c)) ≈ rate.(knot_rates(exact)) atol = 1.0e-12
+            end
+        end
+        # Quotes that no curve with the interpolation reprices, here a quadratic spline through alternating
+        # zero-coupon and par yields at 15%: the exact fit throws, and least squares returns the closest curve.
+        t = [0.25, 0.5, 1, 2, 3, 5, 7, 10, 20, 30]
+        y = 0.15 .+ 0.01 .* (1 .- exp.(-t ./ 5))
+        qq = [isodd(i) ? ZCBYield(y[i], t[i]) : CMTYield(y[i], t[i]) for i in eachindex(t)]
+        @test_throws FitConvergenceError fit(Spline.Quadratic(), qq)
+        c = fit(Spline.Quadratic(), qq, Fit.LeastSquares())
+        ϕ(z) = sum(abs2, [pv(ZeroRateCurve(z, float.(t), Spline.Quadratic()), q.instrument) - q.price for q in qq])
+        @test norm2(ForwardDiff.gradient(ϕ, rate.(knot_rates(c)))) <= 1.0e-9 * norm2(ForwardDiff.gradient(ϕ, fill(0.05, length(t))))
+        @test maximum(abs(pv(c, q.instrument) - q.price) / q.price for q in qq) > 0.01
+        # all-zero weights leave no quote to fit
+        c4 = ZeroRateCurve(fill(0.03, 4), [1.0, 2.0, 5.0, 10.0], Spline.Linear())
+        @test_throws "positive weight" fit(c4, cmt, Fit.LeastSquares(weights = zeros(4)))
+        @test_throws "positive weight" fit(Spline.Linear(), cmt, Fit.LeastSquares(weights = zeros(4)))
+    end
+
+    @testset "robustness: random indices" begin
+        # (nine knots each, so that the gradient checks compile once per interpolation)
+        knotsets = (knots, [1.0, 2.0, 3.0, 4.0, 5.0, 7.0, 10.0, 15.0, 19.0], [0.25, 0.5, 1.0, 2.0, 4.0, 6.0, 9.0, 13.0, 20.0])
+        stationary(c, q) = (
+            ϕ = z -> sum(abs2, [pv(ZeroRateCurve(z, knot_tenors(c), c.spline), x.instrument) - x.price for x in q]);
+            norm2(ForwardDiff.gradient(ϕ, rate.(knot_rates(c)))) <= 1.0e-9 * norm2(ForwardDiff.gradient(ϕ, fill(0.04, length(knot_tenors(c)))))
+        )
+        for seed in 1:20
+            kn = knotsets[mod1(seed, 3)]
+            q = lsq_index(80; seed)
+            # every fourth index also through quotes priced one by one
+            routes = seed % 4 == 0 ? (q, [Quote(x.price, WrappedContract(x.instrument)) for x in q[1:40]]) : (q,)
+            for spline in (Spline.Linear(), Spline.Quadratic(), Spline.Cubic(), Spline.MonotoneConvex(), Spline.PCHIP()), qx in routes
+                c = try
+                    fit(ZeroRateCurve(fill(0.04, length(kn)), kn, spline), qx)
+                catch e
+                    e
+                end
+                if spline isa Union{Spline.MonotoneConvex, Spline.PCHIP}
+                    # They switch formulas, so a minimum can lie on a switch: such a fit throws, and says so.
+                    # (A fit that converges may still end next to one, where ForwardDiff cannot check its gradient.)
+                    @test !(c isa Exception) || (c isa FitConvergenceError && occursin("switches formulas", sprint(showerror, c)))
+                else
+                    @test !(c isa Exception) && stationary(c, qx)
+                end
+            end
         end
     end
 
@@ -81,8 +133,8 @@ end
         @test_throws "the knot at 40.0 does not move any quote's price" fit(cl, ZCBPrice.([0.97, 0.94, 0.9, 0.88], [1.0, 2.0, 2.5, 3.0]))
         # nor a zero weight on the only quote that moves a knot
         cz = ZeroRateCurve(fill(0.05, 3), [1.0, 2.0, 3.0], Spline.Linear())
-        zqs = ZCBPrice.([0.97, 0.94, 0.9, 0.91], [1.0, 2.0, 3.0, 3.0])
-        @test_throws "the knot at 3.0" fit(cz, zqs, Fit.LeastSquares(weights = [1.0, 1.0, 0.0, 0.0]))
+        zqs = ZCBPrice.([0.97, 0.94, 0.941, 0.9, 0.91], [1.0, 2.0, 2.0, 3.0, 3.0])
+        @test_throws "the knot at 3.0" fit(cz, zqs, Fit.LeastSquares(weights = [1.0, 1.0, 1.0, 0.0, 0.0]))
     end
 
     @testset "quotes whose cashflows the fit cannot read are priced one by one" begin
@@ -114,7 +166,10 @@ end
         # weights
         w = [1 / (q.price * maturity(q))^2 for q in sub]
         kw(x) = rate.(knot_rates(fit(c5, sub, Fit.LeastSquares(weights = x))))
-        @test ForwardDiff.jacobian(kw, w)[:, 11] ≈ central(kw, w, 11) rtol = 1.0e-5
+        Jw = ForwardDiff.jacobian(kw, w)
+        @test Jw[:, 11] ≈ central(kw, w, 11) rtol = 1.0e-5
+        # weights in a vector of abstract element type carry their derivatives too
+        @test ForwardDiff.jacobian(x -> kw(Real[x...]), w) ≈ Jw rtol = 1.0e-14
         # quoted yields, through a valuation
         tenors = [1, 2, 3, 5, 7, 10]
         rates = [0.03, 0.032, 0.034, 0.036, 0.037, 0.038]
