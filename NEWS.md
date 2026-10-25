@@ -1,5 +1,54 @@
 # FinanceModels.jl release notes
 
+## v7.2.0
+
+### Faster loading: FinanceModels no longer depends on AccessibleModels
+
+A generic `fit` now maps the model's `variables` to the optimizer's vector itself, with the
+transform AccessibleModels applied: the optimizer moves `u` over `[0, 1]` and a variable bounded to
+`a .. b` takes the value `a + u * (b - a)`. Fitted models are unchanged to the last bit (checked
+for every model with built-in `default_variables`, with LBFGS, IPNewton and NelderMead, custom
+bounds, other losses and a derivative through the fit).
+
+FinanceModels' dependency tree loses 24 packages, among them AccessibleModels, AccessorsExtra,
+DataPipes, Distributions and StatsBase. On Julia 1.13:
+
+| | v7.1.0 | v7.2.0 |
+|---|---:|---:|
+| `using FinanceModels` | 1.19 s | 0.97 s |
+| methods invalidated by loading | 960 | 633 |
+| first `Base.@kwdef struct` after loading | 74 ms | 40 ms |
+| precompilation | 8.5 s | 8.0 s |
+| pkgimage | 26.1 MB | 25.0 MB |
+
+Generic fits allocate 7–32% less, and their warm run time is unchanged or up to 5% faster.
+
+### Unbounded fit variables
+
+A variable without an interval, documented as `(@optic(_.a),)`, has thrown a `BoundsError` since
+v4.15.1. It now works, and so does the optic alone, `@optic(_.a)`: the optimizer moves the
+parameter itself. When every variable is unbounded, the optimizer runs without bounds, so
+`Newton()` can fit a generic model, as the documentation advised. With any bounded variable the
+optimizer runs inside Optim.jl's `Fminbox`, which does not take `Newton()`; `IPNewton()` works
+there.
+
+An optic into a vector field, such as `@optic(_.rates |> Elements())`, also used to throw and now
+varies every element.
+
+### Removed: variable specs that only AccessibleModels accepted
+
+`variables` takes optics paired with finite intervals, and optics alone. Three forms that
+FinanceModels never documented now throw a `MethodError`:
+- a `Distribution` in place of an interval;
+- a range or vector of discrete values;
+- `AccessibleModels.Auto()`.
+
+An interval with an infinite end throws inside the optimizer, as before.
+
+Loading FinanceModels no longer loads AccessorsExtra, which extends `@optic` in every session (for
+example, `@optic(_.a, _.b)` concatenates two optics). Code that uses those extensions must load
+AccessorsExtra itself.
+
 ## v7.0.2 (unreleased)
 
 ### Faster first derivatives through spline curves

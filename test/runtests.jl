@@ -10,6 +10,7 @@ using Test
 using Transducers
 
 include("generic.jl")
+include("variables.jl")
 include("valuation_contexts.jl")
 include("sp.jl")
 

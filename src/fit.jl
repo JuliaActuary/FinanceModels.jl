@@ -64,8 +64,9 @@ end
 """
     default_variables(model)
 
-The parameters `fit` optimizes for `model`: a tuple of optic => interval pairs (or 1-tuples of an
-optic, for an unbounded parameter). For example, to optimize `a` and `b` of a custom model:
+The parameters `fit` optimizes for `model`: a tuple of optic => interval pairs, or optics alone
+(`@optic(_.a)` or `(@optic(_.a),)`) for unbounded parameters. For example, to optimize `a` and `b`
+of a custom model:
 
 ```julia
 struct MyModel <: FinanceModels.AbstractModel
@@ -137,6 +138,51 @@ default_variables(m::FX.Forwards) = map(o -> __fx_foreign_optic(o), default_vari
 __fx_foreign_optic(o::Base.Pair) = Accessors.opcompose(@optic(_.foreign), o.first) => o.second
 __fx_foreign_optic(o::Tuple) = (Accessors.opcompose(@optic(_.foreign), only(o)),)
 __fx_foreign_optic(o) = Accessors.opcompose(@optic(_.foreign), o)
+
+# A generic fit's variables as the optimizer moves them: one coordinate `u` per value a spec's optic
+# targets. A finite interval `a .. b` puts the value at `a + u * (b - a)`, with `u` bounded to [0, 1]
+# and starting from `clamp((x - a) / (b - a), 0, 1)`, the Uniform quantile and cdf AccessibleModels
+# used, so fits are unchanged. An unbounded variable (an optic alone or in a 1-tuple) is `u` itself.
+__variable_optic(v::Pair) = v.first
+__variable_optic(v::Tuple{Any}) = only(v)
+__variable_optic(o) = o
+__endpoints(v::Pair{<:Any, <:IntervalSets.AbstractInterval}) = float.(IntervalSets.endpoints(v.second))
+__to_unit(v::Pair, x) = ((a, b) = __endpoints(v); clamp((x - a) / (b - a), 0, 1))
+__to_unit(v, x) = float(x)
+__from_unit(v::Pair, u) = ((a, b) = __endpoints(v); a + u * (b - a))
+__from_unit(v, u) = u
+__unit_interval(v::Pair) = (0.0, 1.0)
+__unit_interval(v) = (-Inf, Inf)
+
+# The number of values a spec's optic targets, as a type so the rebuilt model's type is inferred
+# (statically for an optic into fields or a tuple; an optic into a vector resolves it once per fit).
+__value_count(vals) = Val(length(vals))
+__count(::Val{N}) where {N} = N
+
+# The model with every spec's values set from `u`, read from index `k + 1` on. Inlined, the
+# recursion rebuilds a `Yield.NelsonSiegelSvensson` in 5 ns (50 ns as one call per spec).
+@inline __set_variables(m, ::Tuple{}, ::Tuple{}, u, k) = m
+@inline function __set_variables(m, variables::Tuple, counts::Tuple{Val{N}, Vararg}, u, k) where {N}
+    v = first(variables)
+    m = setall(m, __variable_optic(v), ntuple(i -> __from_unit(v, u[k + i]), Val(N)))
+    return __set_variables(m, Base.tail(variables), Base.tail(counts), u, k + N)
+end
+
+# The optimizer's start, promoted to one element type, and its bounds: none when every variable is
+# unbounded, so that optimizers which take no bounds (`Newton()`) run.
+function __unit_start(m, variables)
+    x0 = Iterators.flatten(map(v -> map(x -> __to_unit(v, x), getall(m, __variable_optic(v))), variables))
+    return collect(promote(x0...))
+end
+function __unit_bounds(variables, counts)
+    lb, ub = Float64[], Float64[]
+    foreach(variables, counts) do v, n
+        a, b = __unit_interval(v)
+        append!(lb, fill(a, __count(n)))
+        append!(ub, fill(b, __count(n)))
+    end
+    return any(isfinite, lb) ? (lb, ub) : (nothing, nothing)
+end
 
 """
     default_optimizer(model)
@@ -262,7 +308,7 @@ Fit a model to a collection of quotes using a loss function and optimization met
 - `quotes`: A collection of quotes to fit the model to.
 - `method::F=Fit.Loss(x -> x^2)`: The loss function to use for fitting the model. Defaults to the squared loss function. 
   - `method` can also be `Bootstrap()` with `Spline.Linear()`. Other interpolation strategies require a full-curve `Fit.Loss`.
-- `variables=default_variables(model)`: The variables to optimize over. This is a tuple of optic => interval pairs specifying which parameters of the model can vary. See extended help for more. Spline and knot-curve fits vary the knot rates and do not take `variables`.
+- `variables=default_variables(model)`: The variables to optimize over. This is a tuple of optic => interval pairs (or optics alone, for unbounded variables) specifying which parameters of the model can vary. See extended help for more. Spline and knot-curve fits vary the knot rates and do not take `variables`.
 - `optimizer=default_optimizer(model)`: The optimization algorithm to use. The default optimization for a given model is `LBFGS()` from Optim.jl (via OptimizationOptimJL), a quasi-Newton method with automatic differentiation via ForwardDiff. See extended help for more on customizing the solver.
 - `solve_kwargs=(;)`: Keyword arguments passed to `Optimization.solve` with the optimizer, such as
   `(; maxiters = 10_000, abstol = 1e-12)` or Optim.jl's `g_tol`. Use them to tighten a loss fit.
@@ -339,12 +385,11 @@ FinanceModels.Yield.Constant{Rate{Float64, Periodic}}(Periodic(0.128229218822544
 ## Customizing the Solver
 
 The default solver is `LBFGS()` from Optim.jl (via OptimizationOptimJL). This is a quasi-Newton method that uses automatic differentiation (ForwardDiff) to compute gradients efficiently.
- - Any solver from OptimizationOptimJL can be used, e.g. `fit(...; optimizer=OptimizationOptimJL.Newton())` or `fit(...; optimizer=OptimizationOptimJL.NelderMead())`.
+ - Any solver from OptimizationOptimJL can be used, e.g. `fit(...; optimizer=OptimizationOptimJL.NelderMead())`. With bounded variables the solver runs inside Optim.jl's `Fminbox`, which does not take `Newton()`: use `IPNewton()`, or unbounded variables (see "Defining the variables").
  - Solver settings go in `solve_kwargs`, e.g. `fit(...; solve_kwargs = (; maxiters = 10_000, g_tol = 1e-12))`.
  - More documentation is available from the upstream packages:
    - [Optim.jl](https://julianlsolvers.github.io/Optim.jl/stable/)
    - [Optimization.jl](https://docs.sciml.ai/Optimization/stable/)
-   - [AccessibleModels.jl](https://github.com/JuliaAPlavin/AccessibleModels.jl)
 
 ## Defining the variables
 
@@ -353,7 +398,7 @@ An arbitrarily complex model may be the object we intend to fit - how does `fit`
 - An optic (or "lens") is a way to define an accessor to a given object. Example:
 
 ```julia-repl
-julia> using Accessors, AccessibleModels, IntervalSets
+julia> using Accessors, IntervalSets
 
 julia> obj = (a = "AA", b = "BB");
 
@@ -377,16 +422,26 @@ FinanceModels.default_variables(m::MyModel) = (
     @optic(_.b) => -10.0 .. 10.0,
 )
 ```
-In this way, `fit` knows which arbitrary parameters in a given object may be modified. Technically, we are not modifying the immutable `MyModel`, but instead efficiently creating a new instance. This is enabled by [AccessibleModels.jl](https://github.com/JuliaAPlavin/AccessibleModels.jl).
+In this way, `fit` knows which arbitrary parameters in a given object may be modified. Technically, we are not modifying the immutable `MyModel`, but instead efficiently creating a new instance. This is enabled by [Accessors.jl](https://github.com/JuliaObjects/Accessors.jl).
 
-Note that not all optimization algorithms want a bounded interval. In that case, simply leave off the paired range. The prior example would then become:
+The optimizer moves a bounded variable `optic => a .. b` over `[0, 1]`, mapped linearly onto the
+interval (`a + u * (b - a)`), so the interval must be finite. A starting value on or outside the
+interval's boundary starts from its midpoint. An optic that targets several values, such as
+`@optic(_.rates |> Elements())`, varies each of them within the same interval.
+
+Not all optimization algorithms want a bounded interval. In that case, leave off the paired range
+(an optic alone, or in a 1-tuple), and the optimizer moves the parameter itself. The prior example
+would then become:
 
 ```julia
 FinanceModels.default_variables(m::MyModel) = (
-    (@optic(_.a),),
-    (@optic(_.b),),
+    @optic(_.a),
+    @optic(_.b),
 )
 ```
+
+When every variable is unbounded, the optimizer runs without bounds, so `Newton()` can be used. With
+any bounded variable it runs inside Optim.jl's `Fminbox`, which does not take `Newton()`.
 
 
 ## Additional Examples
@@ -403,14 +458,12 @@ function fit(
     ) where
     {F <: Fit.Loss}
     quotes = collect(quotes)   # read by every loss evaluation
-    # AccessibleModels parameterizes the model: the transformed vector the optimizer moves, its
-    # bounds, and the model rebuilt from a candidate.
-    params = AccessibleModel(mod0, variables)
-    build(x) = AccessibleModels.from_transformed(x, params)
-    x0 = collect(AccessibleModels.transformed_vec(params))
-    bounds = AccessibleModels.transformed_bounds(params)
-    lb = haskey(bounds, :lb) ? collect(bounds.lb) : nothing
-    ub = haskey(bounds, :ub) ? collect(bounds.ub) : nothing
+    # The vector the optimizer moves (see `__to_unit`), its bounds, and the model rebuilt from a
+    # candidate.
+    counts = map(v -> __value_count(getall(mod0, __variable_optic(v))), variables)
+    build(x) = __set_variables(mod0, variables, counts, x, 0)
+    x0 = __unit_start(mod0, variables)
+    lb, ub = __unit_bounds(variables, counts)
     # Ensure x0 is strictly interior to avoid Fminbox boundary warnings
     # and to avoid degenerate starting points (e.g., σ=0 for Black-Scholes)
     if lb !== nothing && ub !== nothing
