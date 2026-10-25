@@ -1,6 +1,0 @@
-#=    0.0 ms =# precompile(Tuple{typeof(JLLWrappers.get_julia_libpaths)})
-#=    7.0 ms =# precompile(Tuple{typeof(Base.issorted), Array{String, 1}, Base.Order.ReverseOrdering{Base.Order.ForwardOrdering}})
-#=    2.8 ms =# precompile(Tuple{typeof(Base.show), Base.IOContext{Base.GenericIOBuffer{Memory{UInt8}}}, Int64})
-#=   14.3 ms =# precompile(Tuple{typeof(Base._atexit), Int32}) # recompile
-#=    1.2 ms =# precompile(Tuple{typeof(Base.getproperty), Base.GenericCondition{Base.ReentrantLock}, Symbol})
-#=    6.7 ms =# precompile(Tuple{Distributed.var"#start_gc_msgs_task##0#start_gc_msgs_task##1"})
