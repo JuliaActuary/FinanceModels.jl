@@ -49,6 +49,8 @@ end
         # a zero weight leaves its quote out
         keep = isodd.(eachindex(qs))
         @test rate.(knot_rates(fit(c0, qs, Fit.LeastSquares(weights = float.(keep))))) ≈ rate.(knot_rates(fit(c0, qs[keep]))) atol = 1.0e-10
+        @test Fit.LeastSquares(weights = w).weights === w
+        @test_throws MethodError Fit.LeastSquares(w)      # keyword only
         @test_throws DimensionMismatch fit(c0, qs, Fit.LeastSquares(weights = w[1:10]))
         @test_throws ArgumentError fit(c0, qs, Fit.LeastSquares(weights = -w))
         @test_throws ArgumentError fit(Spline.Cubic(), qs[1:3], Fit.LeastSquares(weights = [1.0, NaN, 1.0]))

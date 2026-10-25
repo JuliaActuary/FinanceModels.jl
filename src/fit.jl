@@ -94,10 +94,11 @@ module Fit
         Fit.LeastSquares(weights = w))
     ```
     """
+    # Constructed by keyword only, so that options can be added without changing existing calls.
     struct LeastSquares{W} <: FitMethod
         weights::W
+        LeastSquares(; weights = nothing) = new{typeof(weights)}(weights)
     end
-    LeastSquares(; weights = nothing) = LeastSquares(weights)
 
 
 end
