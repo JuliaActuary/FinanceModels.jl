@@ -55,10 +55,10 @@
   `simulate` builds. Its forward is the slope of a step, which another interpolant would get
   wrong. Its grid must start at t = 0 with the value 0 (an `ArgumentError` otherwise).
 - **`TransformedYield` is removed.** The alias deprecated in v6.1 is gone; use `Yield.TenorShift`.
-- **Optimization 5 is required** (with OptimizationOptimJL 0.4.6 and AccessibleModels
-  0.1.14); environments pinned to Optimization 4 must upgrade it together with
-  FinanceModels. Under Optim 2 (OptimizationOptimJL 0.4.9 and later) a loss fit
-  at the default tolerance can land about 1e-9 from the exact fit; pass
+- **Optimization 5 is required** (with OptimizationOptimJL 0.4.6); environments
+  pinned to Optimization 4 must upgrade it together with FinanceModels. Under
+  Optim 2 (OptimizationOptimJL 0.4.9 and later) a loss fit at the default
+  tolerance can land about 1e-9 from the exact fit; pass
   `solve_kwargs = (; g_tol = 1e-12)` to fit to rounding.
 
 ### Valuation contexts (FinanceCore 3)
@@ -466,7 +466,7 @@ With the new design of the package, creating a completely new model is much easi
 
 ```julia
  using FinanceModels, FinanceCore
- using AccessibleModels 
+ using Accessors
  using IntervalSets
  
 struct ABDiscountLine{A} <: FinanceModels.Yield.AbstractYieldModel
@@ -483,7 +483,7 @@ function FinanceCore.discount(m::ABDiscountLine,t)
 end
 
 
-# `@optic` indicates what in our model variables needs to be updated (from AccessibleModels.jl)
+# `@optic` indicates what in our model variables needs to be updated (from Accessors.jl)
 # `-1.0 .. 1.0` says to bound the search from negative to positive one (from IntervalSets.jl)
 FinanceModels.default_variables(m::ABDiscountLine) = (
     @optic(_.a) => -1.0 .. 1.0,

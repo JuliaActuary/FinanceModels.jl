@@ -129,7 +129,7 @@ Here we'll do a complete implementation of a yield curve model where the discoun
 
 ```@example custom_model
 using FinanceModels, FinanceCore
-using AccessibleModels
+using Accessors
 using IntervalSets
  
 struct ABDiscountLine{A,B} <: FinanceModels.Yield.AbstractYieldModel
@@ -145,7 +145,7 @@ function FinanceCore.discount(m::ABDiscountLine,t)
 end
 
 
-# `@optic` indicates what in our model variables needs to be updated (from AccessibleModels.jl)
+# `@optic` indicates what in our model variables needs to be updated (from Accessors.jl)
 # IntervalSets supplies the bounds. Keep the initial guess inside them, away from clipping.
 FinanceModels.default_variables(m::ABDiscountLine) = (
     @optic(_.a) => -1.0 .. 1.0,
@@ -197,7 +197,7 @@ Model fitting can be customized:
   - e.g. `fit(ABDiscountLine(), quotes, Fit.Loss(x -> abs(x)))`
   - the default is `Fit.Loss(x->x^2)`
 - the **optimization algorithm** by defining a method `FinanceModels.default_optimizer(m::ABDiscountLine) = OptimizationOptimJL.Newton()`
-  - you may need to change the `default_variables` to be unbounded (simply omit the `=>` and subsequent bounds)
+  - `Newton()` needs every variable unbounded: omit the `=>` and the bounds, as in `(@optic(_.a), @optic(_.b))`. With bounded variables the optimizer runs inside Optim.jl's `Fminbox`, which does not take `Newton()` (`IPNewton()` works there)
   - The default is `OptimizationOptimJL.LBFGS()` (polynomial, PCHIP, Akima, and B-spline least-squares fits default to `OptimizationOptimJL.Newton()`; MonotoneConvex uses `LBFGS()`)
 - The **general algorithm** can be customized by defining a new `Fit.FitMethod` subtype and a method `FinanceModels.fit(model, quotes, method::YourMethod)` for it.
 

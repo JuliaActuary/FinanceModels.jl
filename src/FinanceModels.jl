@@ -9,7 +9,6 @@ import DifferentiationInterface
 import Optimization
 import OptimizationOptimJL
 using IntervalSets
-using AccessibleModels
 using Accessors
 using LinearAlgebra
 using Transducers
