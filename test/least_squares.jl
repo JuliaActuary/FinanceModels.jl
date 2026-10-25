@@ -143,9 +143,18 @@ end
         end
         zmin = (lo + hi) / 2
         kn(p) = rate(only(knot_rates(fit(c1, ZCBPrice.(p, ts)))))
-        @test kn(ps) ≈ zmin atol = 1.0e-12
-        # the derivatives of the minimum: dz/dp = -(∂grad/∂p)/curv
-        @test ForwardDiff.gradient(kn, ps) ≈ -ts .* exp.(-ts .* zmin) ./ curv(zmin) rtol = 1.0e-6
+        z = kn(ps)
+        @test z ≈ zmin atol = 1.0e-12
+        # stationary by the analytic Hessian: a minimum, whose Newton step is at rounding
+        @test curv(z) > 0 && abs(grad(z) / curv(z)) <= 1.0e-12
+        # the derivatives of the minimum, dz/dp = -(∂grad/∂p)/curv, and central differences of the fit. A
+        # price lower by 3e-9 (the first) or 3e-10 (the second) removes this minimum, so the difference step
+        # is 3e-12: its truncation and the fitted rates' rounding (1e-13) each move a difference by less
+        # than 1e-4 of it.
+        dz = ForwardDiff.gradient(kn, ps)
+        @test dz ≈ -ts .* exp.(-ts .* zmin) ./ curv(zmin) rtol = 1.0e-6
+        ε = 3.0e-12
+        @test dz ≈ [(kn(ps .+ ε .* (1:2 .== i)) - kn(ps .- ε .* (1:2 .== i))) / 2ε for i in 1:2] rtol = 1.0e-3
     end
 
     @testset "quotes that do not determine the knots throw" begin
