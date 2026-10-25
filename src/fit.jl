@@ -620,6 +620,39 @@ const __EXACT_FIT_FTOL = 1.0e-14
 const __EXACT_FIT_STEPTOL = 1.0e-14
 const __EXACT_FIT_RTOL = sqrt(eps(Float64))
 
+# Each quote's size (`__quote_size`) with pricing residuals `v` on the curve at knot rates `z`, into `s`: its
+# value, for nonnegative cashflows.
+function __quote_sizes!(s, r::__RepricingResiduals, z, v, nonnegative, seed_values)
+    for i in eachindex(s, v)
+        q = r.quotes[i]
+        value = v[i] + q.price
+        s[i] = nonnegative[i] ? float(abs(value)) :
+            __quote_size(q, value, seed_values[i], () -> __trial_curve(r.spline, r.interpolation, z, r.tenors, r.extrapolation))
+    end
+    return s
+end
+# The exact solve's vector arithmetic, which does not depend on the quotes' types. Kept out of line, it is
+# compiled once rather than inlined into the solve for each type of quotes. `__newton_step` is the Newton step
+# for the scaled residuals `f`, from the Jacobian `J` of the unscaled ones, or `nothing` when the Jacobian is
+# singular or not finite.
+@noinline __line_search_scale(sizes) = map(__nonzero, sizes)
+@noinline __scaled_residuals(v, search) = v ./ search
+@noinline __newton_trial(z, α, δ) = z .- α .* δ
+@noinline __relative_residuals(v, sizes) = map(__relative_residual, v, sizes)
+@noinline function __newton_step(J, search, f)
+    J = J ./ search
+    F = lu(J; check = false)
+    (all(isfinite, J) && issuccess(F)) || return nothing
+    return F \ f
+end
+function __largest_relative_residual(v, s)
+    largest = zero(float(eltype(s)))
+    for i in eachindex(v, s)
+        largest = max(largest, __relative_residual(v[i], s[i]))
+    end
+    return largest
+end
+
 # Newton's method on the repricing residuals `r` from the seed `z0`, for at most `maxiters` iterations. The
 # line search on the sum of squared residuals takes each residual relative to its quote's size at the seed
 # (`__quote_size`), so that it does not depend on notionals; the Newton steps do not depend on that scaling.
@@ -629,43 +662,41 @@ const __EXACT_FIT_RTOL = sqrt(eps(Float64))
 # residuals within `__EXACT_FIT_FTOL`, a step within `__EXACT_FIT_STEPTOL`, or a step that no longer
 # decreases the residuals.
 function __solve_knot_rates(r::__RepricingResiduals, z0, maxiters)
-    # One Jacobian configuration, of the default chunk, built here: `ForwardDiff.jacobian` without one picks
-    # the chunk at run time, and the iterations below would not be inferred.
-    return __solve_knot_rates(r, z0, maxiters, ForwardDiff.JacobianConfig(r, z0))
-end
-function __solve_knot_rates(r::__RepricingResiduals, z0, maxiters, config)
     ReturnCode = Optimization.SciMLBase.ReturnCode
     v0 = r(z0)
-    seed_values = v0 .+ map(q -> q.price, r.quotes)
-    # each residual of `v` (at `z`) relative to its quote's size there (its value, for nonnegative cashflows),
-    # and the largest
-    nonnegative = map(q -> __nonnegative_cashflows(q.instrument), r.quotes)
-    quote_size(i, z, v) = nonnegative[i] ? float(abs(v[i] + r.quotes[i].price)) :
-        __quote_size(r.quotes[i], v[i] + r.quotes[i].price, seed_values[i], () -> __trial_curve(r.spline, r.interpolation, z, r.tenors, r.extrapolation))
-    relative(z, v) = [__relative_residual(v[i], quote_size(i, z, v)) for i in eachindex(v)]
-    largest(z, v) = maximum(i -> __relative_residual(v[i], quote_size(i, z, v)), eachindex(v))
-    search = [__nonzero(quote_size(i, z0, v0)) for i in eachindex(v0)]
-    z, v, f = copy(z0), v0, v0 ./ search
+    # The Jacobian's chunk follows the number of knots, so the configuration's type is known only at run time.
+    # Asserting the Jacobian's type keeps the iterations inferred and compiled once for any number of knots
+    # (the precompile workload's); only the Jacobian itself is compiled per chunk.
+    config = ForwardDiff.JacobianConfig(r, z0)
+    # The quotes' sizes, at the seed (which scale the line search) and on the curve reached. Loops rather than
+    # closures keep the code compiled for each type of quotes small.
+    seed_values, nonnegative = similar(v0), Vector{Bool}(undef, length(v0))
+    for i in eachindex(v0)
+        seed_values[i] = v0[i] + r.quotes[i].price
+        nonnegative[i] = __nonnegative_cashflows(r.quotes[i].instrument)
+    end
+    sizes = __quote_sizes!(similar(v0), r, z0, v0, nonnegative, seed_values)
+    search = __line_search_scale(sizes)
+    z, v, f = copy(z0), v0, __scaled_residuals(v0, search)
     ϕ = sum(abs2, f)
     retcode = ReturnCode.MaxIters
     for _ in 1:maxiters
-        largest(z, v) <= __EXACT_FIT_FTOL && (retcode = ReturnCode.Success; break)
-        J = ForwardDiff.jacobian(r, z, config) ./ search
-        F = lu(J; check = false)
-        (all(isfinite, J) && issuccess(F)) || (retcode = ReturnCode.InternalLinearSolveFailed; break)
-        δ = F \ f
+        __largest_relative_residual(v, __quote_sizes!(sizes, r, z, v, nonnegative, seed_values)) <= __EXACT_FIT_FTOL &&
+            (retcode = ReturnCode.Success; break)
+        δ = __newton_step(ForwardDiff.jacobian(r, z, config)::Matrix{eltype(v0)}, search, f)
+        isnothing(δ) && (retcode = ReturnCode.InternalLinearSolveFailed; break)
         if maximum(abs, δ) <= __EXACT_FIT_STEPTOL
-            z = z .- δ
+            z = __newton_trial(z, 1.0, δ)
             v = r(z)
-            f = v ./ search
+            f = __scaled_residuals(v, search)
             retcode = ReturnCode.Success
             break
         end
         α, accepted = 1.0, false
         for _ in 1:30
-            zt = z .- α .* δ
+            zt = __newton_trial(z, α, δ)
             vt = r(zt)
-            ft = vt ./ search
+            ft = __scaled_residuals(vt, search)
             ϕt = sum(abs2, ft)
             if ϕt <= (1 - 1.0e-4 * α) * ϕ   # false for a non-finite trial
                 z, v, f, ϕ, accepted = zt, vt, ft, ϕt, true
@@ -675,9 +706,13 @@ function __solve_knot_rates(r::__RepricingResiduals, z0, maxiters, config)
         end
         accepted || (retcode = ReturnCode.Stalled; break)
     end
-    final = relative(z, v)
+    final = __relative_residuals(v, __quote_sizes!(sizes, r, z, v, nonnegative, seed_values))
     worst = argmax(final)
     final[worst] <= __EXACT_FIT_RTOL && return z
+    throw(__exact_fit_error(r.who, retcode, maxiters, z, final[worst], maturity(r.quotes[worst])))
+end
+function __exact_fit_error(who, retcode, maxiters, z, residual, maturity)
+    ReturnCode = Optimization.SciMLBase.ReturnCode
     stopped = if retcode == ReturnCode.MaxIters
         "did not reprice its quotes within $maxiters Newton iterations"
     elseif retcode == ReturnCode.InternalLinearSolveFailed
@@ -685,15 +720,13 @@ function __solve_knot_rates(r::__RepricingResiduals, z0, maxiters, config)
     else
         "cannot reduce its quotes' pricing residuals further"
     end
-    throw(
-        FitConvergenceError(
-            retcode == ReturnCode.Success ? ReturnCode.Stalled : retcode,
-            "$(r.who) $stopped: the largest relative residual is $(final[worst]), on the quote maturing at " *
-                "$(maturity(r.quotes[worst])). No curve with this interpolation may reprice the quotes (for " *
-                "example, a price that implies a non-positive discount factor), or the quote prices may not " *
-                "determine every knot rate (a quote whose cashflows do not depend on its own maturity's knot). " *
-                "fit(spline, quotes, Fit.Loss()) minimizes the squared residuals instead."
-        )
+    return FitConvergenceError(
+        retcode == ReturnCode.Success ? ReturnCode.Stalled : retcode,
+        "$who $stopped: the largest relative residual is $residual, on the quote maturing at $maturity. No " *
+            "curve with this interpolation may reprice the quotes (for example, a price that implies a " *
+            "non-positive discount factor), or the quote prices may not determine every knot rate (a quote " *
+            "whose cashflows do not depend on its own maturity's knot). fit(spline, quotes, Fit.Loss()) " *
+            "minimizes the squared residuals instead."
     )
 end
 
