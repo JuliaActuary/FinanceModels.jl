@@ -341,14 +341,14 @@ Transducers.asfoldable(p::Projection{AsfoldableContract}) = [Cashflow(1.0, 1.0),
 
     @testset "fit passes solve_kwargs to Optim.Options" begin
         qs = CMTYield.([0.03, 0.032, 0.035, 0.037], [1.0, 2.0, 3.0, 5.0])
-        @test_throws FitConvergenceError fit(Spline.MonotoneConvex(), qs; solve_kwargs = (; iterations = 1))
+        @test_throws FitConvergenceError fit(Spline.MonotoneConvex(), qs, Fit.Loss(); solve_kwargs = (; iterations = 1))
         @test_throws FitConvergenceError fit(Spline.Cubic(), qs, Fit.Loss(abs2); solve_kwargs = (; iterations = 1))
         # a bounded fit runs inside Fminbox, whose iterations are `outer_iterations`
         @test_throws FitConvergenceError fit(Yield.NelsonSiegel(), qs; solve_kwargs = (; outer_iterations = 1))
         # Optimization.jl's names are not Optim's: they throw rather than being ignored
         @test_throws MethodError fit(Yield.NelsonSiegel(), qs; solve_kwargs = (; maxiters = 1))
         # a solver-specific setting reaches Optim
-        tight = fit(Spline.MonotoneConvex(), qs; solve_kwargs = (; g_tol = 1.0e-14))
+        tight = fit(Spline.MonotoneConvex(), qs, Fit.Loss(); solve_kwargs = (; g_tol = 1.0e-14))
         @test maximum(abs(present_value(tight, q.instrument) - q.price) for q in qs) < 1.0e-10
     end
 
@@ -356,7 +356,7 @@ Transducers.asfoldable(p::Projection{AsfoldableContract}) = [Cashflow(1.0, 1.0),
         qs = ZCBPrice.([0.97, 0.93, 0.88], [1.0, 2.0, 3.0])
         fits = (
             () -> fit(Yield.Constant(), qs; optimizer = FailingFitOptimizer()),
-            () -> fit(Spline.MonotoneConvex(), qs; optimizer = FailingFitOptimizer()),
+            () -> fit(Spline.MonotoneConvex(), qs, Fit.Loss(); optimizer = FailingFitOptimizer()),
             () -> fit(Spline.Linear(), qs, Fit.Loss(abs2); optimizer = FailingFitOptimizer()),
         )
 
@@ -418,7 +418,7 @@ Transducers.asfoldable(p::Projection{AsfoldableContract}) = [Cashflow(1.0, 1.0),
         @test_logs fit(Yield.NelsonSiegel(), qs; optimizer = ipn)  # smooth 4-param fit: assert only quiet
 
         # MonotoneConvex (unbounded) path: Newton is the canonical second-order method.
-        mc = @test_logs fit(Spline.MonotoneConvex(), qs; optimizer = FinanceModels.Optim.Newton())
+        mc = @test_logs fit(Spline.MonotoneConvex(), qs, Fit.Loss(); optimizer = FinanceModels.Optim.Newton())
         @test reprice(mc) < 1.0e-10
     end
 end

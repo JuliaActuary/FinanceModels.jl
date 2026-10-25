@@ -20,6 +20,8 @@ and OptimizationOptimJL. The optimizers, and the fits they return, are the same.
     `callback(state::OptimizationState, loss) -> Bool`.
   - `verbose = true` → `show_trace = true`. `progress` has no counterpart.
   - Optim's own keywords (`g_tol`, `x_abstol`, `f_calls_limit`, ...) are unchanged.
+  - A knot-curve fit takes `optimizer` and `solve_kwargs` only with an explicit `Fit.Loss` (since
+    v7.2): `fit(spline, quotes, Fit.Loss(); solve_kwargs = (; iterations = 10_000))`.
 - **`FitConvergenceError.retcode` is a `Symbol`**: `:MaxIters` or `:Failure` for an optimizer, and
   `:MaxIters`, `:Stalled` or `:InternalLinearSolveFailed` for a spline fit's exact solve. It was a
   `SciMLBase.ReturnCode`. **Migration:** compare with `err.retcode === :MaxIters`. The error's
@@ -87,7 +89,8 @@ and OptimizationOptimJL. The optimizers, and the fits they return, are the same.
   0.1.14); environments pinned to Optimization 4 must upgrade it together with
   FinanceModels. Under Optim 2 (OptimizationOptimJL 0.4.9 and later) a loss fit
   at the default tolerance can land about 1e-9 from the exact fit; pass
-  `solve_kwargs = (; g_tol = 1e-12)` to fit to rounding.
+  `solve_kwargs = (; g_tol = 1e-12)` to fit to rounding (since v7.2, with an explicit
+  `Fit.Loss()`: a spline fit without a method reprices its quotes exactly).
 
 ### Valuation contexts (FinanceCore 3)
 

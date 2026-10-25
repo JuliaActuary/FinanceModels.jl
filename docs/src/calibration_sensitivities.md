@@ -98,7 +98,7 @@ internal derivatives never mix with yours.
 | Calibration | Differentiable | Notes |
 |:------------|:---------------|:------|
 | `fit(spline, quotes)`, every interpolation method | yes | reprices its quotes to rounding |
-| `fit(spline, quotes, Fit.Loss(f))` (or with `optimizer`/`solve_kwargs`) | yes | the fit must reprice its quotes; see below |
+| `fit(spline, quotes, Fit.Loss(f))` | yes | the fit must reprice its quotes; see below |
 | `fit(Spline.Linear(), quotes, Fit.Bootstrap())` | yes | exact to root-finder precision |
 | `fit(FX.Forwards(pair, spot, domestic, spline), quotes, …)` | yes | through the implied foreign quotes |
 | `fit(curve, quotes)`, refitting an existing knot curve | with one knot per quote | knots at the quote maturities: the spline fit; other knots: a loss fit; another number of knots throws a `DimensionMismatch` |

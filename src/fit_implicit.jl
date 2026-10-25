@@ -60,6 +60,41 @@ function __primal_quote(q::FinanceCore.Quote)
     return (p === q.price && i === q.instrument) ? q : FinanceCore.Quote(p, i)
 end
 
+# Whether a contract's cashflows are fixed: the same whatever the curve, so that its price is linear in the
+# curve's discount factors. Every quote type FinanceModels defines is a `Cashflow` or a `Bond.Fixed`.
+__fixed_cashflows(c) = false
+__fixed_cashflows(::FinanceCore.Cashflow) = true
+__fixed_cashflows(::Bond.Fixed) = true
+__fixed_cashflows(c::FinanceCore.Composite) = __fixed_cashflows(c.a) && __fixed_cashflows(c.b)
+__fixed_cashflows(v::Union{AbstractVector, Tuple}) = all(__fixed_cashflows, v)
+
+# Whether a contract's fixed cashflows are all nonnegative, so that their gross value is its value.
+__nonnegative_cashflows(c) = false
+__nonnegative_cashflows(c::FinanceCore.Cashflow) = c.amount >= 0
+__nonnegative_cashflows(b::Bond.Fixed) = b.coupon_rate >= 0
+__nonnegative_cashflows(c::FinanceCore.Composite) = __nonnegative_cashflows(c.a) && __nonnegative_cashflows(c.b)
+__nonnegative_cashflows(v::Union{AbstractVector, Tuple}) = all(__nonnegative_cashflows, v)
+
+# A quote's size, against which a fit measures its residual: the gross value of its fixed cashflows on the
+# curve (their absolute amounts, discounted), which stays meaningful for a price that is tiny, zero or
+# negative, and is zero only where the curve discounts them to nothing. Its `value` on the curve is that gross
+# value when the cashflows are nonnegative; otherwise `curve()` builds the curve. For a contract whose
+# cashflows depend on the curve, its price, or for a zero price `seed_value` (its value at the fit's seed), or
+# one.
+function __quote_size(q, value, seed_value, curve)
+    __nonnegative_cashflows(q.instrument) && return float(abs(value))
+    if __fixed_cashflows(q.instrument)
+        c = curve()
+        return sum(cf -> abs(cf.amount) * discount(c, cf.time), collect(Projection(q.instrument)); init = zero(float(q.price)))
+    end
+    s = float(iszero(q.price) ? abs(seed_value) : abs(q.price))
+    return iszero(s) ? one(s) : s
+end
+__nonzero(s) = iszero(s) ? one(s) : s
+# A residual relative to its quote's size: zero when both are, infinite for a nonzero residual of a quote
+# that the curve discounts to nothing.
+__relative_residual(r, s) = iszero(r) ? zero(r) : abs(r) / s
+
 __primal_extrapolation(e) = e
 __primal_extrapolation(e::Yield.FlatForwardAt) =
     __ad_depth(e.forward) == 0 ? e : Yield.FlatForwardAt(Continuous(__primal(e.forward)))
@@ -166,8 +201,9 @@ function __implicit_knot_curve(curve, quotes, primal_quotes, extrapolation)
             "fit cannot differentiate a curve that does not reprice its quotes: a Newton correction " *
                 "towards the exact fit moves its knot rate at $(tenors[worst]) by $(abs(δ[worst])) " *
                 "(largest quote residual $(maximum(abs, r0))), more than 1e-6. Its derivatives assume " *
-                "an exact fit; tighten the optimizer with `solve_kwargs` (for example " *
-                "`solve_kwargs = (; g_tol = 1e-12)`), or use Fit.Bootstrap() with Spline.Linear()."
+                "an exact fit; fit with Fit.Exact() (the default for a spline), tighten the loss fit's optimizer " *
+                "with `solve_kwargs` (for example `Fit.Loss()` with `solve_kwargs = (; g_tol = 1e-12)`), or use " *
+                "Fit.Bootstrap() with Spline.Linear()."
         )
     )
     # The fitted knots must resolve which side of each kink the exact fit lies on.
