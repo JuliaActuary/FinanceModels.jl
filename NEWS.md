@@ -27,15 +27,16 @@ for monotone convex fits, `1e-10` for the others. Precompiling FinanceModels tak
 with v7.1.1 (pkgimage 41 MB to 36 MB).
 
 - Quotes that no curve with the interpolation method reprices, such as a price that implies a
-  negative discount factor, throw a `FitConvergenceError`. The loss fit returned its closest curve
-  and reported success. In a sweep of 840 random quote sets over every interpolation method, the
-  exact fit repriced all but one; on that one (quadratic interpolation of alternating zero-coupon
-  and par quotes at 15%), the loss fit's curve mispriced a quote by 9%.
+  negative discount factor, throw a `FitConvergenceError`. The loss fit returned the minimum it
+  reached, which misprices them, and reported success. In a sweep of 840 random quote sets over
+  every interpolation method, the exact fit repriced all but one; on that one (quadratic
+  interpolation of alternating zero-coupon and par quotes at 15%), the loss fit's curve mispriced a
+  quote by 9%.
 - An explicit `Fit.Loss(f)` still minimizes `f`, and `Fit.Loss()` is the squared loss. The
   `optimizer` and `solve_kwargs` configure a loss fit: passed without a method, they select
-  `Fit.Loss()`, so `fit(spline, quotes; solve_kwargs = …)` is the v7.1 fit, and returns the closest
-  curve where `Fit.Exact()` throws. `Fit.Exact` takes its iteration limit as
-  `Fit.Exact(maxiters = …)`.
+  `Fit.Loss()`, so `fit(spline, quotes; solve_kwargs = …)` is the v7.1 fit: it returns a local
+  minimum of the loss, reached from fixed starting rates, where `Fit.Exact()` throws. `Fit.Exact`
+  takes its iteration limit as `Fit.Exact(maxiters = …)`.
 - `fit(curve, quotes)`, refitting a knot curve whose knots are at the quote maturities, reprices
   the quotes as the spline fit does. Other knot grids still minimize the squared loss.
   `fit(curve, quotes, Fit.Exact())` solves any refit with one quote per knot.
