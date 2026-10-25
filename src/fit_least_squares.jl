@@ -29,14 +29,6 @@ function __least_squares_weights(w::AbstractVector, n)
     return w
 end
 
-# Whether a contract's cashflows are fixed: the same whatever the curve, so that its price is linear in
-# the curve's discount factors. Every quote type FinanceModels defines is a `Cashflow` or a `Bond.Fixed`.
-__fixed_cashflows(c) = false
-__fixed_cashflows(::FinanceCore.Cashflow) = true
-__fixed_cashflows(::Bond.Fixed) = true
-__fixed_cashflows(c::FinanceCore.Composite) = __fixed_cashflows(c.a) && __fixed_cashflows(c.b)
-__fixed_cashflows(v::Union{AbstractVector, Tuple}) = all(__fixed_cashflows, v)
-
 # The quotes' cashflows as a sparse matrix over their distinct times: the price of quote i on a curve is
 # Σⱼ A[i, j] discount(curve, times[j]). Amounts keep their type (dual numbers included).
 function __cashflow_matrix(quotes)

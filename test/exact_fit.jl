@@ -52,15 +52,52 @@
         @test rate.(knot_rates(fit(c0, cmt))) ≈ rate.(knot_rates(fit(c0, cmt, Fit.Loss(abs2); solve_kwargs = (; g_tol = 1.0e-12)))) atol = 1.0e-9
     end
 
-    @testset "an optimizer or its settings fit the squared loss" begin
-        @test_throws FitConvergenceError fit(Spline.Cubic(), zcb; solve_kwargs = (; maxiters = 1))
-        @test_throws FitConvergenceError fit(Spline.Cubic(), zcb; optimizer = FailingFitOptimizer())
-        @test isequal(
-            fit(Spline.Cubic(), zcb; solve_kwargs = (; g_tol = 1.0e-12)),
-            fit(Spline.Cubic(), zcb, FinanceModels.__default_loss(Spline.Cubic()); solve_kwargs = (; g_tol = 1.0e-12)),
-        )
+    @testset "an optimizer and its settings need an explicit Fit.Loss" begin
         c0 = ZeroRateCurve(fill(0.02, 4), [1.0, 2.0, 3.0, 5.0], Spline.Cubic())
-        @test_throws FitConvergenceError fit(c0, zcb; solve_kwargs = (; maxiters = 1))
+        for f in (
+                () -> fit(Spline.Cubic(), zcb; solve_kwargs = (; g_tol = 1.0e-12)),
+                () -> fit(Spline.Cubic(), zcb; optimizer = FailingFitOptimizer()),
+                () -> fit(c0, zcb; solve_kwargs = (; maxiters = 1)),
+            )
+            @test_throws "Fit.Loss()" f()
+        end
+        # with it, they reach the optimizer
+        @test_throws FitConvergenceError fit(Spline.Cubic(), zcb, Fit.Loss(); solve_kwargs = (; maxiters = 1))
+        @test_throws FitConvergenceError fit(Spline.Cubic(), zcb, Fit.Loss(); optimizer = FailingFitOptimizer())
+        @test_throws FitConvergenceError fit(c0, zcb, Fit.Loss(); solve_kwargs = (; maxiters = 1))
+        # Fit.Loss() is the squared loss, bit for bit
+        @test isequal(
+            fit(Spline.Cubic(), zcb, Fit.Loss(); solve_kwargs = (; g_tol = 1.0e-12)),
+            fit(Spline.Cubic(), zcb, Fit.Loss(x -> x^2); solve_kwargs = (; g_tol = 1.0e-12)),
+        )
+        @test isequal(fit(Yield.NelsonSiegel(), cmt), fit(Yield.NelsonSiegel(), cmt, Fit.Loss(x -> x^2)))
+    end
+
+    @testset "Fit.Exact" begin
+        for spline in (Spline.Linear(), Spline.Cubic(), Spline.MonotoneConvex())
+            @test isequal(fit(spline, cmt, Fit.Exact()), fit(spline, cmt))
+        end
+        @test_throws MethodError Fit.Exact(10)        # keyword only
+        @test_throws FitConvergenceError fit(Spline.Cubic(), cmt, Fit.Exact(maxiters = 1))
+        # a refit with Fit.Exact needs one quote per knot; its knots need not be the maturities
+        @test_throws "one quote per knot" fit(ZeroRateCurve(fill(0.02, 3), [1.0, 5.0, 10.0], Spline.Linear()), zcb, Fit.Exact())
+        c4 = fit(ZeroRateCurve(fill(0.02, 4), [1.5, 2.5, 3.5, 5.0], Spline.Linear()), zcb, Fit.Exact())
+        @test reprice(c4, zcb) < 1.0e-12
+    end
+
+    @testset "residuals are measured against each quote's size on the fitted curve" begin
+        # a long zero-coupon price far below its value at the seed reprices to rounding
+        tiny = [ZCBPrice(1.0e-12, 50.0)]
+        for f in (() -> fit(Spline.Linear(), tiny), () -> fit(Spline.Linear(), tiny, Fit.Bootstrap()))
+            @test reprice(f(), tiny) < 1.0e-12
+        end
+        # a negative price, which no discount factor reprices, throws
+        @test_throws FitConvergenceError fit(Spline.Linear(), [ZCBPrice(-1.0e-20, 50.0)])
+        @test_throws ArgumentError fit(Spline.Linear(), [ZCBPrice(-1.0e-20, 50.0)], Fit.Bootstrap())
+        # a contract of fixed cashflows worth almost nothing is measured against its cashflows, not its price
+        spread = [ZCBPrice(0.98, 1.0), Quote(1.0e-10, FinanceCore.Composite(Cashflow(1.0, 1.0), Cashflow(-1.01, 2.0)))]
+        c = fit(Spline.Linear(), spread)
+        @test abs(pv(c, spread[2].instrument) - spread[2].price) < 1.0e-14
     end
 
     @testset "quotes that no curve reprices throw" begin
@@ -74,7 +111,7 @@
                 e
             end
             @test err isa FitConvergenceError
-            @test occursin("Fit.Loss(x -> x^2)", sprint(showerror, err))
+            @test occursin("Fit.Loss()", sprint(showerror, err))
         end
     end
 
