@@ -92,10 +92,10 @@ with v7.1.1 (pkgimage 41 MB to 36 MB).
   exact fit repriced all but one; on that one (quadratic interpolation of alternating zero-coupon
   and par quotes at 15%), the loss fit's curve mispriced a quote by 9%.
 - An explicit `Fit.Loss(f)` still minimizes `f`, and `Fit.Loss()` is the squared loss. The
-  `optimizer` and `solve_kwargs` configure a loss fit, so a knot-curve fit takes them only with an
-  explicit `Fit.Loss`: `fit(spline, quotes; solve_kwargs = …)` throws an `ArgumentError`.
-  **Migration:** `fit(spline, quotes, Fit.Loss(); solve_kwargs = …)`, which is the v7.1 fit.
-  `Fit.Exact` takes its iteration limit as `Fit.Exact(maxiters = …)`.
+  `optimizer` and `solve_kwargs` configure a loss fit: passed without a method, they select
+  `Fit.Loss()`, so `fit(spline, quotes; solve_kwargs = …)` is the v7.1 fit, and returns the closest
+  curve where `Fit.Exact()` throws. `Fit.Exact` takes its iteration limit as
+  `Fit.Exact(maxiters = …)`.
 - `fit(curve, quotes)`, refitting a knot curve whose knots are at the quote maturities, reprices
   the quotes as the spline fit does. Other knot grids still minimize the squared loss.
   `fit(curve, quotes, Fit.Exact())` solves any refit with one quote per knot.
