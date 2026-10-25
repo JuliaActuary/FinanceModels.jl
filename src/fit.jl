@@ -4,12 +4,14 @@ module Fit
 
 
     """
-        Fit.Loss(function)
+        Fit.Loss(f)
         Fit.Loss()
 
-    `function` should be a loss measure, such as `x->x^2` or `x->abs(x)`. This is used by the optimization algorithm in `fit` to determine optimal parameters as defined by this loss function. `Fit.Loss()` is the squared loss, the default for models other than knot curves.
+    Fit a model by minimizing the sum of `f` applied to its pricing residuals (each quote's value
+    under the model less its price), such as `abs` or `x -> x^2`. `Fit.Loss()` uses f(r) = r².
 
-    The optimizer and its settings (`fit`'s `optimizer` and `solve_kwargs`) configure a `Fit.Loss` fit: passed to a knot-curve fit without a method, they select `Fit.Loss()`, so `fit(spline, quotes; solve_kwargs = (; g_tol = 1e-12))` is `fit(spline, quotes, Fit.Loss(); solve_kwargs = (; g_tol = 1e-12))`.
+    Which fits use `Fit.Loss()` without a method, and how `optimizer` and `solve_kwargs` select it,
+    is described with [`fit`](@ref FinanceModels.fit).
 
     A subtype of FitMethod.
 
@@ -43,10 +45,11 @@ module Fit
 
     The fitted curve reprices each quote to within `sqrt(eps())` of its size: the gross value of its
     cashflows on the curve (the sum of their absolute values, discounted), or its price for a contract
-    whose cashflows depend on the curve. When no curve of its interpolation method reprices the quotes
-    (a price that implies a non-positive discount factor, for example), the fit throws a
-    [`FitConvergenceError`](@ref FinanceModels.FitConvergenceError); `Fit.Loss()` minimizes the squared
-    residuals instead. A refit with `Fit.Exact()` needs as many quotes as knots.
+    whose cashflows depend on the curve. If the solve cannot meet that tolerance, the fit throws a
+    [`FitConvergenceError`](@ref FinanceModels.FitConvergenceError). This can reflect quotes that no
+    curve of its interpolation method reprices (a price that implies a non-positive discount factor,
+    for example) or numerical nonconvergence; `Fit.Loss()` minimizes the squared residuals instead. A
+    refit with `Fit.Exact()` needs as many quotes as knots.
 
     A subtype of FitMethod.
     """
@@ -283,22 +286,24 @@ function __minimize(::Val{O}, loss, x0, quotes, optimizer, solve_kwargs; lb, ub,
 end
 
 """
-    fit(
-        model, 
-        quotes, 
-        method=Fit.Loss(x -> x^2);
-        variables=default_variables(model),
-        optimizer=default_optimizer(model),
-        solve_kwargs=(;)
-        )
+    fit(model, quotes[, method]; kwargs...)
 
-Fit a model to a collection of quotes using a loss function and optimization method.
+Fit a model to a collection of quotes.
 
 ## Arguments
 - `model`: The initial model to fit, which is generally an instantiated but un-optimized model.
 - `quotes`: A collection of quotes to fit the model to.
-- `method::F=Fit.Loss(x -> x^2)`: The loss function to use for fitting the model. Defaults to the squared loss function.
-  - `method` can also be `Bootstrap()` with `Spline.Linear()`, or [`Fit.Exact`](@ref FinanceModels.Fit.Exact) for a knot curve: a spline fit without a `method` reprices its quotes exactly (see below).
+- `method`: how to fit:
+  - [`Fit.Loss(f)`](@ref FinanceModels.Fit.Loss): minimize the sum of `f` over the pricing residuals
+    with an optimizer; `Fit.Loss()` is the squared loss;
+  - [`Fit.Exact()`](@ref FinanceModels.Fit.Exact): reprice every quote, for a knot curve with one knot
+    per quote;
+  - `Fit.Bootstrap()`, with `Spline.Linear()`.
+
+  Without a method, models other than knot curves use `Fit.Loss()`. Without solver settings, spline
+  fits and refits whose knots are at the quote maturities use `Fit.Exact()`, and other knot-curve
+  refits use `Fit.Loss()`. Supplying `optimizer` or `solve_kwargs` without a method selects
+  `Fit.Loss()`.
 - `variables=default_variables(model)`: The variables to optimize over. This is a tuple of optic => interval pairs specifying which parameters of the model can vary. See extended help for more. Spline and knot-curve fits vary the knot rates and do not take `variables`.
 - `optimizer=default_optimizer(model)`: The optimization algorithm to use. The default optimization for a given model is `LBFGS()` from Optim.jl (via OptimizationOptimJL), a quasi-Newton method with automatic differentiation via ForwardDiff. See extended help for more on customizing the solver.
 - `solve_kwargs=(;)`: Keyword arguments passed to `Optimization.solve` with the optimizer, such as
@@ -317,12 +322,13 @@ and a `Yield.Spline` otherwise. With one knot per quote, `fit(spline, quotes)` s
 knot rates that reprice every quote ([`Fit.Exact`](@ref FinanceModels.Fit.Exact)): Newton's method
 on the quotes' pricing residuals, with a line search, from a fixed starting curve near 5%. It runs
 no optimizer. The returned curve reprices each quote to within `sqrt(eps())` of its size (the gross
-value of its cashflows; in practice to rounding), and a solve that cannot reprice them, because no
-curve with this interpolation does, throws a
-[`FitConvergenceError`](@ref FinanceModels.FitConvergenceError) rather than return a curve that
-misprices them. `Fit.Loss(f)` fits the spline by minimizing the loss (`Fit.Loss()`: the squared loss, which an
-`optimizer` or `solve_kwargs` without a method also select) with an Optimization.jl solver instead: `LBFGS()` for `Spline.MonotoneConvex()`, `Newton()` otherwise. With quotes that a
-curve reprices, the loss fit converges to the same curve, to the optimizer's tolerance.
+value of its cashflows; in practice to rounding). If the solver cannot meet that tolerance, the fit
+throws a [`FitConvergenceError`](@ref FinanceModels.FitConvergenceError) rather than return a curve
+that misprices the quotes; this can reflect incompatible quotes or numerical nonconvergence.
+`Fit.Loss(f)` fits the spline by minimizing the loss (`Fit.Loss()`: the squared loss, which an
+`optimizer` or `solve_kwargs` without a method also select) with an Optimization.jl solver instead:
+`LBFGS()` for `Spline.MonotoneConvex()`, `Newton()` otherwise. A loss fit may also reprice every
+quote; its accuracy depends on the optimizer's convergence tolerance.
 `Fit.Bootstrap()` accepts `Spline.Linear()` only. Fitting an existing knot curve
 (`fit(curve, quotes)`, a [`Yield.AbstractInterpolatedZeroCurve`](@ref)) fits new knot rates at
 its tenors with its interpolation method and `extrapolation`. When its knots are at the quote
