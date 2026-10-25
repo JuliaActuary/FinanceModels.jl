@@ -101,8 +101,13 @@ end
 # last knot (`:extension`, `__extends(c)`) has no tail. The zero rate and L are continuous at the last
 # knot, so the tail starts after it; the instantaneous forward is the right-hand derivative of L, the
 # tail's from the last knot on.
+#
+# The time functions are not constant-propagated. A curve's descriptor is a singleton field, so a
+# call in user code, `zero(curve, 2.5)` in a function, otherwise re-infers the evaluation for that
+# call site: compiling a function that builds a linear curve and queries it took 87 ms instead of
+# 28 ms. The evaluation still inlines into the caller, so run time is unchanged.
 @inline __in_tail(c::AbstractInterpolatedZeroCurve, t) = !__extends(c) && t > __tail(c).last_tenor
-function Base.zero(c::AbstractInterpolatedZeroCurve, t)
+Base.@constprop :none function Base.zero(c::AbstractInterpolatedZeroCurve, t)
     __check_time(t, "zero")
     return Continuous(__in_tail(c, t) ? __tail(c)(t) : __interior_zero(c, t))
 end
@@ -126,7 +131,7 @@ between two times and is defined for every yield model.
 """
 instantaneous_forward(::AbstractInterpolatedZeroCurve, t)
 
-function force_of_interest(c::AbstractInterpolatedZeroCurve, t)
+Base.@constprop :none function force_of_interest(c::AbstractInterpolatedZeroCurve, t)
     __check_time(t, "instantaneous_forward")
     (__extends(c) || t < __tail(c).last_tenor) || return __tail_forward(__tail(c), t)
     return __interior_forward(c, t)
@@ -147,12 +152,12 @@ end
 # Every knot curve evaluates alike: a negative time throws, t = Inf is the limit of the curve's tail
 # (`__log_tail`, out of line so that the finite path stays small enough to inline), and a finite
 # time is the curve's own L, `__knot_log_discount(c, t)`.
-function FinanceCore.discount(c::AbstractInterpolatedZeroCurve, t)
+Base.@constprop :none function FinanceCore.discount(c::AbstractInterpolatedZeroCurve, t)
     __check_time(t, "discount")
     isinf(t) && return __discount_at_infinity(c)
     return exp(-__knot_log_discount(c, t))
 end
-function __log_discount(c::AbstractInterpolatedZeroCurve, t)
+Base.@constprop :none function __log_discount(c::AbstractInterpolatedZeroCurve, t)
     __check_time(t, "discount")
     isinf(t) && return __log_discount_at_infinity(c)
     return __knot_log_discount(c, t)

@@ -46,6 +46,7 @@ c = fit(Spline.Linear(), qs, Fit.Bootstrap()) # fits one knot at a time, with kn
 module Spline
 import ..FinanceCore
 import ..AbstractModel
+import ..Accessors
 
 abstract type SplineCurve end
 
@@ -61,22 +62,37 @@ concurrently.
 The convenience constructors [`Spline.Linear`](@ref), [`Spline.Quadratic`](@ref), and [`Spline.Cubic`](@ref)
 return `PolynomialSpline(1/2/3)`. Any other `order` throws an `ArgumentError`.
 
+The order is a type parameter, read as `s.order`: `Spline.Linear()` is a `PolynomialSpline{1}`, so
+a curve built from it has one concrete type.
+
 On a short grid the order is reduced: with `k` knots, an order-`n` spline interpolates at order
 `min(n, k - 1)`, so a cubic spline through two knots is linear and one knot gives a flat curve.
 A [`fit`](@ref FinanceModels.fit) places one knot per quote, so `fit(Spline.Cubic(), quotes)` with
 two quotes returns a linear curve.
 """
-struct PolynomialSpline <: SplineCurve
-    order::Int
-    function PolynomialSpline(order::Integer)
-        1 <= order <= 3 || throw(
-            ArgumentError(
-                "Spline.PolynomialSpline: order must be 1 (linear), 2 (quadratic) or 3 (cubic); got $order."
-            )
-        )
-        return new(order)
+struct PolynomialSpline{O} <: SplineCurve
+    # The order is a type parameter, so a curve's interpolation follows from its descriptor's type: a
+    # runtime order made every `ZeroRateCurve(rates, tenors, Spline.Linear())` a union of the linear,
+    # quadratic, and cubic curve types, and compiled all three for each element type.
+    function PolynomialSpline{O}() where {O}
+        O isa Int && 1 <= O <= 3 || __throw_order(O)
+        return new{O}()
     end
 end
+PolynomialSpline(order::Integer) = (1 <= order <= 3 || __throw_order(order); PolynomialSpline{Int(order)}())
+@noinline __throw_order(order) = throw(
+    ArgumentError("Spline.PolynomialSpline: order must be 1 (linear), 2 (quadratic) or 3 (cubic); got $order.")
+)
+
+# The order reads as the descriptor's one property, as when it was a field: `s.order`, `@set
+# s.order = 2`, and printing as the construction call `PolynomialSpline(3)`.
+Base.getproperty(s::PolynomialSpline{O}, f::Symbol) where {O} = f === :order ? O : getfield(s, f)
+Base.propertynames(::PolynomialSpline) = (:order,)
+Base.show(io::IO, ::PolynomialSpline{O}) where {O} = print(io, PolynomialSpline, "(", O, ")")
+Accessors.ConstructionBase.getproperties(s::PolynomialSpline) = (order = s.order,)
+Accessors.ConstructionBase.setproperties(s::PolynomialSpline, ::NamedTuple{()}) = s
+Accessors.ConstructionBase.setproperties(::PolynomialSpline, patch::NamedTuple{(:order,)}) = PolynomialSpline(patch.order)
+Accessors.ConstructionBase.constructorof(::Type{<:PolynomialSpline}) = PolynomialSpline
 
 """
     Spline.BSpline(d)
@@ -181,7 +197,7 @@ julia> Spline.Linear()
 PolynomialSpline(1)
 ```
 """
-Linear() = PolynomialSpline(1)
+Linear() = PolynomialSpline{1}()
 
 """
     Spline.Quadratic()
@@ -204,7 +220,7 @@ julia> Spline.Quadratic()
 PolynomialSpline(2)
 ```
 """
-Quadratic() = PolynomialSpline(2)
+Quadratic() = PolynomialSpline{2}()
 
 """
     Spline.Cubic()
@@ -228,7 +244,7 @@ julia> Spline.Cubic()
 PolynomialSpline(3)
 ```
 """
-Cubic() = PolynomialSpline(3)
+Cubic() = PolynomialSpline{3}()
 
 
 # used as the object which gets optmized before finally returning a completed spline

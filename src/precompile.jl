@@ -7,6 +7,7 @@ using PrecompileTools
     q_rate = ZCBYield(rates)
     q_cmt = CMTYield.([0.04, 0.045, 0.05], [1, 2, 3])          # coupon bonds, integer tenors
     q_par = ParYield.([0.04, 0.045, 0.05], [1.0, 2.0, 3.0])    # coupon bonds, float tenors
+    q_cmt4 = CMTYield.([0.04, 0.045, 0.05, 0.052], [1, 2, 3, 5])  # enough quotes for a cubic curve
     knot_tenors3 = [1.0, 2.0, 3.0]
     cfs = Cashflow.([5.0, 5.0, 105.0], knot_tenors3)
 
@@ -44,6 +45,7 @@ using PrecompileTools
         fit(Spline.Linear(), q_par, Fit.Bootstrap())
         # Whole-curve fits with the other common interpolants.
         fit(Spline.Cubic(), q_rate)
+        fit(Spline.Cubic(), q_cmt4)
         fit(Spline.MonotoneConvex(), q_rate)
 
         # Direct construction and the curve queries on each curve family.
@@ -51,7 +53,11 @@ using PrecompileTools
                 model_rate,
                 ZeroRateCurve(rates, knot_tenors3),
                 ZeroRateCurve(rates, knot_tenors3, Spline.Linear()),
+                Yield.Spline(Spline.Quadratic(), times, curve_rates),
                 Yield.Spline(Spline.Cubic(), times, curve_rates),
+                # a cubic spline is linear or quadratic on a short grid, a curve type of its own
+                Yield.Spline(Spline.Cubic(), times[1:2], curve_rates[1:2]),
+                Yield.Spline(Spline.Cubic(), times[1:3], curve_rates[1:3]),
                 Yield.Constant(0.03),
             )
             discount(c, 2.5); accumulation(c, 2.5); zero(c, 2.5); forward(c, 1.0, 2.0)

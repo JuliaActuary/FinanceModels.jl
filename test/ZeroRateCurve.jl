@@ -441,6 +441,43 @@ using ForwardDiff
         @test Spline.PolynomialSpline(3) == Spline.Cubic()
     end
 
+    @testset "a polynomial spline's order is part of its type" begin
+        P = Spline.PolynomialSpline
+        for (n, s) in ((1, Spline.Linear()), (2, Spline.Quadratic()), (3, Spline.Cubic()))
+            @test s === P(n) === P(Int8(n)) === P{n}()
+            @test s isa P{n} && s isa P
+            @test s.order == n && propertynames(s) == (:order,)
+            @test hash(s) == hash(P(n)) && s != P(mod1(n + 1, 3))
+            # prints, and round-trips, as the construction call
+            @test repr(s) == "FinanceModels.Spline.PolynomialSpline($n)"
+            @test eval(Meta.parse(repr(s))) === s
+            # Accessors and ConstructionBase see the order as its one property
+            @test (@set s.order = 1) === Spline.Linear()
+            @test Accessors.ConstructionBase.getproperties(s) == (order = n,)
+            @test Accessors.ConstructionBase.constructorof(typeof(s))(n) === s
+        end
+        @test P(true) === Spline.Linear()
+        @test_throws ArgumentError P{4}()
+        @test_throws ArgumentError P{2.0}()
+        @test_throws ArgumentError @set Spline.Cubic().order = 4
+        @test_throws (isdefined(Core, :FieldError) ? Core.FieldError : ErrorException) Spline.Cubic().degree
+        # a linear curve has one concrete type; a cubic one reduces its order on a short grid
+        r, t = [0.03, 0.035, 0.04, 0.042], [1.0, 2.0, 5.0, 10.0]
+        @test isconcretetype(only(Base.return_types(ZeroRateCurve, (Vector{Float64}, Vector{Float64}, typeof(Spline.Linear())))))
+        @test (@inferred ZeroRateCurve(r, t, Spline.Linear())) isa Yield.Spline{typeof(Spline.Linear())}
+        @test (@inferred Yield.Spline(Spline.Linear(), t, r)) isa Yield.Spline{typeof(Spline.Linear())}
+        @test (@inferred reconstruct(ZeroRateCurve(r, t, Spline.Linear()); rates = r .+ 0.001)) isa Yield.Spline
+        @test (@inferred ZeroRateCurve(ForwardDiff.Dual.(r, 1.0), t, Spline.Linear())) isa Yield.Spline
+        @test ZeroRateCurve(r[1:2], t[1:2], Spline.Cubic())._interp isa FinanceModels.DataInterpolations.LinearInterpolation
+        @test ZeroRateCurve(r[1:3], t[1:3], Spline.Cubic())._interp isa FinanceModels.DataInterpolations.QuadraticSpline
+        @test ZeroRateCurve(r, t, Spline.Cubic())._interp isa FinanceModels.DataInterpolations.CubicSpline
+        # a quadratic spline is never cubic
+        @test length(Base.uniontypes(only(Base.return_types(ZeroRateCurve, (Vector{Float64}, Vector{Float64}, typeof(Spline.Quadratic())))))) == 2
+        # a curve's spline can be replaced, or its order changed, through Accessors
+        c = ZeroRateCurve(r, t, Spline.Cubic())
+        @test (@set c.spline.order = 1) == ZeroRateCurve(r, t, Spline.Linear())
+    end
+
     @testset "element-type promotion" begin
         z = ZeroRateCurve(Real[0.02f0, 0.03], [1, 2], Spline.Linear())
         @test eltype(z.rates) === Rate{Float64, Continuous} && eltype(z.tenors) === Float64
