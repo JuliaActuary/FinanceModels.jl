@@ -23,7 +23,17 @@ end
     @testset "$spline minimizes the squared pricing residuals" for spline in (Spline.Linear(), Spline.Quadratic(), Spline.Cubic(), Spline.MonotoneConvex())
         c0 = ZeroRateCurve(fill(0.04, length(knots)), knots, spline)
         c = fit(c0, qs, Fit.LeastSquares())
-        @test isequal(fit(c0, qs), fit(c0, qs, Fit.Loss()))
+        # The v7 default preserves both successful results and optimizer failures.
+        legacy = try
+            fit(c0, qs, Fit.Loss())
+        catch e
+            e
+        end
+        if legacy isa FitConvergenceError
+            @test_throws FitConvergenceError fit(c0, qs)
+        else
+            @test isequal(fit(c0, qs), legacy)
+        end
         @test knot_tenors(c) == knots
         z = rate.(knot_rates(c))
         ϕ = objective(spline)

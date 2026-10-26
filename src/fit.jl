@@ -105,8 +105,8 @@ module Fit
     approximately a yield error, so that long bonds do not dominate the fit.
 
     Select this method explicitly with `fit(ZeroRateCurve(rates, knots, spline), quotes, Fit.LeastSquares())`,
-    for example to fit ten knots to an index of a thousand bonds. The default remains `Fit.Loss()`. Quote maturities may repeat, and there must be at least as
-    many quotes with a positive weight as knots, each knot moving some quote's price. The solver starts
+    for example to fit ten knots to an index of a thousand bonds. The default remains `Fit.Loss()`.
+    Quote maturities may repeat. There must be at least as many quotes with a positive weight as knots, each knot moving some quote's price. The solver starts
     from FinanceModels' standard initial rates, rather than the supplied curve's rates, and seeks a
     local minimum, which need not be the best fit of all curves.
 
