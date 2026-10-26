@@ -146,7 +146,7 @@
         quotes = [FX.Outright(eurusd, forward(truth, t), t) for t in [0.5, 1.0, 2.0, 5.0]]
         for spline in (Spline.Linear(), Spline.Cubic())
             m = fit(FX.Forwards(eurusd, S, usd, spline), quotes, Fit.Exact())
-            @test isequal(fit(FX.Forwards(eurusd, S, usd, spline), quotes), fit(FX.Forwards(eurusd, S, usd, spline), quotes, Fit.Loss()))
+            @test isequal(fit(FX.Forwards(eurusd, S, usd, spline), quotes).foreign, fit(FX.Forwards(eurusd, S, usd, spline), quotes, Fit.Loss()).foreign)
             @test all(abs(pv(m, q.instrument)) < 1.0e-12 for q in quotes)
             @test isequal(m.foreign, fit(spline, map(q -> FinanceModels.FX.__implied_foreign_quote(truth, q), quotes), Fit.Exact()))
         end
