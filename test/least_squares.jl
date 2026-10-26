@@ -23,7 +23,7 @@ end
     @testset "$spline minimizes the squared pricing residuals" for spline in (Spline.Linear(), Spline.Quadratic(), Spline.Cubic(), Spline.MonotoneConvex())
         c0 = ZeroRateCurve(fill(0.04, length(knots)), knots, spline)
         c = fit(c0, qs, Fit.LeastSquares())
-        @test isequal(fit(c0, qs), fit(c0, qs, Fit.Loss()))
+        @test isequal(fit(c0, qs), c)
         @test knot_tenors(c) == knots
         z = rate.(knot_rates(c))
         ϕ = objective(spline)
@@ -224,6 +224,6 @@ end
         m = fit(FX.Forwards(eurusd, 1.1, usd, foreign), outrights, Fit.LeastSquares())
         @test knot_tenors(m.foreign) == [1.0, 3.0, 6.0]
         @test all(abs(pv(m, q.instrument)) < 1.0e-6 for q in outrights)   # a flat curve is representable
-        @test isequal(fit(FX.Forwards(eurusd, 1.1, usd, foreign), outrights).foreign, fit(FX.Forwards(eurusd, 1.1, usd, foreign), outrights, Fit.Loss()).foreign)
+        @test isequal(fit(FX.Forwards(eurusd, 1.1, usd, foreign), outrights).foreign, fit(FX.Forwards(eurusd, 1.1, usd, foreign), outrights, Fit.LeastSquares()).foreign)
     end
 end

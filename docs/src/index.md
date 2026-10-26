@@ -254,7 +254,7 @@ model = fit(Spline.Linear(), quotes, Fit.Exact())  # the curve that reprices eve
 
 - **Model** could be `Spline.Linear()`, `Yield.NelsonSiegelSvensson()`, `Equity.BlackScholesMerton(...)`, etc.
 - **Quotes** describe observed instrument prices, using constructors such as `CMTYield` or `ParYield`, or `Quote(price, Option.EuroCall(...))`.
-- **Method** defaults to least squares, `Fit.Loss(x -> x^2)`, when omitted. Pass another loss explicitly, such as `Fit.Loss(abs)`, to change the objective. For a spline, pass `Fit.Exact()` to solve for a curve that reprices every quote, with one knot per quote maturity.
+- **Method** defaults to `Fit.Exact()` for spline fits and knot-curve refits aligned with the quote maturities, and `Fit.LeastSquares()` for other knot-curve refits. Generic optimizer fits use `Fit.Loss()` (squared residuals). Pass `Fit.Loss(abs)` explicitly to change the objective; pass `Fit.Loss()` explicitly to configure an optimizer for a knot curve.
 
 This unified way to fit models offers a much simpler way to extend functionality to new models or contract types.
 

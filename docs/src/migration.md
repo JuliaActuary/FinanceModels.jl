@@ -1,5 +1,44 @@
 # Migration Guide
 
+## v7.x to v8.0
+
+### Fitting defaults
+
+Spline fits now use `Fit.Exact()`: every quote must reprice, or the fit throws.
+A knot-curve refit uses `Fit.Exact()` when its knots equal the sorted quote maturities and
+`Fit.LeastSquares()` otherwise. FX calibration follows the foreign curve's rule.
+Generic optimizer fits keep `Fit.Loss()`.
+
+To preserve the v7 optimizer path, name the method explicitly:
+
+```julia
+# v7
+curve = fit(spline, quotes; solve_kwargs = (; g_tol = 1e-12))
+refit = fit(curve0, quotes)
+
+# v8: preserve those methods
+curve = fit(spline, quotes, Fit.Loss(); solve_kwargs = (; g_tol = 1e-12))
+refit = fit(curve0, quotes, Fit.Loss())
+
+# v8: select the dedicated methods and their options
+curve = fit(spline, quotes, Fit.Exact(maxiters = 200))
+refit = fit(curve0, quotes, Fit.LeastSquares(weights = w, maxiters = 300))
+```
+
+On spline and knot-curve fits, `optimizer` and `solve_kwargs` require an explicit `Fit.Loss()`.
+Even `solve_kwargs = (;)` throws without a method; pass `nothing` or omit the keyword to use
+the new default. Existing explicit `Fit.Loss()`, `Fit.Exact()`, `Fit.LeastSquares()` and
+`Fit.Bootstrap()` calls keep their methods.
+
+A loss fit can report success without repricing every quote. An exact fit throws in that
+case, including some cubic and quadratic high-rate CMT curves (25–28%). Inspect the quotes
+and interpolation, or select `Fit.Loss()` explicitly if minimizing pricing errors is intended.
+
+The default least-squares refit is local, from FinanceModels' fixed starting rates, and has
+no roughness penalty. Choose knots to control the curve's flexibility and inspect implied
+forwards. MonotoneConvex, PCHIP and Akima can throw when the minimum lies at an interpolation
+kink; undetermined knot rates also throw. See [Fitting More Quotes Than Knots](@ref).
+
 ## v6.x to v7.0
 
 - **`Fit.Bootstrap()` supports only `Spline.Linear()`** (equivalently

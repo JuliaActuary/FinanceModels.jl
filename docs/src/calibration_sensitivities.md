@@ -75,7 +75,7 @@ ForwardDiff.gradient(value, rates)    # its sensitivity to each quoted OIS rate
 
 The gradient is the change in value per unit change in each quoted rate, with every other quote
 held fixed and the curve refitted. The same works for a loss fit with any interpolation method
-(`fit(Spline.MonotoneConvex(), quotes)`, `fit(Spline.Cubic(), quotes)`, …), for pipelines that
+(`fit(Spline.MonotoneConvex(), quotes, Fit.Loss())`, `fit(Spline.Cubic(), quotes, Fit.Loss())`, …), for pipelines that
 build several curves, and for `FX.Forwards` fitted with a spline foreign curve (spot, the
 domestic curve, and the quotes may all carry dual numbers). The shape-preserving interpolations
 have kinks where no derivative exists; see [Kinks](@ref calibration-kinks) below.
@@ -111,11 +111,11 @@ residuals do not; without it they would be those of the Gauss–Newton approxima
 
 | Calibration | Differentiable | Notes |
 |:------------|:---------------|:------|
-| `fit(spline, quotes, Fit.Exact())`, every interpolation method | yes | reprices its quotes to rounding |
-| `fit(spline, quotes)` or `fit(spline, quotes, Fit.Loss(f))` | yes | the fit must reprice its quotes; see below |
+| `fit(spline, quotes)` or `fit(spline, quotes, Fit.Exact())`, every interpolation method | yes | reprices its quotes to rounding |
+| `fit(spline, quotes, Fit.Loss(f))` | yes | the fit must reprice its quotes; see below |
 | `fit(Spline.Linear(), quotes, Fit.Bootstrap())` | yes | exact to root-finder precision |
 | `fit(FX.Forwards(pair, spot, domestic, spline), quotes, …)` | yes | through the implied foreign quotes |
-| `fit(curve, quotes)`, refitting an existing knot curve | with one knot per quote | a loss fit by default; it must reprice its quotes; another number of knots throws a `DimensionMismatch` |
+| `fit(curve, quotes)`, refitting an existing knot curve | yes, for quotes with fixed cashflows | aligned knots: exact repricing; other grids: the least-squares optimality condition |
 | `fit(spline or curve, quotes, Fit.LeastSquares(; weights))` | quote prices, fixed cashflow amounts, weights | the optimality condition at a local minimum; curve-dependent cashflows and a dual extrapolation forward throw |
 | `fit(Yield.SmithWilson(…), quotes)` | quote prices and cashflow amounts (such as `Bond.Fixed` coupons) | differentiates the closed form directly; values match the primal fit to rounding, not bitwise |
 | other models (`Yield.NelsonSiegel`, `Yield.Constant`, short-rate models) | no | `fit` throws an `ArgumentError` |

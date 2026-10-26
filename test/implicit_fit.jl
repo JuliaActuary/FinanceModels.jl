@@ -61,10 +61,10 @@ FinanceCore.present_value(m::Yield.Constant, c::NestedConditional{V}) where {V} 
     fitters = (
         "Linear bootstrap" => qs -> fit(Spline.Linear(), qs, Fit.Bootstrap()),
         "BSpline(1) bootstrap" => qs -> fit(Spline.BSpline(1), qs, Fit.Bootstrap()),
-        "Linear loss" => qs -> fit(Spline.Linear(), qs),
-        "Cubic loss" => qs -> fit(Spline.Cubic(), qs),
-        "PCHIP loss" => qs -> fit(Spline.PCHIP(), qs),
-        "MonotoneConvex loss" => qs -> fit(Spline.MonotoneConvex(), qs),
+        "Linear loss" => qs -> fit(Spline.Linear(), qs, Fit.Loss()),
+        "Cubic loss" => qs -> fit(Spline.Cubic(), qs, Fit.Loss()),
+        "PCHIP loss" => qs -> fit(Spline.PCHIP(), qs, Fit.Loss()),
+        "MonotoneConvex loss" => qs -> fit(Spline.MonotoneConvex(), qs, Fit.Loss()),
     )
     families = (
         "CMTYield" => CMTYield,
@@ -119,7 +119,7 @@ FinanceCore.present_value(m::Yield.Constant, c::NestedConditional{V}) where {V} 
 
     @testset "method independence: linear loss equals linear bootstrap" begin
         value(fitter) = x -> pv(fitter(CMTYield.(x, tenors)), cfs)
-        @test ForwardDiff.gradient(value(qs -> fit(Spline.Linear(), qs)), rates) ≈
+        @test ForwardDiff.gradient(value(qs -> fit(Spline.Linear(), qs, Fit.Loss())), rates) ≈
             ForwardDiff.gradient(value(qs -> fit(Spline.Linear(), qs, Fit.Bootstrap())), rates) rtol = 1.0e-6
     end
 
