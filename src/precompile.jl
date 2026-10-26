@@ -43,9 +43,9 @@ using PrecompileTools
         fit(Spline.Linear(), q_cmt, Fit.Bootstrap())
         fit(Spline.Linear(), q_par, Fit.Bootstrap())
         # Whole-curve fits with the other common interpolants.
-        fit(Spline.Cubic(), q_rate)
+        fit(Spline.Cubic(), q_rate, Fit.Loss())
         fit(Spline.Cubic(), q_rate, Fit.Exact())
-        fit(Spline.MonotoneConvex(), q_rate)
+        fit(Spline.MonotoneConvex(), q_rate, Fit.Loss())
         fit(Spline.MonotoneConvex(), q_rate, Fit.Exact())
         # A least-squares refit of coupon bonds, maturities repeated, on knots of its own.
         fit(ZeroRateCurve(rates, knot_tenors3, Spline.Linear()), [q_cmt; q_par], Fit.LeastSquares())

@@ -20,7 +20,7 @@ These smoothness statements concern tenor, not derivatives with respect to knot 
 
 Since v6.0, `Spline.Linear()`, `Spline.Quadratic()`, and `Spline.Cubic()` return `PolynomialSpline` interpolants, which are fast and safe to evaluate concurrently across threads. Only `Spline.Linear()` is local; the quadratic and natural cubic splines are global. For a B-spline (e.g. as a least-squares fitting basis) request `Spline.BSpline(d)` explicitly; it is **not** thread-safe for concurrent evaluation on a shared curve.
 
-`Fit.Bootstrap()` supports linear interpolation (`Spline.Linear()` or `Spline.BSpline(1)`): bootstrapping requires that each new knot leaves earlier segments unchanged. Fit other methods to the whole quote set at once with `fit(spline, quotes, Fit.Exact())`, which reprices every quote. The default `fit(spline, quotes)` minimizes squared pricing residuals.
+`Fit.Bootstrap()` supports linear interpolation (`Spline.Linear()` or `Spline.BSpline(1)`): bootstrapping requires that each new knot leaves earlier segments unchanged. Fit other methods to the whole quote set at once with `fit(spline, quotes, Fit.Exact())`, which reprices every quote. This is also the default for `fit(spline, quotes)`.
 
 ```julia
 using FinanceModels
@@ -131,8 +131,10 @@ instantaneous forward and can also change interior interpolation.
 `fit(spline, quotes, Fit.Exact())` places one knot at each quote maturity and reprices every quote. To fit a
 curve to more quotes than you want knots (the bonds of a credit index, say, whose maturities
 repeat and whose prices no single curve reprices), choose the knots and refit a curve that has
-them and select [`Fit.LeastSquares`](@ref FinanceModels.Fit.LeastSquares) explicitly. It minimizes
-the squared pricing residuals. The default spline fit and refit remain `Fit.Loss()` in v7.2.
+them. [`Fit.LeastSquares`](@ref FinanceModels.Fit.LeastSquares) is the default when the curve's
+knots differ from the sorted quote maturities. It minimizes the squared pricing residuals without
+a roughness penalty. An aligned refit uses `Fit.Exact()`. Use `Fit.Loss()` explicitly to retain
+the v7 optimizer path.
 
 ```julia
 knots = [0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0, 15.0, 20.0, 30.0]

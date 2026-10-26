@@ -40,6 +40,7 @@ include("implied_quote.jl")
 include("implicit_fit.jl")
 include("least_squares.jl")
 include("exact_fit.jl")
+include("fit_defaults.jl")
 include("kinks.jl")
 
 include("extensions.jl")

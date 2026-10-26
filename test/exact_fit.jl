@@ -45,37 +45,23 @@
         for spline in (Spline.Linear(), Spline.Cubic(), Spline.MonotoneConvex())
             c0 = ZeroRateCurve(fill(0.02, length(tenors)), tenors, spline)
             @test isequal(fit(c0, cmt), fit(spline, cmt))
-            @test isequal(fit(c0, cmt), fit(c0, cmt, Fit.Loss()))
-            @test isequal(fit(spline, cmt), fit(spline, cmt, Fit.Loss()))
+            @test isequal(fit(c0, cmt), fit(c0, cmt, Fit.Exact()))
+            @test isequal(fit(spline, cmt), fit(spline, cmt, Fit.Exact()))
             @test isequal(fit(c0, cmt, Fit.Exact()), fit(spline, cmt, Fit.Exact()))
         end
-        # other knot grids keep the squared-loss default
+        # other knot grids use least squares
         c0 = ZeroRateCurve(fill(0.02, 4), [0.5, 2.0, 10.0, 30.0], Spline.Linear())
-        @test isequal(fit(c0, cmt), fit(c0, cmt, Fit.Loss()))
-        @test rate.(knot_rates(fit(c0, cmt, Fit.LeastSquares()))) ≈ rate.(knot_rates(fit(c0, cmt, Fit.Loss(abs2); solve_kwargs = (; g_tol = 1.0e-12)))) atol = 1.0e-9
+        @test isequal(fit(c0, cmt), fit(c0, cmt, Fit.LeastSquares()))
+        @test rate.(knot_rates(fit(c0, cmt))) ≈ rate.(knot_rates(fit(c0, cmt, Fit.Loss(abs2); solve_kwargs = (; g_tol = 1.0e-12)))) atol = 1.0e-9
     end
 
-    @testset "an optimizer or its settings fit the squared loss" begin
-        c0 = ZeroRateCurve(fill(0.02, 4), [1.0, 2.0, 3.0, 5.0], Spline.Cubic())
-        # without a method, they select Fit.Loss(), bit for bit, and reach the optimizer
-        @test isequal(
-            fit(Spline.Cubic(), zcb; solve_kwargs = (; g_tol = 1.0e-12)),
-            fit(Spline.Cubic(), zcb, Fit.Loss(); solve_kwargs = (; g_tol = 1.0e-12)),
-        )
-        @test isequal(
-            fit(c0, zcb; solve_kwargs = (; g_tol = 1.0e-12)),
-            fit(c0, zcb, Fit.Loss(); solve_kwargs = (; g_tol = 1.0e-12)),
-        )
-        @test_throws FitConvergenceError fit(Spline.Cubic(), zcb; solve_kwargs = (; maxiters = 1))
-        @test_throws FitConvergenceError fit(Spline.Cubic(), zcb; optimizer = FailingFitOptimizer())
-        @test_throws FitConvergenceError fit(c0, zcb; solve_kwargs = (; maxiters = 1))
+    @testset "explicit loss settings reach the optimizer" begin
         @test_throws FitConvergenceError fit(Spline.Cubic(), zcb, Fit.Loss(); solve_kwargs = (; maxiters = 1))
-        # Fit.Loss() is the squared loss, bit for bit
+        @test_throws FitConvergenceError fit(Spline.Cubic(), zcb, Fit.Loss(); optimizer = FailingFitOptimizer())
         @test isequal(
             fit(Spline.Cubic(), zcb, Fit.Loss(); solve_kwargs = (; g_tol = 1.0e-12)),
             fit(Spline.Cubic(), zcb, Fit.Loss(x -> x^2); solve_kwargs = (; g_tol = 1.0e-12)),
         )
-        @test isequal(fit(Yield.NelsonSiegel(), cmt), fit(Yield.NelsonSiegel(), cmt, Fit.Loss(x -> x^2)))
     end
 
     @testset "Fit.Exact" begin
@@ -147,7 +133,7 @@
         quotes = [FX.Outright(eurusd, forward(truth, t), t) for t in [0.5, 1.0, 2.0, 5.0]]
         for spline in (Spline.Linear(), Spline.Cubic())
             m = fit(FX.Forwards(eurusd, S, usd, spline), quotes, Fit.Exact())
-            @test isequal(fit(FX.Forwards(eurusd, S, usd, spline), quotes).foreign, fit(FX.Forwards(eurusd, S, usd, spline), quotes, Fit.Loss()).foreign)
+            @test isequal(fit(FX.Forwards(eurusd, S, usd, spline), quotes).foreign, fit(FX.Forwards(eurusd, S, usd, spline), quotes, Fit.Exact()).foreign)
             @test all(abs(pv(m, q.instrument)) < 1.0e-12 for q in quotes)
             @test isequal(m.foreign, fit(spline, map(q -> FinanceModels.FX.__implied_foreign_quote(truth, q), quotes), Fit.Exact()))
         end

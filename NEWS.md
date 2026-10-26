@@ -1,5 +1,32 @@
 # FinanceModels.jl release notes
 
+## v8.0.0
+
+### Exact and least-squares defaults for knot-curve calibration
+
+The fitting method is now selected from the model and quote maturities:
+
+| Call without a method | v7 | v8 |
+|---|---|---|
+| `fit(spline, quotes)` | `Fit.Loss()` | `Fit.Exact()` |
+| `fit(curve, quotes)` with knots equal to the sorted quote maturities | `Fit.Loss()` | `Fit.Exact()` |
+| `fit(curve, quotes)` with other knots | `Fit.Loss()` | `Fit.LeastSquares()` |
+| `fit(FX.Forwards(...), quotes)` with a spline or knot foreign curve | `Fit.Loss()` | follows the foreign curve |
+
+Generic optimizer fits retain `Fit.Loss()`. Pass it explicitly to keep the v7 knot-curve
+optimizer path. Exact fits reprice or throw, including high-rate CMT cases where a loss fit
+can report success despite a pricing residual. Least-squares fits are local and unpenalized;
+they can throw at interpolation kinks or when the quotes do not determine the knots.
+
+`optimizer` and `solve_kwargs` no longer select a loss method implicitly for spline or
+knot-curve fits. Supplying either without a method throws an `ArgumentError` directing the
+caller to `Fit.Loss()`. An empty `solve_kwargs = (;)` also throws; `nothing` is treated as
+absent. Generic optimizer fits still accept these keywords without a method.
+
+See the v7-to-v8 migration guide for explicit-method examples. The algorithms, starting rates,
+acceptance checks and derivative formulas are unchanged. This release change is separate
+from the Optim.jl migration in PR #359; both are intended for v8.0.
+
 ## v7.2.0
 
 ### Least-squares fits of a knot curve to many quotes: `Fit.LeastSquares`
