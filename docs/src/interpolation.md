@@ -126,6 +126,50 @@ stored as its continuously compounded value and stays fixed when knot rates are 
 fitted. Appending a synthetic far knot does not generally impose a chosen terminal
 instantaneous forward and can also change interior interpolation.
 
+## Fitting More Quotes Than Knots
+
+`fit(spline, quotes, Fit.Exact())` places one knot at each quote maturity and reprices every quote. To fit a
+curve to more quotes than you want knots (the bonds of a credit index, say, whose maturities
+repeat and whose prices no single curve reprices), choose the knots and refit a curve that has
+them and select [`Fit.LeastSquares`](@ref FinanceModels.Fit.LeastSquares) explicitly. It minimizes
+the squared pricing residuals. The default spline fit and refit remain `Fit.Loss()` in v7.2.
+
+```julia
+knots = [0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0, 15.0, 20.0, 30.0]
+c0 = ZeroRateCurve(fill(0.05, length(knots)), knots, Spline.Cubic())
+bbb = fit(c0, bond_quotes, Fit.LeastSquares()) # e.g. 1000 `Quote(price, Bond.Fixed(...))`s
+```
+
+Unweighted residuals are price errors. For a given yield error, longer-duration bonds generally
+have larger price errors, so long bonds dominate the fit. With `D` a bond's modified duration at its
+own yield, a price error is about `-price * D` times the yield error, so weights
+`w = 1 / (price * D)^2` make each weighted residual, `sqrt(w)` times the price error, approximately a
+yield error:
+
+```julia
+# D[i]: bond i's modified duration, e.g. ActuaryUtilities' duration(Modified(), yield, cashflows, times)
+w = [1 / (q.price * D[i])^2 for (i, q) in enumerate(bond_quotes)]
+bbb = fit(c0, bond_quotes, Fit.LeastSquares(weights = w))
+```
+
+The fit solves the least-squares problem by Levenberg–Marquardt from FinanceModels' fixed starting
+rates, and returns only a local minimum, which need not be the best fit of all curves: at the fitted
+knot rates, the Hessian of half the sum of squares (with the residuals' curvature) is positive
+definite, and the Newton correction, a local estimate of the remaining error in the knot rates, is
+at most `1e-10`. Quotes with fixed cashflows
+(`Cashflow` and `Bond.Fixed` instruments, which every FinanceModels quote type is) are priced
+through their cashflow matrix: the curve is evaluated once per distinct cashflow date rather than
+once per cashflow. The quotes must determine every knot rate (at least as many quotes with a
+positive weight as knots, each knot moving some quote's price), or the fit throws. Fits of fixed
+cashflows are differentiable with respect to the quote prices, coupons and weights; see
+[Sensitivities Through Calibration](@ref).
+
+Prefer `Spline.Linear()` or `Spline.Cubic()` for least-squares fitting. `Spline.MonotoneConvex()`,
+`Spline.PCHIP()` and `Spline.Akima()` switch formulas as knot rates change; the solver may stall near
+these boundaries and raise a [`FitConvergenceError`](@ref FinanceModels.FitConvergenceError), which
+says so. In a sweep of random 80-bond indices, about half the monotone convex and PCHIP fits failed
+to converge, and none of the linear, quadratic or cubic ones.
+
 ## Key Tradeoffs
 
 ### Forward Curve Smoothness

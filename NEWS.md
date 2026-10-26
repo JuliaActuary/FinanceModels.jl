@@ -2,6 +2,64 @@
 
 ## v7.2.0
 
+### Least-squares fits of a knot curve to many quotes: `Fit.LeastSquares`
+
+A knot curve can be fitted to more quotes than it has knots, such as a credit curve of ten knots
+fitted to an index of a thousand bonds whose maturities repeat and whose prices no single curve
+reprices. Choose the knots and refit a curve that has them:
+
+```julia
+c0 = ZeroRateCurve(fill(0.05, length(knots)), knots, Spline.Cubic())
+curve = fit(c0, bond_quotes, Fit.LeastSquares())               # opt-in least squares
+curve = fit(c0, bond_quotes, Fit.LeastSquares(weights = w))    # weighted, e.g. w = 1 ./ (price .* duration).^2
+```
+
+`Fit.LeastSquares(; weights, maxiters = 200)` minimizes the weighted squared pricing residuals by
+Levenberg–Marquardt. It is opt-in; every method-omitted spline fit and knot-curve refit keeps
+`Fit.Loss()`, as in v7.1. With knots at the quote maturities, `fit(spline, quotes, Fit.LeastSquares())` reaches the exact fit's curve when a curve
+reprices the quotes (to 1e-12 in the tests), and returns a local least-squares minimum when none
+does, where `Fit.Exact()` throws. The minimization is local, from FinanceModels' fixed starting
+rates, so its minimum need not be the best fit of all curves.
+Quotes with fixed cashflows (`Cashflow` and `Bond.Fixed`, which covers every FinanceModels quote
+type) are priced through their cashflow matrix, so the curve is evaluated once per distinct
+cashflow date. Compared with the squared-loss fit using Optim's `Newton()`, it
+finds the same knot rates (to 6e-12 on the index below). On Julia 1.13, with 1,000 semiannual
+bonds, 28,456 cashflows on 360 dates, and 10 cubic knots:
+
+| refit | `Fit.Loss()` | `Fit.LeastSquares()` |
+|---|---:|---:|
+| first call | 11.0 s | 2.6 s |
+| warm | 28 ms | 2.8 ms |
+
+Least-squares fits are differentiable with ForwardDiff with respect to quote prices, cashflow
+amounts (such as coupons) and the weights. The derivatives come from the implicit function theorem
+on the fit's optimality condition. They include the curvature of the residuals, which a
+Gauss–Newton approximation leaves out: on the index above, leaving it out would put them 0.07% off.
+A refit with another number of knots than quotes used to throw a `DimensionMismatch` when
+differentiated.
+
+Fits check the full objective curvature and the Newton correction before accepting a local
+solution: the Hessian of half the sum of squares must be positive definite, and the correction (a
+local estimate of the remaining error in the knot rates) at most `1e-10`; otherwise the fit throws a
+`FitConvergenceError`. Differentiated fits repeat the accuracy check with an AD-computed Hessian.
+
+Monotone convex, PCHIP and Akima curves switch formulas between regions of knot rates, so their
+least-squares objective has kinks, and its minimum can lie on one, where the fit cannot converge: it
+throws a `FitConvergenceError` that says so. In a sweep of 20 random 80-bond indices, every
+linear, quadratic and cubic fit converged (75 of 75, including quotes priced one at a time), against
+13 of 25 monotone convex and 12 of 25 PCHIP fits. Least-squares fits are best done with an
+interpolation that is smooth in its knot rates.
+
+The fit throws an `ArgumentError` when the quotes do not determine the knot rates:
+- fewer quotes with a positive weight than knots;
+- a knot that moves no quote's price, such as a knot of a linear curve beyond the last cashflow;
+- an ill-conditioned problem.
+
+A spline fit with repeated quote maturities still throws, since it places one knot at each
+maturity, and its error now points to the refit. Refits whose quotes include contracts with
+curve-dependent cashflows (such as `Bond.Floating`) are priced one quote at a time and are not
+differentiated.
+
 ### Opt-in exact spline calibration: `Fit.Exact`
 
 `fit(spline, quotes, Fit.Exact())` places one knot at each quote maturity and solves the

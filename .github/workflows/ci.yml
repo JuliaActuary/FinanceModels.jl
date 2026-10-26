@@ -53,7 +53,7 @@ jobs:
           version: 'min'
       - uses: julia-actions/julia-downgrade-compat@v1
         with:
-          skip: LinearAlgebra, Random
+          skip: LinearAlgebra, Random, SparseArrays
           # exact "=floor" pins for every entry, incl. >=1.0 (default v0 tilde-pins those)
           strict: 'true'
       - uses: julia-actions/cache@v2

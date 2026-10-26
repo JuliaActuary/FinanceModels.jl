@@ -49,9 +49,10 @@
             @test isequal(fit(spline, cmt), fit(spline, cmt, Fit.Loss()))
             @test isequal(fit(c0, cmt, Fit.Exact()), fit(spline, cmt, Fit.Exact()))
         end
-        # other knot grids minimize the squared loss, as before
+        # other knot grids keep the squared-loss default
         c0 = ZeroRateCurve(fill(0.02, 4), [0.5, 2.0, 10.0, 30.0], Spline.Linear())
-        @test isequal(fit(c0, cmt), fit(c0, cmt, FinanceModels.__default_loss(c0)))
+        @test isequal(fit(c0, cmt), fit(c0, cmt, Fit.Loss()))
+        @test rate.(knot_rates(fit(c0, cmt, Fit.LeastSquares()))) ≈ rate.(knot_rates(fit(c0, cmt, Fit.Loss(abs2); solve_kwargs = (; g_tol = 1.0e-12)))) atol = 1.0e-9
     end
 
     @testset "an optimizer or its settings fit the squared loss" begin
@@ -115,7 +116,7 @@
                 e
             end
             @test err isa FitConvergenceError
-            @test occursin("Fit.Loss()", sprint(showerror, err))
+            @test occursin("Fit.LeastSquares()", sprint(showerror, err))
         end
     end
 

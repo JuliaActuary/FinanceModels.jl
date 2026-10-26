@@ -168,11 +168,18 @@ function __implicit_knot_curve(curve, quotes, primal_quotes, extrapolation)
     D = __common_dual_type((Rd..., __extrapolation_dual(extrapolation)...))
     D === nothing && return curve
 
-    # One knot per quote: a spline fit's knots are the quote maturities (duplicates rejected). A
-    # refitted knot curve with another number of knots makes the solve below non-square, which
-    # `\` rejects (`DimensionMismatch`): the quotes then do not determine the knot rates' derivatives.
+    # One knot per quote: a spline fit's knots are the quote maturities (duplicates rejected). A loss fit
+    # of a knot curve with another number of knots is not an exact fit, and is differentiated only as the
+    # least-squares fit (`__implicit_least_squares`).
     z0 = FinanceCore.rate.(Yield.knot_rates(curve))
     tenors = collect(Yield.knot_tenors(curve))
+    length(z0) == length(quotes) || throw(
+        ArgumentError(
+            "fit cannot differentiate a loss fit of $(length(quotes)) quotes with $(length(z0)) knots: it " *
+                "differentiates exact fits, with one knot per quote. Fit.LeastSquares(), the default for " *
+                "refitting a knot curve, differentiates fits with more quotes than knots."
+        )
+    )
     # A kink of the interpolant at the fitted knots (flat quotes make adjacent forwards equal,
     # for example) leaves the refit without a derivative. Checked before the Jacobian, which is
     # built from unchecked trial curves: at a kink it would hold one side's derivative (or
