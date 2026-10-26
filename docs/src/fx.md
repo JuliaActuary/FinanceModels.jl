@@ -341,11 +341,12 @@ Practical notes:
 
 - Bootstrapping requires `Spline.Linear`: with smoother interpolation, adding a knot
   reshapes earlier segments and drifts already-solved swaps off par, so `Fit.Bootstrap`
-  rejects those strategies. Use `Fit.Loss` to fit a smooth curve to the whole quote set.
-- A mixed quote set under `Fit.Loss` (rather than `Fit.Bootstrap`) sums residuals of
+  rejects those strategies. Use `fit(model, quotes, Fit.Exact())` to fit a smooth curve to the whole quote set
+  at once; it reprices every quote.
+- A mixed quote set under `Fit.Loss` (rather than `Fit.Bootstrap` or `Fit.Exact`) sums residuals of
   different scales — discount-factor units for implied zero-coupon quotes, par-price
   units for basis-swap strips — implicitly weighting the two families differently; the
-  bootstrap solves each quote exactly and involves no such weighting.
+  bootstrap and `Fit.Exact` reprice each quote and involve no such weighting.
 - Interbank basis swaps are quoted on the mark-to-market (resetting-notional)
   structure, in which the flat domestic leg's notional resets to spot each period while
   the spread leg's stays constant. Under deterministic curves the constant-notional and

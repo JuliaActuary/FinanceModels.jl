@@ -35,10 +35,10 @@ FinanceCore.present_value(model, c::PaysAfterMaturity) = FinanceCore.present_val
             Spline.Quadratic(), Spline.Cubic(),
             Spline.BSpline(2), Spline.BSpline(3), Spline.PCHIP(), Spline.Akima(),
         )
-        @test_throws "Fit.Loss" fit(spline, qs, Fit.Bootstrap())
+        @test_throws "all quotes at once with fit(" fit(spline, qs, Fit.Bootstrap())
         # Reject the strategy before even consuming the quotes or entering a solver.
         quotes = (error("quotes should not be consumed") for _ in 1:4)
-        @test_throws "Fit.Loss" fit(spline, quotes, Fit.Bootstrap())
+        @test_throws "all quotes at once with fit(" fit(spline, quotes, Fit.Bootstrap())
     end
     # Monotone convex curves have their own full-curve fit.
     @test_throws "fit(Spline.MonotoneConvex(), quotes)" fit(Spline.MonotoneConvex(), qs, Fit.Bootstrap())

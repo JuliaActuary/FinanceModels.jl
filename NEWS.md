@@ -1,5 +1,49 @@
 # FinanceModels.jl release notes
 
+## v7.2.0
+
+### Opt-in exact spline calibration: `Fit.Exact`
+
+`fit(spline, quotes, Fit.Exact())` places one knot at each quote maturity and solves the
+repricing equations by Newton's method with a line search. `fit(curve, quotes, Fit.Exact())`
+keeps an existing curve's knots and needs one quote per knot. `FX.Forwards` applies the same
+method to its foreign curve. **The default remains `Fit.Loss()`**, including calls with
+`optimizer` or `solve_kwargs` and all knot-curve refits.
+
+An exact fit checks every quote's residual and throws `FitConvergenceError` if it cannot
+reprice them. A loss fit instead minimizes squared pricing residuals and may return a curve
+that misprices quotes. This matters for incompatible quotes and numerical nonconvergence:
+for example, cubic and quadratic fits of CMT curves at 25–28% can fail to reprice, while the
+loss fit reports success with a 30-year price residual of about `3.1e-4`.
+
+Exact calibration needs the residual Jacobian rather than the loss Hessian. The original
+Julia 1.13 benchmarks compared these methods as follows (first-call times):
+
+| fit | `Fit.Loss()` | `Fit.Exact()` |
+|---|---:|---:|
+| `Spline.Linear()`, 5 CMT quotes | 1.78 s | 0.58 s |
+| `Spline.Cubic()`, 5 CMT quotes | 4.21 s | 1.37 s |
+| `Spline.MonotoneConvex()`, 5 CMT quotes | 0.88 s | 0.59 s |
+| `Spline.Linear()`, 12 CMT quotes | 3.60 s | 0.83 s |
+| `Spline.PCHIP()`, 12 CMT quotes | 6.03 s | 1.62 s |
+| `Spline.Cubic()`, 12 CMT quotes | 14.8 s | 1.66 s |
+
+Warm exact fits were 3–10 times faster (39 times for the 12-quote monotone convex fit).
+Switching from loss to exact calibration moved knot rates by up to about `1e-7` for monotone
+convex fits and `1e-10` for the others, toward the repricing solution. These measurements
+compare the methods; they are not changes to the default fit or measurements of the final
+combined precompile workload.
+
+- `Fit.Exact(; maxiters = 100)` sets the exact solver's iteration limit. `optimizer` and
+  `solve_kwargs` configure `Fit.Loss()`.
+- Exact and bootstrap fits measure residuals against each quote's size on the fitted curve:
+  the gross discounted value of fixed cashflows, or the quote price for curve-dependent
+  cashflows. Measuring against the starting curve could accept large relative errors for tiny
+  prices. `ZCBPrice(1e-12, 50.0)` now reprices to rounding with both methods; a negative price
+  such as `ZCBPrice(-1e-20, 50.0)` throws.
+- Derivatives through an exact linear fit match `Fit.Bootstrap()` to `1e-13`.
+- `FitConvergenceError` messages end in "(return code …)" rather than "(optimizer return code …)".
+
 ## v7.1.1
 
 ### Faster first calls on common curves and quotes
