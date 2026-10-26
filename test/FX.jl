@@ -163,7 +163,9 @@
             # without a method, the settings select the squared loss
             @test isequal(fit(m0, quotes; solve_kwargs = (; g_tol = 1.0e-12)).foreign, m_tight2.foreign)
             @test_throws FinanceModels.FitConvergenceError fit(m0, quotes; solve_kwargs = (; maxiters = 1))
-            @test isequal(fit(m0, quotes, Fit.Exact()).foreign, fit(m0, quotes).foreign)
+            m_exact = fit(m0, quotes, Fit.Exact())
+            @test all(abs(pv(m_exact, q.instrument)) < 1.0e-12 for q in quotes)
+            @test isequal(fit(m0, quotes).foreign, fit(m0, quotes, Fit.Loss()).foreign)
             m_lin = FX.Forwards(eurusd, S, usd_boot, Spline.Linear())
             m_flat = fit(m_lin, quotes, Fit.Bootstrap(); extrapolation = :flat_zero)
             @test m_flat.foreign.extrapolation === :flat_zero
