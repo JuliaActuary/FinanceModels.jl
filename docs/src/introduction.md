@@ -195,7 +195,7 @@ Model fitting can be customized:
 
 - The **loss function** (least squares, absolute difference, etc.) via the third argument to `fit`:
   - e.g. `fit(ABDiscountLine(), quotes, Fit.Loss(x -> abs(x)))`
-  - the default is `Fit.Loss(x->x^2)` (a spline fit without a method reprices every quote instead)
+  - the default is `Fit.Loss()` (squared pricing residuals); `Fit.Exact()` is an explicit option for spline fits
 - the **optimization algorithm**, any Optim.jl optimizer, by defining a method `FinanceModels.default_optimizer(m::ABDiscountLine) = Optim.Newton()` (after `using Optim`)
   - you may need to change the `default_variables` to be unbounded (simply omit the `=>` and subsequent bounds)
   - The default is `Optim.LBFGS()` (polynomial, PCHIP, Akima, and B-spline loss fits default to `Optim.Newton()`; MonotoneConvex uses `LBFGS()`)

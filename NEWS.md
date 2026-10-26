@@ -62,16 +62,24 @@ compat widened to `"7, 8"`.
 
 ## v7.2.0
 
-### Spline fits solve for the curve that reprices the quotes
+### Opt-in exact spline calibration: `Fit.Exact`
 
-`fit(spline, quotes)` places one knot at each quote maturity, so repricing the quotes is a square
-system of equations in the knot rates. A spline fit now solves that system by Newton's method with a
-line search: the new method `Fit.Exact(; maxiters = 100)`, the default for knot curves. It used to minimize the squared
-pricing residuals with Optim's `Newton()` (`LBFGS()` for `Spline.MonotoneConvex()`). The solve
-needs the Jacobian of the residuals, not the Hessian of the loss, so its first call compiles much
-less code, and that code no longer grows with the square of the number of quotes. On Julia 1.13:
+`fit(spline, quotes, Fit.Exact())` places one knot at each quote maturity and solves the
+repricing equations by Newton's method with a line search. `fit(curve, quotes, Fit.Exact())`
+keeps an existing curve's knots and needs one quote per knot. `FX.Forwards` applies the same
+method to its foreign curve. **The default remains `Fit.Loss()`**, including calls with
+`optimizer` or `solve_kwargs` and all knot-curve refits.
 
-| first call | v7.1.1 | v7.2.0 |
+An exact fit checks every quote's residual and throws `FitConvergenceError` if it cannot
+reprice them. A loss fit instead minimizes squared pricing residuals and may return a curve
+that misprices quotes. This matters for incompatible quotes and numerical nonconvergence:
+for example, cubic and quadratic fits of CMT curves at 25–28% can fail to reprice, while the
+loss fit reports success with a 30-year price residual of about `3.1e-4`.
+
+Exact calibration needs the residual Jacobian rather than the loss Hessian. The original
+Julia 1.13 benchmarks compared these methods as follows (first-call times):
+
+| fit | `Fit.Loss()` | `Fit.Exact()` |
 |---|---:|---:|
 | `Spline.Linear()`, 5 CMT quotes | 1.78 s | 0.58 s |
 | `Spline.Cubic()`, 5 CMT quotes | 4.21 s | 1.37 s |
@@ -80,36 +88,20 @@ less code, and that code no longer grows with the square of the number of quotes
 | `Spline.PCHIP()`, 12 CMT quotes | 6.03 s | 1.62 s |
 | `Spline.Cubic()`, 12 CMT quotes | 14.8 s | 1.66 s |
 
-Warm fits are 3 to 10 times faster (39 times for a 12-quote monotone convex fit), and the fitted
-curve reprices every quote to rounding: relative residuals of about `1e-16`, against up to `2e-8` at
-the optimizer's default tolerance. Fitted knot rates move by that tolerance: up to about `1e-7`
-for monotone convex fits, `1e-10` for the others. Precompiling FinanceModels takes 2.4 s less than
-with v7.1.1 (pkgimage 41 MB to 36 MB).
+Warm exact fits were 3–10 times faster (39 times for the 12-quote monotone convex fit).
+Switching from loss to exact calibration moved knot rates by up to about `1e-7` for monotone
+convex fits and `1e-10` for the others, toward the repricing solution. These measurements
+compare the methods; they are not changes to the default fit or measurements of the final
+combined precompile workload.
 
-- Quotes that no curve with the interpolation method reprices, such as a price that implies a
-  negative discount factor, throw a `FitConvergenceError`. The loss fit returned the minimum it
-  reached, which misprices them, and reported success. In a sweep of 840 random quote sets over
-  every interpolation method, the exact fit repriced all but one; on that one (quadratic
-  interpolation of alternating zero-coupon and par quotes at 15%), the loss fit's curve mispriced a
-  quote by 9%.
-- An explicit `Fit.Loss(f)` still minimizes `f`, and `Fit.Loss()` is the squared loss. The
-  `optimizer` and `solve_kwargs` configure a loss fit: passed without a method, they select
-  `Fit.Loss()`, so `fit(spline, quotes; solve_kwargs = …)` is the v7.1 fit: it returns a local
-  minimum of the loss, reached from fixed starting rates, where `Fit.Exact()` throws. `Fit.Exact`
-  takes its iteration limit as `Fit.Exact(maxiters = …)`.
-- `fit(curve, quotes)`, refitting a knot curve whose knots are at the quote maturities, reprices
-  the quotes as the spline fit does. Other knot grids still minimize the squared loss.
-  `fit(curve, quotes, Fit.Exact())` solves any refit with one quote per knot.
-- An exact fit measures each residual against its quote's size on the fitted curve: the gross
-  value of its cashflows (their absolute amounts, discounted), or the price of a contract whose
-  cashflows depend on the curve. `Fit.Bootstrap()` now does the same; both measured against the
-  quote's value at their starting curve. A long zero-coupon price far below that value, such as
-  `ZCBPrice(1e-12, 50.0)`, was repriced to a relative error of `4e-5` by the exact fit and `0.4` by
-  the bootstrap, and now reprices to rounding. A negative price, `ZCBPrice(-1e-20, 50.0)`, returned a
-  curve from the exact fit, and now throws.
-  `FX.Forwards` with a spline or knot-curve foreign curve follow the same rules.
-- Derivatives through a fit are taken as before, at the now exact fit; through a linear fit they
-  match `Fit.Bootstrap()` to `1e-13`.
+- `Fit.Exact(; maxiters = 100)` sets the exact solver's iteration limit. `optimizer` and
+  `solve_kwargs` configure `Fit.Loss()`.
+- Exact and bootstrap fits measure residuals against each quote's size on the fitted curve:
+  the gross discounted value of fixed cashflows, or the quote price for curve-dependent
+  cashflows. Measuring against the starting curve could accept large relative errors for tiny
+  prices. `ZCBPrice(1e-12, 50.0)` now reprices to rounding with both methods; a negative price
+  such as `ZCBPrice(-1e-20, 50.0)` throws.
+- Derivatives through an exact linear fit match `Fit.Bootstrap()` to `1e-13`.
 - `FitConvergenceError` messages end in "(return code …)" rather than "(optimizer return code …)".
 
 ## v7.1.1
