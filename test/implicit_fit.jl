@@ -12,8 +12,8 @@ FinanceCore.maturity(c::WrappedContract) = FinanceCore.maturity(c.inner)
 FinanceCore.present_value(m, c::WrappedContract) = FinanceCore.present_value(m, c.inner)
 
 # Prices that depend on a dual number only in part of the parameter space (an external review's
-# counterexample and its spline analogue). An optimizer fit's parameters take the dual number's type
-# from the start (SciMLBase promotes them); a bootstrap meets it mid-solve, in its residual.
+# counterexample and its spline analogue). An optimizer fit finds the dual number in its quotes
+# before it starts; a bootstrap meets it mid-solve, in its residual.
 struct ConditionalPrice{T} <: FinanceCore.AbstractContract
     adjustment::T
 end
@@ -42,6 +42,11 @@ FinanceCore.present_value(m::Yield.Constant, ::NestedQuotes) =
     discount(fit(Yield.Constant(0.0), Quote[ZCBPrice(discount(m, 1.0), 1.0)]), 2.0)
 # An inner fit on a `V[...]` quote vector whose price depends on the outer candidate only once the
 # inner rate reaches 10%, after the inner fit's start.
+# a cycle of mutable objects, for the up-front check of a solve's data
+mutable struct DualLoop
+    next::Any
+    x::Any
+end
 struct NestedConditional{V, O} <: FinanceCore.AbstractContract
     optimizer::O
 end
@@ -49,7 +54,7 @@ NestedConditional{V}(optimizer) where {V} = NestedConditional{V, typeof(optimize
 FinanceCore.present_value(m::Yield.Constant, c::NestedConditional{V}) where {V} = rate(
     fit(
         Yield.Constant(0.0), V[Quote(0.3, ConditionalPrice(rate(m.rate)))];
-        optimizer = c.optimizer, solve_kwargs = (; g_tol = 1.0e-20, maxiters = 10_000)
+        optimizer = c.optimizer, solve_kwargs = (; g_tol = 1.0e-20, iterations = 10_000)
     ).rate
 )
 
@@ -240,7 +245,7 @@ FinanceCore.present_value(m::Yield.Constant, c::NestedConditional{V}) where {V} 
         # differentiate throws where it appears, rather than returning the derivative of the
         # solver's iterations (0.0 under NelderMead).
         provenance = "reached the solve through data it does not differentiate"
-        NM = FinanceModels.OptimizationOptimJL.NelderMead
+        NM = FinanceModels.Optim.NelderMead
         # its price depends on the dual number only once the rate reaches 10%
         conditional(a) = [Quote(0.3, ConditionalPrice(a))]
         @test_throws provenance ForwardDiff.derivative(a -> rate(fit(Yield.Constant(0.0), conditional(a); optimizer = NM()).rate), 0.1)
@@ -266,7 +271,7 @@ FinanceCore.present_value(m::Yield.Constant, c::NestedConditional{V}) where {V} 
         @test_throws provenance fit(Yield.Constant(0.0), Any[Quote(0.94, NestedAny())])
         @test_throws provenance fit(Yield.Constant(0.0), Quote[Quote(0.94, NestedQuotes())])
         # and when, in addition, the inner price depends on the outer fit only away from the inner start
-        for V in (Any, Quote), optimizer in (NM(), FinanceModels.OptimizationOptimJL.LBFGS())
+        for V in (Any, Quote), optimizer in (NM(), FinanceModels.Optim.LBFGS())
             @test_throws provenance fit(Yield.Constant(0.0), V[Quote(0.2, NestedConditional{V}(optimizer))])
         end
         # a dual number outside the quotes (a fixed model field, the loss function) leaves the
@@ -288,11 +293,33 @@ FinanceCore.present_value(m::Yield.Constant, c::NestedConditional{V}) where {V} 
         inner(m) = fit(Spline.Linear(), [ZCBPrice(discount(m, 1.0), 1.0), ZCBPrice(discount(m, 3.0), 3.0)])
         @test discount(inner(outer), 2.0) ≈ 0.94 atol = 1.0e-8
         # the solves keep their own dual numbers: second-order optimizers and implicit roots
-        @test fit(bsm, [Quote(price, Option.EuroCall(CommonEquity(), 1.05, 1.0))]; optimizer = FinanceModels.OptimizationOptimJL.IPNewton()).σ.σ ≈
+        @test fit(bsm, [Quote(price, Option.EuroCall(CommonEquity(), 1.05, 1.0))]; optimizer = FinanceModels.Optim.IPNewton()).σ.σ ≈
             fit(bsm, [Quote(price, Option.EuroCall(CommonEquity(), 1.05, 1.0))]).σ.σ rtol = 1.0e-6
         h = 1.0e-6
         iq(r) = implied_quote(Yield.Constant(Continuous(r)), ZCBYield, 5.0)
         @test ForwardDiff.derivative(iq, 0.03) ≈ (iq(0.03 + h) - iq(0.03 - h)) / 2h rtol = 1.0e-6
+    end
+
+    @testset "an optimizer fit checks its quotes for dual numbers before it starts" begin
+        d = ForwardDiff.Dual{ImplicitFitTestTag}(0.8, 1.0)
+        typed = ZCBPrice.([0.9, 0.8], [1.0, 2.0])
+        # decided by the type, without allocating
+        @test FinanceModels.__dual_free(typeof(typed))
+        @test !FinanceModels.__holds_dual(typed)
+        @test (@allocated FinanceModels.__holds_dual(typed)) == 0
+        @test FinanceModels.__holds_dual([Quote(d, Cashflow(1.0, 2.0))])
+        # untyped data is visited: a vector, a contract's field, a captured variable
+        @test !FinanceModels.__holds_dual(Any[typed[1], Quote(0.8, WrappedContract(Cashflow(1.0, 2.0)))])
+        @test FinanceModels.__holds_dual(Any[typed[1], Quote(0.8, WrappedContract(Cashflow(d, 2.0)))])
+        @test FinanceModels.__holds_dual(Quote(0.8, ConditionalPrice{Any}(x -> d * x)))
+        # a cycle of mutable objects ends
+        loop = DualLoop(nothing, 1.0)
+        loop.next = loop
+        @test !FinanceModels.__holds_dual(loop)
+        loop.x = d
+        @test FinanceModels.__holds_dual(loop)
+        # and a fit with such quotes throws before it starts
+        @test_throws "reached the solve through data it does not differentiate" fit(Yield.Constant(), Any[typed[1], Quote(d, Cashflow(1.0, 2.0))])
     end
 
     @testset "fit owners: distinct while solves overlap, reused afterwards" begin

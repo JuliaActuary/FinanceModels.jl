@@ -24,6 +24,35 @@ __foreign_dual(::Type{ForwardDiff.Dual{T, V, N}}, ::Type{Own}) where {T, V, N, O
 __foreign_dual_error(who, hint) =
     ArgumentError(rstrip("$who: a ForwardDiff dual number reached the solve through data it does not differentiate. $hint"))
 
+# Whether `x` holds a ForwardDiff dual number anywhere. A solve's data is checked before it starts: a
+# dual number in it may reach the evaluated values only away from the start, where the check of each
+# evaluation would not see it until the solver went there (or never). The types decide where they can
+# (`__dual_free`, a constant per type); otherwise the values are visited, each mutable one once.
+__holds_dual(x) = !__dual_free(typeof(x)) && __holds_dual(x, Base.IdSet{Any}())
+function __holds_dual(x, seen)
+    x isa ForwardDiff.Dual && return true
+    (__dual_free(typeof(x)) || x isa Union{Type, Module, Core.SimpleVector}) && return false
+    if ismutable(x)
+        x in seen && return false
+        push!(seen, x)
+    end
+    x isa AbstractArray && return any(i -> isassigned(x, i) && __holds_dual(x[i], seen), eachindex(x))
+    return any(i -> isdefined(x, i) && __holds_dual(getfield(x, i), seen), 1:nfields(x))
+end
+
+# Whether no value of type `T` can hold a dual number: a concrete type whose fields (for an array, its
+# elements) are of such types. Each type is visited once, so a type that contains itself ends.
+function __dual_free_impl(T, visited)
+    haskey(visited, T) && return visited[T]
+    visited[T] = true   # a type that contains itself: its other fields decide
+    free = !(T <: ForwardDiff.Dual) && isconcretetype(T) && (
+        T <: AbstractArray ? __dual_free_impl(eltype(T), visited) : all(F -> __dual_free_impl(F, visited), fieldtypes(T))
+    )
+    visited[T] = free
+    return free
+end
+@generated __dual_free(::Type{T}) where {T} = __dual_free_impl(T, IdDict{Any, Bool}())
+
 # `f(x)` in a primal solve whose own tags are `Own`. `x` (element type `X`) is checked before `f`
 # runs, and the value after, before any conversion. A dual number captured untyped can carry a tag of
 # an own type, so the value also may not carry more dual levels than `x`.

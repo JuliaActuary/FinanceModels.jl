@@ -65,10 +65,10 @@
             fit(c0, zcb; solve_kwargs = (; g_tol = 1.0e-12)),
             fit(c0, zcb, Fit.Loss(); solve_kwargs = (; g_tol = 1.0e-12)),
         )
-        @test_throws FitConvergenceError fit(Spline.Cubic(), zcb; solve_kwargs = (; maxiters = 1))
+        @test_throws FitConvergenceError fit(Spline.Cubic(), zcb; solve_kwargs = (; iterations = 1))
         @test_throws FitConvergenceError fit(Spline.Cubic(), zcb; optimizer = FailingFitOptimizer())
-        @test_throws FitConvergenceError fit(c0, zcb; solve_kwargs = (; maxiters = 1))
-        @test_throws FitConvergenceError fit(Spline.Cubic(), zcb, Fit.Loss(); solve_kwargs = (; maxiters = 1))
+        @test_throws FitConvergenceError fit(c0, zcb; solve_kwargs = (; iterations = 1))
+        @test_throws FitConvergenceError fit(Spline.Cubic(), zcb, Fit.Loss(); solve_kwargs = (; iterations = 1))
         # Fit.Loss() is the squared loss, bit for bit
         @test isequal(
             fit(Spline.Cubic(), zcb, Fit.Loss(); solve_kwargs = (; g_tol = 1.0e-12)),

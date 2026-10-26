@@ -6,8 +6,7 @@ import Compat
 using FinanceCore: present_value, discount, accumulation
 using DifferentiationInterface: AutoForwardDiff
 import DifferentiationInterface
-import Optimization
-import OptimizationOptimJL
+import Optim
 using IntervalSets
 using AccessibleModels
 using Accessors

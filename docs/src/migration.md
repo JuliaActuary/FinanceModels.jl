@@ -1,5 +1,32 @@
 # Migration Guide
 
+## v7.x to v8.0
+
+FinanceModels 8 runs its optimizers through Optim.jl directly instead of through Optimization.jl
+and OptimizationOptimJL. The optimizers, and the fits they return, are the same.
+
+- **`optimizer` takes an Optim.jl optimizer.** `OptimizationOptimJL.LBFGS()` and the other
+  OptimizationOptimJL names are Optim's own objects, so code that loads OptimizationOptimJL keeps
+  working; otherwise `using Optim` and write `Optim.NelderMead()`. Optimizers from other
+  Optimization.jl packages (OptimizationNLopt, OptimizationBBO, ...) are no longer accepted.
+- **`solve_kwargs` are the keywords of `Optim.Options`.** Optimization.jl's names throw a
+  `MethodError`. **Migration:**
+  - `maxiters` → `iterations`. For a fit with bounded variables (every generic fit with the
+    default `variables`), which runs inside `Optim.Fminbox`, `maxiters` limited the outer
+    iterations: write `outer_iterations`; `iterations` (formerly `local_maxiters`) limits each
+    inner solve.
+  - `abstol` → `f_abstol`, `reltol` → `f_reltol`, `maxtime` → `time_limit`.
+  - `callback` takes Optim's `callback(state) -> Bool` instead of
+    `callback(state::OptimizationState, loss) -> Bool`.
+  - `verbose = true` → `show_trace = true`. `progress` has no counterpart.
+  - Optim's own keywords (`g_tol`, `x_abstol`, `f_calls_limit`, ...) are unchanged.
+- **`FitConvergenceError.retcode` is a `Symbol`**: `:MaxIters` or `:Failure` for an optimizer, and
+  `:MaxIters`, `:Stalled` or `:InternalLinearSolveFailed` for a spline fit's exact solve. It was a
+  `SciMLBase.ReturnCode`. **Migration:** compare with `err.retcode === :MaxIters`. The error's
+  message is unchanged.
+- **The internal bindings `FinanceModels.Optimization` and `FinanceModels.OptimizationOptimJL`
+  are gone.** Load Optim (or OptimizationOptimJL) yourself.
+
 ## v6.x to v7.0
 
 - **`Fit.Bootstrap()` supports only `Spline.Linear()`** (equivalently
