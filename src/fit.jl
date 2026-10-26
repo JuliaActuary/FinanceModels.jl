@@ -334,7 +334,7 @@ Fit a model to a collection of quotes.
     per quote;
   - `Fit.Bootstrap()`, with `Spline.Linear()`.
 
-  Without a method, every model uses `Fit.Loss()`, including spline and knot-curve fits.
+  Spline fits, knot-curve refits, and generic optimizer fits default to `Fit.Loss()`.
 - `variables=default_variables(model)`: The variables to optimize over. This is a tuple of optic => interval pairs specifying which parameters of the model can vary. See extended help for more. Spline and knot-curve fits vary the knot rates and do not take `variables`.
 - `optimizer=default_optimizer(model)`: The optimization algorithm, an Optim.jl optimizer. The default for a given model is `Optim.LBFGS()`, a quasi-Newton method with automatic differentiation via ForwardDiff. See extended help for more on customizing the solver.
 - `solve_kwargs=(;)`: Keyword arguments for `Optim.Options`, such as `(; iterations = 10_000)`,
@@ -755,8 +755,7 @@ end
 # reduces to fitting the spline through those quotes; no optimizer runs over the FX
 # model itself, and one quote set may mix both instrument types. The two dispatch
 # methods are deliberately separate (not a `Union`) so neither is ambiguous against the
-# generic optic-based `fit(mod0, quotes, ::Fit.Loss)`. The method (none: a spline placeholder's
-# exact fit) and the keywords (`optimizer`, `solve_kwargs`, `extrapolation`) go to the
+# generic optic-based `fit(mod0, quotes, ::Fit.Loss)`. The method and the keywords (`optimizer`, `solve_kwargs`, `extrapolation`) go to the
 # foreign-curve fit unchanged.
 function __fit_fx_via_implied(mod0, quotes, method...; kwargs...)
     implied = map(q -> FX.__implied_foreign_quote(mod0, q), quotes)
