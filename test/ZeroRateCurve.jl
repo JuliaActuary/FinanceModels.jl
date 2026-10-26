@@ -744,7 +744,7 @@ using ForwardDiff
         # through it to the native curve; the former `Yield.MonotoneConvex()` placeholder is gone.
         @test_throws MethodError Yield.MonotoneConvex()
         qs = ZCBYield.([0.02, 0.025, 0.03], [1.0, 2.0, 5.0])
-        fitted = fit(Spline.MonotoneConvex(), qs)
+        fitted = fit(Spline.MonotoneConvex(), qs, Fit.Exact())
         @test fitted isa Yield.MonotoneConvex
         # the exact fit reprices the zero-coupon quotes at the analytic knot rates; a loss fit
         # reaches them to its optimizer's tolerance

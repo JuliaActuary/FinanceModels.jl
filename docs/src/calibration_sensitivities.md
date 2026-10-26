@@ -44,7 +44,7 @@ table below).
   quotes passed to it: the original market inputs. Quotes implied from a fitted curve in another
   family (for example `implied_quote` at the curve's knots) are a synthetic family. Risk to them
   equals risk to the market quotes only when the curve was fitted to that family at those tenors.
-- **What is differentiated.** `Fit.Exact()` (`fit(spline, quotes)`) and bootstrap differentiate the
+- **What is differentiated.** `Fit.Exact()` and bootstrap differentiate the
   repricing equations. `Fit.LeastSquares()` differentiates the optimality condition at a local
   minimum. Knot-curve `Fit.Loss` fits must approximately reprice their quotes to be differentiated:
   one Newton correction of their knot rates must be at most `1e-6` in every component (see
@@ -111,11 +111,11 @@ residuals do not; without it they would be those of the Gauss–Newton approxima
 
 | Calibration | Differentiable | Notes |
 |:------------|:---------------|:------|
-| `fit(spline, quotes)`, every interpolation method | yes | reprices its quotes to rounding |
-| `fit(spline, quotes, Fit.Loss(f))` | yes | the fit must reprice its quotes; see below |
+| `fit(spline, quotes, Fit.Exact())`, every interpolation method | yes | reprices its quotes to rounding |
+| `fit(spline, quotes)` or `fit(spline, quotes, Fit.Loss(f))` | yes | the fit must reprice its quotes; see below |
 | `fit(Spline.Linear(), quotes, Fit.Bootstrap())` | yes | exact to root-finder precision |
 | `fit(FX.Forwards(pair, spot, domestic, spline), quotes, …)` | yes | through the implied foreign quotes |
-| `fit(curve, quotes)`, refitting an existing knot curve | yes, for quotes with fixed cashflows | knots at the quote maturities: the spline fit; other knots: the least-squares fit (`Fit.LeastSquares`), differentiated through its optimality condition; a `Fit.Loss` refit with another number of knots than quotes throws |
+| `fit(curve, quotes)`, refitting an existing knot curve | with one knot per quote | a loss fit by default; it must reprice its quotes; another number of knots throws a `DimensionMismatch` |
 | `fit(spline or curve, quotes, Fit.LeastSquares(; weights))` | quote prices, fixed cashflow amounts, weights | the optimality condition at a local minimum; curve-dependent cashflows and a dual extrapolation forward throw |
 | `fit(Yield.SmithWilson(…), quotes)` | quote prices and cashflow amounts (such as `Bond.Fixed` coupons) | differentiates the closed form directly; values match the primal fit to rounding, not bitwise |
 | other models (`Yield.NelsonSiegel`, `Yield.Constant`, short-rate models) | no | `fit` throws an `ArgumentError` |
@@ -131,7 +131,7 @@ support curve-dependent cashflows (`Bond.Floating`) or the extrapolation forward
 ### Accuracy
 
 The derivative is exact for the exactly repricing curve. Bootstrap reprices to root-finder
-precision, and `fit(spline, quotes)` to rounding. A loss fit stops at its optimizer's tolerance, and `fit` refuses to differentiate one
+precision, and `fit(spline, quotes, Fit.Exact())` to rounding. A loss fit stops at its optimizer's tolerance, and `fit` refuses to differentiate one
 unless the largest absolute component of one Newton correction of its knot rates towards the
 exact fit is at most `1e-6`. The correction is a local estimate of the fit's error, not a
 guaranteed distance to the exact solution; like the conditioning check, it does not depend on

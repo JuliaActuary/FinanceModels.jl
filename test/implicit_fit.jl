@@ -326,10 +326,10 @@ FinanceCore.present_value(m::Yield.Constant, c::NestedConditional{V}) where {V} 
         # Fewer knots than quotes: a least-squares fit, differentiated through its optimality
         # condition (test/least_squares.jl); more knots than quotes do not determine the knot rates.
         c3 = ZeroRateCurve(fill(0.02, 3), [1.0, 3.0, 10.0], Spline.Linear())
-        value(x) = pv(fit(c3, CMTYield.(x, tenors)), cfs)
+        value(x) = pv(fit(c3, CMTYield.(x, tenors), Fit.LeastSquares()), cfs)
         h = 1.0e-5
         @test ForwardDiff.gradient(value, rates) ≈ [(value(rates .+ h .* (1:5 .== i)) - value(rates .- h .* (1:5 .== i))) / 2h for i in 1:5] rtol = 1.0e-6
         c7 = ZeroRateCurve(fill(0.02, 7), [0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0], Spline.Linear())
-        @test_throws "at least as many quotes" fit(c7, CMTYield.(rates, tenors))
+        @test_throws "at least as many quotes" fit(c7, CMTYield.(rates, tenors), Fit.LeastSquares())
     end
 end
