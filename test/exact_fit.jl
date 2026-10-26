@@ -14,21 +14,21 @@
 
     @testset "$spline reprices its quotes" for spline in splines
         for qs in (cmt, zcb, mixed)
-            c = fit(spline, qs)
+            c = fit(spline, qs, Fit.Exact())
             @test reprice(c, qs) < 1.0e-12
             @test knot_tenors(c) == sort(float.(maturity.(qs)))
         end
         # a loss fit converges to the same curve
-        c, cl = fit(spline, zcb), fit(spline, zcb, Fit.Loss(abs2); solve_kwargs = (; g_tol = 1.0e-12))
+        c, cl = fit(spline, zcb, Fit.Exact()), fit(spline, zcb, Fit.Loss(abs2); solve_kwargs = (; g_tol = 1.0e-12))
         @test rate.(knot_rates(c)) ≈ rate.(knot_rates(cl)) atol = 1.0e-7
         for extrapolation in (:flat_zero, :linear)
-            @test reprice(fit(spline, mixed; extrapolation), mixed) < 1.0e-12
+            @test reprice(fit(spline, mixed, Fit.Exact(); extrapolation), mixed) < 1.0e-12
         end
     end
 
     @testset "a linear exact fit is the bootstrap" begin
         for qs in (cmt, zcb, mixed)
-            @test rate.(knot_rates(fit(Spline.Linear(), qs))) ≈ rate.(knot_rates(fit(Spline.Linear(), qs, Fit.Bootstrap()))) atol = 1.0e-13
+            @test rate.(knot_rates(fit(Spline.Linear(), qs, Fit.Exact()))) ≈ rate.(knot_rates(fit(Spline.Linear(), qs, Fit.Bootstrap()))) atol = 1.0e-13
         end
     end
 
@@ -36,7 +36,7 @@
         unit = [Quote(p, Cashflow(1.0, t)) for (p, t) in zip([0.99, 0.97, 0.94, 0.9], [1.0, 2.0, 3.0, 5.0])]
         large = [Quote(1.0e9 * q.price, Cashflow(1.0e9, q.instrument.time)) for q in unit]
         for spline in (Spline.Linear(), Spline.Cubic(), Spline.MonotoneConvex())
-            @test rate.(knot_rates(fit(spline, large))) ≈ rate.(knot_rates(fit(spline, unit))) rtol = 1.0e-13
+            @test rate.(knot_rates(fit(spline, large, Fit.Exact()))) ≈ rate.(knot_rates(fit(spline, unit, Fit.Exact()))) rtol = 1.0e-13
         end
     end
 
@@ -45,6 +45,9 @@
         for spline in (Spline.Linear(), Spline.Cubic(), Spline.MonotoneConvex())
             c0 = ZeroRateCurve(fill(0.02, length(tenors)), tenors, spline)
             @test isequal(fit(c0, cmt), fit(spline, cmt))
+            @test isequal(fit(c0, cmt), fit(c0, cmt, Fit.Loss()))
+            @test isequal(fit(spline, cmt), fit(spline, cmt, Fit.Loss()))
+            @test isequal(fit(c0, cmt, Fit.Exact()), fit(spline, cmt, Fit.Exact()))
         end
         # other knot grids minimize the squared loss, as before
         c0 = ZeroRateCurve(fill(0.02, 4), [0.5, 2.0, 10.0, 30.0], Spline.Linear())
@@ -76,7 +79,7 @@
 
     @testset "Fit.Exact" begin
         for spline in (Spline.Linear(), Spline.Cubic(), Spline.MonotoneConvex())
-            @test isequal(fit(spline, cmt, Fit.Exact()), fit(spline, cmt))
+            @test reprice(fit(spline, cmt, Fit.Exact()), cmt) < 1.0e-12
         end
         @test_throws MethodError Fit.Exact(10)        # keyword only
         @test_throws FitConvergenceError fit(Spline.Cubic(), cmt, Fit.Exact(maxiters = 1))
@@ -89,15 +92,15 @@
     @testset "residuals are measured against each quote's size on the fitted curve" begin
         # a long zero-coupon price far below its value at the seed reprices to rounding
         tiny = [ZCBPrice(1.0e-12, 50.0)]
-        for f in (() -> fit(Spline.Linear(), tiny), () -> fit(Spline.Linear(), tiny, Fit.Bootstrap()))
+        for f in (() -> fit(Spline.Linear(), tiny, Fit.Exact()), () -> fit(Spline.Linear(), tiny, Fit.Bootstrap()))
             @test reprice(f(), tiny) < 1.0e-12
         end
         # a negative price, which no discount factor reprices, throws
-        @test_throws FitConvergenceError fit(Spline.Linear(), [ZCBPrice(-1.0e-20, 50.0)])
+        @test_throws FitConvergenceError fit(Spline.Linear(), [ZCBPrice(-1.0e-20, 50.0)], Fit.Exact())
         @test_throws ArgumentError fit(Spline.Linear(), [ZCBPrice(-1.0e-20, 50.0)], Fit.Bootstrap())
         # a contract of fixed cashflows worth almost nothing is measured against its cashflows, not its price
         spread = [ZCBPrice(0.98, 1.0), Quote(1.0e-10, FinanceCore.Composite(Cashflow(1.0, 1.0), Cashflow(-1.01, 2.0)))]
-        c = fit(Spline.Linear(), spread)
+        c = fit(Spline.Linear(), spread, Fit.Exact())
         @test abs(pv(c, spread[2].instrument) - spread[2].price) < 1.0e-14
     end
 
@@ -106,7 +109,7 @@
         bad = ZCBPrice.([0.97, -0.1], [1.0, 2.0])
         for spline in (Spline.Linear(), Spline.Cubic(), Spline.MonotoneConvex())
             err = try
-                fit(spline, bad)
+                fit(spline, bad, Fit.Exact())
                 nothing
             catch e
                 e
@@ -120,7 +123,7 @@
         tenors = [1.0, 2.0, 5.0, 10.0]
         rates = [0.03, 0.032, 0.035, 0.037]
         cfs = Cashflow.([3.0, 3.0, 103.0], [2.0, 5.0, 10.0])
-        value(spline) = x -> pv(fit(spline, OISYield.(x, tenors)), cfs)
+        value(spline) = x -> pv(fit(spline, OISYield.(x, tenors), Fit.Exact()), cfs)
         @test ForwardDiff.gradient(value(Spline.Linear()), rates) ≈
             ForwardDiff.gradient(x -> pv(fit(Spline.Linear(), OISYield.(x, tenors), Fit.Bootstrap()), cfs), rates) rtol = 1.0e-12
         h = 1.0e-6
@@ -131,7 +134,7 @@
         end
         # a dual number hidden in a contract the fit does not strip reaches the solve and throws
         @test_throws "reached the solve through data it does not differentiate" ForwardDiff.derivative(
-            a -> discount(fit(Spline.Linear(), [Quote(0.97, WrappedContract(Cashflow(a, 1.0))), ZCBPrice(0.94, 2.0)]), 1.5), 1.0
+            a -> discount(fit(Spline.Linear(), [Quote(0.97, WrappedContract(Cashflow(a, 1.0))), ZCBPrice(0.94, 2.0)], Fit.Exact()), 1.5), 1.0
         )
     end
 
@@ -142,9 +145,10 @@
         truth = FX.Forwards(eurusd, S, usd, Yield.Constant(Continuous(0.025)))
         quotes = [FX.Outright(eurusd, forward(truth, t), t) for t in [0.5, 1.0, 2.0, 5.0]]
         for spline in (Spline.Linear(), Spline.Cubic())
-            m = fit(FX.Forwards(eurusd, S, usd, spline), quotes)
+            m = fit(FX.Forwards(eurusd, S, usd, spline), quotes, Fit.Exact())
+            @test isequal(fit(FX.Forwards(eurusd, S, usd, spline), quotes), fit(FX.Forwards(eurusd, S, usd, spline), quotes, Fit.Loss()))
             @test all(abs(pv(m, q.instrument)) < 1.0e-12 for q in quotes)
-            @test isequal(m.foreign, fit(spline, map(q -> FinanceModels.FX.__implied_foreign_quote(truth, q), quotes)))
+            @test isequal(m.foreign, fit(spline, map(q -> FinanceModels.FX.__implied_foreign_quote(truth, q), quotes), Fit.Exact()))
         end
     end
 end

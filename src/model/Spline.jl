@@ -25,7 +25,8 @@ instantaneous forward instead). Pass `extrapolation=:flat_zero`, `:linear`, `:ex
 select a different long-end policy. `:extension` is unavailable for MonotoneConvex.
 
 Notes on Fitting:
-- `fit(spline, quotes)` fits the entire curve at once, with knots at the maturities of the `Quote`s: it solves for the knot rates that reprice every quote.
+- `fit(spline, quotes)` minimizes the squared pricing residuals, with knots at the quote maturities.
+- `fit(spline, quotes, Fit.Exact())` solves for knot rates that reprice every quote.
 - `fit(spline, quotes, Fit.Bootstrap())` solves one knot at a time, with `Spline.Linear()` only: for the other strategies, adding a knot changes earlier segments.
 - `fit(spline, quotes, Fit.Loss(f))` minimizes the loss `f` of the pricing residuals with an optimizer.
 
