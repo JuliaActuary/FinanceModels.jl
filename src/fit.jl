@@ -32,8 +32,8 @@ module Fit
     A singleton type passed to `fit` to bootstrap a spline curve one quote at a time.
     Each step solves for the zero rate at the next quote maturity to match its price.
 
-    Supports `Spline.Linear()` (equivalently `Spline.PolynomialSpline(1)` or
-    `Spline.BSpline(1)`). Bootstrapping requires that adding a knot on the right
+    Supports `Spline.ConstantForward()` and `Spline.Linear()` (the latter is equivalent
+    to `Spline.PolynomialSpline(1)` or `Spline.BSpline(1)`). Bootstrapping requires that adding a knot on the right
     leaves every earlier curve segment unchanged, so earlier quotes stay exactly
     priced. Linear interpolation of zero rates has this property; quadratic,
     cubic, higher-order B-spline, PCHIP, and Akima interpolation do not, because
@@ -261,7 +261,7 @@ Fit a model to a collection of quotes using a loss function and optimization met
 - `model`: The initial model to fit, which is generally an instantiated but un-optimized model.
 - `quotes`: A collection of quotes to fit the model to.
 - `method::F=Fit.Loss(x -> x^2)`: The loss function to use for fitting the model. Defaults to the squared loss function. 
-  - `method` can also be `Bootstrap()` with `Spline.Linear()`. Other interpolation strategies require a full-curve `Fit.Loss`.
+  - `method` can also be `Bootstrap()` with `Spline.Linear()` or `Spline.ConstantForward()`. Other interpolation strategies require a full-curve `Fit.Loss`.
 - `variables=default_variables(model)`: The variables to optimize over. This is a tuple of optic => interval pairs specifying which parameters of the model can vary. See extended help for more. Spline and knot-curve fits vary the knot rates and do not take `variables`.
 - `optimizer=default_optimizer(model)`: The optimization algorithm to use. The default optimization for a given model is `LBFGS()` from Optim.jl (via OptimizationOptimJL), a quasi-Newton method with automatic differentiation via ForwardDiff. See extended help for more on customizing the solver.
 - `solve_kwargs=(;)`: Keyword arguments passed to `Optimization.solve` with the optimizer, such as
@@ -273,8 +273,9 @@ Fit a model to a collection of quotes using a loss function and optimization met
 
 Fitting a `Spline.SplineCurve` places one knot at each quote maturity and returns the same
 curve type as [`ZeroRateCurve`](@ref): a `Yield.MonotoneConvex` for `Spline.MonotoneConvex()`
-(whose default optimizer is `LBFGS()`) and a `Yield.Spline` otherwise (default `Newton()`).
-`Fit.Bootstrap()` accepts `Spline.Linear()` only. Fitting an existing knot curve
+(whose default optimizer is `LBFGS()`), a `Yield.ConstantForward` for `Spline.ConstantForward()`,
+and a `Yield.Spline` otherwise (default `Newton()`).
+`Fit.Bootstrap()` accepts `Spline.Linear()` and `Spline.ConstantForward()`. Fitting an existing knot curve
 (`fit(curve, quotes)`, a [`Yield.AbstractInterpolatedZeroCurve`](@ref)) fits new knot rates at
 its tenors with its interpolation method and `extrapolation`, by the same solve as a spline fit
 and from the same starting rates (not the curve's own); its default optimizer is the spline's.
@@ -510,6 +511,7 @@ fit(mod0::FX.Forwards{P, S, D, F}, quotes, method::Fit.Loss; kwargs...) where {P
 # Appending a knot must preserve every earlier segment, not merely the earlier
 # knot values. In particular, "local" smooth splines need not have this property.
 __supports_bootstrap(::Spline.SplineCurve) = false
+__supports_bootstrap(::Spline.ConstantForward) = true
 __supports_bootstrap(s::Union{Spline.PolynomialSpline, Spline.BSpline}) = s.order == 1
 
 __bootstrap_alternative(::Spline.SplineCurve) = "fit this strategy across all quotes with Fit.Loss(x -> x^2)"

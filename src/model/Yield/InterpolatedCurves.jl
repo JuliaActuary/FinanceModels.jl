@@ -4,7 +4,8 @@
     Yield.AbstractInterpolatedZeroCurve <: Yield.AbstractYieldModel
 
 Supertype of the yield curves that interpolate continuously compounded zero rates over a knot
-grid: [`Yield.Spline`](@ref) (the DataInterpolations-backed methods) and
+grid: [`Yield.Spline`](@ref) (the DataInterpolations-backed methods),
+[`Yield.ConstantForward`](@ref) (linear cumulative log-discounts), and
 [`Yield.MonotoneConvex`](@ref). [`ZeroRateCurve`](@ref), [`reconstruct`](@ref), and spline
 [`fit`](@ref FinanceModels.fit)s return one of these.
 
