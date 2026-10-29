@@ -50,9 +50,11 @@ export ShortRate, AbstractStochasticModel, RatePath, simulate, pv_mc, short_rate
 export Projection, CashflowProjection, Models, valuation_model
 export pv
 export Fit, fit, FitConvergenceError
+export EIOPA
 
 # Public, not exported
 Compat.@compat public simulation_steps, simulation_times, default_variables, default_optimizer, closed_form
 
+include("EIOPA/EIOPA.jl")
 include("precompile.jl")
 end
