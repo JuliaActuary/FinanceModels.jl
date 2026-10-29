@@ -1,8 +1,19 @@
 # Interpolation Methods for `ZeroRateCurve`
 
+`Spline.ConstantForward()` interpolates cumulative log-discounts linearly, giving
+constant forwards between positive knot tenors. It supports `ZeroRateCurve`,
+reconstruction and `Fit.Bootstrap()`. Unlike `Spline.Linear()`, it does not
+interpolate zero rates linearly. See [EIOPA risk-free term structures](@ref) for
+exponential UFR extrapolation and prescribed risk-free curve calculations.
+
 `ZeroRateCurve` accepts an optional third argument specifying the interpolation method. The choice of interpolation affects **forward curve smoothness**, **knot-rate sensitivity locality**, and the cost of constructing and evaluating curves. Knot-rate sensitivity changes the interpolation inputs. ActuaryUtilities 6 `KeyRates` instead adds triangular continuous-zero shifts without refitting the curve; its shock shapes do not depend on the interpolant.
 
-`ZeroRateCurve` returns a `Yield.MonotoneConvex` for `Spline.MonotoneConvex()` and a `Yield.Spline` for the other methods. Both are [`Yield.AbstractInterpolatedZeroCurve`](@ref FinanceModels.Yield.AbstractInterpolatedZeroCurve)s, as are the curves that spline [`fit`](@ref FinanceModels.fit)s return: read their knots with [`knot_rates`](@ref FinanceModels.Yield.knot_rates) and [`knot_tenors`](@ref FinanceModels.Yield.knot_tenors), and build a changed curve (other rates, tenors, method, or extrapolation) with [`reconstruct`](@ref FinanceModels.Yield.reconstruct).
+`ZeroRateCurve` returns a `Yield.MonotoneConvex` for `Spline.MonotoneConvex()`, a
+`Yield.ConstantForward` for `Spline.ConstantForward()`, and a `Yield.Spline` for the
+other methods. All are [`Yield.AbstractInterpolatedZeroCurve`](@ref FinanceModels.Yield.AbstractInterpolatedZeroCurve)s,
+as are the curves that spline [`fit`](@ref FinanceModels.fit)s return: read their knots
+with [`knot_rates`](@ref FinanceModels.Yield.knot_rates) and [`knot_tenors`](@ref FinanceModels.Yield.knot_tenors),
+and build a changed curve with [`reconstruct`](@ref FinanceModels.Yield.reconstruct).
 
 ## Available Methods
 

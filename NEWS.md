@@ -1,5 +1,14 @@
 # FinanceModels.jl release notes
 
+## Unreleased
+
+- Add `Spline.ConstantForward()` for log-discount interpolation and bootstrapping,
+  and `Yield.ExponentialForward` for convergence to a UFR.
+- Add `EIOPA` basic RFR, CSSR/VA and upward/downward shock calculations based on
+  EIOPA's May 2026 methodology and EU 2026/269. `calculate` returns precise curves;
+  `publication` reproduces the official workbook's staged rounding. Offline tests
+  cover seven output curves at every annual maturity through year 150.
+
 ## v7.1.1
 
 ### Faster first calls on common curves and quotes
