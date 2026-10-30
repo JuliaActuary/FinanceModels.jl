@@ -44,6 +44,25 @@ end
     @test discount(c, 0) == 1
     @test discount(c, 10) == discount(base, 10)
     @test rate(Yield.instantaneous_forward(c, 10)) == 0.04
+    for seed in (-1.0, 0.0, 1.0)
+        t = ForwardDiff.Dual{Nothing}(10.0, seed)
+        @test ForwardDiff.value(rate(Yield.instantaneous_forward(c, t))) == 0.04
+        @test ForwardDiff.partials(rate(Yield.instantaneous_forward(c, t)))[1] ≈ -0.11 * 0.005 * seed
+    end
+    @test ForwardDiff.derivative(t -> discount(c, 20 - t), 10.0) ≈ 0.04 * discount(c, 10)
+    @test ForwardDiff.derivative(t -> rate(zero(c, t)), 0.0) == 0
+    changed = @set c.α = 0.12
+    @test changed.α == 0.12
+    @test discount(changed, 60) ≈ discount(make(0.035, 0.04, 0.12), 60)
+    moved = @set c.start = 5.0
+    @test discount(moved, 5) == discount(base, 5)
+    @test discount(moved, 60) ≈ discount(base, 5) * discount(moved, 5, 60)
+    @test discount((@set c.base = Yield.Constant(Continuous(0.02))), 10) ≈ exp(-0.2)
+    @test_throws ArgumentError (@set c.α = 0.0)
+    @test_throws MethodError (@set c._log_start = 0.0)
+    properties = Accessors.ConstructionBase.getproperties(c)
+    rebuilt = Accessors.ConstructionBase.setproperties(c, properties)
+    @test discount(rebuilt, 60) == discount(c, 60)
     @test rate(Yield.instantaneous_forward(c, 20)) ≈ 0.035 + 0.005 * exp(-1.1)
     @test discount(c, 10, 20) ≈ exp(-0.035 * 10 - 0.005 * (-expm1(-1.1)) / 0.11)
     @test discount(c, 0, 30) ≈ discount(c, 30)
@@ -70,6 +89,8 @@ end
     x = [0.035, 0.04, 0.11]
     fd = [(g(x + 1.0e-6 * (1:3 .== k)) - g(x - 1.0e-6 * (1:3 .== k))) / 2.0e-6 for k in 1:3]
     @test ForwardDiff.gradient(g, x) ≈ fd rtol = 1.0e-7
+    shifted_start(s) = discount((@set c.start = s), 60)
+    @test ForwardDiff.derivative(shifted_start, 10.0) ≈ (shifted_start(10.000001) - shifted_start(9.999999)) / 0.000002 rtol = 1.0e-7
     @test_throws ArgumentError make(0.03, 0.04, 0)
     @test_throws DomainError discount(c, -1)
 end

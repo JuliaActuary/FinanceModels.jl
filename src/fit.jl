@@ -524,7 +524,7 @@ function fit(
     __supports_bootstrap(mod0) || throw(
         ArgumentError(
             "Fit.Bootstrap does not support $mod0: adding a knot would change earlier " *
-                "curve segments and reprice earlier quotes. Use Spline.Linear(), or " *
+                "curve segments and reprice earlier quotes. Use Spline.Linear(), Spline.ConstantForward(), or " *
                 __bootstrap_alternative(mod0) * "."
         )
     )
