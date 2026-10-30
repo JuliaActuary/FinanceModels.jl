@@ -43,13 +43,12 @@ function ShockParameters()
 end
 
 function _parameter(p::ShockParameters, v, t)
-    t <= first(p.tenors) && return first(v) + zero(t)
-    t >= last(p.tenors) && return last(v) + zero(t)
+    Yield.__primal(t) < first(p.tenors) && return first(v) + zero(t)
+    Yield.__primal(t) >= last(p.tenors) && return last(v) + zero(t)
     k = searchsortedlast(p.tenors, Yield.__primal(t))
     return v[k] + (v[k + 1] - v[k]) * ((t - p.tenors[k]) / (p.tenors[k + 1] - p.tenors[k]))
 end
 _floor(p, t) = _parameter(p, p.floor, t)
-_floored(c, p) = c === nothing ? nothing : Yield.TenorShift(c, (z, t) -> Periodic(max(expm1(rate(z)), _floor(p, t)), 1))
 
 function _shocked(bootstrap, i, p, direction, total_va)
     sr = direction == 1 ? p.up_relative : p.down_relative

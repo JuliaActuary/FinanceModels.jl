@@ -38,26 +38,42 @@ are annual-effective zero rates (`instrument=:government`). CRA is in basis poin
 UFR is a `Rate` with explicit compounding. Alpha is supplied, not calibrated: use
 0.40 for SEK, 0.11 otherwise, or the applicable approved phasing-in parameter.
 
+Supply FSP from the applicable DLT assessment. It is independent of whether its
+LLFR weight is positive: the technical document's Table 2 includes assessed FSPs
+with zero weight. Such inputs are accepted, and VA then has no effect on LLFR.
+The demonstration workbook infers FSP from its first positive weight; that shortcut
+is appropriate only when the assessed FSP has a positive weight.
+
 `result.bootstrapped` retains all DLT maturities. The final basic curve retains it
 through FSP; later observations influence LLFR only and need not be repriced by
 the final extrapolated curve. Discounts are continuous at FSP; forwards may jump.
 
 ## CSSR and volatility adjustment
 
-First construct the notional CSSR curve for an asset/liability valuation pass:
+First construct the notional CSSR curve for liability revaluation, and apply the
+same notional VA as a parallel spread shock to each asset's own valuation curve:
 
 ```@example eiopa
 notional = EIOPA.calculate(inputs;
     va_inputs=EIOPA.VAInputs(rcs_currency=0.01))
-discount(notional.curves.cssr, 20)
+asset_base = notional.curves.basic + Yield.Constant(Periodic(0.01, 1))
+asset_notional = EIOPA.asset_spread_shock(asset_base,
+    notional.diagnostics.notional_va)
+discount(asset_notional, 60)
 ```
 
-Then supply the resulting valuation amounts:
+Article 51a(2)(c) increases asset spreads at **all maturities**, including beyond
+FSP. Preserve each asset's existing spread and valuation assumptions; apply the
+shock within the asset model when cashflows depend on spreads. Liabilities use
+`notional.curves.cssr`, whose VA impact fades after FSP. The following example
+revalues fixed asset and liability cashflows at year 60:
 
 ```@example eiopa
 va = EIOPA.VAInputs(rcs_currency=0.01,
-    valuations=(assets=500000.0, assets_notional=490000.0,
-        liabilities=870000.0, liabilities_notional=850000.0))
+    valuations=(assets=100 * discount(asset_base, 60),
+        assets_notional=100 * discount(asset_notional, 60),
+        liabilities=200 * discount(notional.curves.basic, 60),
+        liabilities_notional=200 * discount(notional.curves.cssr, 60)))
 adjusted = EIOPA.calculate(inputs; va_inputs=va)
 adjusted.diagnostics.total_va
 ```
@@ -69,7 +85,16 @@ zero. Spreads and VA are decimal annual rates; negative VA is supported.
 
 For macro VA set `use_macro_va=true`, with `rcs_country` and `debt_to_assets`.
 For an undertaking-specific adjustment supply `usa` (at most 1.05). These are
-mutually exclusive. For peer-country cases requiring zero macro VA, disable it.
+mutually exclusive. Euro-area undertakings without USA must apply macro VA
+(TD §9.3.4), except the peer-country cases prescribed to have zero macro VA.
+The default `false` does not infer currency, domicile or eligibility; the caller
+must select the applicable treatment.
+
+The notional VA is 85% of the unadjusted published currency RCS, even when USA is
+selected, matching workbook `CSSR Calculation!H10`. USA affects the final currency
+VA. TD §9.3.5 redefines currency RCS using USA without explicitly resolving its
+use in the notional step; this API follows the workbook convention.
+
 VA adds `log1p(VA)` to pre-FSP forwards and changes only the first weighted LLFR
 term. The UFR remains fixed; shifting the entire extrapolated curve differs.
 
@@ -82,9 +107,19 @@ published = EIOPA.publication(inputs; va_inputs=va, shock_parameters=shocks)
 (published.maturities[60], published.rates.basic[60], published.rates.up[60])
 ```
 
-`calculate` keeps full precision, including VA. It returns `bootstrapped`, `curves`
-and `diagnostics`. Curve names are `basic`, `cssr`, `va`, `up`, `down`, `up_va` and
+`calculate` is the full-precision analytical path for sensitivities and AD,
+including unrounded VA. Regulatory technical provisions use published basic
+rates and whole-basis-point VA (TD §§10.1.2–10.1.3); use `publication` for that
+convention. Unrounded VA can differ by up to half a basis point before FSP.
+`calculate` returns `bootstrapped`, `curves` and `diagnostics`.
+Curve names are `basic`, `cssr`, `va`, `up`, `down`, `up_va` and
 `down_va`; unavailable optional outputs are `nothing`.
+
+Diagnostics include all basic/adjusted LLFRs, notional/currency/macro/total VA,
+CSSR, the country weight (`country_weight`, ω), and asset/liability PVBP.
+For valuation inputs PVBP is the value reduction divided by the notional decimal
+VA; for sensitivity inputs the supplied common units are retained. Adjusted
+downward LLFR diagnostics refer to the extrapolation before the final floor.
 
 `publication` rounds basic annual zero rates to five decimal places before the
 CSSR/VA stage and notional/total VA to whole basis points. Shocks use unrounded
@@ -93,10 +128,25 @@ basis points, retaining the undertaking's total VA. Final rates are rounded to
 five decimals, then downward floors apply without another rounding pass. A binding
 floor can retain more digits. Publication outputs contain numeric annual-effective
 `rates`, defaulting to years 1–150; `maturities` accepts another increasing positive
-integer grid.
+integer grid. Decimal ties follow Excel's 15-significant-digit arithmetic and
+round away from zero.
 
-Use publication CSSR curves for valuations supplied to `publication`, and precise
-CSSR curves for `calculate`. First-order AD is supported in precise calculations
+For valuations supplied to `publication`, construct liability curves from its
+published annual rates and use its rounded notional VA for the parallel asset
+shock. For example:
+
+```@example eiopa
+published_notional = EIOPA.publication(inputs;
+    va_inputs=EIOPA.VAInputs(rcs_currency=0.01))
+published_cssr = ZeroRateCurve(Periodic.(published_notional.rates.cssr, 1),
+    published_notional.maturities, Spline.ConstantForward())
+published_asset_notional = EIOPA.asset_spread_shock(asset_base,
+    published_notional.diagnostics.notional_va)
+discount(published_cssr, 60)
+```
+
+Use precise CSSR curves and notional VA for valuations supplied to `calculate`.
+First-order AD is supported in precise calculations
 away from clipping/floor boundaries; publication rejects dual-number inputs.
 Maturities and FSP are fixed. Precise shocked curves use constant-forward
 interpolation between annual pre-FSP nodes. Custom `ShockParameters` interpolate
@@ -118,6 +168,8 @@ the knot/reconstruction interfaces and usual tail policies except `:extension`.
 `Yield.ExponentialForward(base; start, initial_forward, ufr, α)` preserves a curve
 through `start`, then converges its instantaneous forward exponentially to UFR.
 Both assumptions are explicit `Rate`s. Existing curve defaults remain unchanged.
+The FSP log-discount is cached at construction. Reconstruction with `Accessors.@set`
+validates updated assumptions and refreshes that cache.
 
 ## API reference
 

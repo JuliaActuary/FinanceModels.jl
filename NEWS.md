@@ -7,7 +7,10 @@
 - Add `EIOPA` basic RFR, CSSR/VA and upward/downward shock calculations based on
   EIOPA's May 2026 methodology and EU 2026/269. `calculate` returns precise curves;
   `publication` reproduces the official workbook's staged rounding. Offline tests
-  cover seven output curves at every annual maturity through year 150.
+  cover seven output curves at every annual maturity through year 150 and their
+  full-precision intermediates. Publication handles Excel decimal ties; the asset
+  spread shock helper preserves the parallel shock beyond FSP. Precise downward
+  curves retain exact infinite-horizon limits under the floor.
 
 ## v7.1.1
 

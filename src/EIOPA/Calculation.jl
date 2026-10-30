@@ -1,21 +1,17 @@
-# Excel ROUND: decimal rounding with ties away from zero, rather than Julia's
-# default ties-to-even. Publication inputs must not silently lose AD partials.
-_round_rate(x) = round(x, RoundNearestTiesAway; digits = 5)
-_round_va(x) = round(x, RoundNearestTiesAway; digits = 4)
-
 function _calculate(i::RFRInputs, v, p, round_rate, round_va)
     bootstrap = _bootstrap(i)
     llfr = _llfr(bootstrap, i)
     basic = _extrapolate(bootstrap, i, llfr)
     cssr_curve = va_curve = nothing
     notional = sensitivity = currency = macro_va = total_va = nothing
+    assets_pvbp = liabilities_pvbp = country_weight = nothing
     if v !== nothing
         prefix = [round_rate(_annual(basic, t)) for t in 1:i.fsp]
         notional = round_va(0.85 * v.rcs_currency)
         cssr_curve = _va_curve(prefix, llfr, notional, i)
-        sensitivity = _cssr(v, notional)
+        sensitivity, assets_pvbp, liabilities_pvbp = _cssr(v, notional)
         if sensitivity !== nothing
-            currency, macro_va, total_va = _va_amount(v, sensitivity, round_va)
+            currency, macro_va, total_va, country_weight = _va_amount(v, sensitivity, round_va)
             va_curve = _va_curve(prefix, llfr, total_va, i)
         end
     end
@@ -25,7 +21,13 @@ function _calculate(i::RFRInputs, v, p, round_rate, round_va)
         down, down_va, down_llfr = _shocked(bootstrap, i, p, -1, total_va)
     end
     curves = (; basic, cssr = cssr_curve, va = va_curve, up, down, up_va, down_va)
-    diagnostics = (; llfr, cssr = sensitivity, notional_va = notional, currency_va = currency, macro_va, total_va, up_llfr, down_llfr)
+    adjusted_llfr(c) = c === nothing ? nothing : c.initial_forward
+    diagnostics = (;
+        llfr, cssr = sensitivity, notional_va = notional, currency_va = currency,
+        macro_va, total_va, up_llfr, down_llfr, assets_pvbp, liabilities_pvbp, country_weight,
+        cssr_llfr = adjusted_llfr(cssr_curve), va_llfr = adjusted_llfr(va_curve),
+        up_va_llfr = adjusted_llfr(up_va), down_va_llfr = adjusted_llfr(down_va),
+    )
     return Result(bootstrap, curves, diagnostics)
 end
 
@@ -35,7 +37,9 @@ end
 Build full-precision basic, CSSR, VA and shocked curves. Optional stages run only
 when their inputs are supplied. `VAInputs` containing only spreads returns the
 CSSR curve for a second valuation pass. Downward floors apply to the final curves.
-No publication rounding is applied; use `publication` for workbook reproduction.
+This analytical path keeps VA unrounded for sensitivities and AD. Regulatory
+technical provisions use published basic rates and whole-bp VA; use `publication`
+for that rounding convention and workbook reproduction.
 First-order quote and parameter sensitivities propagate through the precise path,
 away from clipping/floor boundaries. Maturities and FSP are fixed inputs.
 """

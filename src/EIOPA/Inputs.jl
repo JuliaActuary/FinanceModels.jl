@@ -10,6 +10,8 @@ for `:swaps`, or annual-effective government zero rates for `:government`.
 `frequency` is the swap coupon frequency; CRA is in basis points. Supply positive,
 increasing integer maturities, an observed FSP, and aligned nonnegative LLFR weights
 summing to one (zero before the FSP). All vectors are copied and read-only.
+Supply the assessed FSP explicitly; it is not inferred from positive weights.
+An assessed FSP with zero weight is supported and has no VA contribution to LLFR.
 UFR compounding is explicit; α is supplied, not calibrated. Currency adjustments,
 if needed, must already be reflected in the observations supplied to this API.
 """
@@ -50,6 +52,12 @@ Spreads are decimal annual rates. `usa` is the undertaking-specific multiplier
 named `assets`, `assets_notional`, `liabilities`, `liabilities_notional`.
 With spreads alone the calculation returns the notional CSSR curve for a second
 valuation pass, leaving VA-dependent outputs unavailable (`nothing`).
+`assets_notional` must use a parallel asset spread shock at all maturities (see
+`asset_spread_shock`), while `liabilities_notional` uses the fading CSSR curve.
+Euro-area undertakings without USA must select macro VA, except the peer-country
+cases prescribed to have zero macro VA. Eligibility is supplied by the caller.
+The notional VA uses unadjusted currency RCS even when USA is selected, matching
+the demonstration workbook; USA affects the final currency VA.
 """
 struct VAInputs{R, C, D, U, V, S, Q}
     rcs_currency::R
@@ -64,6 +72,8 @@ struct VAInputs{R, C, D, U, V, S, Q}
         _require(isfinite(rcs_currency), "currency RCS must be finite")
         _require(usa === nothing || (isfinite(usa) && usa <= 1.05), "USA must be finite and at most 1.05")
         _require(!(use_macro_va && usa !== nothing), "macro VA and USA are mutually exclusive")
+        _require(rcs_country === nothing || isfinite(rcs_country), "country RCS must be finite")
+        _require(debt_to_assets === nothing || (isfinite(debt_to_assets) && 0 <= debt_to_assets <= 1), "debt-to-assets ratio must be in [0,1]")
         _require(!use_macro_va || (rcs_country !== nothing && debt_to_assets !== nothing && isfinite(rcs_country) && isfinite(debt_to_assets) && 0 <= debt_to_assets <= 1), "macro VA requires country RCS and a debt-to-assets ratio in [0,1]")
         _require(count(!isnothing, (valuations, sensitivities, cssr)) <= 1, "supply only one CSSR source")
         if valuations !== nothing
@@ -82,7 +92,8 @@ end
 
 `bootstrapped` retains all DLT observations. `curves` has `basic`, `cssr`, `va`,
 `up`, `down`, `up_va`, `down_va`; optional unavailable curves are `nothing`.
-`diagnostics` exposes LLFRs, CSSR, notional VA and currency/macro/total VA.
+`diagnostics` exposes basic/adjusted LLFRs, CSSR, asset/liability PVBP (in the
+workbook's per-unit-rate units for valuation inputs), country weight, and VA amounts.
 """
 struct Result{B, C, D}
     bootstrapped::B
