@@ -3,7 +3,7 @@
 `Spline.ConstantForward()` interpolates cumulative log-discounts linearly, giving
 constant forwards between positive knot tenors. It supports `ZeroRateCurve`,
 reconstruction and `Fit.Bootstrap()`. Unlike `Spline.Linear()`, it does not
-interpolate zero rates linearly. See [EIOPA risk-free term structures](@ref) for
+interpolate zero rates linearly. See [EIOPA risk-free curves tutorial](@ref eiopa-rfr) for
 exponential UFR extrapolation and prescribed risk-free curve calculations.
 
 `ZeroRateCurve` accepts an optional third argument specifying the interpolation method. The choice of interpolation affects **forward curve smoothness**, **knot-rate sensitivity locality**, and the cost of constructing and evaluating curves. Knot-rate sensitivity changes the interpolation inputs. ActuaryUtilities 6 `KeyRates` instead adds triangular continuous-zero shifts without refitting the curve; its shock shapes do not depend on the interpolant.

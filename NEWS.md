@@ -11,6 +11,9 @@
   full-precision intermediates. Publication handles Excel decimal ties; the asset
   spread shock helper preserves the parallel shock beyond FSP. Precise downward
   curves retain exact infinite-horizon limits under the floor.
+- Accept `EIOPA.PublishedRFR` in `calculate` and `publication` to start from
+  published annual basic rates and official controls, with optional imported
+  stressed bases. Expand the EIOPA guide into a background and valuation tutorial.
 
 ## v7.1.1
 
