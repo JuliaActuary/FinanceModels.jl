@@ -32,27 +32,6 @@ using TOML
     @test discount(r.curves.basic, 40) ≈ exp(-expected_log)
     @test r.curves.up === nothing
 
-    # Import the workbook's unrounded/unfloored shocked annual nodes and LLFRs.
-    # The official example has DLT weights beyond FSP; do not infer LLFR from
-    # only the imported prefix or reuse the basic LLFR for either stress.
-    up = EIOPA.PublishedRFR(
-        e["up_unfloored_prefix"]; fsp = i.fsp,
-        llfr = Continuous(e["up_llfr"]), w_fsp = wf,
-        ufr = Periodic(p["ufr"] + 0.0015, 1), α = i.α
-    )
-    down = EIOPA.PublishedRFR(
-        e["down_unfloored_prefix"]; fsp = i.fsp,
-        llfr = Continuous(e["down_llfr"]), w_fsp = wf,
-        ufr = Periodic(p["ufr"] - 0.0015, 1), α = i.α
-    )
-    stressed = @inferred EIOPA.publication(
-        i; va_inputs = va,
-        shock_parameters = EIOPA.ShockParameters(), shocked_inputs = (; up, down)
-    )
-    for name in (:up, :down, :up_va, :down_va)
-        @test getproperty(stressed.rates, name) ≈ e[string(name)] atol = 1.0e-14 rtol = 0
-    end
-
     rates = collect(i.rates)
     copied = make(rates)
     rates[1] += 0.01
@@ -93,53 +72,32 @@ using TOML
     )
 end
 
-@testset "Imported stressed bases and VA before floors" begin
-    p = EIOPA.ShockParameters()
+@testset "Published and market basic/CSSR/VA equivalence" begin
     v = EIOPA.VAInputs(rcs_currency = 0.01, cssr = 1.0)
     for level in (0.03, -0.005, -0.04)
         market = EIOPA.RFRInputs(
             [level, level], [1, 20]; instrument = :government,
             fsp = 20, llfr_weights = [0.0, 1.0], ufr = Periodic(0.033, 1), α = 0.11
         )
-        raw = EIOPA._calculate(market, nothing, p, identity, identity)
-        imported(c, llfr, ufr) = EIOPA.PublishedRFR(
-            EIOPA._annual.(Ref(c), 1:20);
-            fsp = 20, llfr = Continuous(llfr), w_fsp = 1.0, ufr = Periodic(ufr, 1), α = 0.11
+        raw = EIOPA.calculate(market)
+        basic = EIOPA.PublishedRFR(
+            EIOPA._annual.(Ref(raw.curves.basic), 1:20);
+            fsp = 20, llfr = Continuous(raw.diagnostics.llfr), w_fsp = 1.0,
+            ufr = Periodic(0.033, 1), α = 0.11
         )
-        basic = imported(raw.curves.basic, raw.diagnostics.llfr, 0.033)
-        up = imported(raw.curves.up, raw.diagnostics.up_llfr, 0.0345)
-        down = imported(raw.curves.down, raw.diagnostics.down_llfr, 0.0315)
-        shocked_inputs = (; up, down)
-        actual = @inferred EIOPA.calculate(basic; va_inputs = v, shock_parameters = p, shocked_inputs)
-        expected = EIOPA.calculate(market; va_inputs = v, shock_parameters = p)
-        for name in keys(actual.curves), t in (0.0, 1.0, 10.5, 20.0, 60.0, 150.0, Inf)
+        actual = @inferred EIOPA.calculate(basic; va_inputs = v)
+        expected = EIOPA.calculate(market; va_inputs = v)
+        for name in (:basic, :cssr, :va), t in (0.0, 1.0, 10.5, 20.0, 60.0, 150.0, Inf)
             @test discount(getproperty(actual.curves, name), t) ≈ discount(getproperty(expected.curves, name), t) rtol = 2.0e-14
         end
-        pub = @inferred EIOPA.publication(basic; va_inputs = v, shock_parameters = p, shocked_inputs)
-        reference = EIOPA.publication(market; va_inputs = v, shock_parameters = p)
-        for name in keys(pub.rates)
+        pub = @inferred EIOPA.publication(basic; va_inputs = v)
+        reference = EIOPA.publication(market; va_inputs = v)
+        for name in (:basic, :cssr, :va)
             @test getproperty(pub.rates, name) ≈ getproperty(reference.rates, name) atol = 1.0e-14 rtol = 0
         end
         @test actual.bootstrapped === nothing
-        @test_throws ArgumentError EIOPA.calculate(basic; shocked_inputs)
-        @test_throws ArgumentError EIOPA.calculate(market; shock_parameters = p, shocked_inputs)
-        @test_throws ArgumentError EIOPA.calculate(basic; shock_parameters = p, shocked_inputs = (; up))
-        @test_throws ArgumentError EIOPA.calculate(basic; shock_parameters = p, shocked_inputs = (up = up, down = basic))
-        wrong_weight = EIOPA.PublishedRFR(
-            collect(down.rates); fsp = down.fsp,
-            llfr = Continuous(down.llfr), w_fsp = 0.5, ufr = down.ufr, α = down.α
-        )
-        @test_throws ArgumentError EIOPA.calculate(basic; shock_parameters = p, shocked_inputs = (up = up, down = wrong_weight))
-        @test_throws ArgumentError ForwardDiff.derivative(
-            q -> EIOPA.publication(
-                basic; shock_parameters = p,
-                shocked_inputs = (
-                    up = EIOPA.PublishedRFR(
-                        collect(up.rates); fsp = up.fsp,
-                        llfr = Continuous(q), w_fsp = up.w_fsp, ufr = up.ufr, α = up.α
-                    ), down = down,
-                )
-            ).rates.up[60], up.llfr
-        )
+        for calculate in (EIOPA.calculate, EIOPA.publication)
+            @test_throws ArgumentError calculate(basic; shock_parameters = EIOPA.ShockParameters())
+        end
     end
 end

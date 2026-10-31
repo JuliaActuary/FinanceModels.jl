@@ -21,6 +21,7 @@ function Yield.__log_tail(c::_FlooredCurve)
     u < f && return Yield.__LogTail(zero(floor), floor, zero(floor))
     # At a zero common slope, perturbing either slope can change a finite limit
     # into zero/Inf. Do not drop a derivative by selecting the constant floor.
+    # ForwardDiff 1.x `!=` compares partials as well as primal values.
     if iszero(u) && tail.a1 != floor
         throw(ArgumentError("discount(floored curve, Inf) has no derivative where a zero tail slope can move; differentiate at a finite time"))
     end

@@ -42,7 +42,7 @@ using TOML
     # Article 51a shocks assets in parallel even beyond FSP. Using the fading
     # liability CSSR curve for both sides would incorrectly return CSSR=0.5.
     n = EIOPA.calculate(i; va_inputs = EIOPA.VAInputs(rcs_currency = 0.01))
-    asset_curve = EIOPA.asset_spread_shock(n.curves.basic, n.diagnostics.notional_va)
+    asset_curve = EIOPA.asset_spread_shock(n.curves.basic, Continuous(log1p(n.diagnostics.notional_va)))
     for t in (5, 20, 60, 150)
         @test discount(asset_curve, t) ≈ discount(n.curves.basic, t) * (1 + n.diagnostics.notional_va)^(-t)
     end
@@ -53,6 +53,45 @@ using TOML
     correct = EIOPA.VAInputs(rcs_currency = 0.01; valuations = (; assets, assets_notional, liabilities, liabilities_notional))
     @test EIOPA.calculate(i; va_inputs = correct).diagnostics.cssr == 1
     @test EIOPA.cssr(assets - 100discount(n.curves.cssr, 60), liabilities - liabilities_notional) ≈ 0.5
+end
+
+@testset "Asset spread shock conventions" begin
+    base = Yield.Constant(Periodic(0.04, 1))
+    va = 0.0085
+    annual = @inferred EIOPA.asset_spread_shock(base, Periodic(va, 1))
+    continuous = @inferred EIOPA.asset_spread_shock(base, Continuous(log1p(va)))
+    semiannual = @inferred EIOPA.asset_spread_shock(base, Periodic(va, 2))
+    @test annual isa Yield.TenorShift
+    # Price a 10-year 4% coupon bond with the bumped yields by hand. A nominal
+    # semiannual bump uses the supplied number, rather than an annual conversion.
+    annual_yield = 0.04 + va
+    multiplicative_yield = 1.04 * 1.0085 - 1
+    semiannual_yield = 2 * (sqrt(1.04) - 1) + va
+    hand_annual(y) = sum(4 / (1 + y)^t for t in 1:10) + 100 / (1 + y)^10
+    hand_semiannual(y) = sum(4 / (1 + y / 2)^(2t) for t in 1:10) + 100 / (1 + y / 2)^20
+    price(c) = sum(4discount(c, t) for t in 1:10) + 100discount(c, 10)
+    @test price(annual) ≈ hand_annual(annual_yield) rtol = 2.0e-14
+    @test price(continuous) ≈ hand_annual(multiplicative_yield) rtol = 2.0e-14
+    @test price(semiannual) ≈ hand_semiannual(semiannual_yield) rtol = 2.0e-14
+    @test price(annual) > price(continuous)
+    old = base + Yield.Constant(Periodic(va, 1))
+    for t in (0.0, 1.0, 10.0, 60.0, Inf)
+        @test discount(continuous, t) == discount(old, t)
+    end
+    @test discount(annual, Inf) == 0.0
+    @test discount(semiannual, Inf) == 0.0
+    @test discount(EIOPA.asset_spread_shock(base, Periodic(-0.05, 1)), Inf) == Inf
+    # A zero asymptotic yield can conceal a nonzero log-discount intercept.
+    tail = Yield.ExponentialForward(base; start = 20, initial_forward = Continuous(0.03), ufr = Continuous(0.0), α = 0.11)
+    @test isfinite(discount(tail, Inf))
+    @test_throws ArgumentError discount(EIOPA.asset_spread_shock(tail, Periodic(0.0, 1)), Inf)
+    @test discount(EIOPA.asset_spread_shock(tail, Continuous(0.0)), Inf) == discount(tail, Inf)
+    @test_throws ArgumentError discount(EIOPA.asset_spread_shock(Yield.Constant(Periodic(-0.04, 1)), Periodic(-0.99, 1)), 10)
+    for shift in (Continuous(Inf), Continuous(NaN), Periodic(-1.0, 1))
+        @test_throws ArgumentError EIOPA.asset_spread_shock(base, shift)
+    end
+    value(v) = discount(EIOPA.asset_spread_shock(base, Periodic(v, 2)), 10)
+    @test ForwardDiff.derivative(value, va) ≈ (value(va + 1.0e-6) - value(va - 1.0e-6)) / 2.0e-6 rtol = 1.0e-7
 end
 
 @testset "Publication decimal rounding" begin
@@ -76,6 +115,34 @@ end
     @test r.diagnostics.notional_va == 0.006
     @test r.diagnostics.total_va == 0.006
     @test r.rates.va[1] == EIOPA._round_rate((1 + r.rates.basic[1]) * 1.006 - 1)
+end
+
+@testset "Publication rounding fast path and fallback" begin
+    for digits in (0, 2, 4, 5, 22, 23), n in (-100, -3, -1, 0, 1, 3, 100)
+        tie = Float64((big(n) + 1 // 2) / big(10)^digits)
+        for x in (prevfloat(tie), tie, nextfloat(tie))
+            @test isequal(EIOPA._excel_round(x, digits), EIOPA._excel_round_exact(x, digits))
+        end
+    end
+    # Either side of the scaled-magnitude guard, both signs and adjacent floats.
+    for point in (999.99999, 1000.00001), sign in (-1, 1)
+        for x in (prevfloat(sign * point), sign * point, nextfloat(sign * point))
+            @test isequal(EIOPA._excel_round(x, 5), EIOPA._excel_round_exact(x, 5))
+        end
+    end
+    # Either side of the 1e-6 half-integer margin, including negative values.
+    for distance in (0.9e-6, 1.1e-6), side in (-1, 1), sign in (-1, 1)
+        x = sign * (100.5 + side * distance) / 1.0e5
+        @test isequal(EIOPA._excel_round(x, 5), EIOPA._excel_round_exact(x, 5))
+    end
+    for x in (0.0, -0.0, Inf, -Inf, NaN, nextfloat(0.0), -nextfloat(0.0), 1.0e15), digits in (0, 4, 5)
+        @test isequal(EIOPA._excel_round(x, digits), EIOPA._excel_round_exact(x, digits))
+    end
+    @test EIOPA._excel_round(1.0e-23, 23) == 1.0e-23
+    @test EIOPA._excel_round(1.0e16, -2) == EIOPA._excel_round_exact(1.0e16, -2)
+    for x in (Float32(0.00595), big"0.00595")
+        @test isequal(EIOPA._excel_round(x, 4), EIOPA._excel_round_exact(x, 4))
+    end
 end
 
 @testset "Downward VA ordering and exact floor tails" begin
@@ -144,7 +211,7 @@ end
     @test EIOPA.calculate(i; va_inputs = EIOPA.VAInputs(rcs_currency = 0.01, usa = 1.05, cssr = 1.0)).diagnostics.total_va ≈ 0.008925
     @test_throws ArgumentError EIOPA.VAInputs(rcs_currency = 0.01, rcs_country = Inf)
     @test_throws ArgumentError EIOPA.VAInputs(rcs_currency = 0.01, debt_to_assets = 1.01)
-    @test_throws ArgumentError EIOPA.asset_spread_shock(r.curves.basic, -1.0)
+    @test_throws MethodError EIOPA.asset_spread_shock(r.curves.basic, 0.01)
     # The DLT assessment can locate FSP before the first positive LLFR weight.
     zero_weight = EIOPA.RFRInputs(
         [0.02, 0.03], [5, 10]; fsp = 5,

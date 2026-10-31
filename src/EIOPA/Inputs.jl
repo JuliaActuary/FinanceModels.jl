@@ -52,10 +52,12 @@ published in continuous terms should be wrapped in `Continuous`.
 
 No bootstrapping, CRA deduction or LLFR estimation is performed. The basic tail
 is reconstructed from the supplied FSP rate and controls; rounding that FSP rate
-can affect the last published digit beyond FSP. Inputs are copied and read-only.
+can affect the last published digit beyond FSP. Preserve all supplied LLFR digits;
+publication rounding cannot recover precision lost in the controls. Inputs are
+copied and read-only.
 Use the matching currency, date and 2027 methodology, rather than legacy
-Smith–Wilson publications. Optional stressed bases are supplied separately to
-`calculate`/`publication` through `shocked_inputs=(up=..., down=...)`.
+Smith–Wilson publications. Interest-rate stresses require market `RFRInputs`:
+the published basic prefix and LLFR do not determine stressed LLFRs.
 """
 struct PublishedRFR{R, L, W, U, A}
     rates::R

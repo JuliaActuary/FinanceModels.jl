@@ -111,6 +111,25 @@ supplied FSP node and controls; its last published digit can differ from an
 original basic tail constructed before the FSP node was rounded. Preserve the
 official full basic series when exact reporting of that series is required.
 
+Preserve every digit supplied for LLFR. The workbook tests use its full-precision
+control, rather than a display-rounded value; exact reconciliation with a monthly
+file depends on that file's control precision as well as its rounded FSP anchor.
+For an LLFR perturbation ``\delta`` with the FSP anchor held fixed, the continuous
+zero rate beyond FSP changes by
+
+```math
+\Delta z^c(t)=\delta\frac{1-e^{-\alpha(t-\mathrm{FSP})}}{\alpha t}.
+```
+
+For FSP = 20 and ``\alpha=0.11``, the multiplier peaks near 0.21. Rounding LLFR
+to `1e-4` can therefore move annual zero rates by about 0.11bp at typical rate
+levels, enough to change published digits. Finer control precision reduces the
+error but does not guarantee equal rounded outputs near a rounding boundary.
+[EIOPA Q&A 3564](https://www.eiopa.europa.eu/qa-regulation/questions-and-answers-database/3564_en)
+announces a preparatory parallel publication with further details to follow; it
+does not specify LLFR precision. The workbook fixture demonstrates the method,
+rather than guaranteeing exact reproduction of a future monthly file.
+
 ### 2. Build the notional curves for revaluation
 
 The notional VA is 85% of currency RCS, rounded to whole basis points on the
@@ -131,8 +150,9 @@ liability_notional = as_curve(notional.rates.cssr)
 
 # The asset's own curve already includes its existing 100bp spread.
 asset_base = basic + Yield.Constant(Periodic(0.01, 1))
-asset_notional = EIOPA.asset_spread_shock(asset_base,
-    notional.diagnostics.notional_va)
+# Choose a continuous bump explicitly for this example's asset model.
+asset_shift = Continuous(log1p(notional.diagnostics.notional_va))
+asset_notional = EIOPA.asset_spread_shock(asset_base, asset_shift)
 notional.diagnostics.notional_va * 10000
 ```
 
@@ -147,6 +167,15 @@ shock to the asset's own curve, preserving its existing spread. For instruments
 whose cashflows depend on spreads, apply the shock inside their valuation models
 as well. These annual series cover years 1–150; do not use the interpolating
 wrapper's default tail as a substitute for the EIOPA tail beyond that grid.
+
+The example explicitly chooses `Continuous(log1p(v))`, which transforms an
+annual asset zero yield to `(1+y)*(1+v)-1`. To add `v` directly to an annual yield,
+pass `Periodic(v, 1)` instead. `Periodic(v, 2)` means a nominal semiannual bump of
+`v`, so inserting an annual-effective VA unchanged would mix conventions. Choose
+the bump to match the asset model's spread definition; the helper does not settle
+the regulatory interpretation. Periodic shifts use `Yield.TenorShift` and reject
+an infinite-horizon discount query when the shifted limiting yield is zero,
+because that rate alone does not determine the finite discount limit.
 
 The notional VA uses unadjusted currency RCS even when USA is selected, matching
 workbook `CSSR Calculation!H10`. USA affects final currency VA. TD §9.3.5 redefines
@@ -213,17 +242,18 @@ using CairoMakie
 shape = EIOPA.calculate(inputs; va_inputs=EIOPA.VAInputs(
     rcs_currency=rcs, usa=usa, cssr=adjusted.diagnostics.cssr))
 parallel = EIOPA.asset_spread_shock(shape.curves.basic,
-    shape.diagnostics.notional_va)
-curves = (shape.curves.basic, shape.curves.cssr, shape.curves.va, parallel)
-labels = ("Basic", "Notional liability CSSR", "Undertaking liability VA", "Parallel asset shock")
-colors = ("#2764A5", "#8856A7", "#16857B", "#D97724")
+    Continuous(log1p(shape.diagnostics.notional_va)))
+curves = (shape.curves.basic, parallel, shape.curves.va, shape.curves.cssr)
+labels = ("Basic", "Parallel asset shock", "Undertaking liability VA", "Notional liability CSSR")
+colors = ("#2764A5", "#D97724", "#16857B", "#8856A7")
+styles = (:solid, :solid, :solid, :dash)
 ts = collect(0.5:0.25:150)
 fig = Figure(size=(1000, 460), fontsize=15)
 axz = Axis(fig[1, 1], xlabel="Maturity (years)", ylabel="Annual zero rate (%)")
 axf = Axis(fig[1, 2], xlabel="Maturity (years)", ylabel="Continuous forward (%)")
-for (curve, label, color) in zip(curves, labels, colors)
-    lines!(axz, ts, [100 * rate(Periodic(1)(zero(curve, t))) for t in ts]; label, color)
-    lines!(axf, ts, [100 * rate(Yield.instantaneous_forward(curve, t)) for t in ts]; color)
+for (curve, label, color, linestyle) in zip(curves, labels, colors, styles)
+    lines!(axz, ts, [100 * rate(Periodic(1)(zero(curve, t))) for t in ts]; label, color, linestyle)
+    lines!(axf, ts, [100 * rate(Yield.instantaneous_forward(curve, t)) for t in ts]; color, linestyle)
 end
 for (ax, u) in ((axz, 3.3), (axf, 100log1p(0.033)))
     vlines!(ax, [inputs.fsp]; color=:gray50, linestyle=:dash)
@@ -237,8 +267,9 @@ nothing # hide
 
 ![Annual zero rates and instantaneous forwards: liability VA fades toward the common UFR, while the parallel asset spread shock persists. Dashed vertical lines mark FSP; dotted horizontal lines mark UFR.](eiopa-curves.svg)
 
-Liability forwards converge to the same UFR. The parallel asset spread shock
-persists. Annual nodes can introduce forward jumps; at FSP the right-hand forward
+The dashed notional CSSR line overlaps the solid asset-shock line before FSP
+under this example's continuous-bump convention. Liability forwards converge to
+the same UFR; the parallel asset spread shock persists. Annual nodes can introduce forward jumps; at FSP the right-hand forward
 equals the supplied LLFR, including its applicable VA change.
 
 ## Macro VA and eligibility
@@ -311,33 +342,12 @@ bootstrapped annual rates, recompute LLFR, and move annual-effective UFR by ±15
 Downward floors apply to final rates, after VA and rounding. Adjusted downward
 LLFR diagnostics refer to extrapolation before that final floor.
 
-### From imported stressed bases
-
 A published basic prefix and LLFR alone cannot determine stressed LLFRs: the
-underlying DLT observations beyond FSP are missing. Supply separate up/down bases
-with **unfloored** annual zero rates through FSP, their own LLFRs and already-shifted
-UFRs. Obtain those from a matching source or your stress calculation. A downward
-series whose floor already binds has lost the information needed to add VA first.
-
-The following synthetic bases illustrate the input contract:
-
-```@example eiopa
-up_inputs = EIOPA.PublishedRFR([r * 1.20 + 0.01 for r in basic_rates];
-    fsp=20, llfr=Continuous(0.043), w_fsp=0.40,
-    ufr=Periodic(0.0345, 1), α=0.11)
-down_inputs = EIOPA.PublishedRFR([r * 0.80 - 0.01 for r in basic_rates];
-    fsp=20, llfr=Continuous(0.018), w_fsp=0.40,
-    ufr=Periodic(0.0315, 1), α=0.11)
-imported_stress = EIOPA.publication(inputs; va_inputs=va_inputs,
-    shock_parameters=shocks, shocked_inputs=(up=up_inputs, down=down_inputs))
-(up_va_60=imported_stress.rates.up_va[60], down_va_60=imported_stress.rates.down_va[60])
-```
-
-Here relative/absolute shocks are already in the inputs and are not applied again.
-`shock_parameters` supplies final downward floors and checks UFR shifts. FSP,
-its weight and ``\alpha`` must match the basic inputs. Missing stressed bases produce
-an error. The synthetic transformations above are illustrative, rather than the
-prescribed maturity-dependent shock table.
+underlying DLT observations beyond FSP are missing. Interest-rate stresses are
+therefore available through `RFRInputs` only. Passing `shock_parameters` with
+`PublishedRFR` throws an error. The published-input workflow supports basic,
+notional CSSR and undertaking VA curves. It does not assume that EIOPA will
+publish unfloored stressed nodes or stressed LLFRs.
 
 Article 46(1c)(a) and the workbook calculate the first shocked LLFR term over the
 preceding DLT interval into FSP. This equals the one-year forward into FSP on the

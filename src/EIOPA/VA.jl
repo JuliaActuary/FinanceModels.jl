@@ -41,19 +41,40 @@ function _va_amount(v::VAInputs, sensitivity, round_va)
 end
 
 """
-    EIOPA.asset_spread_shock(asset_curve, notional_va)
+    EIOPA.asset_spread_shock(asset_curve, shift::Rate)
 
-Apply the Article 51a(2)(c) parallel spread increase to an asset's valuation curve
-at **all** maturities, including beyond the FSP. `notional_va` is an annual-effective
-decimal spread; its continuous shift is `log1p(notional_va)`. Use each asset's own
-valuation curve, including its existing spread. Liabilities instead use the
-notional CSSR curve returned by `calculate` or `publication`: its VA impact fades
-after FSP. For instruments with spread-dependent cashflows, apply the parallel
-spread shock within the asset valuation model as well.
+Apply a parallel zero-yield spread increase at **all** maturities, including beyond
+the FSP, in the caller's chosen compounding convention. The base zero yield is
+converted to `shift`'s compounding before adding `rate(shift)`:
+`Periodic(v, 1)` gives annual-additive `y + v`, whereas `Continuous(log1p(v))`
+gives annual-effective `(1 + y) * (1 + v) - 1`. `Periodic(v, 2)` adds a nominal
+semiannual bump of `v`; it does not convert an annual-effective VA into that bump.
+Choose and, if needed, convert the bump to match the asset model's spread
+convention. This helper does not determine the regulatory interpretation of
+Article 51a(2)(c).
+
+Use each asset's own valuation curve, including its existing spread. Liabilities
+use the notional CSSR curve returned by `calculate` or `publication`: its VA impact
+fades after FSP. For instruments with spread-dependent cashflows, apply the shock
+within the asset valuation model as well. Continuous shifts preserve analytic tail
+limits. Periodic shifts use `TenorShift`; `discount(shocked, Inf)` throws when the
+shifted limiting zero yield is zero, because that wrapper cannot determine the
+finite discount limit.
 """
-function asset_spread_shock(asset_curve::Yield.AbstractYieldModel, notional_va::Real)
-    _require(isfinite(notional_va) && notional_va > -1, "notional asset spread must be finite and greater than -1")
-    return asset_curve + Yield.Constant(Periodic(notional_va, 1))
+function asset_spread_shock(asset_curve::Yield.AbstractYieldModel, shift::Rate)
+    _require(isfinite(rate(Continuous(shift))), "asset spread shift must be finite")
+    shift.compounding isa Continuous && return asset_curve + Yield.Constant(shift)
+    bump, convention = rate(shift), shift.compounding
+    return Yield.TenorShift(
+        asset_curve, (z, t) -> begin
+            y = rate(convert(convention, z)) + bump
+            _require(y > -convention.frequency, "shifted periodic zero yield must be greater than minus its compounding frequency")
+            if Yield.__at_infinity(t) && iszero(Yield.__primal(y))
+                throw(ArgumentError("discount(periodic asset spread shock, Inf) cannot determine the finite limit from a zero limiting yield; use a finite maturity"))
+            end
+            return Rate(y, convention)
+        end
+    )
 end
 
 function _va_curve(prefix, llfr, adjustment, i; ufr = i.ufr)
