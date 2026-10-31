@@ -43,6 +43,45 @@ struct RFRInputs{R, T, W, U, A, C}
 end
 
 """
+    EIOPA.PublishedRFR(rates; fsp, llfr::Rate, w_fsp, ufr::Rate, α)
+
+Import a 2027-methodology basic curve: `rates[t]` is the published annual-effective
+zero rate at year `t`, for exactly `1:fsp`. Supply the official LLFR, FSP weight,
+UFR and convergence parameter. LLFR and UFR have explicit compounding; the LLFR
+published in continuous terms should be wrapped in `Continuous`.
+
+No bootstrapping, CRA deduction or LLFR estimation is performed. The basic tail
+is reconstructed from the supplied FSP rate and controls; rounding that FSP rate
+can affect the last published digit beyond FSP. Inputs are copied and read-only.
+Use the matching currency, date and 2027 methodology, rather than legacy
+Smith–Wilson publications. Optional stressed bases are supplied separately to
+`calculate`/`publication` through `shocked_inputs=(up=..., down=...)`.
+"""
+struct PublishedRFR{R, L, W, U, A}
+    rates::R
+    fsp::Int
+    llfr::L
+    w_fsp::W
+    ufr::U
+    α::A
+    function PublishedRFR(rates; fsp, llfr::Rate, w_fsp, ufr::Rate, α)
+        r = collect(rates)
+        _require(
+            isfinite(fsp) && isinteger(fsp) && fsp > 0 && length(r) == fsp,
+            "published rates must cover exactly the integer years 1:FSP"
+        )
+        _require(_finite(r) && all(>(-1), r), "published annual zero rates must be finite and greater than -1")
+        l, u = rate(Continuous(llfr)), rate(Continuous(ufr))
+        _require(
+            _finite((l, u, α, w_fsp)) && α > 0 && 0 <= w_fsp <= 1,
+            "published controls must be finite, with α positive and FSP weight in [0,1]"
+        )
+        rr, w = ReadOnlyVector(float.(r)), float(w_fsp)
+        return new{typeof(rr), typeof(l), typeof(w), typeof(ufr), typeof(α)}(rr, Int(fsp), l, w, ufr, α)
+    end
+end
+
+"""
     EIOPA.VAInputs(; rcs_currency, rcs_country=nothing, debt_to_assets=nothing,
         use_macro_va=false, usa=nothing, valuations=nothing, sensitivities=nothing, cssr=nothing)
 
@@ -90,7 +129,8 @@ end
 """
     EIOPA.Result
 
-`bootstrapped` retains all DLT observations. `curves` has `basic`, `cssr`, `va`,
+`bootstrapped` retains all DLT observations for `RFRInputs`, and is `nothing` for
+`PublishedRFR`. `curves` has `basic`, `cssr`, `va`,
 `up`, `down`, `up_va`, `down_va`; optional unavailable curves are `nothing`.
 `diagnostics` exposes basic/adjusted LLFRs, CSSR, asset/liability PVBP (in the
 workbook's per-unit-rate units for valuation inputs), country weight, and VA amounts.

@@ -27,3 +27,15 @@ _extrapolate(base, i, llfr; ufr = i.ufr) =
 
 # Annual nodes are also the documented interpolation convention for shocked curves.
 _annual_curve(rates) = ZeroRateCurve(Periodic.(rates, 1), 1:length(rates), Spline.ConstantForward())
+
+function _basic(i::RFRInputs)
+    bootstrap = _bootstrap(i)
+    llfr = _llfr(bootstrap, i)
+    return bootstrap, llfr, _extrapolate(bootstrap, i, llfr)
+end
+_basic(i::PublishedRFR) = (nothing, i.llfr, _extrapolate(_annual_curve(i.rates), i, i.llfr))
+
+_prefix(i::RFRInputs, basic, round_rate) = [round_rate(_annual(basic, t)) for t in 1:i.fsp]
+_prefix(i::PublishedRFR, basic, round_rate) = round_rate.(i.rates)
+_fsp_weight(i::RFRInputs) = i.llfr_weights[findfirst(==(i.fsp), i.tenors)]
+_fsp_weight(i::PublishedRFR) = i.w_fsp

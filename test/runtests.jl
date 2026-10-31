@@ -24,6 +24,7 @@ include("YieldShiftInvariants.jl")
 include("SmithWilson.jl")
 include("ConstantForward.jl")
 include("EIOPA.jl")
+include("EIOPA_published.jl")
 
 # The ActuaryUtilities integration tests (downstream/ActuaryUtilities.jl) run in the
 # Downstream workflow: ActuaryUtilities depends on FinanceModels, so it cannot be a test

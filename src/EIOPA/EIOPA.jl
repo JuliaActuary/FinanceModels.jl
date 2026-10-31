@@ -4,6 +4,8 @@ LLFR/UFR extrapolation, undertaking-specific VA/CSSR, and interest-rate shocks.
 `calculate` builds precise analytical curves; `publication` reproduces the May 2026
 demonstration workbook's staged rounding. Inputs and assumptions are supplied by
 the caller; this module does not acquire market data or calculate published RCS/UFR.
+Both paths accept market observations (`RFRInputs`) or published basic rates and
+official extrapolation controls (`PublishedRFR`).
 See the EIOPA guide for source versions and conventions.
 """
 module EIOPA

@@ -62,6 +62,5 @@ function _va_curve(prefix, llfr, adjustment, i; ufr = i.ufr)
     # A parallel continuous-zero shift through the FSP, but only the first
     # weighted term changes in the LLFR (RFR TD §10.2.1).
     base = ZeroRateCurve(log1p.(prefix) .+ shift, 1:i.fsp, Spline.ConstantForward())
-    wf = i.llfr_weights[findfirst(==(i.fsp), i.tenors)]
-    return _extrapolate(base, i, llfr + wf * shift; ufr)
+    return _extrapolate(base, i, llfr + _fsp_weight(i) * shift; ufr)
 end

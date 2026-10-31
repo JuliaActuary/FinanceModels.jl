@@ -50,7 +50,34 @@ function _parameter(p::ShockParameters, v, t)
 end
 _floor(p, t) = _parameter(p, p.floor, t)
 
-function _shocked(bootstrap, i, p, direction, total_va)
+_validate_shocked_inputs(i::RFRInputs, p, s) =
+    _require(s === nothing, "shocked_inputs are only supported with PublishedRFR")
+
+function _validate_shocked_inputs(i::PublishedRFR, p, s)
+    if s === nothing
+        _require(p === nothing, "PublishedRFR shocks require shocked_inputs=(up=PublishedRFR(...), down=PublishedRFR(...)); stressed bases cannot be recovered from the basic prefix")
+        return nothing
+    end
+    _require(p !== nothing, "shocked_inputs require shock_parameters for the final downward floors")
+    _require(
+        s isa NamedTuple && Set(keys(s)) == Set((:up, :down)) && all(x -> x isa PublishedRFR, values(s)),
+        "shocked_inputs must contain up and down PublishedRFR bases with unfloored annual zero rates"
+    )
+    for (direction, j) in ((1, s.up), (-1, s.down))
+        _require(
+            j.fsp == i.fsp && j.w_fsp == i.w_fsp && j.α == i.α,
+            "published stressed bases must share FSP, FSP weight and α with the basic inputs"
+        )
+        expected = rate(Periodic(1)(i.ufr)) + direction * p.ufr_shift_bp / 10000
+        _require(
+            isapprox(rate(Periodic(1)(j.ufr)), expected; atol = 1.0e-12, rtol = 0),
+            "published stressed UFRs must already include the specified annual-effective UFR shift"
+        )
+    end
+    return nothing
+end
+
+function _shocked(bootstrap, i::RFRInputs, p, direction, total_va, shocked_inputs = nothing)
     sr = direction == 1 ? p.up_relative : p.down_relative
     ab = direction == 1 ? p.up_absolute : p.down_absolute
     rates = [
@@ -65,5 +92,12 @@ function _shocked(bootstrap, i, p, direction, total_va)
     ufr = Periodic(u, 1)
     curve = _extrapolate(base, i, llfr; ufr)
     with_va = total_va === nothing ? nothing : _va_curve(rates[1:i.fsp], llfr, total_va, i; ufr)
+    return curve, with_va, llfr
+end
+
+function _shocked(::Nothing, i::PublishedRFR, p, direction, total_va, shocked_inputs)
+    j = direction == 1 ? shocked_inputs.up : shocked_inputs.down
+    _, llfr, curve = _basic(j)
+    with_va = total_va === nothing ? nothing : _va_curve(j.rates, llfr, total_va, j)
     return curve, with_va, llfr
 end
