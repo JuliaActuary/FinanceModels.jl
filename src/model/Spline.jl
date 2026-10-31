@@ -51,6 +51,16 @@ import ..AbstractModel
 abstract type SplineCurve end
 
 """
+    Spline.ConstantForward()
+
+Interpolate cumulative log-discounts linearly, giving piecewise constant instantaneous
+forwards. Use with `ZeroRateCurve` or `fit(method, quotes, Fit.Bootstrap())`.
+Knot tenors must be positive. Before the first knot the zero rate is flat.
+Unlike `Spline.Linear()`, this does not interpolate zero rates linearly.
+"""
+struct ConstantForward <: SplineCurve end
+
+"""
     Spline.PolynomialSpline(order)
 
 A polynomial interpolating spline of the given `order`, backed by DataInterpolations
