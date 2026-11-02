@@ -287,6 +287,22 @@ FinanceModels.Yield.force_of_interest(::__ClosedFormForwardCurve, t) = 0.03 + 0.
         @test isnan(lim(-1.0))
         @test_throws "no derivative" ForwardDiff.derivative(lim, 0.0)
         @test ForwardDiff.derivative(lim, 1.0) == 0.0
+        # A shift on its own takes its limit from the same fallback tail, so the derivative there is
+        # the limit's: exp(-z·t) at t = Inf has partials 0·Inf (NaN), and L = z·t has Inf.
+        flat3 = Yield.Constant(Continuous(0.03))
+        for shift in (
+                k -> Yield.TenorShift(flat3, (z, t) -> z + Continuous(k)),
+                k -> Yield.ProjectedShift(flat3, (τ, z, t) -> z + Continuous(k * τ / 2), 2.0),
+            )
+            @test discount(shift(0.01), Inf) === 0.0
+            @test discount(shift(-0.05), Inf) == Inf
+            @test isnan(discount(shift(-0.03), Inf))
+            @test ForwardDiff.derivative(k -> discount(shift(k), Inf), 0.01) == 0.0
+            @test ForwardDiff.derivative(k -> discount(shift(k), 5.0, Inf), 0.01) == 0.0
+            @test ForwardDiff.derivative(k -> Yield.__log_discount(shift(k), Inf), 0.01) == 0.0
+            @test ForwardDiff.derivative(k -> discount(shift(k), Inf), -0.05) == 0.0
+            @test_throws "no derivative" ForwardDiff.derivative(k -> discount(shift(k), Inf), -0.03)
+        end
     end
 
     @testset "endpoint derivatives" begin

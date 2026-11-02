@@ -137,11 +137,16 @@ function Base.zero(s::ProjectedShift, t)
     z = convert(Continuous(), Base.zero(s.base, t))   # the rule receives a Continuous rate
     return convert(Continuous(), s.rule(s.time, z, t)::FinanceCore.Rate)
 end
-FinanceCore.discount(s::AbstractYieldShift, t) = __discount_from_zero(s, t)
+# At t = Inf, z(Inf)·Inf gives the limit's value but partials of 0·Inf (NaN). The fallback tail
+# reads the same zero rate at infinity and returns the limit with its own derivative: zero where it
+# is 0 or Inf, and an error where a zero limiting rate carries partials.
+FinanceCore.discount(s::AbstractYieldShift, t) =
+    __at_infinity(t) ? __discount_at_infinity(s) : __discount_from_zero(s, t)
 # At t = 0 the forward is the zero rate's limit: the rule applied to the base curve's `zero(base, 0)`,
 # with every parameter's derivative. Differentiating L there would need the base's zero rate at a dual
 # time of 0, which a curve without its own zero rate refuses. Elsewhere, the derivative of L.
 force_of_interest(s::AbstractYieldShift, t) =
     iszero(t) ? FinanceCore.rate(Base.zero(s, t)) : __log_discount_derivative(s, t)
-__log_discount(s::AbstractYieldShift, t) = __zero_log_discount(s, t)
+__log_discount(s::AbstractYieldShift, t) =
+    __at_infinity(t) ? __log_discount_at_infinity(s) : __zero_log_discount(s, t)
 __log_native(::AbstractYieldShift) = true

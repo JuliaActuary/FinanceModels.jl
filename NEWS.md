@@ -1,5 +1,12 @@
 # FinanceModels.jl release notes
 
+## Unreleased
+
+- `discount` and log-discount intervals of `Yield.TenorShift` and `Yield.ProjectedShift` at
+  `t = Inf` take their limit from the shifted zero rate at infinity. Values are unchanged.
+  Derivatives there are zero where the limit is 0 or Inf, rather than NaN, and throw where a zero
+  limiting rate carries partials.
+
 ## v7.1.1
 
 ### Faster first calls on common curves and quotes
