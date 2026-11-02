@@ -1,5 +1,6 @@
 [deps]
 AccessibleModels = "4b3c8bd9-8c05-441a-9330-31ce8207a5fd"
+CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 FinanceCore = "b9b1ffdd-6612-4b69-8227-7663be06e089"
 FinanceModels = "77f2ae65-bdde-421f-ae9d-22f1af19dd76"
