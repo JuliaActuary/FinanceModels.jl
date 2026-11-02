@@ -87,7 +87,14 @@ end
     @test_throws ArgumentError discount(EIOPA.asset_spread_shock(tail, Periodic(0.0, 1)), Inf)
     @test discount(EIOPA.asset_spread_shock(tail, Continuous(0.0)), Inf) == discount(tail, Inf)
     @test_throws ArgumentError discount(EIOPA.asset_spread_shock(Yield.Constant(Periodic(-0.04, 1)), Periodic(-0.99, 1)), 10)
-    for shift in (Continuous(Inf), Continuous(NaN), Periodic(-1.0, 1))
+    # A periodic bump is added to the quoted yield. Its own accumulation factor
+    # may be zero while the resulting asset yield remains strictly in-domain.
+    endpoint = EIOPA.asset_spread_shock(base, Periodic(-1.0, 1))
+    @test discount(endpoint, 2) ≈ 0.04^(-2) rtol = 2.0e-14
+    semiannual_endpoint = EIOPA.asset_spread_shock(base, Periodic(-2.0, 2))
+    @test discount(semiannual_endpoint, 0.5) ≈ inv(sqrt(1.04) - 1) rtol = 2.0e-14
+    @test_throws ArgumentError discount(EIOPA.asset_spread_shock(Yield.Constant(0.0), Periodic(-1.0, 1)), 1)
+    for shift in (Continuous(Inf), Continuous(NaN), Periodic(Inf, 1), Periodic(NaN, 2))
         @test_throws ArgumentError EIOPA.asset_spread_shock(base, shift)
     end
     value(v) = discount(EIOPA.asset_spread_shock(base, Periodic(v, 2)), 10)

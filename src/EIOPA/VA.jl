@@ -62,7 +62,7 @@ shifted limiting zero yield is zero, because that wrapper cannot determine the
 finite discount limit.
 """
 function asset_spread_shock(asset_curve::Yield.AbstractYieldModel, shift::Rate)
-    _require(isfinite(rate(Continuous(shift))), "asset spread shift must be finite")
+    _require(isfinite(rate(shift)), "asset spread shift must be finite")
     shift.compounding isa Continuous && return asset_curve + Yield.Constant(shift)
     bump, convention = rate(shift), shift.compounding
     return Yield.TenorShift(

@@ -12,8 +12,12 @@
   spread shock helper preserves the parallel shock beyond FSP. Precise downward
   curves retain exact infinite-horizon limits under the floor.
 - Accept `EIOPA.PublishedRFR` in `calculate` and `publication` to start from
-  published annual basic rates and official controls, with optional imported
-  stressed bases. Expand the EIOPA guide into a background and valuation tutorial.
+  published annual basic rates and official controls for basic, CSSR and VA curves.
+  Interest-rate stresses require `EIOPA.RFRInputs`. Expand the EIOPA guide into a
+  background and valuation tutorial.
+- `EIOPA.asset_spread_shock` now requires an explicit `Rate` bump. Replace a numeric
+  bump `v` with `Continuous(log1p(v))` to preserve the previous behavior, or choose
+  `Periodic(v, 1)` for annual-additive treatment.
 
 ## v7.1.1
 
