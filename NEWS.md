@@ -2,10 +2,11 @@
 
 ## Unreleased
 
-- `discount` and log-discount intervals of `Yield.TenorShift` and `Yield.ProjectedShift` at
-  `t = Inf` take their limit from the shifted zero rate at infinity. Values are unchanged.
-  Derivatives there are zero where the limit is 0 or Inf, rather than NaN, and throw where a zero
-  limiting rate carries partials.
+- `discount` and the log-discount of `Yield.TenorShift` and `Yield.ProjectedShift` at `t = Inf`
+  take their limit from the shifted zero rate at infinity. Values and forwards are unchanged.
+  Derivatives of `discount(s, Inf)` are zero where the limit is 0 or Inf, rather than NaN, and
+  throw where a zero limiting rate carries partials. Intervals ending at infinity have zero
+  derivatives where the limit is 0.
 
 ## v7.1.1
 

@@ -302,6 +302,12 @@ FinanceModels.Yield.force_of_interest(::__ClosedFormForwardCurve, t) = 0.03 + 0.
             @test ForwardDiff.derivative(k -> Yield.__log_discount(shift(k), Inf), 0.01) == 0.0
             @test ForwardDiff.derivative(k -> discount(shift(k), Inf), -0.05) == 0.0
             @test_throws "no derivative" ForwardDiff.derivative(k -> discount(shift(k), Inf), -0.03)
+            # The forward differentiates z(t)·t in time, not the limit L takes at infinity, also
+            # where a composite or a blend reads it.
+            @test rate(Yield.instantaneous_forward(shift(0.01), Inf)) ≈ 0.04 rtol = 1.0e-15
+            @test rate(Yield.instantaneous_forward(shift(0.01) + flat3, Inf)) ≈ 0.07 rtol = 1.0e-15
+            low = Yield.Blend(shift(-0.02), flat3, 0.5, Yield.DiscountFactors())
+            @test rate(Yield.instantaneous_forward(low, Inf)) ≈ 0.01 rtol = 1.0e-14
         end
     end
 
