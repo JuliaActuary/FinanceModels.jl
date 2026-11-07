@@ -122,3 +122,8 @@ function __build_public(s::Sp.SplineCurve, g::KnotGrid; extrapolation = :flat_fo
     __check_dual_kinks(s, g)
     return __build(s, g; extrapolation)
 end
+# The same, through an interpolation already resolved (`__interpolation`).
+function __build_public(s::Sp.SplineCurve, g::KnotGrid, interpolation; extrapolation = :flat_forward)
+    __check_dual_kinks(s, g)
+    return __build(s, interpolation, g; extrapolation)
+end

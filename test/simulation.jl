@@ -1,5 +1,7 @@
 using Random
 using ForwardDiff
+using LinearAlgebra
+using SparseArrays
 
 # sample moments, without a Statistics dependency
 sample_mean(x) = sum(x) / length(x)
@@ -244,8 +246,23 @@ FinanceModels.__step(::ConstantRateModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) = 
         @test F[1, :]' * F[3, :] == 0
         # not positive semidefinite
         @test_throws ArgumentError simulate((m, m, m), [1 0.9 -0.9; 0.9 1 0.9; -0.9 0.9 1]; n_scenarios = 1)
-        # a singular matrix of another element type has no pivoted factor
-        @test_throws ArgumentError simulate((m, m), BigFloat[1 1; 1 1]; n_scenarios = 1)
+        # Generic pivoted Cholesky is available from Julia 1.12; older Julia supplies its own error.
+        ρbig = BigFloat[1 1 0; 1 1 0; 0 0 1]
+        if VERSION >= v"1.12"
+            Fbig = FinanceModels.__correlation_factor(ρbig, 3)
+            @test size(Fbig) == (3, 2)
+            @test Fbig * Fbig' == ρbig
+        else
+            @test_throws ArgumentError FinanceModels.__correlation_factor(ρbig, 3)
+        end
+        # Sparse storage must give the same model ordering, factor, draws and paths as dense input.
+        ρdense = [1.0 0.4 0.4 0.4; 0.4 1.0 0.0 0.0; 0.4 0.0 1.0 0.0; 0.4 0.0 0.0 1.0]
+        @test FinanceModels.__correlation_factor(sparse(ρdense), 4) == FinanceModels.__correlation_factor(ρdense, 4)
+        rng_d, rng_s = Random.Xoshiro(12), Random.Xoshiro(12)
+        dense_paths = simulate((m, m, m, m), ρdense; n_scenarios = 2, timestep = dt, horizon = 1.0, rng = rng_d)
+        sparse_paths = simulate((m, m, m, m), sparse(ρdense); n_scenarios = 2, timestep = dt, horizon = 1.0, rng = rng_s)
+        @test rng_d == rng_s
+        @test all(i -> all(j -> dense_paths[i][j]._prices == sparse_paths[i][j]._prices, 1:4), 1:2)
         # a Float64 correlation leaves a Float32 model's integral Float32
         v32 = ShortRate.Vasicek(0.5f0, 0.03f0, 0.01f0, Continuous(0.02f0))
         s = only(simulate((v32, m), [1 0.5; 0.5 1]; n_scenarios = 1, timestep = dt, horizon = 1.0))
@@ -270,6 +287,23 @@ FinanceModels.__step(::ConstantRateModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) = 
         @test isconcretetype(eltype(nt))
         @test keys(first(nt)) == (:rate, :stock, :flat)
         @test all(i -> nt[i].rate.interp.u == t[i][1].interp.u && nt[i].stock(1.0) == t[i][2](1.0), 1:4)
+    end
+
+    @testset "larger model tuples preserve the draw order" begin
+        # Exercise tuple sizes beyond the recursive-splat allocation cliff and replay every model.
+        d = 50
+        rng, replay = Random.Xoshiro(13), Random.Xoshiro(13)
+        paths = simulate(ntuple(_ -> m, d), Matrix{Float64}(I, d, d); n_scenarios = 2, timestep = dt, horizon = 1.0, rng)
+        @test isconcretetype(eltype(paths))
+        drift, vol = (m.r - m.q - m.σ^2 / 2) * dt, m.σ * sqrt(dt)
+        for scenario in paths
+            logS = zeros(d)
+            for j in 1:4, i in 1:d
+                logS[i] = logS[i] + drift + vol * randn(replay)
+                @test scenario[i](j * dt) == exp(logS[i])
+            end
+        end
+        @test rng == replay
     end
 
     @testset "CIR in a correlated pair" begin

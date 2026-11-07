@@ -7,6 +7,61 @@
 # scenario, step, model, and feeds each model its shock. A single model is a one-model tuple, so it
 # draws exactly the shocks it drew before the loop was shared.
 
+"""
+    simulation_steps(horizon, timestep) -> (; nsteps, aligned)
+
+The number of `timestep`-long steps a simulation to `horizon` takes, and whether `horizon` lies on
+that grid. With `r = horizon / timestep`, `horizon` is aligned when `r` is within `8eps(r)` of an
+integer `n`, and the grid has `nsteps = n` steps: roundoff (`0.07 / 0.01` is `7.000000000000001`)
+adds no step. Otherwise `nsteps = ceil(r)`, the first grid point beyond `horizon`, and
+`aligned = false`. `horizon` and `timestep` must be finite and positive.
+
+[`simulate`](@ref) ends an aligned grid at `horizon` itself, and covers an unaligned horizon with
+the extra step.
+"""
+function simulation_steps(horizon::Real, timestep::Real)
+    (isfinite(horizon) && horizon > 0) || throw(ArgumentError("horizon must be finite and positive, got $horizon"))
+    (isfinite(timestep) && timestep > 0) || throw(ArgumentError("timestep must be finite and positive, got $timestep"))
+    r = float(horizon) / float(timestep)
+    n = round(r)
+    abs(r - n) <= 8eps(r) && return (; nsteps = Int(n), aligned = true)
+    return (; nsteps = ceil(Int, r), aligned = false)
+end
+
+"""
+    simulation_times(path)
+
+A copy of the time grid of `path`, a [`RatePath`](@ref) or a [`PricePath`](@ref), from 0 to its
+last time. For a path from [`simulate`](@ref) it is a new `Vector{Float64}` of multiples of the
+timestep, ending at an aligned horizon or at the extra step that covers an unaligned one (see
+[`FinanceModels.simulation_steps`](@ref)). [`short_rate`](@ref) and a `PricePath`'s prices answer at
+these times only.
+"""
+simulation_times(path::RatePath) = copy(path.interp.t)
+
+# The index of the grid time that `t` names. The nearest grid time is found first and accepted when
+# `t` is within 8eps of it, at the scale of that time or of the first step, whichever is larger: a
+# time computed as `k * dt` or read from a range may differ from the grid's by a few ulps, and
+# `t = 0` gets the same tolerance as the first step. Any other `t` throws.
+function __grid_index(ts::AbstractVector, t)
+    n = length(ts)
+    i = clamp(searchsortedfirst(ts, t), 1, n)
+    k = (i > 1 && abs(t - ts[i - 1]) <= abs(t - ts[i])) ? i - 1 : i
+    scale = n > 1 ? max(abs(ts[k]), ts[2] - ts[1]) : abs(ts[k])
+    abs(t - ts[k]) <= 8eps(float(scale)) && return k
+    where = if isnan(t)
+        "not a number"
+    elseif t > last(ts)
+        "beyond the path's last simulated time $(last(ts))"
+    elseif t < first(ts)
+        "before the path's first simulated time $(first(ts))"
+    else
+        j = searchsortedlast(ts, t)
+        "between the simulated times $(ts[j]) and $(ts[j + 1])"
+    end
+    throw(DomainError(t, "the time is $where; the simulation has no state there. `FinanceModels.simulation_times(path)` lists the path's times"))
+end
+
 # The time grid of a simulation: `simulation_steps(horizon, timestep).nsteps` steps of `dt`.
 struct __SimGrid
     times::Vector{Float64}
@@ -38,6 +93,16 @@ __integral_eltype(T, ::Type{W}) where {W} = __ad_depth(W) > 0 ? promote_type(T, 
 # Independent shocks: one standard normal per model per step, drawn in model order.
 struct __IndependentShocks{d} end
 @inline __draw(::__IndependentShocks{d}, rng) where {d} = ntuple(_ -> randn(rng), Val(d))
+__shock_eltype(::__IndependentShocks) = Float64
+
+# Every dependence adapter supplies a shock source and its numeric type. Preparation belongs here,
+# so model buffers and the innovations they receive always use the same type contract.
+function __simulate(finish, models::Tuple, shocks, n_scenarios, timestep, horizon, rng)
+    grid = __sim_grid(horizon, timestep)
+    W = __shock_eltype(shocks)
+    kernels = map(m -> __sim_kernel(m, grid, W), models)
+    return __simulate_paths(finish, kernels, grid, n_scenarios, rng, shocks)
+end
 
 # `n_scenarios` scenarios on grid `g`, each the tuple of the kernels' paths passed through `finish`
 # (`only` for a single model).
@@ -58,13 +123,16 @@ function __simulate_paths(finish, kernels::Tuple, g::__SimGrid, n_scenarios::Int
     end
 end
 
-# One step of every model, recursing over the tuples: a `map` with a closure over four tuples was
-# not inlined for Hull–White under ForwardDiff and took about 1.8 times as long.
-@inline __step_all(::Tuple{}, ::Tuple{}, ::Tuple{}, j, g, ::Tuple{}) = ()
-@inline __step_all(kernels::Tuple, buffers::Tuple, states::Tuple, j, g, Z::Tuple) = (
-    __path_step!(first(kernels), first(buffers), first(states), j, g, first(Z)),
-    __step_all(Base.tail(kernels), Base.tail(buffers), Base.tail(states), j, g, Base.tail(Z))...,
-)
+# An inline callable keeps the per-model update visible to the compiler without recursively
+# splatting the state tuple. Recursive reconstruction allocates heavily for larger model tuples.
+struct __PathStep{G}
+    j::Int
+    grid::G
+end
+@inline (step::__PathStep)(kernel, buffer, state, Z) =
+    __path_step!(kernel, buffer, state, step.j, step.grid, Z)
+@inline __step_all(kernels, buffers, states, j, grid, Z) =
+    map(__PathStep(j, grid), kernels, buffers, states, Z)
 
 # ─── Short-rate kernels ──────────────────────────────────────────────────────
 
@@ -150,15 +218,8 @@ struct __PriceKernel{D, V, E}
     vol::V    # σ·√dt
 end
 
-# The volatility a simulation uses: a number, or a `Volatility.Constant`'s value (zero for the
-# unfitted `Volatility.Constant()`). A volatility that depends on strike or maturity has no single
-# path volatility, so other types are a `MethodError`; `Equity.volatility` would read them at the
-# money.
-__path_vol(σ::Real) = σ
-__path_vol(v::Volatility.Constant) = v.σ
-
 function __sim_kernel(m::Equity.BlackScholesMerton, g::__SimGrid, ::Type{W}) where {W}
-    r, q, σ = m.r, m.q, __path_vol(m.σ)
+    r, q, σ = m.r, m.q, Equity.__path_vol(m.σ)
     # Infinite rates give prices of 0 or Inf from the first step on. A negative σ gives the paths
     # of |σ| with the shocks' signs flipped, which reverses their correlation with other models.
     # The sign is read from σ's value: under ForwardDiff 1, a dual number at 0 with a negative
@@ -221,9 +282,50 @@ function simulate(
         horizon::Real = 30.0,
         rng::Random.AbstractRNG = Random.default_rng()
     )
-    grid = __sim_grid(horizon, timestep)
-    kernel = __sim_kernel(model, grid, Float64)
-    return __simulate_paths(only, (kernel,), grid, n_scenarios, rng, __IndependentShocks{1}())
+    return __simulate(only, (model,), __IndependentShocks{1}(), n_scenarios, timestep, horizon, rng)
+end
+
+"""
+    simulate(model::AbstractStochasticModel;
+             n_scenarios=1000, timestep=1/12, horizon=30.0,
+             rng=Random.default_rng())
+
+Generate `n_scenarios` interest-rate paths.
+Each path is returned as a `RatePath` (an `AbstractYieldModel`) so it plugs
+directly into `present_value`, `discount`, etc. A path is defined on its time
+grid of [`simulation_steps`](@ref)`(horizon, timestep).nsteps` steps, from 0 to
+`horizon` (or the first grid point beyond an unaligned `horizon`); evaluating it
+outside that range throws rather than extending the path.
+
+Discretisation schemes:
+- **Vasicek / Hull-White**: the exact Gaussian transition density, so the
+  simulated short rate has no discretisation bias at any `timestep`.
+- **Cox-Ingersoll-Ross**: full truncation (Lord, Koekkoek & Van Dijk, 2010) —
+  an auxiliary process may go negative while the observed rate is `max(x, 0)`.
+  Weak bias vanishes as `timestep → 0`, but is material for coarse steps when
+  the Feller condition is strongly violated.
+
+In all cases the cumulative discount integral ``∫₀ᵗ r(s)\\,ds`` is accumulated
+with the trapezoidal rule between grid points, so pathwise discount factors
+(and hence `pv_mc`) retain an integration error that grows with `timestep`
+even when the short-rate transition itself is exact.
+
+Each path also records the simulated short rate at its grid times
+([`FinanceModels.simulation_times`](@ref)), read with [`short_rate`](@ref).
+
+Paths are repeatable: the same `rng` state, arguments and package versions give the same paths.
+A model whose parameters carry ForwardDiff numbers draws the same shocks as its `Float64`
+counterpart, so paired sensitivity runs see identical scenarios. A change to which draws feed
+which step is recorded in the NEWS.
+"""
+function simulate(
+        model::AbstractStochasticModel;
+        n_scenarios::Int = 1000,
+        timestep::Real = 1 / 12,
+        horizon::Real = 30.0,
+        rng::Random.AbstractRNG = Random.default_rng()
+    )
+    return __simulate(only, (model,), __IndependentShocks{1}(), n_scenarios, timestep, horizon, rng)
 end
 
 # ─── Correlated simulation ───────────────────────────────────────────────────
@@ -233,6 +335,11 @@ end
 struct __CorrelatedShocks{d, M <: AbstractMatrix}
     F::M
 end
+function __CorrelatedShocks(ρ::AbstractMatrix, d::Int)
+    F = __correlation_factor(ρ, d)
+    return __CorrelatedShocks{d, typeof(F)}(F)
+end
+__shock_eltype(s::__CorrelatedShocks) = promote_type(eltype(s.F), Float64)
 @inline function __draw(s::__CorrelatedShocks{d}, rng) where {d}
     z = ntuple(_ -> randn(rng), Val(d))
     return ntuple(i -> __factor_row(s.F, i, z), Val(d))
@@ -252,7 +359,6 @@ end
 function __correlation_factor(ρ::AbstractMatrix, d::Int)
     size(ρ) == (d, d) ||
         throw(DimensionMismatch("$d models need a $d×$d correlation matrix, got $(join(size(ρ), '×'))"))
-    all(isfinite, ρ) || throw(ArgumentError("a correlation matrix's entries must be finite, got $ρ"))
     tol = 8eps(float(typeof(__primal(zero(eltype(ρ))))))
     for i in 1:d
         abs(ρ[i, i] - 1) <= tol || throw(
@@ -264,26 +370,25 @@ function __correlation_factor(ρ::AbstractMatrix, d::Int)
             )
         end
     end
-    if __ad_depth(eltype(ρ)) > 0
-        # Derivatives exist in the positive-definite interior only. The check is on the values: at
-        # a correlation of ±1 the Cholesky factor of a dual matrix reports success with an infinite
-        # derivative.
-        issuccess(cholesky(Symmetric(__primal.(ρ)); check = false)) || throw(
-            ArgumentError("correlation sensitivities need a positive-definite correlation matrix; this one is singular or not positive semidefinite")
-        )
-        return Matrix(cholesky(Symmetric(ρ)).L)
+    # The loop consumes a dense factor. Normalize storage here too: sparse Cholesky otherwise
+    # selects CHOLMOD, whose L is a backend-specific component with a fill-reducing permutation.
+    A = float.(Matrix(ρ))
+    has_derivatives = __ad_depth(eltype(A)) > 0
+    values = has_derivatives ? __primal.(A) : A
+    C = cholesky(Symmetric(values); check = false)
+    if issuccess(C)
+        return has_derivatives ? Matrix(cholesky(Symmetric(A)).L) : Matrix(C.L)
     end
-    ρf = float.(ρ)
-    C = cholesky(Symmetric(ρf); check = false)
-    issuccess(C) && return Matrix(C.L)
-    # A singular positive-semidefinite matrix (correlations of ±1): pivoted Cholesky gives
-    # Pᵀ L Lᵀ P = ρ, so the factor is L's rows in the original order, its first `rank` columns.
-    eltype(ρf) <: Union{Float32, Float64} || throw(
-        ArgumentError("a singular correlation matrix is factored by pivoted Cholesky, which needs Float32 or Float64 entries, got $(eltype(ρf))")
+    # At a singular correlation the dual factor can report success with infinite derivatives.
+    # Check the values first, before any draw, and differentiate only in the PD interior.
+    has_derivatives && throw(
+        ArgumentError("correlation sensitivities need a positive-definite correlation matrix; this one is singular or not positive semidefinite")
     )
-    P = cholesky(Symmetric(ρf), RowMaximum(); check = false)
+    # Pivoting gives Pᵀ L Lᵀ P = A: restore the original model order and retain the rank columns.
+    # Julia supplies generic pivoted Cholesky for additional numeric types on newer releases.
+    P = cholesky(Symmetric(A), RowMaximum(); check = false)
     F = Matrix(P.L)[invperm(P.p), 1:P.rank]
-    maximum(abs, F * F' - ρf) <= 8 * d * eps(eltype(ρf)) ||
+    maximum(abs, F * F' - A) <= 8 * d * eps(eltype(A)) ||
         throw(ArgumentError("a correlation matrix must be positive semidefinite; this one is not"))
     return F
 end
@@ -318,9 +423,10 @@ constant-rate drift, so a `RatePath`'s discount factor times a `PricePath` is no
 `ρ` must be `d × d`, finite, with a unit diagonal and symmetric (within `8eps`), or a
 `DimensionMismatch` or `ArgumentError` is thrown. A positive-definite `ρ` is factored by Cholesky.
 A singular positive-semidefinite one, with correlations of ±1, is factored by pivoted Cholesky
-(`Float32` or `Float64` entries), and accepted when `F Fᵀ` reproduces it within `8 d eps`; any
-other matrix throws. A `ρ` carrying ForwardDiff derivatives must be positive definite, because the
-derivatives at a correlation of ±1 don't exist.
+and accepted when `F Fᵀ` reproduces it within `8 d eps`; any other matrix throws. Supported element
+types for pivoted Cholesky follow Julia's implementation (`Float32`/`Float64`, plus generic types
+such as `BigFloat` on Julia 1.12 and later). A `ρ` carrying ForwardDiff derivatives must be positive
+definite, because the derivatives at a correlation of ±1 don't exist.
 
 A scenario draws `d` standard normals per step, in the order scenario, step, model. A single model
 with `ρ = [1;;]` gives exactly the paths of `simulate(model; rng)`.
@@ -339,25 +445,9 @@ function simulate(
         horizon::Real = 30.0,
         rng::Random.AbstractRNG = Random.default_rng()
     )
-    return __simulate_correlated(identity, models, ρ, n_scenarios, timestep, horizon, rng)
+    return __simulate(identity, models, __CorrelatedShocks(ρ, length(models)), n_scenarios, timestep, horizon, rng)
 end
 
-function simulate(
-        models::NamedTuple{names}, ρ::AbstractMatrix;
-        n_scenarios::Int = 1000,
-        timestep::Real = 1 / 12,
-        horizon::Real = 30.0,
-        rng::Random.AbstractRNG = Random.default_rng()
-    ) where {names}
-    return __simulate_correlated(NamedTuple{names}, Tuple(models), ρ, n_scenarios, timestep, horizon, rng)
-end
-
-function __simulate_correlated(finish, models::Tuple, ρ, n_scenarios, timestep, horizon, rng)
-    d = length(models)
-    F = __correlation_factor(ρ, d)
-    grid = __sim_grid(horizon, timestep)
-    # the shocks' type: a correlation carrying derivatives passes them to every model's states
-    W = promote_type(eltype(F), Float64)
-    kernels = map(m -> __sim_kernel(m, grid, W), models)
-    return __simulate_paths(finish, kernels, grid, n_scenarios, rng, __CorrelatedShocks{d, typeof(F)}(F))
-end
+# Shape adaptation is shared by every dependence source, including package extensions.
+simulate(models::NamedTuple{names}, dependence; kw...) where {names} =
+    map(NamedTuple{names}, simulate(Tuple(models), dependence; kw...))
