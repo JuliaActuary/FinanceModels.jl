@@ -7,6 +7,61 @@
 # scenario, step, model, and feeds each model its shock. A single model is a one-model tuple, so it
 # draws exactly the shocks it drew before the loop was shared.
 
+"""
+    simulation_steps(horizon, timestep) -> (; nsteps, aligned)
+
+The number of `timestep`-long steps a simulation to `horizon` takes, and whether `horizon` lies on
+that grid. With `r = horizon / timestep`, `horizon` is aligned when `r` is within `8eps(r)` of an
+integer `n`, and the grid has `nsteps = n` steps: roundoff (`0.07 / 0.01` is `7.000000000000001`)
+adds no step. Otherwise `nsteps = ceil(r)`, the first grid point beyond `horizon`, and
+`aligned = false`. `horizon` and `timestep` must be finite and positive.
+
+[`simulate`](@ref) ends an aligned grid at `horizon` itself, and covers an unaligned horizon with
+the extra step.
+"""
+function simulation_steps(horizon::Real, timestep::Real)
+    (isfinite(horizon) && horizon > 0) || throw(ArgumentError("horizon must be finite and positive, got $horizon"))
+    (isfinite(timestep) && timestep > 0) || throw(ArgumentError("timestep must be finite and positive, got $timestep"))
+    r = float(horizon) / float(timestep)
+    n = round(r)
+    abs(r - n) <= 8eps(r) && return (; nsteps = Int(n), aligned = true)
+    return (; nsteps = ceil(Int, r), aligned = false)
+end
+
+"""
+    simulation_times(path)
+
+A copy of the time grid of `path`, a [`RatePath`](@ref) or a [`PricePath`](@ref), from 0 to its
+last time. For a path from [`simulate`](@ref) it is a new `Vector{Float64}` of multiples of the
+timestep, ending at an aligned horizon or at the extra step that covers an unaligned one (see
+[`FinanceModels.simulation_steps`](@ref)). [`short_rate`](@ref) and a `PricePath`'s prices answer at
+these times only.
+"""
+simulation_times(path::RatePath) = copy(path.interp.t)
+
+# The index of the grid time that `t` names. The nearest grid time is found first and accepted when
+# `t` is within 8eps of it, at the scale of that time or of the first step, whichever is larger: a
+# time computed as `k * dt` or read from a range may differ from the grid's by a few ulps, and
+# `t = 0` gets the same tolerance as the first step. Any other `t` throws.
+function __grid_index(ts::AbstractVector, t)
+    n = length(ts)
+    i = clamp(searchsortedfirst(ts, t), 1, n)
+    k = (i > 1 && abs(t - ts[i - 1]) <= abs(t - ts[i])) ? i - 1 : i
+    scale = n > 1 ? max(abs(ts[k]), ts[2] - ts[1]) : abs(ts[k])
+    abs(t - ts[k]) <= 8eps(float(scale)) && return k
+    where = if isnan(t)
+        "not a number"
+    elseif t > last(ts)
+        "beyond the path's last simulated time $(last(ts))"
+    elseif t < first(ts)
+        "before the path's first simulated time $(first(ts))"
+    else
+        j = searchsortedlast(ts, t)
+        "between the simulated times $(ts[j]) and $(ts[j + 1])"
+    end
+    throw(DomainError(t, "the time is $where; the simulation has no state there. `FinanceModels.simulation_times(path)` lists the path's times"))
+end
+
 # The time grid of a simulation: `simulation_steps(horizon, timestep).nsteps` steps of `dt`.
 struct __SimGrid
     times::Vector{Float64}
@@ -38,6 +93,16 @@ __integral_eltype(T, ::Type{W}) where {W} = __ad_depth(W) > 0 ? promote_type(T, 
 # Independent shocks: one standard normal per model per step, drawn in model order.
 struct __IndependentShocks{d} end
 @inline __draw(::__IndependentShocks{d}, rng) where {d} = ntuple(_ -> randn(rng), Val(d))
+__shock_eltype(::__IndependentShocks) = Float64
+
+# Every dependence adapter supplies a shock source and its numeric type. Preparation belongs here,
+# so model buffers and the innovations they receive always use the same type contract.
+function __simulate(finish, models::Tuple, shocks, n_scenarios, timestep, horizon, rng)
+    grid = __sim_grid(horizon, timestep)
+    W = __shock_eltype(shocks)
+    kernels = map(m -> __sim_kernel(m, grid, W), models)
+    return __simulate_paths(finish, kernels, grid, n_scenarios, rng, shocks)
+end
 
 # `n_scenarios` scenarios on grid `g`, each the tuple of the kernels' paths passed through `finish`
 # (`only` for a single model).
@@ -58,13 +123,16 @@ function __simulate_paths(finish, kernels::Tuple, g::__SimGrid, n_scenarios::Int
     end
 end
 
-# One step of every model, recursing over the tuples: a `map` with a closure over four tuples was
-# not inlined for Hull–White under ForwardDiff and took about 1.8 times as long.
-@inline __step_all(::Tuple{}, ::Tuple{}, ::Tuple{}, j, g, ::Tuple{}) = ()
-@inline __step_all(kernels::Tuple, buffers::Tuple, states::Tuple, j, g, Z::Tuple) = (
-    __path_step!(first(kernels), first(buffers), first(states), j, g, first(Z)),
-    __step_all(Base.tail(kernels), Base.tail(buffers), Base.tail(states), j, g, Base.tail(Z))...,
-)
+# An inline callable keeps the per-model update visible to the compiler without recursively
+# splatting the state tuple. Recursive reconstruction allocates heavily for larger model tuples.
+struct __PathStep{G}
+    j::Int
+    grid::G
+end
+@inline (step::__PathStep)(kernel, buffer, state, Z) =
+    __path_step!(kernel, buffer, state, step.j, step.grid, Z)
+@inline __step_all(kernels, buffers, states, j, grid, Z) =
+    map(__PathStep(j, grid), kernels, buffers, states, Z)
 
 # ─── Short-rate kernels ──────────────────────────────────────────────────────
 
@@ -150,15 +218,8 @@ struct __PriceKernel{D, V, E}
     vol::V    # σ·√dt
 end
 
-# The volatility a simulation uses: a number, or a `Volatility.Constant`'s value (zero for the
-# unfitted `Volatility.Constant()`). A volatility that depends on strike or maturity has no single
-# path volatility, so other types are a `MethodError`; `Equity.volatility` would read them at the
-# money.
-__path_vol(σ::Real) = σ
-__path_vol(v::Volatility.Constant) = v.σ
-
 function __sim_kernel(m::Equity.BlackScholesMerton, g::__SimGrid, ::Type{W}) where {W}
-    r, q, σ = m.r, m.q, __path_vol(m.σ)
+    r, q, σ = m.r, m.q, Equity.__path_vol(m.σ)
     # Infinite rates give prices of 0 or Inf from the first step on. A negative σ gives the paths
     # of |σ| with the shocks' signs flipped, which reverses their correlation with other models.
     # The sign is read from σ's value: under ForwardDiff 1, a dual number at 0 with a negative
@@ -221,9 +282,50 @@ function simulate(
         horizon::Real = 30.0,
         rng::Random.AbstractRNG = Random.default_rng()
     )
-    grid = __sim_grid(horizon, timestep)
-    kernel = __sim_kernel(model, grid, Float64)
-    return __simulate_paths(only, (kernel,), grid, n_scenarios, rng, __IndependentShocks{1}())
+    return __simulate(only, (model,), __IndependentShocks{1}(), n_scenarios, timestep, horizon, rng)
+end
+
+"""
+    simulate(model::AbstractStochasticModel;
+             n_scenarios=1000, timestep=1/12, horizon=30.0,
+             rng=Random.default_rng())
+
+Generate `n_scenarios` interest-rate paths.
+Each path is returned as a `RatePath` (an `AbstractYieldModel`) so it plugs
+directly into `present_value`, `discount`, etc. A path is defined on its time
+grid of [`simulation_steps`](@ref)`(horizon, timestep).nsteps` steps, from 0 to
+`horizon` (or the first grid point beyond an unaligned `horizon`); evaluating it
+outside that range throws rather than extending the path.
+
+Discretisation schemes:
+- **Vasicek / Hull-White**: the exact Gaussian transition density, so the
+  simulated short rate has no discretisation bias at any `timestep`.
+- **Cox-Ingersoll-Ross**: full truncation (Lord, Koekkoek & Van Dijk, 2010) —
+  an auxiliary process may go negative while the observed rate is `max(x, 0)`.
+  Weak bias vanishes as `timestep → 0`, but is material for coarse steps when
+  the Feller condition is strongly violated.
+
+In all cases the cumulative discount integral ``∫₀ᵗ r(s)\\,ds`` is accumulated
+with the trapezoidal rule between grid points, so pathwise discount factors
+(and hence `pv_mc`) retain an integration error that grows with `timestep`
+even when the short-rate transition itself is exact.
+
+Each path also records the simulated short rate at its grid times
+([`FinanceModels.simulation_times`](@ref)), read with [`short_rate`](@ref).
+
+Paths are repeatable: the same `rng` state, arguments and package versions give the same paths.
+A model whose parameters carry ForwardDiff numbers draws the same shocks as its `Float64`
+counterpart, so paired sensitivity runs see identical scenarios. A change to which draws feed
+which step is recorded in the NEWS.
+"""
+function simulate(
+        model::AbstractStochasticModel;
+        n_scenarios::Int = 1000,
+        timestep::Real = 1 / 12,
+        horizon::Real = 30.0,
+        rng::Random.AbstractRNG = Random.default_rng()
+    )
+    return __simulate(only, (model,), __IndependentShocks{1}(), n_scenarios, timestep, horizon, rng)
 end
 
 # ─── Correlated simulation ───────────────────────────────────────────────────

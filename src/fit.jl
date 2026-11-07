@@ -188,9 +188,11 @@ __quote_value(m::FX.Forwards, q::Quote{<:Any, <:FX.BasisSwapLeg}) = present_valu
 
 # A knot-curve fit's trial curve (optimizer candidate, bootstrap step, calibration Jacobian): knot
 # rates `z` over tenors validated up front, built without a copy or a finite-rate check, so a
-# non-finite candidate mid-search is a bad residual rather than an exception.
-__trial_curve(spline, z, tenors, extrapolation) =
-    Yield.__build(spline, Yield.KnotGrid(Yield.Unchecked(), z, tenors); extrapolation)
+# non-finite candidate mid-search is a bad residual rather than an exception. The caller resolves
+# `interpolation = Yield.__interpolation(spline, length(tenors))` once, outside its solve, so every
+# trial curve has one concrete type.
+__trial_curve(spline, interpolation, z, tenors, extrapolation) =
+    Yield.__build(spline, interpolation, Yield.KnotGrid(Yield.Unchecked(), z, tenors); extrapolation)
 
 """
     FitConvergenceError(retcode, msg)
@@ -480,7 +482,8 @@ function __fit_knot_rates(spline, tenors, quotes, primal_quotes, method, extrapo
     # direct construction; trial curves reuse them.
     who = "fit($(spline))"
     grid0 = Yield.KnotGrid(__knot_fit_seed(spline, tenors), tenors, spline; who)
-    loss(u, qs) = __quote_loss(__trial_curve(spline, u, grid0.tenors, primal_extrapolation), method, qs)
+    interpolation = Yield.__interpolation(spline, length(grid0.tenors))
+    loss(u, qs) = __quote_loss(__trial_curve(spline, interpolation, u, grid0.tenors, primal_extrapolation), method, qs)
     rates = __minimize(loss, grid0.rates, primal_quotes, optimizer, solve_kwargs; who, hint = __SPLINE_FIT_HINT)
     curve = Yield.ZeroRateCurve(rates, grid0.tenors, spline; extrapolation = primal_extrapolation)   # public result: validated (finite rates)
     return __implicit_knot_curve(curve, quotes, primal_quotes, extrapolation)
@@ -538,33 +541,9 @@ function fit(
     all(>(0), times) || throw(ArgumentError("bootstrap quote maturities must be positive; got $times"))
     who = "fit($(mod0), Bootstrap)"
     grid0 = Yield.KnotGrid(zeros(n), times, mod0; who)
-    zs = zeros(n)
-    scales = zeros(n)
-
-    for i in eachindex(primal_quotes)
-        q = primal_quotes[i]
-        # The i-th continuous zero rate is the only unknown — earlier knots are
-        # already solved — so each step is a scalar root-find (exact repricing)
-        # rather than an optimizer pass that rebuilds the interpolant per
-        # AD-traced evaluation. The trial curve is the returned curve truncated at
-        # this knot, and (for local interpolants) later knots leave it unchanged up
-        # to this maturity, so the final curve reprices every quote to root precision.
-        f = __PrimalResidual(
-            function (z)
-                zs[i] = z
-                c = __trial_curve(mod0, zs[1:i], times[1:i], primal_extrapolation)
-                return present_value(c, q.instrument) - q.price
-            end, who, __SPLINE_FIT_HINT
-        )
-        seed = i == 1 ? 0.0 : zs[i - 1] # seed with the previous zero rate
-        # Solve the residual relative to the quote's size (its price, or its value at the seed
-        # for a zero-price quote), so the root's precision does not depend on its notional.
-        s = max(abs(q.price), abs(f(seed) + q.price))
-        scales[i] = iszero(s) ? one(s) : s
-        g(z) = f(z) / scales[i]
-        # a generous continuous-zero-rate range for the bracketed fallback
-        zs[i] = __solve_primal_root(g, seed, (-1.0, 1.0))
-    end
+    # Bootstrapped interpolants are linear (`__supports_bootstrap`), and no grid size reduces a
+    # linear interpolation, so every step builds its trial curve through the full grid's.
+    zs, scales = __bootstrap_knots(mod0, Yield.__interpolation(mod0, n), primal_quotes, times, primal_extrapolation, who)
     curve = Yield.ZeroRateCurve(zs, times, mod0; extrapolation = primal_extrapolation)
     # Every quote's cashflows must end at its maturity for later knots to leave
     # it priced. Check the returned curve so a contract that pays beyond its
@@ -579,6 +558,39 @@ function fit(
         )
     end
     return __implicit_knot_curve(curve, quotes, primal_quotes, extrapolation)
+end
+
+# The bootstrap's knot rates, solved in maturity order, and each quote's residual scale. A function
+# barrier on the resolved `interpolation`, so that every step's trial curve has one concrete type.
+function __bootstrap_knots(mod0, interpolation, primal_quotes, times, primal_extrapolation, who)
+    n = length(primal_quotes)
+    zs = zeros(n)
+    scales = zeros(n)
+    for i in eachindex(primal_quotes)
+        q = primal_quotes[i]
+        # The i-th continuous zero rate is the only unknown — earlier knots are
+        # already solved — so each step is a scalar root-find (exact repricing)
+        # rather than an optimizer pass that rebuilds the interpolant per
+        # AD-traced evaluation. The trial curve is the returned curve truncated at
+        # this knot, and (for local interpolants) later knots leave it unchanged up
+        # to this maturity, so the final curve reprices every quote to root precision.
+        f = __PrimalResidual(
+            function (z)
+                zs[i] = z
+                c = __trial_curve(mod0, interpolation, zs[1:i], times[1:i], primal_extrapolation)
+                return present_value(c, q.instrument) - q.price
+            end, who, __SPLINE_FIT_HINT
+        )
+        seed = i == 1 ? 0.0 : zs[i - 1] # seed with the previous zero rate
+        # Solve the residual relative to the quote's size (its price, or its value at the seed
+        # for a zero-price quote), so the root's precision does not depend on its notional.
+        s = max(abs(q.price), abs(f(seed) + q.price))
+        scales[i] = iszero(s) ? one(s) : s
+        g(z) = f(z) / scales[i]
+        # a generous continuous-zero-rate range for the bracketed fallback
+        zs[i] = __solve_primal_root(g, seed, (-1.0, 1.0))
+    end
+    return zs, scales
 end
 
 function fit(mod0::Yield.SmithWilson, quotes)
