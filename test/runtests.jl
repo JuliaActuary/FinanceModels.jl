@@ -14,6 +14,7 @@ include("valuation_contexts.jl")
 include("sp.jl")
 
 include("Equity.jl")
+include("lorig_reference.jl")
 include("FX.jl")
 include("Yield.jl")
 include("KnotGrid.jl")

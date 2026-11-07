@@ -1,6 +1,6 @@
 # FinanceModels.jl release notes
 
-## v7.1.0 (unreleased)
+## v7.2.0 (unreleased)
 
 ### Equity price paths
 
@@ -22,21 +22,53 @@ Black–Scholes–Merton price paths as `PricePath`s, on the grid `simulate` use
 The simulation loop is now shared by rate and equity models. A rate model's paths, their element
 types and its random draws are unchanged.
 
+## v7.1.1
+
+### Faster first calls on common curves and quotes
+
+The precompile workload now covers coupon-bond quotes (`CMTYield`, `ParYield`), monotone convex and
+cubic spline fits, and the curve queries (`discount`, `accumulation`, `zero`, `forward`, `par` and
+`present_value` of cashflows and bonds) on bootstrapped, `ZeroRateCurve`, cubic `Yield.Spline` and
+`Yield.Constant` curves. On Julia 1.13, first calls are faster:
+
+| first call | v7.1.0 | v7.1.1 |
+|---|---:|---:|
+| linear bootstrap of 12 CMT quotes | 0.61 s | 0.06 s |
+| queries on a cubic spline curve | 0.62 s | 0.13 s |
+| `ZeroRateCurve` (monotone convex) and its queries | 0.17 s | 0.06 s |
+| monotone convex fit of 5 CMT quotes | 1.47 s | 0.88 s |
+| cubic fit of 3 zero-coupon quotes | 2.59 s | 0.01 s |
+
+Fits of other quote counts still compile on their first call, since the compiled code is specific
+to the number of quotes. Precompiling FinanceModels takes about 4.5 s longer, its pkgimage grows
+from 26 MB to 41 MB, and loading it takes about 0.05 s longer. Results and warm-call speed are
+unchanged.
+
+## v7.0.2 (unreleased)
+
+### Faster first derivatives through spline curves
+
+Building a DataInterpolations-backed curve (`Spline.Linear()`, `Spline.Cubic()`, `Spline.PCHIP()`,
+…) compiled the `:linear` long-end slope under every extrapolation policy. It came from
+`DataInterpolations.derivative`, whose runtime `order` argument also compiled a second-derivative
+path. That compilation ran for each element type the curve was built with, so each new dual-number
+width paid for it. With 10 knots, the first `ForwardDiff.gradient` of a value through
+`ZeroRateCurve(rates, tenors, Spline.Linear())` took 6.8 s on Julia 1.13 (1.3 s on 6.3.0) and now
+takes 1.8 s. The first gradient through a differentiated `Fit.Bootstrap()` fit fell from 15 s to
+5.5 s, and the first 10-quote `fit(Spline.Linear(), quotes)` from 27 s to 15 s. Curves, their
+tail slopes and warm-call speed are unchanged.
+
 ## v7.0.1 (unreleased)
 
-### Parameter checks read values, not derivatives
+### Faster first fits of linear, quadratic and cubic splines
 
-Parameter validation now checks a ForwardDiff dual number's value, independently of its
-derivatives. Under ForwardDiff 1, `Dual(0, -1) < 0` and `Dual(0, 1) > 0`: comparing the whole
-number rejected valid zero-valued parameters with negative derivatives and accepted invalid
-zero-valued parameters with positive derivatives.
-
-The fix covers short-rate volatilities, CIR's initial rate, ZCB option strike and maturity
-ordering, and the decay parameters of Nelson–Siegel, Nelson–Siegel–Svensson and both
-Cairns–Pritchard models. For example, a nested derivative through the nonnegative volatility
-σ = (x − y)² at x = y = 0 no longer throws, and a zero Nelson–Siegel decay parameter cannot
-pass validation and produce a `NaN` derivative. Calculations retain the derivatives; the API
-and intended parameter domains are unchanged.
+A fit of `Spline.Linear()`, `Spline.Quadratic()` or `Spline.Cubic()` compiled all three
+interpolations for its trial curves, because a polynomial spline's order is a runtime value. Trial
+curves are compiled for the fit's dual numbers, whose width depends on the number of quotes, so
+each new quote count paid for all three. The first `fit(Spline.Linear(), quotes)` with 10 par
+quotes took 27 s and 5.8 GiB on Julia 1.13, and now takes 6.5 s and 1.8 GiB. The first gradient
+through a differentiated `Fit.Bootstrap()` fit fell from 15 s to 5.4 s. Fitted curves, their
+derivatives and warm-call speed are unchanged; a bootstrap is about 5% faster.
 
 ### Option prices and simulations at zero and tiny volatility
 
@@ -69,8 +101,24 @@ zero below σ√τ ≈ 1e-16.
 - **Simulated Vasicek and Hull–White paths** took each step's standard deviation as √(σ²·…), whose
   σ-derivative is `NaN` at σ = 0, so pathwise sensitivities there were `NaN`. σ² also underflowed
   below σ = 1e-154, so a positive σ was simulated as zero. The standard deviation is now σ·√(…).
-  The random draws are unchanged, but the standard deviation can differ from 7.0.0's in its last
+  The random draws are unchanged, but the standard deviation can differ from 7.0.1's in its last
   bit, as it did in 36 of 144 parameter sets checked, and so can simulated paths.
+
+## v7.0.1
+
+### Parameter checks read values, not derivatives
+
+Parameter validation now checks a ForwardDiff dual number's value, independently of its
+derivatives. Under ForwardDiff 1, `Dual(0, -1) < 0` and `Dual(0, 1) > 0`: comparing the whole
+number rejected valid zero-valued parameters with negative derivatives and accepted invalid
+zero-valued parameters with positive derivatives.
+
+The fix covers short-rate volatilities, CIR's initial rate, ZCB option strike and maturity
+ordering, and the decay parameters of Nelson–Siegel, Nelson–Siegel–Svensson and both
+Cairns–Pritchard models. For example, a nested derivative through the nonnegative volatility
+σ = (x − y)² at x = y = 0 no longer throws, and a zero Nelson–Siegel decay parameter cannot
+pass validation and produce a `NaN` derivative. Calculations retain the derivatives; the API
+and intended parameter domains are unchanged.
 
 ## v7.0.0
 
