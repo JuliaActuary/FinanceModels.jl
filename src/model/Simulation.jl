@@ -335,6 +335,11 @@ end
 struct __CorrelatedShocks{d, M <: AbstractMatrix}
     F::M
 end
+function __CorrelatedShocks(ρ::AbstractMatrix, d::Int)
+    F = __correlation_factor(ρ, d)
+    return __CorrelatedShocks{d, typeof(F)}(F)
+end
+__shock_eltype(s::__CorrelatedShocks) = promote_type(eltype(s.F), Float64)
 @inline function __draw(s::__CorrelatedShocks{d}, rng) where {d}
     z = ntuple(_ -> randn(rng), Val(d))
     return ntuple(i -> __factor_row(s.F, i, z), Val(d))
@@ -354,7 +359,6 @@ end
 function __correlation_factor(ρ::AbstractMatrix, d::Int)
     size(ρ) == (d, d) ||
         throw(DimensionMismatch("$d models need a $d×$d correlation matrix, got $(join(size(ρ), '×'))"))
-    all(isfinite, ρ) || throw(ArgumentError("a correlation matrix's entries must be finite, got $ρ"))
     tol = 8eps(float(typeof(__primal(zero(eltype(ρ))))))
     for i in 1:d
         abs(ρ[i, i] - 1) <= tol || throw(
@@ -366,26 +370,25 @@ function __correlation_factor(ρ::AbstractMatrix, d::Int)
             )
         end
     end
-    if __ad_depth(eltype(ρ)) > 0
-        # Derivatives exist in the positive-definite interior only. The check is on the values: at
-        # a correlation of ±1 the Cholesky factor of a dual matrix reports success with an infinite
-        # derivative.
-        issuccess(cholesky(Symmetric(__primal.(ρ)); check = false)) || throw(
-            ArgumentError("correlation sensitivities need a positive-definite correlation matrix; this one is singular or not positive semidefinite")
-        )
-        return Matrix(cholesky(Symmetric(ρ)).L)
+    # The loop consumes a dense factor. Normalize storage here too: sparse Cholesky otherwise
+    # selects CHOLMOD, whose L is a backend-specific component with a fill-reducing permutation.
+    A = float.(Matrix(ρ))
+    has_derivatives = __ad_depth(eltype(A)) > 0
+    values = has_derivatives ? __primal.(A) : A
+    C = cholesky(Symmetric(values); check = false)
+    if issuccess(C)
+        return has_derivatives ? Matrix(cholesky(Symmetric(A)).L) : Matrix(C.L)
     end
-    ρf = float.(ρ)
-    C = cholesky(Symmetric(ρf); check = false)
-    issuccess(C) && return Matrix(C.L)
-    # A singular positive-semidefinite matrix (correlations of ±1): pivoted Cholesky gives
-    # Pᵀ L Lᵀ P = ρ, so the factor is L's rows in the original order, its first `rank` columns.
-    eltype(ρf) <: Union{Float32, Float64} || throw(
-        ArgumentError("a singular correlation matrix is factored by pivoted Cholesky, which needs Float32 or Float64 entries, got $(eltype(ρf))")
+    # At a singular correlation the dual factor can report success with infinite derivatives.
+    # Check the values first, before any draw, and differentiate only in the PD interior.
+    has_derivatives && throw(
+        ArgumentError("correlation sensitivities need a positive-definite correlation matrix; this one is singular or not positive semidefinite")
     )
-    P = cholesky(Symmetric(ρf), RowMaximum(); check = false)
+    # Pivoting gives Pᵀ L Lᵀ P = A: restore the original model order and retain the rank columns.
+    # Julia supplies generic pivoted Cholesky for additional numeric types on newer releases.
+    P = cholesky(Symmetric(A), RowMaximum(); check = false)
     F = Matrix(P.L)[invperm(P.p), 1:P.rank]
-    maximum(abs, F * F' - ρf) <= 8 * d * eps(eltype(ρf)) ||
+    maximum(abs, F * F' - A) <= 8 * d * eps(eltype(A)) ||
         throw(ArgumentError("a correlation matrix must be positive semidefinite; this one is not"))
     return F
 end
@@ -420,9 +423,10 @@ constant-rate drift, so a `RatePath`'s discount factor times a `PricePath` is no
 `ρ` must be `d × d`, finite, with a unit diagonal and symmetric (within `8eps`), or a
 `DimensionMismatch` or `ArgumentError` is thrown. A positive-definite `ρ` is factored by Cholesky.
 A singular positive-semidefinite one, with correlations of ±1, is factored by pivoted Cholesky
-(`Float32` or `Float64` entries), and accepted when `F Fᵀ` reproduces it within `8 d eps`; any
-other matrix throws. A `ρ` carrying ForwardDiff derivatives must be positive definite, because the
-derivatives at a correlation of ±1 don't exist.
+and accepted when `F Fᵀ` reproduces it within `8 d eps`; any other matrix throws. Supported element
+types for pivoted Cholesky follow Julia's implementation (`Float32`/`Float64`, plus generic types
+such as `BigFloat` on Julia 1.12 and later). A `ρ` carrying ForwardDiff derivatives must be positive
+definite, because the derivatives at a correlation of ±1 don't exist.
 
 A scenario draws `d` standard normals per step, in the order scenario, step, model. A single model
 with `ρ = [1;;]` gives exactly the paths of `simulate(model; rng)`.
@@ -434,25 +438,9 @@ function simulate(
         horizon::Real = 30.0,
         rng::Random.AbstractRNG = Random.default_rng()
     )
-    return __simulate_correlated(identity, models, ρ, n_scenarios, timestep, horizon, rng)
+    return __simulate(identity, models, __CorrelatedShocks(ρ, length(models)), n_scenarios, timestep, horizon, rng)
 end
 
-function simulate(
-        models::NamedTuple{names}, ρ::AbstractMatrix;
-        n_scenarios::Int = 1000,
-        timestep::Real = 1 / 12,
-        horizon::Real = 30.0,
-        rng::Random.AbstractRNG = Random.default_rng()
-    ) where {names}
-    return __simulate_correlated(NamedTuple{names}, Tuple(models), ρ, n_scenarios, timestep, horizon, rng)
-end
-
-function __simulate_correlated(finish, models::Tuple, ρ, n_scenarios, timestep, horizon, rng)
-    d = length(models)
-    F = __correlation_factor(ρ, d)
-    grid = __sim_grid(horizon, timestep)
-    # the shocks' type: a correlation carrying derivatives passes them to every model's states
-    W = promote_type(eltype(F), Float64)
-    kernels = map(m -> __sim_kernel(m, grid, W), models)
-    return __simulate_paths(finish, kernels, grid, n_scenarios, rng, __CorrelatedShocks{d, typeof(F)}(F))
-end
+# Shape adaptation is shared by every dependence source, including package extensions.
+simulate(models::NamedTuple{names}, dependence; kw...) where {names} =
+    map(NamedTuple{names}, simulate(Tuple(models), dependence; kw...))

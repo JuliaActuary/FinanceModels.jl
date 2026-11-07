@@ -34,8 +34,9 @@ gives `NamedTuple`s of paths.
   difference.
 - **Checks:** ρ must be square of the models' size, finite, with a unit diagonal and symmetric;
   otherwise a `DimensionMismatch` or `ArgumentError` (a covariance matrix is rejected).
-- **Factorization:** Cholesky, or pivoted Cholesky for a singular positive-semidefinite `Float32` or
-  `Float64` matrix (correlations of ±1), checked by reconstruction.
+- **Factorization:** dense and sparse inputs use the same factorization and model order. Cholesky,
+  or pivoted Cholesky for a singular positive-semidefinite matrix (correlations of ±1), checked by
+  reconstruction. Pivoted element types follow Julia's support, including `BigFloat` from Julia 1.12.
 - **Derivatives in ρ:** supported where ρ is positive definite; at a correlation of ±1 the call
   throws before any draw.
 - **Draws:** each step draws one standard normal per model. A single model with `ρ = [1;;]` gives
