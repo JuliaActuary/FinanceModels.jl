@@ -429,8 +429,10 @@ each through the standard normal quantile to a model's innovation, so the copula
 of each step's innovations, not of the models' later values. A `GaussianCopula` is simulated as its
 correlation matrix and an `IndependentCopula` as the identity, exactly as the matrix method. A
 copula sample of exactly 0 or 1 throws a `DomainError` rather than giving an infinite shock.
-For a custom copula, its declared `eltype` determines the path buffers; a sampler that returns
-ForwardDiff numbers can pass pathwise parameter derivatives through the paths.
+Copula-parameter sensitivities use the Gaussian correlation-matrix path only. Generic copulas
+declaring derivative-carrying samples throw an `ArgumentError` before sampling; derivatives through
+their sampling algorithms need not be derivatives of expectations. Model-parameter sensitivities
+with a fixed copula remain supported.
 """
 function simulate(
         models::Tuple, ρ::AbstractMatrix;

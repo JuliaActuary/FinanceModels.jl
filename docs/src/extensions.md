@@ -65,6 +65,8 @@ scenarios = simulate((rates = hw, stock = stock), ClaytonCopula(2, 7.0); n_scena
 
 See [Correlated Scenarios](@ref) in the stochastic models guide.
 
-For a custom copula sampler, `eltype(copula)` declares the numeric type of its uniform samples.
-Pathwise parameter derivatives pass through when that type and the samples carry ForwardDiff
-numbers. This requires a differentiable sampler; it is not automatic for every copula family.
+For correlation sensitivities, use a correlation matrix or `GaussianCopula`, which follows the same
+Cholesky path. Other copula parameters must stay fixed when differentiating a simulation: a
+derivative through a sampler need not differentiate an expectation. Generic copulas declaring
+derivative-carrying samples throw before sampling. Sensitivities to the models' parameters remain
+available with a fixed copula.

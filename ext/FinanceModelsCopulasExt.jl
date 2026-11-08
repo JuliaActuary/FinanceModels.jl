@@ -11,8 +11,7 @@ const FM = FinanceModels
 struct CopulaShocks{d, C}
     copula::C
 end
-# Copulas' eltype is its declared sample type; the quantile also uses Float64 constants.
-FM.__shock_eltype(s::CopulaShocks) = promote_type(eltype(s.copula), Float64)
+FM.__shock_eltype(::CopulaShocks) = Float64
 @inline function FM.__draw(s::CopulaShocks{d}, rng) where {d}
     u = rand(rng, s.copula)
     return ntuple(i -> FM.__normal_quantile(u[i]), Val(d))
@@ -34,6 +33,9 @@ end
 # or 1). Independence also needs no identity matrix or factorization. All adapters use core setup.
 copula_shocks(C::Copulas.GaussianCopula, d) = FM.__CorrelatedShocks(C.Σ, d)
 copula_shocks(::Copulas.IndependentCopula, d) = FM.__IndependentShocks{d}()
-copula_shocks(C::Copulas.Copula, d) = CopulaShocks{d, typeof(C)}(C)
+function copula_shocks(C::Copulas.Copula, d)
+    FM.__ad_depth(eltype(C)) == 0 || throw(ArgumentError("copula-parameter sensitivities are not supported; use a correlation matrix or GaussianCopula for correlation sensitivities"))
+    return CopulaShocks{d, typeof(C)}(C)
+end
 
 end

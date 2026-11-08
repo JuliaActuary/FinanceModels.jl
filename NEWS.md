@@ -53,8 +53,9 @@ matrix (Copulas `0.1.29` or later, including 1.x).
   and an `IndependentCopula` as the identity, giving exactly the matrix method's paths.
 - **Edge samples:** a copula sample of exactly 0 or 1 throws a `DomainError` rather than becoming an
   infinite shock.
-- **Custom samplers:** a copula's declared sample type determines the path buffers, so pathwise
-  parameter derivatives pass through when its sampling method returns ForwardDiff numbers.
+- **Parameter sensitivities:** Gaussian correlation sensitivities use the matrix factorization.
+  Generic copulas declaring derivative-carrying samples are rejected before sampling, since sampler
+  derivatives need not differentiate expectations. Model sensitivities with a fixed copula still work.
 
 The stochastic guide's note on EconomicScenarioGenerators.jl is now a migration table.
 

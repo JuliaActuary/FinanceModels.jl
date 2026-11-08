@@ -37,17 +37,6 @@ import Random
 struct EdgeCopula <: Copulas.Copula{2} end
 Base.rand(::Random.AbstractRNG, ::EdgeCopula) = [0.0, 0.5]
 
-# Both marginals stay uniform as θ varies. This sampler has a pathwise derivative away from the
-# wrap point and declares its numeric type, including nested ForwardDiff numbers.
-struct ShiftCopula{T} <: Copulas.Copula{2}
-    θ::T
-end
-Base.eltype(::ShiftCopula{T}) where {T} = T
-function Base.rand(rng::Random.AbstractRNG, C::ShiftCopula)
-    u = rand(rng)
-    return [u, mod(u + C.θ, 1)]
-end
-
 @testset "Copulas Extension" begin
     using Copulas
     m = Equity.BlackScholesMerton(0.03, 0.01, 0.2)
@@ -89,24 +78,30 @@ end
     @test_throws DimensionMismatch simulate((m, m), ClaytonCopula(3, 2.0); n_scenarios = 1)
     @test_throws DimensionMismatch simulate((m, m), IndependentCopula(3); n_scenarios = 1)
 
-    @testset "declared copula sample types carry pathwise derivatives" begin
-        for model in (m, v)
-            function terminal(c)
-                p = only(simulate((model, model), ShiftCopula(c); n_scenarios = 1, timestep = 1.0, horizon = 1.0, rng = Random.Xoshiro(1)))[2]
-                return model isa Equity.BlackScholesMerton ? p(1.0) : discount(p, 1.0)
+    @testset "copula-parameter capability boundary" begin
+        D = ForwardDiff.Dual{Nothing}
+        for θ in (D(2.0, 1.0), D(2.0, -1.0), ForwardDiff.Dual{:outer}(D(2.0, 1.0), D(1.0, 0.0)))
+            # Plackett declares its parameter type on every supported Copulas release. Older
+            # releases did not expose Archimedean dual sample types; newer ones do.
+            copulas = (PlackettCopula(θ), ClaytonCopula(2, θ), FrankCopula(2, θ))
+            @test eltype(first(copulas)) <: ForwardDiff.Dual
+            for C in filter(c -> eltype(c) <: ForwardDiff.Dual, copulas)
+                rng = Random.Xoshiro(14)
+                before = copy(rng)
+                @test_throws ArgumentError simulate((v, m), C; n_scenarios = 1, rng)
+                @test rng == before
             end
-            c, h = 0.2, 1.0e-6
-            d1 = ForwardDiff.derivative(terminal, c)
-            @test d1 ≈ (terminal(c + h) - terminal(c - h)) / (2h) rtol = 1.0e-7
-            d2 = ForwardDiff.derivative(x -> ForwardDiff.derivative(terminal, x), c)
-            @test d2 ≈ (ForwardDiff.derivative(terminal, c + h) - ForwardDiff.derivative(terminal, c - h)) / (2h) rtol = 1.0e-7
-            rng_f, rng_d = Random.Xoshiro(1), Random.Xoshiro(1)
-            plain = simulate((model, model), ShiftCopula(c); n_scenarios = 1, timestep = 1.0, horizon = 1.0, rng = rng_f)
-            dual = simulate((model, model), ShiftCopula(ForwardDiff.Dual{Nothing}(c, 1.0)); n_scenarios = 1, timestep = 1.0, horizon = 1.0, rng = rng_d)
-            @test rng_f == rng_d
-            value(p) = model isa Equity.BlackScholesMerton ? p(1.0) : discount(p, 1.0)
-            @test ForwardDiff.value(value(only(dual)[2])) == value(only(plain)[2])
         end
+        # Gaussian sensitivities use the core Cholesky path, including nested derivatives.
+        matrix_value(c) = only(simulate((v, m), [1 c; c 1]; n_scenarios = 1, timestep = dt, horizon = 2.0, rng = Random.Xoshiro(15)))[2](2.0)
+        gaussian_value(c) = only(simulate((v, m), GaussianCopula([1 c; c 1]); n_scenarios = 1, timestep = dt, horizon = 2.0, rng = Random.Xoshiro(15)))[2](2.0)
+        @test gaussian_value(0.4) == matrix_value(0.4)
+        @test ForwardDiff.derivative(gaussian_value, 0.4) == ForwardDiff.derivative(matrix_value, 0.4)
+        @test ForwardDiff.derivative(c -> ForwardDiff.derivative(gaussian_value, c), 0.4) ==
+            ForwardDiff.derivative(c -> ForwardDiff.derivative(matrix_value, c), 0.4)
+        # A fixed non-Gaussian copula still supports model sensitivities: ∂S_T/∂r = T·S_T.
+        stock_value(r) = only(simulate((v, Equity.BlackScholesMerton(r, 0.01, 0.2)), ClaytonCopula(2, 2.0); n_scenarios = 1, timestep = dt, horizon = 2.0, rng = Random.Xoshiro(16)))[2](2.0)
+        @test ForwardDiff.derivative(stock_value, 0.03) ≈ 2 * stock_value(0.03)
     end
 
     # the standard normal quantile, accurate in both tails, and never infinite
