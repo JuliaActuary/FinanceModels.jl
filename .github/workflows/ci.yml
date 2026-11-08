@@ -18,8 +18,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Julia 1.10.0's libopenlibm cannot load on Ubuntu 26's newer glibc.
-          - os: ubuntu-24.04
+          - os: ubuntu-latest
             version: 'min'
           - os: ubuntu-latest
             version: '1'
@@ -46,7 +45,7 @@ jobs:
     # Tests the lower bounds declared in [compat] by pinning dependencies to
     # their oldest allowed versions before building.
     name: Downgrade
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: julia-actions/setup-julia@v2
@@ -85,9 +84,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: julia-actions/setup-julia@v2
-        with:
-          version: '1'
       - uses: fredrikekre/runic-action@v1
         with:
           version: '1'
