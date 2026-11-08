@@ -367,20 +367,23 @@ function __correlation_factor(ρ::AbstractMatrix, d::Int)
             )
         end
     end
-    C = cholesky(Symmetric(values); check = false)
-    if issuccess(C)
-        return has_derivatives ? Matrix(cholesky(Symmetric(A)).L) : Matrix(C.L)
+    factor_tol = 8 * d * eps(eltype(values))
+    if has_derivatives
+        # Plain Cholesky can succeed through roundoff at a singular matrix. Check numerical rank
+        # on the values before differentiating the factor, and before consuming any random draws.
+        P = cholesky(Symmetric(values), RowMaximum(); tol = factor_tol, check = false)
+        P.rank == d || throw(
+            ArgumentError("correlation sensitivities need a positive-definite correlation matrix; this one is singular within roundoff or not positive semidefinite")
+        )
+        return Matrix(cholesky(Symmetric(A)).L)
     end
-    # At a singular correlation the dual factor can report success with infinite derivatives.
-    # Check the values first, before any draw, and differentiate only in the PD interior.
-    has_derivatives && throw(
-        ArgumentError("correlation sensitivities need a positive-definite correlation matrix; this one is singular or not positive semidefinite")
-    )
+    C = cholesky(Symmetric(A); check = false)
+    issuccess(C) && return Matrix(C.L)
     # Pivoting gives Pᵀ L Lᵀ P = A: restore the original model order and retain the rank columns.
     # Julia supplies generic pivoted Cholesky for additional numeric types on newer releases.
     P = cholesky(Symmetric(A), RowMaximum(); check = false)
     F = Matrix(P.L)[invperm(P.p), 1:P.rank]
-    maximum(abs, F * F' - A) <= 8 * d * eps(eltype(A)) ||
+    maximum(abs, F * F' - A) <= factor_tol ||
         throw(ArgumentError("a correlation matrix must be positive semidefinite; this one is not"))
     return F
 end
@@ -414,11 +417,15 @@ constant-rate drift, so a `RatePath`'s discount factor times a `PricePath` is no
 
 `ρ` must be `d × d`, finite, with a unit diagonal and symmetric (within `8eps`), or a
 `DimensionMismatch` or `ArgumentError` is thrown. A positive-definite `ρ` is factored by Cholesky.
-A singular positive-semidefinite one, with correlations of ±1, is factored by pivoted Cholesky
-and accepted when `F Fᵀ` reproduces it within `8 d eps`; any other matrix throws. Supported element
-types for pivoted Cholesky follow Julia's implementation (`Float32`/`Float64`, plus generic types
-such as `BigFloat` on Julia 1.12 and later). A `ρ` carrying ForwardDiff derivatives must be positive
-definite, because the derivatives at a correlation of ±1 don't exist.
+A singular positive-semidefinite one, including correlations of ±1 and rank-deficient factor
+models, is factored by pivoted Cholesky and accepted when `F Fᵀ` reproduces it within `8 d eps`;
+any other matrix throws. A `ρ` carrying ForwardDiff derivatives must have full numerical rank,
+checked by pivoted Cholesky on its values with tolerance `8 d eps`, before any random draw. The
+factor's derivative is undefined at a singular matrix, although expected payoffs can have finite
+one-sided derivatives there. Near singularity, correlation-sensitivity estimates can have high
+variance as the smallest eigenvalue shrinks. Supported element types for pivoted Cholesky,
+including this rank check, follow Julia's implementation (`Float32`/`Float64`, plus generic types
+such as `BigFloat` on Julia 1.12 and later).
 
 A scenario draws `d` standard normals per step, in the order scenario, step, model. A single model
 with `ρ = [1;;]` gives exactly the paths of `simulate(model; rng)`.

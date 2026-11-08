@@ -323,9 +323,14 @@ less strongly than their drivers, by an amount that grows with the difference an
 How the models' values at a later time depend on each other follows from the models and the
 timestep.
 
-Correlations of ±1 are allowed. A correlation matrix carrying ForwardDiff derivatives must be
-positive definite, because the derivatives don't exist at ±1. A single model with `ρ = [1;;]` gives
-exactly the paths of `simulate(model)`.
+Singular positive-semidefinite matrices are allowed, including correlations of ±1 and
+rank-deficient factor models. A correlation matrix carrying ForwardDiff derivatives must have full
+numerical rank, checked by pivoted Cholesky on its values with tolerance `8 d eps` before sampling.
+The factor's derivative is undefined at a singular matrix, although expected payoffs can have finite
+one-sided derivatives there. Near singularity, the variance of correlation-sensitivity estimates
+can grow as the smallest eigenvalue shrinks. Pivoted Cholesky's element types follow Julia's support;
+in particular, `BigFloat` correlation sensitivities require Julia 1.12 or later. A single model with
+`ρ = [1;;]` gives exactly the paths of `simulate(model)`.
 
 These are joint scenarios, not a hybrid pricing model: the stock's drift is its own constant `r - q`,
 not the simulated short rate, so a path's discount factor times the stock's price is not a

@@ -35,10 +35,13 @@ gives `NamedTuple`s of paths.
 - **Checks:** ρ must be square of the models' size, finite, with a unit diagonal and symmetric;
   otherwise a `DimensionMismatch` or `ArgumentError` (a covariance matrix is rejected).
 - **Factorization:** dense and sparse inputs use the same factorization and model order. Cholesky,
-  or pivoted Cholesky for a singular positive-semidefinite matrix (correlations of ±1), checked by
-  reconstruction. Pivoted element types follow Julia's support, including `BigFloat` from Julia 1.12.
-- **Derivatives in ρ:** supported where ρ is positive definite; at a correlation of ±1 the call
-  throws before any draw.
+  or pivoted Cholesky for a singular positive-semidefinite matrix, including correlations of ±1
+  and rank-deficient factor models, checked by reconstruction.
+- **Derivatives in ρ:** pivoted Cholesky checks full numerical rank at tolerance `8 d eps` on the
+  values before any draw. Numerically singular matrices throw an `ArgumentError`, even when plain
+  Cholesky succeeds through roundoff. Pivoted element types follow Julia's support, so `BigFloat`
+  correlation sensitivities require Julia 1.12. Valid matrices near singularity remain supported;
+  their correlation-sensitivity estimates can have high variance.
 - **Draws:** each step draws one standard normal per model. A single model with `ρ = [1;;]` gives
   exactly `simulate(model)`'s paths.
 

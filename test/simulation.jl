@@ -216,13 +216,33 @@ FinanceModels.__step(::ConstantRateModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) = 
         DD = ForwardDiff.Dual{:outer}
         s2 = only(simulate((v, m), [1 DD(cc, cc); DD(cc, cc) 1]; n_scenarios = 1, timestep = dt, horizon = 1.0))
         @test FinanceModels.__ad_depth(eltype(s2[1].interp.u)) == 2
-        # at a correlation of ±1 the derivative doesn't exist: it throws before any draw
+        # The factor's derivative is undefined at ±1: reject it before any draw.
         for seed in (1.0, -1.0), sgn in (1, -1)
             rng = Random.Xoshiro(9)
             before = copy(rng)
             ρ1 = [1 D(sgn * 1.0, seed); D(sgn * 1.0, seed) 1]
             @test_throws ArgumentError simulate((m, m), ρ1; n_scenarios = 1, rng)
             @test rng == before
+        end
+
+        # Singularities need not contain pairwise correlations of ±1. Roundoff can let plain
+        # Cholesky succeed here, depending on the platform; numerical rank must govern rejection.
+        for d in (5, 10, 20)
+            c = D(-1.0 / (d - 1), 1.0)
+            ρ = fill(c, d, d)
+            ρ[diagind(ρ)] .= one(c)
+            rng = Random.Xoshiro(16)
+            before = copy(rng)
+            @test_throws ArgumentError simulate(ntuple(_ -> m, d), ρ; n_scenarios = 1, timestep = 1.0, horizon = 1.0, rng)
+            @test rng == before
+        end
+        # Valid full-rank matrices near the boundary remain supported, without a conditioning cut.
+        for h in (1.0e-4, 1.0e-8, 1.0e-12)
+            c = D(-0.25 + h, 1.0)
+            ρ = fill(c, 5, 5)
+            ρ[diagind(ρ)] .= one(c)
+            paths = only(simulate(ntuple(_ -> m, 5), ρ; n_scenarios = 1, timestep = 1.0, horizon = 1.0, rng = Random.Xoshiro(17)))
+            @test all(p -> isfinite(ForwardDiff.partials(p(1.0))[1]), paths)
         end
     end
 
@@ -252,6 +272,16 @@ FinanceModels.__step(::ConstantRateModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) = 
             @test Fbig * Fbig' == ρbig
         else
             @test_throws ArgumentError FinanceModels.__correlation_factor(ρbig, 3)
+        end
+        # The numerical-rank check also uses pivoted Cholesky for positive-definite dual values.
+        c_big = D(BigFloat(0.5), BigFloat(1))
+        ρbig_dual = [1 c_big; c_big 1]
+        if VERSION >= v"1.12"
+            Fbig_dual = FinanceModels.__correlation_factor(ρbig_dual, 2)
+            @test eltype(Fbig_dual) <: ForwardDiff.Dual
+            @test Fbig_dual * Fbig_dual' ≈ ρbig_dual
+        else
+            @test_throws ArgumentError FinanceModels.__correlation_factor(ρbig_dual, 2)
         end
         # Sparse storage must give the same model ordering, factor, draws and paths as dense input.
         ρdense = [1.0 0.4 0.4 0.4; 0.4 1.0 0.0 0.0; 0.4 0.0 1.0 0.0; 0.4 0.0 0.0 1.0]
