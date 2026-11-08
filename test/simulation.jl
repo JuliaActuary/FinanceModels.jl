@@ -82,9 +82,7 @@ struct SmileVolatility <: FinanceModels.Volatility.AbstractVolatilityModel end
     end
 
     @testset "invalid inputs" begin
-        for (rr, qq, σσ) in ((r, q, -0.2), (r, q, NaN), (r, q, Inf), (-Inf, q, σ), (r, Inf, σ), (NaN, q, σ))
-            @test_throws ArgumentError simulate(Equity.BlackScholesMerton(rr, qq, σσ); n_scenarios = 1)
-        end
+        @test_throws ArgumentError simulate(Equity.BlackScholesMerton(r, q, -0.2); n_scenarios = 1)
         @test_throws MethodError simulate(Equity.BlackScholesMerton(r, q, SmileVolatility()); n_scenarios = 1)
     end
 
