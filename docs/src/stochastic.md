@@ -480,7 +480,7 @@ mean_pv = sum(pvs) / length(pvs)
 
 EconomicScenarioGenerators.jl is frozen at 0.7.1. Its generators map to FinanceModels as follows.
 
-| EconomicScenarioGenerators 0.7 | FinanceModels 7.1 | Differences |
+| EconomicScenarioGenerators 0.7 | FinanceModels 7.2 | Differences |
 |:---|:---|:---|
 | `Vasicek(a, b, σ, Continuous(r0))`, `CoxIngersollRoss(...)` | `ShortRate.Vasicek(...)`, `ShortRate.CoxIngersollRoss(...)` | FinanceModels steps Vasicek with its exact transition and CIR with full truncation; ESG used Euler steps and partial truncation |
 | `HullWhite(a, σ, curve)`; `HullWhite(a, σ, r)` for a flat rate | `ShortRate.HullWhite(a, σ, curve)`; `ShortRate.HullWhite(a, σ, Yield.Constant(Continuous(r)))` | the exact transition, starting from the curve's instantaneous forward at 0 |

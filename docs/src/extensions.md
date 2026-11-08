@@ -64,3 +64,7 @@ scenarios = simulate((rates = hw, stock = stock), ClaytonCopula(2, 7.0); n_scena
 ```
 
 See [Correlated Scenarios](@ref) in the stochastic models guide.
+
+For a custom copula sampler, `eltype(copula)` declares the numeric type of its uniform samples.
+Pathwise parameter derivatives pass through when that type and the samples carry ForwardDiff
+numbers. This requires a differentiable sampler; it is not automatic for every copula family.

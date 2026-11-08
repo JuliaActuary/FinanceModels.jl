@@ -31,17 +31,29 @@ end
 end
 
 import Copulas
+import ForwardDiff
 import Random
 # a copula whose samples include an exact 0: its infinite normal quantile must not become a shock
 struct EdgeCopula <: Copulas.Copula{2} end
 Base.rand(::Random.AbstractRNG, ::EdgeCopula) = [0.0, 0.5]
+
+# Both marginals stay uniform as θ varies. This sampler has a pathwise derivative away from the
+# wrap point and declares its numeric type, including nested ForwardDiff numbers.
+struct ShiftCopula{T} <: Copulas.Copula{2}
+    θ::T
+end
+Base.eltype(::ShiftCopula{T}) where {T} = T
+function Base.rand(rng::Random.AbstractRNG, C::ShiftCopula)
+    u = rand(rng)
+    return [u, mod(u + C.θ, 1)]
+end
 
 @testset "Copulas Extension" begin
     using Copulas
     m = Equity.BlackScholesMerton(0.03, 0.01, 0.2)
     v = ShortRate.Vasicek(0.5, 0.03, 0.01, Continuous(0.02))
     dt = 0.25
-    same(a, b) = all(i -> a[i][1].interp.u == b[i][1].interp.u && a[i][2](2.0) == b[i][2](2.0), eachindex(a, b))
+    same(a, b) = all(i -> a[i][1].interp.u == b[i][1].interp.u && a[i][1]._rates == b[i][1]._rates && a[i][2]._prices == b[i][2]._prices, eachindex(a, b))
 
     # a Gaussian copula is its correlation matrix and the independence copula the identity, in the
     # Tuple and NamedTuple forms; `GaussianCopula(I)` is an `IndependentCopula` in some versions
@@ -49,9 +61,11 @@ Base.rand(::Random.AbstractRNG, ::EdgeCopula) = [0.0, 0.5]
     Id = [1.0 0.0; 0.0 1.0]
     for (C, ρ) in ((GaussianCopula(copy(Σ)), Σ), (IndependentCopula(2), Id), (GaussianCopula(copy(Id)), Id))
         kw = (; n_scenarios = 3, timestep = dt, horizon = 2.0)
-        b = simulate((v, m), ρ; kw..., rng = Random.Xoshiro(1))
-        @test same(simulate((v, m), C; kw..., rng = Random.Xoshiro(1)), b)
-        nt = simulate((rate = v, stock = m), C; kw..., rng = Random.Xoshiro(1))
+        rng_c, rng_m, rng_n = Random.Xoshiro(1), Random.Xoshiro(1), Random.Xoshiro(1)
+        b = simulate((v, m), ρ; kw..., rng = rng_m)
+        @test same(simulate((v, m), C; kw..., rng = rng_c), b)
+        nt = simulate((rate = v, stock = m), C; kw..., rng = rng_n)
+        @test rng_c == rng_m == rng_n
         @test keys(first(nt)) == (:rate, :stock)
         @test same([Tuple(s) for s in nt], b)
     end
@@ -74,6 +88,26 @@ Base.rand(::Random.AbstractRNG, ::EdgeCopula) = [0.0, 0.5]
 
     @test_throws DimensionMismatch simulate((m, m), ClaytonCopula(3, 2.0); n_scenarios = 1)
     @test_throws DimensionMismatch simulate((m, m), IndependentCopula(3); n_scenarios = 1)
+
+    @testset "declared copula sample types carry pathwise derivatives" begin
+        for model in (m, v)
+            function terminal(c)
+                p = only(simulate((model, model), ShiftCopula(c); n_scenarios = 1, timestep = 1.0, horizon = 1.0, rng = Random.Xoshiro(1)))[2]
+                return model isa Equity.BlackScholesMerton ? p(1.0) : discount(p, 1.0)
+            end
+            c, h = 0.2, 1.0e-6
+            d1 = ForwardDiff.derivative(terminal, c)
+            @test d1 ≈ (terminal(c + h) - terminal(c - h)) / (2h) rtol = 1.0e-7
+            d2 = ForwardDiff.derivative(x -> ForwardDiff.derivative(terminal, x), c)
+            @test d2 ≈ (ForwardDiff.derivative(terminal, c + h) - ForwardDiff.derivative(terminal, c - h)) / (2h) rtol = 1.0e-7
+            rng_f, rng_d = Random.Xoshiro(1), Random.Xoshiro(1)
+            plain = simulate((model, model), ShiftCopula(c); n_scenarios = 1, timestep = 1.0, horizon = 1.0, rng = rng_f)
+            dual = simulate((model, model), ShiftCopula(ForwardDiff.Dual{Nothing}(c, 1.0)); n_scenarios = 1, timestep = 1.0, horizon = 1.0, rng = rng_d)
+            @test rng_f == rng_d
+            value(p) = model isa Equity.BlackScholesMerton ? p(1.0) : discount(p, 1.0)
+            @test ForwardDiff.value(value(only(dual)[2])) == value(only(plain)[2])
+        end
+    end
 
     # the standard normal quantile, accurate in both tails, and never infinite
     @test FinanceModels.__normal_quantile(0.5) == 0.0
