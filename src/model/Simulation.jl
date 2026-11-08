@@ -123,8 +123,9 @@ function __simulate_paths(finish::F, kernels::Tuple, g::__SimGrid, n_scenarios::
     end
 end
 
-# An inline callable keeps the per-model update visible to the compiler without recursively
-# splatting the state tuple. Recursive reconstruction allocates heavily for larger model tuples.
+# An inline callable keeps the per-model update visible without recursive tuple splatting.
+# On Julia 1.13, Base.map over four tuples falls back to Vector{Any} from 32 elements: this path
+# is optimized for up to 31 models. Larger tuples still work, but allocate and cost more per model.
 struct __PathStep{G}
     j::Int
     grid::G
@@ -200,12 +201,6 @@ A `PricePath` is not a yield model: it has no `discount`. Only `simulate` builds
 struct PricePath{T <: Real} <: AbstractModel
     _times::Vector{Float64}
     _prices::Vector{T}
-    # simulate's constructor: the grid and the price at each of its times
-    function PricePath(times::Vector{Float64}, prices::Vector{T}) where {T <: Real}
-        length(times) == length(prices) ||
-            throw(DimensionMismatch("a PricePath needs one price per grid time, got $(length(prices)) for $(length(times))"))
-        return new{T}(times, prices)
-    end
 end
 
 (p::PricePath)(t) = p._prices[__grid_index(p._times, t)]
@@ -220,14 +215,12 @@ end
 
 function __sim_kernel(m::Equity.BlackScholesMerton, g::__SimGrid, ::Type{W}) where {W}
     r, q, σ = m.r, m.q, Equity.__path_vol(m.σ)
-    # Infinite rates give prices of 0 or Inf from the first step on. A negative σ gives the paths
-    # of |σ| with the shocks' signs flipped, which reverses their correlation with other models.
+    # A negative σ gives the paths of |σ| with the shocks' signs flipped, which reverses their
+    # correlation with other models.
     # The sign is read from σ's value: under ForwardDiff 1, a dual number at 0 with a negative
     # partial compares below 0, which would reject a derivative through σ = 0.
-    (isfinite(r) && isfinite(q)) ||
-        throw(ArgumentError("a simulated BlackScholesMerton needs finite rates, got r = $r and q = $q"))
-    (isfinite(σ) && __primal(σ) >= 0) ||
-        throw(ArgumentError("a simulated BlackScholesMerton needs a finite, non-negative volatility, got σ = $σ"))
+    __primal(σ) >= 0 ||
+        throw(ArgumentError("a simulated BlackScholesMerton needs a non-negative volatility, got σ = $σ"))
     drift = (r - q - σ^2 / 2) * g.dt
     vol = σ * g.sqrt_dt
     E = promote_type(typeof(drift), typeof(vol), W)
@@ -268,8 +261,7 @@ times have no discretisation bias at any `timestep`.
   `MethodError`.
 - The drift is the model's constant `r - q`: risk-neutral when `r` is the risk-free rate, real-world
   when `r` is an expected return. It is never a simulated short rate.
-- Rates that are not finite, or a volatility that is negative or not finite, throw an
-  `ArgumentError`.
+- A negative volatility throws an `ArgumentError`.
 
 Paths are repeatable as for rate models: the same `rng` state, arguments and package versions give
 the same paths, and a model whose parameters carry ForwardDiff numbers draws the same shocks as its
