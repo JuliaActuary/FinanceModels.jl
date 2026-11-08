@@ -33,6 +33,7 @@ end
 import Copulas
 import ForwardDiff
 import Random
+import LinearAlgebra
 # a copula whose samples include an exact 0: its infinite normal quantile must not become a shock
 struct EdgeCopula <: Copulas.Copula{2} end
 Base.rand(::Random.AbstractRNG, ::EdgeCopula) = [0.0, 0.5]
@@ -99,6 +100,19 @@ Base.rand(::Random.AbstractRNG, ::EdgeCopula) = [0.0, 0.5]
         @test ForwardDiff.derivative(gaussian_value, 0.4) == ForwardDiff.derivative(matrix_value, 0.4)
         @test ForwardDiff.derivative(c -> ForwardDiff.derivative(gaussian_value, c), 0.4) ==
             ForwardDiff.derivative(c -> ForwardDiff.derivative(matrix_value, c), 0.4)
+        # Build in the interior, then move the stored matrix to the numerical-rank boundary:
+        # Copulas' own constructor may otherwise reject it before FinanceModels can validate it.
+        for d in (5, 10, 20)
+            Σ = fill(D(0.1, 1.0), d, d)
+            Σ[LinearAlgebra.diagind(Σ)] .= one(eltype(Σ))
+            C = GaussianCopula(Σ)
+            fill!(C.Σ, D(-1.0 / (d - 1), 1.0))
+            C.Σ[LinearAlgebra.diagind(C.Σ)] .= one(eltype(C.Σ))
+            rng = Random.Xoshiro(18)
+            before = copy(rng)
+            @test_throws ArgumentError simulate(ntuple(_ -> m, d), C; n_scenarios = 1, timestep = 1.0, horizon = 1.0, rng)
+            @test rng == before
+        end
         # A fixed non-Gaussian copula still supports model sensitivities: ∂S_T/∂r = T·S_T.
         stock_value(r) = only(simulate((v, Equity.BlackScholesMerton(r, 0.01, 0.2)), ClaytonCopula(2, 2.0); n_scenarios = 1, timestep = dt, horizon = 2.0, rng = Random.Xoshiro(16)))[2](2.0)
         @test ForwardDiff.derivative(stock_value, 0.03) ≈ 2 * stock_value(0.03)
