@@ -97,7 +97,7 @@ __shock_eltype(::__IndependentShocks) = Float64
 
 # Every dependence adapter supplies a shock source and its numeric type. Preparation belongs here,
 # so model buffers and the innovations they receive always use the same type contract.
-function __simulate(finish, models::Tuple, shocks, n_scenarios, timestep, horizon, rng)
+function __simulate(finish::F, models::Tuple, shocks, n_scenarios, timestep, horizon, rng) where {F}
     grid = __sim_grid(horizon, timestep)
     W = __shock_eltype(shocks)
     kernels = map(m -> __sim_kernel(m, grid, W), models)
@@ -106,7 +106,7 @@ end
 
 # `n_scenarios` scenarios on grid `g`, each the tuple of the kernels' paths passed through `finish`
 # (`only` for a single model).
-function __simulate_paths(finish, kernels::Tuple, g::__SimGrid, n_scenarios::Int, rng, shocks)
+function __simulate_paths(finish::F, kernels::Tuple, g::__SimGrid, n_scenarios::Int, rng, shocks) where {F}
     # `map` (rather than filling a vector of an abstract path type) infers the concrete element
     # type, so downstream pricing loops dispatch statically instead of dynamically per path
     return map(1:n_scenarios) do _
