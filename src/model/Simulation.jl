@@ -351,22 +351,22 @@ end
 function __correlation_factor(ρ::AbstractMatrix, d::Int)
     size(ρ) == (d, d) ||
         throw(DimensionMismatch("$d models need a $d×$d correlation matrix, got $(join(size(ρ), '×'))"))
-    tol = 8eps(float(typeof(__primal(zero(eltype(ρ))))))
-    for i in 1:d
-        abs(ρ[i, i] - 1) <= tol || throw(
-            ArgumentError("a correlation matrix has a unit diagonal, got $(ρ[i, i]) at [$i, $i]; scale a covariance matrix to correlations")
-        )
-        for j in 1:(i - 1)
-            abs(ρ[i, j] - ρ[j, i]) <= tol || throw(
-                ArgumentError("a correlation matrix is symmetric, got $(ρ[i, j]) at [$i, $j] and $(ρ[j, i]) at [$j, $i]")
-            )
-        end
-    end
-    # The loop consumes a dense factor. Normalize storage here too: sparse Cholesky otherwise
-    # selects CHOLMOD, whose L is a backend-specific component with a fill-reducing permutation.
+    # Normalize storage before validation and factorization: CHOLMOD's sparse L is a backend-specific
+    # component with a fill-reducing permutation, while the simulation consumes a dense factor.
     A = float.(Matrix(ρ))
     has_derivatives = __ad_depth(eltype(A)) > 0
     values = has_derivatives ? __primal.(A) : A
+    tol = 8eps(eltype(values))
+    for i in 1:d
+        abs(values[i, i] - 1) <= tol || throw(
+            ArgumentError("a correlation matrix has a unit diagonal, got $(values[i, i]) at [$i, $i]; scale a covariance matrix to correlations")
+        )
+        for j in 1:(i - 1)
+            abs(values[i, j] - values[j, i]) <= tol || throw(
+                ArgumentError("a correlation matrix is symmetric, got $(values[i, j]) at [$i, $j] and $(values[j, i]) at [$j, $i]")
+            )
+        end
+    end
     C = cholesky(Symmetric(values); check = false)
     if issuccess(C)
         return has_derivatives ? Matrix(cholesky(Symmetric(A)).L) : Matrix(C.L)
