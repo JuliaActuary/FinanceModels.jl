@@ -121,7 +121,7 @@ function __exact_fit_error(who, retcode, maxiters, z, residual, maturity)
         "$who $stopped: the largest relative residual is $residual, on the quote maturing at $maturity. No " *
             "curve with this interpolation may reprice the quotes (for example, a price that implies a " *
             "non-positive discount factor), or the quote prices may not determine every knot rate (a quote " *
-            "whose cashflows do not depend on its own maturity's knot). fit(spline, quotes, Fit.Loss()) " *
+            "whose cashflows do not depend on its own maturity's knot). Fit.LeastSquares() " *
             "minimizes the squared residuals instead."
     )
 end
