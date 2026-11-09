@@ -11,7 +11,7 @@ See the EIOPA guide for source versions and conventions.
 module EIOPA
 using ..FinanceModels: Yield, Spline, Fit, fit, ZeroRateCurve, ParSwapYield, ReadOnlyVector,
     Continuous, Periodic, Rate, rate, zero, forward
-import ..FinanceModels: ForwardDiff, discount
+import ..FinanceModels: ForwardDiff, discount, __primal
 
 include("Inputs.jl")
 include("Rounding.jl")

@@ -1,5 +1,48 @@
 using TOML
 
+@testset "EIOPA validation reads primal values" begin
+    D = ForwardDiff.Dual{:eiopa_boundary}
+    for seed in (-1.0, 1.0)
+        for endpoint in (0.0, 1.0)
+            x = D(endpoint, seed)
+            @test EIOPA.VAInputs(rcs_currency = 0.01, cssr = x).cssr === x
+            @test EIOPA.VAInputs(rcs_currency = 0.01, debt_to_assets = x).debt_to_assets === x
+            input = EIOPA.PublishedRFR(
+                [0.02, 0.03]; fsp = 2, llfr = Continuous(0.03), w_fsp = x,
+                ufr = Continuous(0.035), α = 0.11
+            )
+            @test input.w_fsp === x
+        end
+        usa = D(1.05, seed)
+        @test EIOPA.VAInputs(rcs_currency = 0.01, usa = usa).usa === usa
+        weights = [D(0.0, seed), D(1.0, -seed)]
+        input = EIOPA.RFRInputs(
+            [0.02, 0.04], [2, 5]; fsp = 2, llfr_weights = weights,
+            instrument = :government, ufr = Continuous(0.035), α = 0.11
+        )
+        expected = weights[1] * log1p(0.02) + weights[2] * (5log1p(0.04) - 2log1p(0.02)) / 3
+        @test EIOPA.calculate(input).diagnostics.llfr ≈ expected
+        x = D(0.0, seed)
+        p = EIOPA.ShockParameters(
+            [1, 20]; up_relative = [x, x], up_absolute = [x, x],
+            down_relative = [x, x], down_absolute = [x, x], floor = [-0.01, -0.01], ufr_shift_bp = x
+        )
+        @test first(p.up_relative) === x
+        @test p.ufr_shift_bp === x
+        # The statutory nonpositive-liability exception applies to the value, also at (0, 0).
+        @test EIOPA.cssr(x, x) === one(x)
+        @test EIOPA.cssr(D(1.0, seed), x) === one(x)
+    end
+    @test_throws ArgumentError EIOPA.PublishedRFR(
+        [0.02, 0.03]; fsp = 2, llfr = Continuous(0.03), w_fsp = 0.5,
+        ufr = Continuous(0.035), α = D(0.0, 1.0)
+    )
+    @test_throws ArgumentError EIOPA.PublishedRFR(
+        [D(-1.0, 1.0), D(0.03, 0.0)]; fsp = 2, llfr = Continuous(0.03), w_fsp = 0.5,
+        ufr = Continuous(0.035), α = 0.11
+    )
+end
+
 @testset "Official EIOPA May 2026 workbook" begin
     fixture = TOML.parsefile(joinpath(@__DIR__, "data", "eiopa_2026.toml"))
     p, v, expected = fixture["inputs"], fixture["va"], fixture["expected"]

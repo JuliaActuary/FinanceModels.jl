@@ -94,3 +94,24 @@ end
     @test_throws ArgumentError make(0.03, 0.04, 0)
     @test_throws DomainError discount(c, -1)
 end
+
+@testset "Exponential-forward limit sensitivities" begin
+    base = Yield.Constant(Continuous(0.02))
+    curve(u, a) = Yield.ExponentialForward(base; start = 10.0, initial_forward = Continuous(0.04), ufr = Continuous(u), α = a)
+    for u in (-0.01, 0.03)
+        @test ForwardDiff.derivative(a -> Yield.force_of_interest(curve(u, a), Inf), 0.11) == 0
+        @test ForwardDiff.derivative(v -> Yield.force_of_interest(curve(v, 0.11), Inf), u) == 1
+        @test ForwardDiff.derivative(v -> discount(curve(v, 0.11), Inf), u) == 0
+        for t in (0.0, 5.0, 20.0)
+            @test ForwardDiff.derivative(v -> discount(curve(v, 0.11), t, Inf), u) == 0
+            @test ForwardDiff.derivative(v -> discount(curve(v, 0.11), Inf, t), u) == 0
+        end
+    end
+    # A zero UFR has a finite limit; changing convergence speed changes its intercept.
+    limit = exp(-0.02 * 10 - 0.04 / 0.11)
+    @test ForwardDiff.derivative(a -> discount(curve(0.0, a), Inf), 0.11) ≈ limit * 0.04 / 0.11^2
+    @test ForwardDiff.derivative(a -> discount(curve(0.0, a), 5.0, Inf), 0.11) ≈ limit * exp(0.02 * 5) * 0.04 / 0.11^2
+    @test ForwardDiff.derivative(a -> discount(curve(0.0, a), Inf, 5.0), 0.11) ≈ -exp(-0.02 * 5) / limit * 0.04 / 0.11^2
+    @test_throws "no derivative" ForwardDiff.derivative(u -> discount(curve(u, 0.11), Inf), 0.0)
+    @test_throws "no derivative" ForwardDiff.derivative(u -> discount(curve(u, 0.11), 5.0, Inf), 0.0)
+end

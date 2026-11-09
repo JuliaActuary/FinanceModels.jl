@@ -30,12 +30,13 @@ struct RFRInputs{R, T, W, U, A, C}
         _require(!isempty(t) && length(r) == length(t) == length(w), "rates, tenors and weights must have equal nonzero lengths")
         _require(_finite(t) && all(x -> x > 0 && isinteger(x), t) && all(>(0), diff(t)), "DLT maturities must be positive, strictly increasing integers")
         _require(fsp in t && isinteger(fsp), "FSP must be an observed DLT maturity")
-        _require(_finite(w) && all(>=(0), w) && isapprox(sum(w), 1; atol = 1.0e-12, rtol = 0), "LLFR weights must be nonnegative and sum to one")
-        _require(all(i -> t[i] >= fsp || iszero(w[i]), eachindex(t)), "LLFR weights must be zero before the FSP")
+        values = __primal.(w)
+        _require(_finite(w) && all(>=(0), values) && isapprox(sum(values), 1; atol = 1.0e-12, rtol = 0), "LLFR weights must be nonnegative and sum to one")
+        _require(all(i -> t[i] >= fsp || iszero(values[i]), eachindex(t)), "LLFR weights must be zero before the FSP")
         _require(instrument in (:swaps, :government), "instrument must be :swaps or :government")
         _require(frequency isa Integer && frequency > 0, "coupon frequency must be a positive integer")
-        _require(_finite(r) && isfinite(cra_bp) && isfinite(α) && α > 0 && isfinite(rate(Continuous(ufr))), "rates and parameters must be finite, with α positive")
-        corrected = r .- cra_bp / 10000
+        _require(_finite(r) && isfinite(cra_bp) && isfinite(α) && __primal(α) > 0 && isfinite(rate(Continuous(ufr))), "rates and parameters must be finite, with α positive")
+        corrected = __primal.(r .- cra_bp / 10000)
         _require(all(>(-1), instrument === :swaps ? corrected ./ frequency : corrected), "adjusted rates must have positive compounding factors")
         rr, tt, ww = ReadOnlyVector(float.(r)), ReadOnlyVector(Int.(t)), ReadOnlyVector(float.(w))
         return new{typeof(rr), typeof(tt), typeof(ww), typeof(ufr), typeof(α), typeof(cra_bp)}(rr, tt, ww, Int(fsp), ufr, α, instrument, frequency, cra_bp)
@@ -72,10 +73,10 @@ struct PublishedRFR{R, L, W, U, A}
             isfinite(fsp) && isinteger(fsp) && fsp > 0 && length(r) == fsp,
             "published rates must cover exactly the integer years 1:FSP"
         )
-        _require(_finite(r) && all(>(-1), r), "published annual zero rates must be finite and greater than -1")
+        _require(_finite(r) && all(x -> __primal(x) > -1, r), "published annual zero rates must be finite and greater than -1")
         l, u = rate(Continuous(llfr)), rate(Continuous(ufr))
         _require(
-            _finite((l, u, α, w_fsp)) && α > 0 && 0 <= w_fsp <= 1,
+            _finite((l, u, α, w_fsp)) && __primal(α) > 0 && 0 <= __primal(w_fsp) <= 1,
             "published controls must be finite, with α positive and FSP weight in [0,1]"
         )
         rr, w = ReadOnlyVector(float.(r)), float(w_fsp)
@@ -111,11 +112,11 @@ struct VAInputs{R, C, D, U, V, S, Q}
     cssr::Q
     function VAInputs(; rcs_currency, rcs_country = nothing, debt_to_assets = nothing, use_macro_va = false, usa = nothing, valuations = nothing, sensitivities = nothing, cssr = nothing)
         _require(isfinite(rcs_currency), "currency RCS must be finite")
-        _require(usa === nothing || (isfinite(usa) && usa <= 1.05), "USA must be finite and at most 1.05")
+        _require(usa === nothing || (isfinite(usa) && __primal(usa) <= 1.05), "USA must be finite and at most 1.05")
         _require(!(use_macro_va && usa !== nothing), "macro VA and USA are mutually exclusive")
         _require(rcs_country === nothing || isfinite(rcs_country), "country RCS must be finite")
-        _require(debt_to_assets === nothing || (isfinite(debt_to_assets) && 0 <= debt_to_assets <= 1), "debt-to-assets ratio must be in [0,1]")
-        _require(!use_macro_va || (rcs_country !== nothing && debt_to_assets !== nothing && isfinite(rcs_country) && isfinite(debt_to_assets) && 0 <= debt_to_assets <= 1), "macro VA requires country RCS and a debt-to-assets ratio in [0,1]")
+        _require(debt_to_assets === nothing || (isfinite(debt_to_assets) && 0 <= __primal(debt_to_assets) <= 1), "debt-to-assets ratio must be in [0,1]")
+        _require(!use_macro_va || (rcs_country !== nothing && debt_to_assets !== nothing && isfinite(rcs_country) && isfinite(debt_to_assets) && 0 <= __primal(debt_to_assets) <= 1), "macro VA requires country RCS and a debt-to-assets ratio in [0,1]")
         _require(count(!isnothing, (valuations, sensitivities, cssr)) <= 1, "supply only one CSSR source")
         if valuations !== nothing
             _require(valuations isa NamedTuple && Set(keys(valuations)) == Set((:assets, :assets_notional, :liabilities, :liabilities_notional)) && _finite(values(valuations)), "valuations require four finite named amounts")
@@ -123,7 +124,7 @@ struct VAInputs{R, C, D, U, V, S, Q}
         if sensitivities !== nothing
             _require(sensitivities isa NamedTuple && Set(keys(sensitivities)) == Set((:assets, :liabilities)) && _finite(values(sensitivities)), "sensitivities require finite assets and liabilities PVBP")
         end
-        _require(cssr === nothing || (isfinite(cssr) && 0 <= cssr <= 1), "CSSR must be in [0,1]")
+        _require(cssr === nothing || (isfinite(cssr) && 0 <= __primal(cssr) <= 1), "CSSR must be in [0,1]")
         return new{typeof(rcs_currency), typeof(rcs_country), typeof(debt_to_assets), typeof(usa), typeof(valuations), typeof(sensitivities), typeof(cssr)}(rcs_currency, rcs_country, debt_to_assets, use_macro_va, usa, valuations, sensitivities, cssr)
     end
 end

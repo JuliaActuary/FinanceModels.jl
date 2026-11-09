@@ -4,6 +4,8 @@
 
 ### EIOPA curves and stresses
 
+- Parameter checks read primal values at ForwardDiff boundaries, and exponential-forward limits
+  preserve sensitivities at infinity, including finite limits at zero UFR.
 - Add `Spline.ConstantForward()` for log-discount interpolation and bootstrapping,
   and `Yield.ExponentialForward` for convergence to a UFR.
 - Add `EIOPA` basic RFR, CSSR/VA and upward/downward shock calculations based on

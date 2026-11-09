@@ -57,10 +57,20 @@ function __log_interval(c::ExponentialForward, a, b)
     __primal(a) >= __primal(c.start) && return __exponential_interval(c, a, b)
     return __log_interval(c.base, a, c.start) + __exponential_interval(c, c.start, b)
 end
-FinanceCore.discount(c::ExponentialForward, t) = exp(-__log_discount(c, t))
-FinanceCore.discount(c::ExponentialForward, a, b) = exp(-__log_interval(c, a, b))
+FinanceCore.discount(c::ExponentialForward, t) =
+    __at_infinity(t) ? __discount_at_infinity(c) : exp(-__log_discount(c, t))
+function FinanceCore.discount(c::ExponentialForward, a, b)
+    if __at_infinity(a) || __at_infinity(b)
+        a == b && return one(c.ufr)
+        t = __at_infinity(a) ? b : a
+        tail = __shift_tail(__log_tail(c), t, __log_discount(c, t))
+        return __discount_at_infinity(__at_infinity(a) ? -1 * tail : tail)
+    end
+    return exp(-__log_interval(c, a, b))
+end
 function force_of_interest(c::ExponentialForward, t)
     __check_time(t, "ExponentialForward")
+    __at_infinity(t) && return c.ufr
     __primal(t) < __primal(c.start) && return force_of_interest(c.base, t)
     return c.ufr + (c.initial_forward - c.ufr) * exp(-c.α * (t - c.start))
 end

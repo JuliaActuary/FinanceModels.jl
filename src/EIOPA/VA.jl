@@ -8,7 +8,7 @@ a positive spread increase). This exception is omitted from RFR TD §9.3.2.
 """
 function cssr(assets_pvbp, liabilities_pvbp)
     _require(_finite((assets_pvbp, liabilities_pvbp)), "PVBP values must be finite")
-    liabilities_pvbp <= 0 && return one(assets_pvbp + liabilities_pvbp)
+    __primal(liabilities_pvbp) <= 0 && return one(assets_pvbp + liabilities_pvbp)
     return clamp(assets_pvbp / liabilities_pvbp, 0, 1)
 end
 
@@ -68,7 +68,7 @@ function asset_spread_shock(asset_curve::Yield.AbstractYieldModel, shift::Rate)
     return Yield.TenorShift(
         asset_curve, (z, t) -> begin
             y = rate(convert(convention, z)) + bump
-            _require(y > -convention.frequency, "shifted periodic zero yield must be greater than minus its compounding frequency")
+            _require(__primal(y) > -convention.frequency, "shifted periodic zero yield must be greater than minus its compounding frequency")
             if Yield.__at_infinity(t) && iszero(Yield.__primal(y))
                 throw(ArgumentError("discount(periodic asset spread shock, Inf) cannot determine the finite limit from a zero limiting yield; use a finite maturity"))
             end
@@ -78,7 +78,7 @@ function asset_spread_shock(asset_curve::Yield.AbstractYieldModel, shift::Rate)
 end
 
 function _va_curve(prefix, llfr, adjustment, i; ufr = i.ufr)
-    _require(isfinite(adjustment) && adjustment > -1, "VA must be finite and greater than -1")
+    _require(isfinite(adjustment) && __primal(adjustment) > -1, "VA must be finite and greater than -1")
     shift = log1p(adjustment)
     # A parallel continuous-zero shift through the FSP, but only the first
     # weighted term changes in the LLFR (RFR TD §10.2.1).
