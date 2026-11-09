@@ -1,5 +1,17 @@
 # FinanceModels.jl release notes
 
+## v7.3.0 (unreleased)
+
+### Zero-native curve limits at infinity
+
+- `discount` and the log-discount of zero-native curves (`Constant`, Nelson–Siegel/Svensson,
+  Cairns–Pritchard and yield shifts) at `t = Inf`
+  take their limit from the curve tail. Finite-time values are unchanged; the forwards at infinity
+  retain the limiting rate rather than differentiating the branched log-discount.
+  Derivatives of `discount(s, Inf)` are zero where the limit is 0 or Inf, rather than NaN, and
+  throw where a zero limiting rate carries partials. Intervals ending at infinity have zero
+  derivatives where the limit is 0.
+
 ## v7.2.0
 
 This release adds equity price paths, joint economic scenarios and Copulas.jl integration, and

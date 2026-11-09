@@ -287,6 +287,51 @@ FinanceModels.Yield.force_of_interest(::__ClosedFormForwardCurve, t) = 0.03 + 0.
         @test isnan(lim(-1.0))
         @test_throws "no derivative" ForwardDiff.derivative(lim, 0.0)
         @test ForwardDiff.derivative(lim, 1.0) == 0.0
+        # A shift on its own takes its limit from the same fallback tail, so the derivative there is
+        # the limit's: exp(-z·t) at t = Inf has partials 0·Inf (NaN), and L = z·t has Inf.
+        flat3 = Yield.Constant(Continuous(0.03))
+        for shift in (
+                k -> Yield.TenorShift(flat3, (z, t) -> z + Continuous(k)),
+                k -> Yield.ProjectedShift(flat3, (τ, z, t) -> z + Continuous(k * τ / 2), 2.0),
+            )
+            @test discount(shift(0.01), Inf) === 0.0
+            @test discount(shift(-0.05), Inf) == Inf
+            @test isnan(discount(shift(-0.03), Inf))
+            @test ForwardDiff.derivative(k -> discount(shift(k), Inf), 0.01) == 0.0
+            @test ForwardDiff.derivative(k -> discount(shift(k), 5.0, Inf), 0.01) == 0.0
+            @test ForwardDiff.derivative(k -> Yield.__log_discount(shift(k), Inf), 0.01) == 0.0
+            @test ForwardDiff.derivative(k -> discount(shift(k), Inf), -0.05) == 0.0
+            @test_throws "no derivative" ForwardDiff.derivative(k -> discount(shift(k), Inf), -0.03)
+            # The forward differentiates z(t)·t in time, not the limit L takes at infinity, also
+            # where a composite or a blend reads it.
+            @test rate(Yield.instantaneous_forward(shift(0.01), Inf)) ≈ 0.04 rtol = 1.0e-15
+            @test rate(Yield.instantaneous_forward(shift(0.01) + flat3, Inf)) ≈ 0.07 rtol = 1.0e-15
+            low = Yield.Blend(shift(-0.02), flat3, 0.5, Yield.DiscountFactors())
+            @test rate(Yield.instantaneous_forward(low, Inf)) ≈ 0.01 rtol = 1.0e-14
+        end
+    end
+
+    @testset "zero-native tails share parameter and forward limits" begin
+        constructors = (
+            r -> Yield.Constant(Continuous(r)),
+            r -> Yield.NelsonSiegel(2.0, r, -0.01, 0.005),
+            r -> Yield.NelsonSiegelSvensson(2.0, 5.0, r, -0.01, 0.005, 0.002),
+            r -> Yield.CairnsPritchard(0.5, 1.5, r, -0.01, 0.005),
+            r -> Yield.CairnsPritchardExtended(0.5, 1.5, 3.0, r, -0.01, 0.005, 0.002),
+        )
+        for make in constructors, r in (0.03, -0.02)
+            @test discount(make(r), Inf) == (r > 0 ? 0.0 : Inf)
+            @test ForwardDiff.derivative(x -> discount(make(x), Inf), r) == 0.0
+            @test ForwardDiff.derivative(x -> Yield.__log_discount(make(x), Inf), r) == 0.0
+            @test rate(Yield.instantaneous_forward(make(r), Inf)) == r
+            @test ForwardDiff.derivative(x -> rate(Yield.instantaneous_forward(make(x), Inf)), r) == 1.0
+            t = 3.0
+            @test rate(Yield.instantaneous_forward(make(r), t)) ≈
+                ForwardDiff.derivative(u -> rate(zero(make(r), u)) * u, t) rtol = 1.0e-14
+        end
+        for make in constructors
+            @test_throws "no derivative" ForwardDiff.derivative(x -> discount(make(x), Inf), 0.0)
+        end
     end
 
     @testset "endpoint derivatives" begin

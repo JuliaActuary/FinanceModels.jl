@@ -100,7 +100,14 @@ end
 # CairnsPritchard, the yield shifts), shared through the one-line `discount`
 # stubs at each curve definition. `exp(-L)` gives DF(0) = 1 exactly and keeps the promoted
 # curve/time numeric type.
-__discount_from_zero(c, t) = exp(-__zero_log_discount(c, t))
+__discount_from_zero(c, t) = __at_infinity(t) ? __discount_at_infinity(c) : exp(-__zero_log_discount(c, t))
+__log_discount_from_zero(c, t) = __at_infinity(t) ? __log_discount_at_infinity(c) : __zero_log_discount(c, t)
+
+# A forward differentiates the unbranched z(t)*t, not its parameter-sensitive tail limit.
+# At either endpoint its rate is the zero rate's limit; evaluating the product's derivative
+# at infinity would form 0*Inf even for exponentially decaying zero-rate loadings.
+__forward_from_zero(c, t) = (iszero(t) || __at_infinity(t)) ? FinanceCore.rate(Base.zero(c, t)) :
+    ForwardDiff.derivative(u -> __zero_log_discount(c, u), t)
 
 # Generic callable fallback: `curve(t) ≡ discount(curve, t)`. Covers every
 # AbstractYieldModel subtype (Constant, Spline, CompositeYield, ScaledYield,
