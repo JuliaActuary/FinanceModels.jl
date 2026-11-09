@@ -183,7 +183,7 @@ Weights that don't sum to 1, to rounding, throw an `ArgumentError`: number weigh
 | `Yield.Blend(a, b, w, Yield.ForwardRates(p))` | `Blend` | ``f = w f_a + (1-w) f_b``, `w` read once per period |
 
 !!! warning "Par-rate spreads cannot be composed additively"
-    Curve arithmetic operates on zero rates. If your base rates and spreads are quoted as **par rates**, you cannot simply add the spread curve to the base curve and get the same result as fitting a single curve to the combined par rates. To target base par yields plus par spreads, add the quoted rates first and fit one curve to those combined quotes. Fitting the two quote sets separately does not make curve addition equivalent. See the examples in [`CompositeYield`](@ref FinanceModels.Yield.CompositeYield) for a demonstration of this difference.
+    Curve arithmetic operates on zero rates. If your base rates and spreads are quoted as **par rates**, you cannot simply add the spread curve to the base curve and get the same result as fitting a single curve to the combined par rates. To target base par yields plus par spreads, add the quoted rates first and fit one curve to those combined quotes. Fitting the two quote sets separately does not make curve addition equivalent. See the examples in [`CompositeYield`](@ref FinanceModels.Yield.CompositeYield) for a demonstration of this difference. To apply par spreads over an existing curve without refitting it, use [`quote_shift`](@ref FinanceModels.Yield.quote_shift); it meets the shifted quotes at the quoted tenors only.
 
 ## Performance
 
