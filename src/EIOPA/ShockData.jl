@@ -1,4 +1,4 @@
-# EIOPA, 2026. Articles 165–166 as amended by EU 2026/269.
+# EIOPA, 2026. Articles 166–167 as amended by EU 2026/269.
 # Source: https://eur-lex.europa.eu/eli/reg_del/2026/269/oj/eng
 # Cross-checked against the official workbook's Parameters!H17:K66.
 # Regenerate with test/data/extract_eiopa.py; fixture records source SHA-256.

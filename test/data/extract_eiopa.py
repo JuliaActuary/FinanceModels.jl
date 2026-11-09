@@ -79,7 +79,7 @@ with (root / "test/data/eiopa_2026.toml").open("w") as f:
             f.write("\n")
 
 with (root / "src/EIOPA/ShockData.jl").open("w") as f:
-    f.write("# EIOPA, 2026. Articles 165–166 as amended by EU 2026/269.\n")
+    f.write("# EIOPA, 2026. Articles 166–167 as amended by EU 2026/269.\n")
     f.write("# Source: https://eur-lex.europa.eu/eli/reg_del/2026/269/oj/eng\n")
     f.write("# Cross-checked against the official workbook's Parameters!H17:K66.\n")
     f.write("# Regenerate with test/data/extract_eiopa.py; fixture records source SHA-256.\n")

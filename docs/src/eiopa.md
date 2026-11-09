@@ -412,7 +412,7 @@ Both rate assumptions have explicit compounding. The start log-discount is cache
 
 - [EIOPA-BoS-26/198, May 2026](https://www.eiopa.europa.eu/document/download/7da8a1f3-e395-4789-bdc1-76984f8510b2_en): §8 and Annex D for basic curves; §§9–10 for VA, including published-input controls in §10.1.
 - [EIOPA workbook, 19 May 2026](https://www.eiopa.europa.eu/document/download/01e0930c-d78d-4806-8e83-a27609ea57c5_en): reference calculations and publication rounding.
-- [EU 2026/269](https://eur-lex.europa.eu/eli/reg_del/2026/269/oj/eng): amendments to Articles 46, 51a, 165 and 166.
+- [EU 2026/269](https://eur-lex.europa.eu/eli/reg_del/2026/269/oj/eng): amendments to Articles 46, 51a, 166 and 167.
 
 The default shock table is pinned to that regulation. UFR, FSP, selected observations,
 LLFR controls, convergence parameters and risk-corrected spreads remain caller-supplied.

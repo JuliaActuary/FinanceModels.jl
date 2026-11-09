@@ -3,7 +3,7 @@
     EIOPA.ShockParameters(tenors; up_relative, up_absolute, down_relative,
         down_absolute, floor, ufr_shift_bp=15)
 
-Versioned 2027 standard-formula shocks (Articles 165–166), or caller-supplied
+Versioned 2027 standard-formula shocks (Articles 166–167), or caller-supplied
 piecewise-linear parameters. Relative shocks are fractions; absolute shocks and
 downward floors are annual-effective decimals. Beyond the parameter grid its
 endpoint values are held constant. All vectors are copied and read-only.
