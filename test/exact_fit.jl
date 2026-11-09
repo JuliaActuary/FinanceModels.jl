@@ -38,7 +38,7 @@
         @test Yield.__quote_size(q, c) ≈ 1 + 1.2exp(-0.2)
         qf = Quote(0.0, Bond.Floating(0.005, Periodic(2), 3.0, "SOFR"))
         ctx = Models(c)
-        expected = sum(abs(cf.amount) * discount(c, cf.time) for cf in collect(Projection(qf.instrument, ctx)))
+        expected = 1 + 0.0025sum(exp.(-0.04 .* (0.5:0.5:3.0)))
         @test Yield.__quote_size(qf, ctx) ≈ expected
     end
 
