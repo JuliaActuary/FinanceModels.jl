@@ -36,9 +36,10 @@
         c = Yield.Constant(Continuous(0.04))
         q = Quote(0.0, [Cashflow(-1.0, 0.0), Cashflow(1.2, 5.0)])
         @test Yield.__quote_size(q, c) ≈ 1 + 1.2exp(-0.2)
-        qf = Quote(0.0, Bond.Floating(0.005, Periodic(2), 3.0))
-        expected = sum(abs(cf.amount) * discount(c, cf.time) for cf in collect(Projection(qf.instrument, c)))
-        @test Yield.__quote_size(qf, c) ≈ expected
+        qf = Quote(0.0, Bond.Floating(0.005, Periodic(2), 3.0, "SOFR"))
+        ctx = Models(c)
+        expected = sum(abs(cf.amount) * discount(c, cf.time) for cf in collect(Projection(qf.instrument, ctx)))
+        @test Yield.__quote_size(qf, ctx) ≈ expected
     end
 
     @testset "bootstrap keeps finite scales for distant tiny prices" begin
