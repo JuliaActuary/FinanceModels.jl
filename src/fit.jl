@@ -237,8 +237,8 @@ return an unfitted model. Address the cause and fit again: a different starting 
 different `optimizer`, tighter or longer solver settings (for example `Fit.Loss()` with
 `solve_kwargs = (; maxiters = 10_000)`, or `Fit.Exact(maxiters = 500)`), or quotes that the model
 can fit. A spline fit's exact solve fails when no curve of its interpolation method reprices the
-quotes (a price that implies a non-positive discount factor, for example); minimizing a loss with
-`Fit.Loss()` minimizes the loss instead (see its contract).
+quotes (a price that implies a non-positive discount factor, for example); use
+[`Fit.Loss`](@ref FinanceModels.Fit.Loss) to minimize a loss instead.
 Choose the model deliberately; switching to another interpolation method on failure changes the
 curve.
 """

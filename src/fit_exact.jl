@@ -9,10 +9,18 @@ struct __RepricingResiduals{S, I, T, Q, E}
     extrapolation::E
     who::String
 end
-function (r::__RepricingResiduals)(z)
+function __repricing_values(r, z, curve)
     own = Tuple{ForwardDiff.Tag{typeof(r), Float64}}
-    curve = __trial_curve(r.spline, r.interpolation, z, r.tenors, r.extrapolation)
     return map(q -> __own_duals(c -> __quote_value(c, q) - q.price, curve, eltype(z), own, r.who, __SPLINE_FIT_HINT), r.quotes)
+end
+(r::__RepricingResiduals)(z) = __repricing_values(r, z, __trial_curve(r.spline, r.interpolation, z, r.tenors, r.extrapolation))
+
+# Reuse the candidate curve for its residuals and gross quote sizes.
+function __repricing_point(r, z)
+    curve = __trial_curve(r.spline, r.interpolation, z, r.tenors, r.extrapolation)
+    v = __repricing_values(r, z, curve)
+    sizes = [__quote_size(q, curve; value = v[i] + q.price) for (i, q) in enumerate(r.quotes)]
+    return v, sizes
 end
 
 # An exact fit's relative residual at which it has converged, the size of a Newton step (in knot rates) below
@@ -22,16 +30,6 @@ const __EXACT_FIT_FTOL = 1.0e-14
 const __EXACT_FIT_STEPTOL = 1.0e-14
 const __EXACT_FIT_RTOL = sqrt(eps(Float64))
 
-# Each quote's size (`__quote_size`) with pricing residuals `v` on the curve at knot rates `z`, into `s`: its
-# value, for nonnegative cashflows.
-function __quote_sizes!(s, r::__RepricingResiduals, z, v)
-    curve = __trial_curve(r.spline, r.interpolation, z, r.tenors, r.extrapolation)
-    for i in eachindex(s, v)
-        q = r.quotes[i]
-        s[i] = __quote_size(q, curve; value = v[i] + q.price)
-    end
-    return s
-end
 # The exact solve's vector arithmetic, which does not depend on the quotes' types. Kept out of line, it is
 # compiled once rather than inlined into the solve for each type of quotes. `__newton_step` is the Newton step
 # for the scaled residuals `f`, from the Jacobian `J` of the unscaled ones, or `nothing` when the Jacobian is
@@ -64,26 +62,23 @@ end
 # decreases the residuals.
 function __solve_knot_rates(r::__RepricingResiduals, z0, maxiters)
     ReturnCode = Optimization.SciMLBase.ReturnCode
-    v0 = r(z0)
+    v0, sizes = __repricing_point(r, z0)
     # The Jacobian's chunk follows the number of knots, so the configuration's type is known only at run time.
     # Asserting the Jacobian's type keeps the iterations inferred and compiled once for any number of knots
     # (the precompile workload's); only the Jacobian itself is compiled per chunk.
     config = ForwardDiff.JacobianConfig(r, z0)
-    # The quotes' sizes, at the seed (which scale the line search) and on the curve reached. Loops rather than
-    # closures keep the code compiled for each type of quotes small.
-    sizes = __quote_sizes!(similar(v0), r, z0, v0)
     search = __line_search_scale(sizes)
     z, v, f = copy(z0), v0, __scaled_residuals(v0, search)
     ϕ = sum(abs2, f)
     retcode = ReturnCode.MaxIters
     for _ in 1:maxiters
-        __largest_relative_residual(v, __quote_sizes!(sizes, r, z, v)) <= __EXACT_FIT_FTOL &&
+        __largest_relative_residual(v, sizes) <= __EXACT_FIT_FTOL &&
             (retcode = ReturnCode.Success; break)
         δ = __newton_step(ForwardDiff.jacobian(r, z, config)::Matrix{eltype(v0)}, search, f)
         isnothing(δ) && (retcode = ReturnCode.InternalLinearSolveFailed; break)
         if maximum(abs, δ) <= __EXACT_FIT_STEPTOL
             z = __newton_trial(z, 1.0, δ)
-            v = r(z)
+            v, sizes = __repricing_point(r, z)
             f = __scaled_residuals(v, search)
             retcode = ReturnCode.Success
             break
@@ -91,18 +86,18 @@ function __solve_knot_rates(r::__RepricingResiduals, z0, maxiters)
         α, accepted = 1.0, false
         for _ in 1:30
             zt = __newton_trial(z, α, δ)
-            vt = r(zt)
+            vt, st = __repricing_point(r, zt)
             ft = __scaled_residuals(vt, search)
             ϕt = sum(abs2, ft)
             if ϕt <= (1 - 1.0e-4 * α) * ϕ   # false for a non-finite trial
-                z, v, f, ϕ, accepted = zt, vt, ft, ϕt, true
+                z, v, f, ϕ, sizes, accepted = zt, vt, ft, ϕt, st, true
                 break
             end
             α /= 2
         end
         accepted || (retcode = ReturnCode.Stalled; break)
     end
-    final = __relative_residuals(v, __quote_sizes!(sizes, r, z, v))
+    final = __relative_residuals(v, sizes)
     worst = argmax(final)
     final[worst] <= __EXACT_FIT_RTOL && return z
     throw(__exact_fit_error(r.who, retcode, maxiters, z, final[worst], maturity(r.quotes[worst])))
