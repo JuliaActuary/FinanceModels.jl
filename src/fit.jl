@@ -65,8 +65,8 @@ module Fit
     A singleton type passed to `fit` to bootstrap a spline curve one quote at a time.
     Each step solves for the zero rate at the next quote maturity to match its price.
 
-    Supports `Spline.Linear()` (equivalently `Spline.PolynomialSpline(1)` or
-    `Spline.BSpline(1)`). Bootstrapping requires that adding a knot on the right
+    Supports `Spline.ConstantForward()` and `Spline.Linear()` (the latter is equivalent
+    to `Spline.PolynomialSpline(1)` or `Spline.BSpline(1)`). Bootstrapping requires that adding a knot on the right
     leaves every earlier curve segment unchanged, so earlier quotes stay exactly
     priced. Linear interpolation of zero rates has this property; quadratic,
     cubic, higher-order B-spline, PCHIP, and Akima interpolation do not, because
@@ -350,7 +350,7 @@ Fit a model to a collection of quotes.
     per quote;
   - [`Fit.LeastSquares()`](@ref FinanceModels.Fit.LeastSquares): minimize the weighted squared pricing
     residuals of a knot curve, for any number of quotes;
-  - `Fit.Bootstrap()`, with `Spline.Linear()`.
+  - `Fit.Bootstrap()`, with `Spline.Linear()` or `Spline.ConstantForward()`.
 
   Spline fits, knot-curve refits, and generic optimizer fits default to `Fit.Loss()`.
 - `variables=default_variables(model)`: The variables to optimize over. This is a tuple of optic => interval pairs specifying which parameters of the model can vary. See extended help for more. Spline and knot-curve fits vary the knot rates and do not take `variables`.
@@ -366,7 +366,8 @@ Fit a model to a collection of quotes.
 
 Fitting a `Spline.SplineCurve` places one knot at each quote maturity and returns the same
 curve type as [`ZeroRateCurve`](@ref): a `Yield.MonotoneConvex` for `Spline.MonotoneConvex()`
-and a `Yield.Spline` otherwise. With one knot per quote, `fit(spline, quotes, Fit.Exact())` solves for the
+a `Yield.ConstantForward` for `Spline.ConstantForward()`, and a `Yield.Spline` otherwise.
+With one knot per quote, `fit(spline, quotes, Fit.Exact())` solves for the
 knot rates that reprice every quote ([`Fit.Exact`](@ref FinanceModels.Fit.Exact)): Newton's method
 on the quotes' pricing residuals, with a line search, from a fixed starting curve near 5%. It runs
 no optimizer. The returned curve reprices each quote to within `sqrt(eps())` of its size (the gross
@@ -377,7 +378,7 @@ that misprices the quotes; this can reflect incompatible quotes or numerical non
 with an Optimization.jl solver instead:
 `LBFGS()` for `Spline.MonotoneConvex()`, `Newton()` otherwise. A loss fit may also reprice every
 quote; its accuracy depends on the optimizer's convergence tolerance.
-`Fit.Bootstrap()` accepts `Spline.Linear()` only. Fitting an existing knot curve
+`Fit.Bootstrap()` accepts `Spline.Linear()` and `Spline.ConstantForward()`. Fitting an existing knot curve
 (`fit(curve, quotes)`, a [`Yield.AbstractInterpolatedZeroCurve`](@ref)) fits new knot rates at
 its tenors with its interpolation method and `extrapolation`. By default it minimizes the squared
 loss, from the same starting rates as a spline fit (not the curve's own); its default optimizer is
@@ -827,6 +828,7 @@ fit(mod0::FX.Forwards{P, S, D, F}, quotes, method::Fit.LeastSquares; kwargs...) 
 # Appending a knot must preserve every earlier segment, not merely the earlier
 # knot values. In particular, "local" smooth splines need not have this property.
 __supports_bootstrap(::Spline.SplineCurve) = false
+__supports_bootstrap(::Spline.ConstantForward) = true
 __supports_bootstrap(s::Union{Spline.PolynomialSpline, Spline.BSpline}) = s.order == 1
 
 __bootstrap_alternative(s::Spline.SplineCurve) = "fit it to all quotes at once with fit($s, quotes)"
@@ -839,7 +841,7 @@ function fit(
     __supports_bootstrap(mod0) || throw(
         ArgumentError(
             "Fit.Bootstrap does not support $mod0: adding a knot would change earlier " *
-                "curve segments and reprice earlier quotes. Use Spline.Linear(), or " *
+                "curve segments and reprice earlier quotes. Use Spline.Linear(), Spline.ConstantForward(), or " *
                 __bootstrap_alternative(mod0) * "."
         )
     )
