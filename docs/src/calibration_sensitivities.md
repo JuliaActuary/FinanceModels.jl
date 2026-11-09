@@ -44,9 +44,11 @@ table below).
   quotes passed to it: the original market inputs. Quotes implied from a fitted curve in another
   family (for example `implied_quote` at the curve's knots) are a synthetic family. Risk to them
   equals risk to the market quotes only when the curve was fitted to that family at those tenors.
-- **Exact fits only.** A differentiated fit must reprice its quotes. Bootstrap and
-  `fit(spline, quotes, Fit.Exact())` do; a loss fit is accepted only when one Newton correction of its knot
-  rates is at most `1e-6` in every component (see "Accuracy" below).
+- **What is differentiated.** `Fit.Exact()` and bootstrap differentiate the
+  repricing equations. `Fit.LeastSquares()` differentiates the optimality condition at a local
+  minimum. Knot-curve `Fit.Loss` fits must approximately reprice their quotes to be differentiated:
+  one Newton correction of their knot rates must be at most `1e-6` in every component (see
+  "Accuracy" below).
 - **Kinks.** Linear, quadratic, cubic, and B-spline interpolation are differentiable in their knot rates at fixed tenors. This does not imply smoothness in tenor at the knots.
   At a kink of `Spline.MonotoneConvex()` (a flat stretch of the curve, or two equal adjacent
   forwards), each partial is the centered response to a bump in its own direction. **On a flat
@@ -80,8 +82,8 @@ have kinks where no derivative exists; see [Kinks](@ref calibration-kinks) below
 
 ### How it works
 
-An exact spline fit places one knot at each quote maturity, so the fitted knot rates `z` solve the
-square repricing system
+For exact fits: a spline fit places one knot at each quote maturity, so the fitted knot rates `z`
+solve the square repricing system
 
 ```math
 R_i(z, p) = \operatorname{pv}(\text{curve}(z), \text{instrument}_i) - \text{price}_i = 0 .
@@ -93,6 +95,18 @@ knot rates. The Jacobian ``\partial R/\partial z`` is computed on primal values,
 numbers enter only through one evaluation of ``R`` with ordinary arithmetic, so FinanceModels'
 internal derivatives never mix with yours.
 
+Least-squares fits (`Fit.LeastSquares`) instead differentiate their optimality condition
+
+```math
+g(z, p) = J^\mathsf{T} W r(z, p) = 0 ,
+```
+
+where ``r`` holds the pricing residuals, ``J = \partial r/\partial z`` is their Jacobian and ``W``
+the diagonal matrix of weights: ``\mathrm{d}z = -H^{-1} (\partial g/\partial p)\,\mathrm{d}p``,
+where ``H = J^\mathsf{T} W J + \sum_i w_i r_i \nabla^2 r_i`` is the Hessian of half the weighted sum
+of squares. The derivatives include that residual-curvature term, which does not vanish when the
+residuals do not; without it they would be those of the Gauss–Newton approximation.
+
 ### What is supported
 
 | Calibration | Differentiable | Notes |
@@ -102,13 +116,17 @@ internal derivatives never mix with yours.
 | `fit(Spline.Linear(), quotes, Fit.Bootstrap())` | yes | exact to root-finder precision |
 | `fit(FX.Forwards(pair, spot, domestic, spline), quotes, …)` | yes | through the implied foreign quotes |
 | `fit(curve, quotes)`, refitting an existing knot curve | with one knot per quote | a loss fit by default; it must reprice its quotes; another number of knots throws a `DimensionMismatch` |
+| `fit(spline or curve, quotes, Fit.LeastSquares(; weights))` | quote prices, fixed cashflow amounts, weights | the optimality condition at a local minimum; curve-dependent cashflows and a dual extrapolation forward throw |
 | `fit(Yield.SmithWilson(…), quotes)` | quote prices and cashflow amounts (such as `Bond.Fixed` coupons) | differentiates the closed form directly; values match the primal fit to rounding, not bitwise |
 | other models (`Yield.NelsonSiegel`, `Yield.Constant`, short-rate models) | no | `fit` throws an `ArgumentError` |
 
 Dual numbers may appear in quote prices, in the rates of `Bond.Fixed` and `Bond.Floating`, in
 the amounts of `Cashflow`, `Composite`, and `FX.BasisSwapLeg` instruments (which covers
 `ZCBPrice`, `ZCBYield`, `ParYield`, `CMTYield`, `OISYield`, `ParSwapYield`, and FX quotes), and
-in a `Yield.FlatForwardAt` extrapolation forward.
+in a `Yield.FlatForwardAt` extrapolation forward. Least-squares differentiation supports fixed
+cashflows (`Cashflow` and `Bond.Fixed` amounts and coupons), quote prices, and weights. It does not
+support curve-dependent cashflows (`Bond.Floating`) or the extrapolation forward, which throw an
+`ArgumentError`.
 
 ### Accuracy
 
@@ -119,6 +137,8 @@ exact fit is at most `1e-6`. The correction is a local estimate of the fit's err
 guaranteed distance to the exact solution; like the conditioning check, it does not depend on
 the quotes' notionals. To tighten a loss fit, pass solver settings through `fit`'s
 `solve_kwargs`, for example `fit(Spline.MonotoneConvex(), quotes, Fit.Loss(abs2); solve_kwargs = (; g_tol = 1e-12))`.
+A least-squares fit is differentiated only where the Newton correction with the exact
+(AD-computed) Hessian at its knot rates is at most `1e-10`, the fit's own acceptance.
 Refitting with bumped quotes and taking finite differences is a much noisier check: optimizer
 noise of `1e-11` in the fitted rates becomes an error of order `1e-4` in a difference quotient.
 

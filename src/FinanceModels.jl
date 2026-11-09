@@ -12,6 +12,7 @@ using IntervalSets
 using AccessibleModels
 using Accessors
 using LinearAlgebra
+import SparseArrays
 using Transducers
 import DataInterpolations
 using Transducers: @next, complete, __foldl__, asfoldable
@@ -28,6 +29,7 @@ include("Projection.jl")
 include("valuation_contexts.jl")
 include("fit_implicit.jl")
 include("fit.jl")
+include("fit_least_squares.jl")
 
 export Cashflow, Quote, Forward, CommonEquity, Option, InterestRateSwap
 
