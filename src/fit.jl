@@ -64,6 +64,8 @@ module Fit
 
     A singleton type passed to `fit` to bootstrap a spline curve one quote at a time.
     Each step solves for the zero rate at the next quote maturity to match its price.
+    Instruments supply a cashflow projection, used to measure residuals against gross discounted
+    payments. Custom pricing-only contracts can use Fit.Loss().
 
     Supports `Spline.ConstantForward()` and `Spline.Linear()` (the latter is equivalent
     to `Spline.PolynomialSpline(1)` or `Spline.BSpline(1)`). Bootstrapping requires that adding a knot on the right
