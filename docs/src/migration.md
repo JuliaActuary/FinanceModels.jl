@@ -10,7 +10,8 @@
   silently stopped repricing: on uneven par quotes the residuals reached 0.40%
   (quadratic) and 0.11% (cubic). These strategies now throw an `ArgumentError`.
   **Migration:** use `Spline.Linear()` with `Fit.Bootstrap()`, or fit the smoother
-  strategy to all quotes at once with `Fit.Loss(x -> x^2)`; fit a monotone convex
+  strategy to all quotes at once with `fit(spline, quotes)` (a squared-loss fit), or
+  `fit(spline, quotes, Fit.Exact())` (available since v7.2); fit a monotone convex
   curve with `fit(Spline.MonotoneConvex(), quotes)` (bootstrap previously switched
   to this loss fit silently). Zero-coupon quote sets were exact with every strategy,
   so their fitted curves change only if you switch to a loss fit.
@@ -59,7 +60,8 @@
   0.1.14); environments pinned to Optimization 4 must upgrade it together with
   FinanceModels. Under Optim 2 (OptimizationOptimJL 0.4.9 and later) a loss fit
   at the default tolerance can land about 1e-9 from the exact fit; pass
-  `solve_kwargs = (; g_tol = 1e-12)` to fit to rounding.
+  `solve_kwargs = (; g_tol = 1e-12)` to tighten the fit, or choose `Fit.Exact()` for a spline
+  fit that reprices every quote (available since v7.2).
 
 ### Valuation contexts (FinanceCore 3)
 

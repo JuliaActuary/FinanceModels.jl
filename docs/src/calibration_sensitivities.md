@@ -44,9 +44,9 @@ table below).
   quotes passed to it: the original market inputs. Quotes implied from a fitted curve in another
   family (for example `implied_quote` at the curve's knots) are a synthetic family. Risk to them
   equals risk to the market quotes only when the curve was fitted to that family at those tenors.
-- **Exact fits only.** A differentiated fit must reprice its quotes. Bootstrap does; a loss fit
-  is accepted only when one Newton correction of its knot rates is at most `1e-6` in every
-  component (see "Accuracy" below).
+- **Exact fits only.** A differentiated fit must reprice its quotes. Bootstrap and
+  `fit(spline, quotes, Fit.Exact())` do; a loss fit is accepted only when one Newton correction of its knot
+  rates is at most `1e-6` in every component (see "Accuracy" below).
 - **Kinks.** Linear, quadratic, cubic, and B-spline interpolation are differentiable in their knot rates at fixed tenors. This does not imply smoothness in tenor at the knots.
   At a kink of `Spline.MonotoneConvex()` (a flat stretch of the curve, or two equal adjacent
   forwards), each partial is the centered response to a bump in its own direction. **On a flat
@@ -80,7 +80,7 @@ have kinks where no derivative exists; see [Kinks](@ref calibration-kinks) below
 
 ### How it works
 
-A spline fit places one knot at each quote maturity, so the fitted knot rates `z` solve the
+An exact spline fit places one knot at each quote maturity, so the fitted knot rates `z` solve the
 square repricing system
 
 ```math
@@ -97,10 +97,11 @@ internal derivatives never mix with yours.
 
 | Calibration | Differentiable | Notes |
 |:------------|:---------------|:------|
-| `fit(spline, quotes)` (`Fit.Loss`), every interpolation method | yes | the fit must reprice its quotes; see below |
+| `fit(spline, quotes, Fit.Exact())`, every interpolation method | yes | reprices its quotes to rounding |
+| `fit(spline, quotes)` or `fit(spline, quotes, Fit.Loss(f))` | yes | the fit must reprice its quotes; see below |
 | `fit(Spline.Linear(), quotes, Fit.Bootstrap())` | yes | exact to root-finder precision |
 | `fit(FX.Forwards(pair, spot, domestic, spline), quotes, …)` | yes | through the implied foreign quotes |
-| `fit(curve, quotes)`, refitting an existing knot curve | with one knot per quote | the spline fit on the curve's knots; another number of knots throws a `DimensionMismatch` |
+| `fit(curve, quotes)`, refitting an existing knot curve | with one knot per quote | a loss fit by default; it must reprice its quotes; another number of knots throws a `DimensionMismatch` |
 | `fit(Yield.SmithWilson(…), quotes)` | quote prices and cashflow amounts (such as `Bond.Fixed` coupons) | differentiates the closed form directly; values match the primal fit to rounding, not bitwise |
 | other models (`Yield.NelsonSiegel`, `Yield.Constant`, short-rate models) | no | `fit` throws an `ArgumentError` |
 
@@ -112,12 +113,12 @@ in a `Yield.FlatForwardAt` extrapolation forward.
 ### Accuracy
 
 The derivative is exact for the exactly repricing curve. Bootstrap reprices to root-finder
-precision. A loss fit stops at its optimizer's tolerance, and `fit` refuses to differentiate one
+precision, and `fit(spline, quotes, Fit.Exact())` to rounding. A loss fit stops at its optimizer's tolerance, and `fit` refuses to differentiate one
 unless the largest absolute component of one Newton correction of its knot rates towards the
 exact fit is at most `1e-6`. The correction is a local estimate of the fit's error, not a
 guaranteed distance to the exact solution; like the conditioning check, it does not depend on
 the quotes' notionals. To tighten a loss fit, pass solver settings through `fit`'s
-`solve_kwargs`, for example `fit(Spline.MonotoneConvex(), quotes; solve_kwargs = (; g_tol = 1e-12))`.
+`solve_kwargs`, for example `fit(Spline.MonotoneConvex(), quotes, Fit.Loss(abs2); solve_kwargs = (; g_tol = 1e-12))`.
 Refitting with bumped quotes and taking finite differences is a much noisier check: optimizer
 noise of `1e-11` in the fitted rates becomes an error of order `1e-4` in a difference quotient.
 

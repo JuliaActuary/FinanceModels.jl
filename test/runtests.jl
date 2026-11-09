@@ -39,6 +39,7 @@ include("regressions.jl")
 include("bootstrap.jl")
 include("implied_quote.jl")
 include("implicit_fit.jl")
+include("exact_fit.jl")
 include("kinks.jl")
 
 include("extensions.jl")
