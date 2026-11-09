@@ -16,7 +16,6 @@ struct ConstantForward{R, T, P, E} <: AbstractInterpolatedZeroCurve
     _tail::E
     function ConstantForward(g::KnotGrid; extrapolation = :flat_forward)
         __primal(first(g.tenors)) > 0 || throw(ArgumentError("ConstantForward requires positive knot tenors"))
-        extrapolation === :extension && throw(ArgumentError("ConstantForward does not support :extension"))
         t, z = last(g.tenors), last(g.rates)
         f = __last_discrete_forward(g.rates, g.tenors)
         tail = __build_tail(extrapolation, t, z, () -> f, () -> (f - z) / t)
@@ -39,7 +38,6 @@ end
 
 function __constant_forward_segment(c::ConstantForward, t)
     i = searchsortedlast(c.tenors, __primal(t))
-    i == 0 && return (zero(first(c.tenors)), zero(first(c._rates)), first(c._rates))
     i = min(i, length(c.tenors) - 1)
     i == 0 && return (zero(first(c.tenors)), zero(first(c._rates)), first(c._rates))
     a, b = c.tenors[i], c.tenors[i + 1]

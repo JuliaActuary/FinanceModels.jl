@@ -101,3 +101,11 @@ end
         end
     end
 end
+
+@testset "publication rejects dual controls outside requested maturities" begin
+    i = EIOPA.PublishedRFR(
+        [0.02, 0.03]; fsp = 2, llfr = Continuous(ForwardDiff.Dual{:publication}(0.04, 1.0)),
+        w_fsp = 1.0, ufr = Periodic(0.033, 1), α = 0.11
+    )
+    @test_throws "publication rounding does not support" EIOPA.publication(i; maturities = 1:1)
+end

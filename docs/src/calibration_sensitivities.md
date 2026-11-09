@@ -118,8 +118,8 @@ residuals do not; without it they would be those of the Gauss–Newton approxima
 | `fit(spline, quotes)` or `fit(spline, quotes, Fit.Loss(f))` | yes | the fit must reprice its quotes; see below |
 | `fit(Spline.Linear(), quotes, Fit.Bootstrap())` | yes | exact to root-finder precision |
 | `fit(FX.Forwards(pair, spot, domestic, spline), quotes, …)` | yes | through the implied foreign quotes |
-| `fit(curve, quotes)`, refitting an existing knot curve | with one knot per quote | a loss fit by default; it must reprice its quotes; another number of knots throws a `DimensionMismatch` |
-| `fit(spline or curve, quotes, Fit.LeastSquares(; weights))` | quote prices, fixed cashflow amounts, weights | the optimality condition at a local minimum; curve-dependent cashflows and a dual extrapolation forward throw |
+| `fit(curve, quotes)`, refitting an existing knot curve | with one knot per quote | a loss fit by default; it must reprice its quotes; another number of knots throws an `ArgumentError` |
+| `fit(spline or curve, quotes, Fit.LeastSquares(; weights))` | quote prices, fixed cashflow amounts, weights | the optimality condition at a local minimum; fixed cashflows required; a dual extrapolation forward throws |
 | `fit(Yield.SmithWilson(…), quotes)` | quote prices and cashflow amounts (such as `Bond.Fixed` coupons) | differentiates the closed form directly; values match the primal fit to rounding, not bitwise |
 | other models (`Yield.NelsonSiegel`, `Yield.Constant`, short-rate models) | no | `fit` throws an `ArgumentError` |
 

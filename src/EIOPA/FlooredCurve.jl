@@ -10,8 +10,6 @@ function Base.zero(c::_FlooredCurve, t)
     Yield.__check_time(t, "EIOPA downward floor")
     return Continuous(max(rate(zero(c.base, t)), log1p(_floor(c.parameters, t))))
 end
-discount(c::_FlooredCurve, t) = Yield.__at_infinity(t) ? Yield.__discount_at_infinity(c) : Yield.__discount_from_zero(c, t)
-Yield.__log_discount(c::_FlooredCurve, t) = Yield.__at_infinity(t) ? Yield.__log_discount_at_infinity(c) : Yield.__zero_log_discount(c, t)
 
 function Yield.__log_tail(c::_FlooredCurve)
     tail = Yield.__log_tail(c.base)

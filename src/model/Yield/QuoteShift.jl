@@ -5,7 +5,7 @@
 # The solve's trial curves skip validation, like a fit's; the returned curve is built through
 # `ZeroRateCurve`.
 __quote_bumps(b, ts) = ZeroRateCurve(b, ts, Sp.Linear(); extrapolation = :flat_zero)
-__trial_quote_bumps(b, ts) = __build(Sp.Linear(), KnotGrid(Unchecked(), b, ts); extrapolation = :flat_zero)
+__trial_quote_bumps(b, ts) = __trial_curve(Sp.Linear(), __interpolation(Sp.Linear(), length(ts)), b, ts, :flat_zero)
 
 # A copy of `b` with entry `k` replaced by `x`, in an element type holding both.
 function __with_bump(b, k, x)
@@ -203,7 +203,7 @@ function quote_shift(rule::R, curve::AbstractYieldModel, family::F, tenors) wher
             )
         )
         # Solve relative to the quote's size, as `implied_quote` does.
-        magnitude(x) = max(abs(value(primal, __with_bump(pb, k, x), qp.instrument)), abs(qp.price))
+        magnitude(x) = __quote_size(qp, primal + __trial_quote_bumps(__with_bump(pb, k, x), ts))
         s0 = magnitude(zero(t))
         σ = iszero(s0) ? one(s0) : s0
         g(x) = (value(curve, __with_bump(bumps, k, x), q.instrument) - q.price) / σ
