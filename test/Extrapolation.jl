@@ -73,6 +73,30 @@ spline_zero_curve_with_policy(d, r, t, policy::Symbol) = ZeroRateCurve(r, t, d; 
         end
     end
 
+    # A fit resolves its interpolation once and builds every trial curve through it. Were a
+    # polynomial spline's order branched on inside the AD-traced loss, each trial curve would be
+    # a union of the linear, quadratic, and cubic curves, all three compiled for every width of
+    # dual number (a 10-quote `fit(Spline.Linear(), quotes)` took 26 s on its first call).
+    @testset "fit trial curves have one concrete type" begin
+        D = ForwardDiff.Dual{Nothing, Float64, 3}
+        dual_rates = D.(rates, Ref(ForwardDiff.Partials((1.0, 0.0, 0.0))))
+        for d in descriptors, policy in policies
+            interpolation = Yield.__interpolation(d, length(times))
+            c = @inferred FinanceModels.__trial_curve(d, interpolation, dual_rates, times, policy)
+            @test isconcretetype(typeof(c))
+            public = ZeroRateCurve(dual_rates, times, d; extrapolation = policy)
+            @test typeof(c) == typeof(public)
+            @test c == public
+            # the interpolation read back from a built curve's type
+            @test (@inferred Yield.__interpolation(public)) === interpolation
+        end
+        # short grids reduce the order
+        for (d, n, order) in ((Spline.Cubic(), 1, 1), (Spline.Cubic(), 2, 1), (Spline.Cubic(), 3, 2), (Spline.Quadratic(), 2, 1), (Spline.Cubic(), 4, 3))
+            @test Yield.__interpolation(d, n) === Val(order)
+            @test Yield.__interpolation(ZeroRateCurve(rates[1:n], times[1:n], d)) === Val(order)
+        end
+    end
+
     @testset "boundary and AD: $descriptor" for descriptor in descriptors
         base = ZeroRateCurve(rates, times, descriptor)
         # A second-order one-sided difference measures the INTERIOR zero slope.
@@ -149,6 +173,23 @@ spline_zero_curve_with_policy(d, r, t, policy::Symbol) = ZeroRateCurve(r, t, d; 
             )
         )
         @test ForwardDiff.derivative(zf, fixed.forward) ≈ 1 - tn / horizon
+    end
+
+    # The `:linear` tail reads its slope from DataInterpolations' order-1 kernel
+    # (`Yield.__boundary_slope`), which must equal the public `derivative` exactly.
+    @testset ":linear slope is DataInterpolations.derivative" begin
+        DI = FinanceModels.DataInterpolations
+        D = ForwardDiff.Dual{Nothing, Float64, 2}
+        same(a, b) = isequal(a, b) && (!(a isa ForwardDiff.Dual) || ForwardDiff.partials(a) == ForwardDiff.partials(b))
+        for d in descriptors, k in (1, 2, 3, length(rates)), U in (Float64, BigFloat)
+            d isa Spline.MonotoneConvex && continue
+            k < 3 && d isa Union{Spline.PCHIP, Spline.Akima} && continue
+            duals = [D(x, ForwardDiff.Partials((Float64(i), -1.0))) for (i, x) in enumerate(rates[1:k])]
+            for r in (rates[1:k], Float32.(rates[1:k]), duals)
+                c = ZeroRateCurve(r, U.(times[1:k]), d; extrapolation = :linear)
+                @test same(c._tail.γ, convert(typeof(c._tail.γ), DI.derivative(c._interp, last(c.tenors))))
+            end
+        end
     end
 
     @testset "policy reconstruction" begin
