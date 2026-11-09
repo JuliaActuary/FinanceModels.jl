@@ -272,6 +272,9 @@ function __newton_polish(r, sw, z, f, J, config, who, maxiters)
         definite = !isnothing(δn)
         definite || break
         δ = δn
+        # The correction must resolve the same smooth interpolation branch as its Hessian.
+        kink = Yield.__near_kink(curve, z, -δ)
+        kink && break
         __lsq_accepted(δ) && return __fit_trial(z, 1.0, δ)
         kept = false
         α = 1.0
