@@ -1,6 +1,8 @@
 module Yield
 import ..AbstractModel
 import ..FinanceCore
+import ..FinanceModels
+import ..Transducers
 import ..Spline as Sp
 import ..ReadOnlyVector
 import ..DataInterpolations
@@ -31,6 +33,7 @@ include("Yield/NelsonSiegelSvensson.jl")
 include("Yield/CairnsPritchard.jl")
 include("Yield/MonotoneConvex.jl")
 include("Yield/ZeroRateCurve.jl")
+include("Yield/QuoteSize.jl")
 include("Yield/ImpliedQuote.jl")
 include("Yield/Blend.jl")
 include("Yield/Composition.jl")

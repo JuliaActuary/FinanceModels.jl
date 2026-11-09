@@ -81,6 +81,7 @@ end
 end
 
 function Base.zero(ns::NelsonSiegel, t)
+    __at_infinity(t) && return Continuous(ns.β₀ + zero(t))
     q = t / ns.τ₁
     __ns_short(q) && return __ns_zero_short(ns, q)
     # Bind leaf subexpressions (q, e) only — do NOT combine into `decay = (1-e)/q` and
@@ -97,7 +98,7 @@ function force_of_interest(ns::NelsonSiegel, t)
     return ns.β₀ + ns.β₁ * e + ns.β₂ * q * e
 end
 FinanceCore.discount(ns::NelsonSiegel, t) = __discount_from_zero(ns, t)
-__log_discount(ns::NelsonSiegel, t) = __zero_log_discount(ns, t)
+__log_discount(ns::NelsonSiegel, t) = __log_discount_from_zero(ns, t)
 __log_native(::NelsonSiegel) = true
 Base.zero(ns::NelsonSiegel, ts::AbstractArray) = zero.(Ref(ns), ts)
 FinanceCore.discount(ns::NelsonSiegel, ts::AbstractArray) = discount.(Ref(ns), ts)
@@ -165,6 +166,7 @@ end
 NelsonSiegelSvensson(τ₁ = 1.0, τ₂ = 1.0) = NelsonSiegelSvensson(τ₁, τ₂, 0.0, 0.0, 0.0, 0.0)
 
 function Base.zero(nss::NelsonSiegelSvensson, t)
+    __at_infinity(t) && return Continuous(nss.β₀ + zero(t))
     q₁ = t / nss.τ₁
     q₂ = t / nss.τ₂
     (__ns_short(q₁) || __ns_short(q₂)) && return __nss_zero_short(nss, q₁, q₂)
@@ -176,7 +178,7 @@ function Base.zero(nss::NelsonSiegelSvensson, t)
     return Continuous(nss.β₀ + nss.β₁ * (1 - e₁) / q₁ + nss.β₂ * ((1 - e₁) / q₁ - e₁) + nss.β₃ * ((1 - e₂) / q₂ - e₂))
 end
 FinanceCore.discount(nss::NelsonSiegelSvensson, t) = __discount_from_zero(nss, t)
-__log_discount(nss::NelsonSiegelSvensson, t) = __zero_log_discount(nss, t)
+__log_discount(nss::NelsonSiegelSvensson, t) = __log_discount_from_zero(nss, t)
 __log_native(::NelsonSiegelSvensson) = true
 function force_of_interest(nss::NelsonSiegelSvensson, t)
     __at_infinity(t) && return nss.β₀ + zero(t)

@@ -118,8 +118,8 @@ end
         for seed in 1:20
             kn = knotsets[mod1(seed, 3)]
             q = lsq_index(80; seed)
-            # every fourth index also through quotes priced one by one
-            routes = seed % 4 == 0 ? (q, [Quote(x.price, WrappedContract(x.instrument)) for x in q[1:40]]) : (q,)
+            # every fourth index also fits a smaller subset
+            routes = seed % 4 == 0 ? (q, q[1:40]) : (q,)
             for spline in (Spline.Linear(), Spline.Quadratic(), Spline.Cubic(), Spline.MonotoneConvex(), Spline.PCHIP()), qx in routes
                 c = try
                     fit(ZeroRateCurve(fill(0.04, length(kn)), kn, spline), qx, Fit.LeastSquares())
@@ -177,14 +177,15 @@ end
         @test_throws "the knot at 3.0" fit(cz, zqs, Fit.LeastSquares(weights = [1.0, 1.0, 1.0, 0.0, 0.0]))
     end
 
-    @testset "quotes whose cashflows the fit cannot read are priced one by one" begin
+    @testset "least squares requires fixed cashflows" begin
         sub = qs[1:40]
-        c5 = ZeroRateCurve(fill(0.04, 5), [1.0, 3.0, 5.0, 10.0, 20.0], Spline.Cubic())
         wrapped = [Quote(q.price, WrappedContract(q.instrument)) for q in sub]
-        @test rate.(knot_rates(fit(c5, wrapped, Fit.LeastSquares()))) ≈ rate.(knot_rates(fit(c5, sub, Fit.LeastSquares()))) atol = 1.0e-10
-        @test_throws "cashflows depend on the curve" ForwardDiff.derivative(
-            a -> discount(fit(c5, [Quote(q.price + a, q.instrument) for q in wrapped], Fit.LeastSquares()), 4.0), 0.0
-        )
+        @test_throws "fixed cashflows only" fit(c0, wrapped, Fit.LeastSquares())
+        @test_throws "fixed cashflows only" fit(Spline.Linear(), [Quote(1.0, Bond.Floating(0.005, Periodic(2), 3.0, "SOFR"))], Fit.LeastSquares())
+        q = Quote(0.0, [Cashflow(2.0, 1.0), Cashflow(-1.0, 1.0), Cashflow(1.0, 2.0)])
+        A, times, gross = FinanceModels.__cashflow_matrix([q])
+        c = Yield.Constant(Continuous(0.04))
+        @test only(gross * discount.(Ref(c), times)) ≈ Yield.__quote_size(q, c)
     end
 
     @testset "derivatives" begin

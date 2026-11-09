@@ -32,6 +32,23 @@
         end
     end
 
+    @testset "gross size remains meaningful for zero-price quotes" begin
+        c = Yield.Constant(Continuous(0.04))
+        q = Quote(0.0, [Cashflow(-1.0, 0.0), Cashflow(1.2, 5.0)])
+        @test Yield.__quote_size(q, c) ≈ 1 + 1.2exp(-0.2)
+        qf = Quote(0.0, Bond.Floating(0.005, Periodic(2), 3.0, "SOFR"))
+        ctx = Models(c)
+        expected = sum(abs(cf.amount) * discount(c, cf.time) for cf in collect(Projection(qf.instrument, ctx)))
+        @test Yield.__quote_size(qf, ctx) ≈ expected
+    end
+
+    @testset "bootstrap keeps finite scales for distant tiny prices" begin
+        q = ZCBPrice(1.0e-12, 1000.0)
+        c = fit(Spline.Linear(), [q], Fit.Bootstrap())
+        @test discount(c, 1000.0) ≈ q.price rtol = 1.0e-8
+        @test rate(only(knot_rates(c))) ≈ -log(q.price) / 1000 rtol = 1.0e-14
+    end
+
     @testset "notionals do not matter" begin
         unit = [Quote(p, Cashflow(1.0, t)) for (p, t) in zip([0.99, 0.97, 0.94, 0.9], [1.0, 2.0, 3.0, 5.0])]
         large = [Quote(1.0e9 * q.price, Cashflow(1.0e9, q.instrument.time)) for q in unit]

@@ -311,6 +311,29 @@ FinanceModels.Yield.force_of_interest(::__ClosedFormForwardCurve, t) = 0.03 + 0.
         end
     end
 
+    @testset "zero-native tails share parameter and forward limits" begin
+        constructors = (
+            r -> Yield.Constant(Continuous(r)),
+            r -> Yield.NelsonSiegel(2.0, r, -0.01, 0.005),
+            r -> Yield.NelsonSiegelSvensson(2.0, 5.0, r, -0.01, 0.005, 0.002),
+            r -> Yield.CairnsPritchard(0.5, 1.5, r, -0.01, 0.005),
+            r -> Yield.CairnsPritchardExtended(0.5, 1.5, 3.0, r, -0.01, 0.005, 0.002),
+        )
+        for make in constructors, r in (0.03, -0.02)
+            @test discount(make(r), Inf) == (r > 0 ? 0.0 : Inf)
+            @test ForwardDiff.derivative(x -> discount(make(x), Inf), r) == 0.0
+            @test ForwardDiff.derivative(x -> Yield.__log_discount(make(x), Inf), r) == 0.0
+            @test rate(Yield.instantaneous_forward(make(r), Inf)) == r
+            @test ForwardDiff.derivative(x -> rate(Yield.instantaneous_forward(make(x), Inf)), r) == 1.0
+            t = 3.0
+            @test rate(Yield.instantaneous_forward(make(r), t)) ≈
+                ForwardDiff.derivative(u -> rate(zero(make(r), u)) * u, t) rtol = 1.0e-14
+        end
+        for make in constructors
+            @test_throws "no derivative" ForwardDiff.derivative(x -> discount(make(x), Inf), 0.0)
+        end
+    end
+
     @testset "endpoint derivatives" begin
         cd(f, x; h = 1.0e-6) = (f(x + h) - f(x - h)) / (2h)
         for c in (
