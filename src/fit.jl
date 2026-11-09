@@ -45,7 +45,8 @@ module Fit
     `fit(curve, quotes, Fit.Exact())` to keep an existing curve's knots. The default remains `Fit.Loss()`.
 
     The fitted curve reprices each quote to within `sqrt(eps())` of its size: the gross value of its
-    projected cashflows on the curve (the sum of their absolute amounts, discounted). If the solve cannot meet that tolerance, the fit throws a
+    projected cashflows on the curve (the sum of their absolute amounts, discounted). Custom
+    pricing-only contracts retain a scale based on their price and value. If the solve cannot meet that tolerance, the fit throws a
     [`FitConvergenceError`](@ref FinanceModels.FitConvergenceError). This can reflect quotes that no
     curve of its interpolation method reprices (a price that implies a non-positive discount factor,
     for example) or numerical nonconvergence; `Fit.Loss()` minimizes the squared residuals instead. A
@@ -64,8 +65,8 @@ module Fit
 
     A singleton type passed to `fit` to bootstrap a spline curve one quote at a time.
     Each step solves for the zero rate at the next quote maturity to match its price.
-    Instruments supply a cashflow projection, used to measure residuals against gross discounted
-    payments. Custom pricing-only contracts can use Fit.Loss().
+    Built-in cashflow contracts measure residuals against gross discounted projected payments.
+    Custom pricing-only contracts retain their price/value scale.
 
     Supports `Spline.Linear()` (equivalently `Spline.PolynomialSpline(1)` or
     `Spline.BSpline(1)`). Bootstrapping requires that adding a knot on the right
