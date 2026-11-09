@@ -1,6 +1,9 @@
 # FinanceModels.jl release notes
 
-## v7.2.0 (unreleased)
+## v7.2.0
+
+This release adds equity price paths, joint economic scenarios and Copulas.jl integration, and
+expands precompilation for common curve fits and queries. Julia 1.10 or later is required.
 
 ### Equity price paths
 
@@ -62,16 +65,14 @@ matrix (Copulas `0.1.29` or later, including 1.x).
 
 The stochastic guide's note on EconomicScenarioGenerators.jl is now a migration table.
 
-## v7.1.1
-
 ### Faster first calls on common curves and quotes
 
 The precompile workload now covers coupon-bond quotes (`CMTYield`, `ParYield`), monotone convex and
 cubic spline fits, and the curve queries (`discount`, `accumulation`, `zero`, `forward`, `par` and
 `present_value` of cashflows and bonds) on bootstrapped, `ZeroRateCurve`, cubic `Yield.Spline` and
-`Yield.Constant` curves. On Julia 1.13, first calls are faster:
+`Yield.Constant` curves. On Julia 1.13, expanding the workload reduced first-call times:
 
-| first call | v7.1.0 | v7.1.1 |
+| first call | v7.1.0 | expanded workload |
 |---|---:|---:|
 | linear bootstrap of 12 CMT quotes | 0.61 s | 0.06 s |
 | queries on a cubic spline curve | 0.62 s | 0.13 s |
@@ -84,7 +85,12 @@ to the number of quotes. Precompiling FinanceModels takes about 4.5 s longer, it
 from 26 MB to 41 MB, and loading it takes about 0.05 s longer. Results and warm-call speed are
 unchanged.
 
-## v7.0.2 (unreleased)
+### Validation and documentation
+
+Option time derivatives are checked against the dividend-adjusted Black–Scholes PDE and Dupire
+identities. Documentation links now point to the unified FinanceModels documentation site.
+
+## v7.1.0
 
 ### Faster first derivatives through spline curves
 
@@ -97,8 +103,6 @@ width paid for it. With 10 knots, the first `ForwardDiff.gradient` of a value th
 takes 1.8 s. The first gradient through a differentiated `Fit.Bootstrap()` fit fell from 15 s to
 5.5 s, and the first 10-quote `fit(Spline.Linear(), quotes)` from 27 s to 15 s. Curves, their
 tail slopes and warm-call speed are unchanged.
-
-## v7.0.1 (unreleased)
 
 ### Faster first fits of linear, quadratic and cubic splines
 
