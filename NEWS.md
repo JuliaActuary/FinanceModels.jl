@@ -47,8 +47,7 @@ combined precompile workload.
 - `Fit.Exact(; maxiters = 100)` sets the exact solver's iteration limit. `optimizer` and
   `solve_kwargs` configure `Fit.Loss()`.
 - Exact and bootstrap fits measure residuals against each quote's size on the fitted curve:
-  the gross discounted value of fixed cashflows, or the quote price for curve-dependent
-  cashflows. Measuring against the starting curve could accept large relative errors for tiny
+  the gross discounted value of projected cashflows, including curve-dependent payments. Measuring against the starting curve could accept large relative errors for tiny
   prices. `ZCBPrice(1e-12, 50.0)` now reprices to rounding with both methods; a negative price
   such as `ZCBPrice(-1e-20, 50.0)` throws.
 - Derivatives through an exact linear fit match `Fit.Bootstrap()` to `1e-13`.
