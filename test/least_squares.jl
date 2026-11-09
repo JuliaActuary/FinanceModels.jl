@@ -70,8 +70,8 @@ end
 
     @testset "repeated maturities" begin
         cmt = CMTYield.([0.04, 0.041, 0.045, 0.046], [2, 2, 5, 5])
-        @test_throws "Fit.LeastSquares" fit(Spline.Cubic(), cmt)
-        @test_throws "Fit.LeastSquares" fit(Spline.Cubic(), cmt, Fit.Loss(abs2))
+        @test_throws "strictly increasing" fit(Spline.Cubic(), cmt)
+        @test_throws "strictly increasing" fit(Spline.Cubic(), cmt, Fit.Loss(abs2))
         c = fit(ZeroRateCurve(fill(0.04, 2), [2.0, 5.0], Spline.Linear()), cmt, Fit.LeastSquares())
         # the curve passes between each pair: one bond of a pair is cheap on it, the other rich
         r = [pv(c, q.instrument) - q.price for q in cmt]
