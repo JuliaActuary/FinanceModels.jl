@@ -195,3 +195,14 @@ using ForwardDiff
         @test quote_shift((q, t) -> q, base, CMTYield, tenors) isa Yield.CompositeYield
     end
 end
+
+@testset "zero-price quote shifts use gross projected payments" begin
+    family(x, t) = Quote(0.0, [Cashflow(-1.0, 0.0), Cashflow(exp(x * t), t)])
+    base = Yield.Constant(Continuous(0.03))
+    ts = [1.0, 3.0, 7.0]
+    @test implied_quote(base, family, 5.0) ≈ 0.03 atol = 1.0e-14
+    shifted = quote_shift((q, t) -> q + 0.001, base, family, ts)
+    @test discount.(Ref(shifted), ts) ≈ exp.(-0.031 .* ts) rtol = 1.0e-12
+    value(a) = discount(quote_shift((q, t) -> q + a, base, family, ts), 5.0)
+    @test ForwardDiff.derivative(value, 0.0) ≈ -5exp(-0.15) rtol = 1.0e-12
+end
