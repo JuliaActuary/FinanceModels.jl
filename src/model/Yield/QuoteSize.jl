@@ -14,7 +14,7 @@ __nonnegative_cashflows(v::Union{AbstractVector, Tuple}) = all(__nonnegative_cas
 __projects_cashflows(c) = FinanceModels.__fixed_cashflows(c)
 __projects_cashflows(::FinanceModels.Bond.Floating) = true
 __projects_cashflows(c::FinanceCore.Composite) = __projects_cashflows(c.a) && __projects_cashflows(c.b)
-__projects_cashflows(c::FinanceCore.Forward) = __projects_cashflows(c.instrument)
+__projects_cashflows(c::FinanceModels.Forward) = __projects_cashflows(c.instrument)
 __projects_cashflows(v::Union{AbstractVector, Tuple}) = all(__projects_cashflows, v)
 
 function __quote_size(q, curve; value = nothing)
