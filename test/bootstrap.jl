@@ -5,6 +5,7 @@ struct PaysAfterMaturity{C} <: FinanceCore.AbstractContract
 end
 FinanceCore.maturity(c::PaysAfterMaturity) = c.stated_maturity
 FinanceCore.present_value(model, c::PaysAfterMaturity) = FinanceCore.present_value(model, c.inner)
+Transducers.asfoldable(p::Projection{<:PaysAfterMaturity}) = Projection(p.contract.inner, p.model, p.kind)
 
 @testset "Bootstrap strategy boundary" begin
     # Uneven coupon dates expose changed earlier segments; zero-coupon quotes at
