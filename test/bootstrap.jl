@@ -5,7 +5,13 @@ struct PaysAfterMaturity{C} <: FinanceCore.AbstractContract
 end
 FinanceCore.maturity(c::PaysAfterMaturity) = c.stated_maturity
 FinanceCore.present_value(model, c::PaysAfterMaturity) = FinanceCore.present_value(model, c.inner)
-Transducers.asfoldable(p::Projection{<:PaysAfterMaturity}) = Projection(p.contract.inner, p.model, p.kind)
+
+# A custom pricing callback can calibrate without providing a cashflow projection.
+struct PricingOnlyZCB <: FinanceCore.AbstractContract
+    time::Float64
+end
+FinanceCore.maturity(c::PricingOnlyZCB) = c.time
+FinanceCore.present_value(model, c::PricingOnlyZCB) = discount(model, c.time)
 
 @testset "Bootstrap strategy boundary" begin
     # Uneven coupon dates expose changed earlier segments; zero-coupon quotes at
@@ -49,6 +55,10 @@ Transducers.asfoldable(p::Projection{<:PaysAfterMaturity}) = Projection(p.contra
     # misprice it.
     late = Quote(0.9, PaysAfterMaturity(Cashflow(1.0, 3.0), 1.5))
     @test_throws "could not reprice" fit(Spline.Linear(), [ZCBPrice(0.97, 1.0), late, ZCBPrice(0.93, 2.0)], Fit.Bootstrap())
+
+    opaque = Quote(0.95, PricingOnlyZCB(2.0))
+    @test discount(fit(Spline.Linear(), [opaque], Fit.Bootstrap()), 2.0) ≈ 0.95 rtol = 1.0e-12
+    @test implied_quote(Yield.Constant(Continuous(0.04)), (p, t) -> Quote(p, PricingOnlyZCB(t)), 2.0) ≈ exp(-0.08) rtol = 1.0e-12
 
     # Scaling every quote by a notional leaves the curve unchanged: the knot rates are the
     # zero rates the quotes were priced from, at every notional.
