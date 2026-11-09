@@ -88,6 +88,13 @@ function volatility(vol::Real, strike_ratio, time_to_maturity)
     return vol
 end
 
+# The volatility a simulation uses: a number, or a `Volatility.Constant`'s value (zero for the
+# unfitted `Volatility.Constant()`). A volatility that depends on strike or maturity has no single
+# path volatility, so other types are a `MethodError`; `volatility` would read them at the
+# money.
+__path_vol(σ::Real) = σ
+__path_vol(v::Volatility.Constant) = v.σ
+
 function closed_form(model::M, c::Option.EuroCall{CommonEquity, K, T}) where {M <: Equity.BlackScholesMerton, K, T}
     σ_val = volatility(model.σ, c.strike, c.maturity)
     return eurocall(; S = 1.0, K = c.strike, τ = c.maturity, r = model.r, q = model.q, σ = σ_val)
