@@ -10,6 +10,14 @@ __N(x) = __ϕ(x)
 # the standard normal density
 __normal_density(x) = exp(-x^2 / 2) / sqrt(2 * oftype(float(x), π))
 
+# The standard normal quantile Φ⁻¹(u) for 0 < u < 1. A u of 0 or 1 throws: its infinite quantile would
+# become a discount factor or price of 0 or Inf without an error. The upper half is computed from
+# 1 - u, which is exact there, so both tails are as accurate.
+function __normal_quantile(u::Real)
+    0 < u < 1 || throw(DomainError(u, "a normal quantile needs 0 < u < 1"))
+    return u < 0.5 ? -sqrt(2) * SpecialFunctions.erfcinv(2u) : sqrt(2) * SpecialFunctions.erfcinv(2 * (1 - u))
+end
+
 # Black's formula: the prices `(call, put)` of European options on an asset whose forward price at
 # expiry is `F` and whose strike is `K`, both discounted to today, where `v ≥ 0` is the volatility of
 # the log forward price to expiry (σ√τ under Black–Scholes). The option is at the money when F = K:

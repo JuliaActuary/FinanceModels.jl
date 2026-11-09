@@ -1,6 +1,8 @@
 # FinanceModels.jl release notes
 
-## Unreleased
+## v7.3.0 (unreleased)
+
+### Yield-shift limits at infinity
 
 - `discount` and the log-discount of `Yield.TenorShift` and `Yield.ProjectedShift` at `t = Inf`
   take their limit from the shifted zero rate at infinity. Values and forwards are unchanged.
@@ -8,16 +10,79 @@
   throw where a zero limiting rate carries partials. Intervals ending at infinity have zero
   derivatives where the limit is 0.
 
-## v7.1.1
+## v7.2.0
+
+This release adds equity price paths, joint economic scenarios and Copulas.jl integration, and
+expands precompilation for common curve fits and queries. Julia 1.10 or later is required.
+
+### Equity price paths
+
+`simulate(model::Equity.BlackScholesMerton; n_scenarios, timestep, horizon, rng)` returns
+Black–Scholes–Merton price paths as `PricePath`s, on the grid `simulate` uses for rate models.
+
+- **Transition:** each step is the exact lognormal transition, so prices at the grid times have no
+  discretisation bias.
+- **Scale:** a path starts at 1 and is the ex-dividend price relative to its start, so prices in
+  currency are the starting spot times `p.(FinanceModels.simulation_times(p))`.
+- **Grid times only:** `p(t)` answers only at grid times, up to roundoff, and throws a `DomainError`
+  elsewhere, like `short_rate`.
+- **Volatility:** σ is a number or a `Volatility.Constant`. `Volatility.Constant()` is zero
+  volatility. Other volatility models are a `MethodError`.
+- **Volatility sign:** a negative volatility throws an `ArgumentError`, because it would silently
+  reverse the innovations' signs and their correlations with other models.
+- **Not a yield model:** a `PricePath` has no `discount`.
+
+The simulation loop is now shared by rate and equity models. A rate model's paths, their element
+types and its random draws are unchanged.
+
+### Correlated scenarios
+
+`simulate(models::Tuple, ρ::AbstractMatrix; ...)` simulates several models together. It returns one
+tuple of paths per scenario (a `RatePath` or a `PricePath` per model), and a `NamedTuple` of models
+gives `NamedTuple`s of paths.
+
+- **What ρ is:** the correlation of the standardized innovations the models receive at each step,
+  through a factor `F` with `F Fᵀ = ρ`. Each model steps with its own transition. It is not the
+  Brownian-driver correlation of a continuous-time joint model, and the docstring explains the
+  difference.
+- **Checks:** ρ must be square of the models' size, finite, with a unit diagonal and symmetric;
+  otherwise a `DimensionMismatch` or `ArgumentError` (a covariance matrix is rejected).
+- **Factorization:** dense and sparse inputs use the same factorization and model order. Cholesky,
+  or pivoted Cholesky for a singular positive-semidefinite matrix, including correlations of ±1
+  and rank-deficient factor models, checked by reconstruction.
+- **Derivatives in ρ:** pivoted Cholesky checks full numerical rank at tolerance `8 d eps` on the
+  values before any draw. Numerically singular matrices throw an `ArgumentError`, even when plain
+  Cholesky succeeds through roundoff. Pivoted element types follow Julia's support, so `BigFloat`
+  correlation sensitivities require Julia 1.12. Valid matrices near singularity remain supported;
+  their correlation-sensitivity estimates can have high variance.
+- **Draws:** each step draws one standard normal per model. A single model with `ρ = [1;;]` gives
+  exactly `simulate(model)`'s paths.
+
+### Copulas extension
+
+With Copulas.jl loaded, `simulate(models, copula; ...)` takes a copula in place of the correlation
+matrix (Copulas `0.1.29` or later, including 1.x).
+
+- **Sampling:** each step draws one sample of uniforms from the copula and maps each through the
+  standard normal quantile to a model's innovation.
+- **Gaussian and independence copulas:** a `GaussianCopula` is simulated as its correlation matrix,
+  and an `IndependentCopula` as the identity, giving exactly the matrix method's paths.
+- **Edge samples:** a copula sample of exactly 0 or 1 throws a `DomainError` rather than becoming an
+  infinite shock.
+- **Parameter sensitivities:** Gaussian correlation sensitivities use the matrix factorization.
+  Generic copulas declaring derivative-carrying samples are rejected before sampling, since sampler
+  derivatives need not differentiate expectations. Model sensitivities with a fixed copula still work.
+
+The stochastic guide's note on EconomicScenarioGenerators.jl is now a migration table.
 
 ### Faster first calls on common curves and quotes
 
 The precompile workload now covers coupon-bond quotes (`CMTYield`, `ParYield`), monotone convex and
 cubic spline fits, and the curve queries (`discount`, `accumulation`, `zero`, `forward`, `par` and
 `present_value` of cashflows and bonds) on bootstrapped, `ZeroRateCurve`, cubic `Yield.Spline` and
-`Yield.Constant` curves. On Julia 1.13, first calls are faster:
+`Yield.Constant` curves. On Julia 1.13, expanding the workload reduced first-call times:
 
-| first call | v7.1.0 | v7.1.1 |
+| first call | v7.1.0 | expanded workload |
 |---|---:|---:|
 | linear bootstrap of 12 CMT quotes | 0.61 s | 0.06 s |
 | queries on a cubic spline curve | 0.62 s | 0.13 s |
@@ -30,7 +95,12 @@ to the number of quotes. Precompiling FinanceModels takes about 4.5 s longer, it
 from 26 MB to 41 MB, and loading it takes about 0.05 s longer. Results and warm-call speed are
 unchanged.
 
-## v7.0.2 (unreleased)
+### Validation and documentation
+
+Option time derivatives are checked against the dividend-adjusted Black–Scholes PDE and Dupire
+identities. Documentation links now point to the unified FinanceModels documentation site.
+
+## v7.1.0
 
 ### Faster first derivatives through spline curves
 
@@ -43,8 +113,6 @@ width paid for it. With 10 knots, the first `ForwardDiff.gradient` of a value th
 takes 1.8 s. The first gradient through a differentiated `Fit.Bootstrap()` fit fell from 15 s to
 5.5 s, and the first 10-quote `fit(Spline.Linear(), quotes)` from 27 s to 15 s. Curves, their
 tail slopes and warm-call speed are unchanged.
-
-## v7.0.1 (unreleased)
 
 ### Faster first fits of linear, quadratic and cubic splines
 
