@@ -54,7 +54,7 @@ function implied_quote(curve, family::F, maturity; guess = 0.0, bracket = (-0.5,
     primal = __PrimalCurve(curve)
     residual(c, x) = (q = family(x, maturity); FinanceCore.present_value(c, q.instrument) - q.price)
     # Gross projected cashflows give a scale even for zero-price contracts.
-    magnitude(x) = (q = family(x, maturity); __quote_size(q, primal))
+    magnitude(x) = (q = family(x, maturity); __quote_size(q, primal, FinanceCore.present_value(primal, q.instrument)))
     # Solve relative to the quote's size at the guess, so the solvers' absolute tolerances do
     # not depend on units such as a notional. A zero size means the price and the value both
     # vanish at the guess, which is then an exact root.
