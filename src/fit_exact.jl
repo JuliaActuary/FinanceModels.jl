@@ -19,7 +19,7 @@ end
 function __repricing_point(r, z)
     curve = __trial_curve(r.spline, r.interpolation, z, r.tenors, r.extrapolation)
     v = __repricing_values(r, z, curve)
-    sizes = [__quote_size(q, curve; value = v[i] + q.price) for (i, q) in enumerate(r.quotes)]
+    sizes = [__quote_size(q, curve, v[i] + q.price) for (i, q) in enumerate(r.quotes)]
     return v, sizes
 end
 
@@ -120,4 +120,3 @@ function __exact_fit_error(who, retcode, maxiters, z, residual, maturity)
             "minimizes the squared residuals instead."
     )
 end
-

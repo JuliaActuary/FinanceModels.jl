@@ -493,7 +493,7 @@ end
 function fit(mod0::T, quotes, method::Fit.Exact; extrapolation = :flat_forward) where {T <: Spline.SplineCurve}
     quotes, primal_quotes = __calibration_quotes(quotes)
     tenors = sort!([maturity(q) for q in primal_quotes])
-    return __fit_knot_rates(mod0, tenors, quotes, primal_quotes, method, extrapolation; optimizer = nothing, solve_kwargs = nothing)
+    return __fit_knot_rates(mod0, tenors, quotes, primal_quotes, method, extrapolation)
 end
 
 # Refitting a knot curve keeps its knot tenors, interpolation method and extrapolation policy, and
@@ -510,7 +510,7 @@ end
 
 function fit(c::Yield.AbstractInterpolatedZeroCurve, quotes, method::Fit.Exact)
     quotes, primal_quotes = __calibration_quotes(quotes)
-    return __fit_knot_rates(c.spline, Yield.knot_tenors(c), quotes, primal_quotes, method, c.extrapolation; optimizer = nothing, solve_kwargs = nothing)
+    return __fit_knot_rates(c.spline, Yield.knot_tenors(c), quotes, primal_quotes, method, c.extrapolation)
 end
 
 # Every fit of knot rates, exact or by loss, for every interpolation method including
@@ -518,7 +518,7 @@ end
 # `ZeroRateCurve`, and a validated `ZeroRateCurve` as the result. The callers collect the quotes
 # once, with their primal copies (`__calibration_quotes`). `method` is a `Fit.Loss`, or `Fit.Exact`
 # to reprice the quotes.
-function __fit_knot_rates(spline, tenors, quotes, primal_quotes, method, extrapolation; optimizer, solve_kwargs)
+function __fit_knot_rates(spline, tenors, quotes, primal_quotes, method, extrapolation; kwargs...)
     # The solve runs on primal quotes; dual numbers in the quotes or the extrapolation policy
     # are propagated afterwards by the implicit function theorem (see `__implicit_knot_curve`).
     primal_extrapolation = __primal_extrapolation(extrapolation)
@@ -528,7 +528,7 @@ function __fit_knot_rates(spline, tenors, quotes, primal_quotes, method, extrapo
     who = "fit($(spline))"
     grid0 = Yield.KnotGrid(__knot_fit_seed(spline, tenors), tenors, spline; who)
     interpolation = Yield.__interpolation(spline, length(grid0.tenors))
-    rates = __solve_knots(method, spline, interpolation, grid0, primal_quotes, primal_extrapolation, who; optimizer, solve_kwargs)
+    rates = __solve_knots(method, spline, interpolation, grid0, primal_quotes, primal_extrapolation, who; kwargs...)
     curve = Yield.ZeroRateCurve(rates, grid0.tenors, spline; extrapolation = primal_extrapolation)   # public result: validated (finite rates)
     return __implicit_knot_curve(curve, quotes, primal_quotes, extrapolation)
 end
@@ -537,7 +537,7 @@ function __solve_knots(method::Fit.Loss, spline, interpolation, grid0, primal_qu
     loss(u, qs) = __quote_loss(__trial_curve(spline, interpolation, u, grid0.tenors, primal_extrapolation), method, qs)
     return __minimize(loss, grid0.rates, primal_quotes, optimizer, solve_kwargs; who, hint = __SPLINE_FIT_HINT)
 end
-function __solve_knots(method::Fit.Exact, spline, interpolation, grid0, primal_quotes, primal_extrapolation, who; optimizer, solve_kwargs)
+function __solve_knots(method::Fit.Exact, spline, interpolation, grid0, primal_quotes, primal_extrapolation, who)
     length(primal_quotes) == length(grid0.tenors) || throw(
         ArgumentError(
             "$who: Fit.Exact() solves the repricing conditions of one quote per knot; got $(length(primal_quotes)) " *
@@ -612,7 +612,7 @@ function fit(
     # returned curve (`__quote_size`).
     for q in primal_quotes
         residual = present_value(curve, q.instrument) - q.price
-        size = __quote_size(q, curve; value = residual + q.price)
+        size = __quote_size(q, curve, residual + q.price)
         __relative_residual(residual, size) <= 1.0e-8 || throw(
             ArgumentError(
                 "bootstrap could not reprice the quote maturing at $(maturity(q)) " *
@@ -633,13 +633,13 @@ function __bootstrap_knots(mod0, interpolation, primal_quotes, times, primal_ext
         f = __PrimalResidual(z -> present_value(trial(z), q.instrument) - q.price, who, __SPLINE_FIT_HINT)
         seed = i == 1 ? 0.0 : zs[i - 1]
         z = seed
-        s = __nonzero(__quote_size(q, trial(z); value = f(z) + q.price))
+        s = __nonzero(__quote_size(q, trial(z), f(z) + q.price))
         for _ in 1:3
             g = let s = s
                 z -> f(z) / s
             end
             z = __solve_primal_root(g, z, (-1.0, 1.0))
-            s_root = __quote_size(q, trial(z); value = f(z) + q.price)
+            s_root = __quote_size(q, trial(z), f(z) + q.price)
             s_root >= s / 2 && break
             s = __nonzero(s_root)
         end
