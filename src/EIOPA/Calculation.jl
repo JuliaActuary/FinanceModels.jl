@@ -1,3 +1,5 @@
+# Construct unfloored curves for both APIs. calculate floors the analytical curves;
+# publication rounds the series first and applies the floor afterwards.
 function _calculate(i::Union{RFRInputs, PublishedRFR}, v, p, round_rate, round_va)
     _validate_shocks(i, p)
     bootstrap, llfr, basic = _basic(i)
