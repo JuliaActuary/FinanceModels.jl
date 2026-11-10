@@ -35,11 +35,25 @@
     @testset "gross size remains meaningful for zero-price quotes" begin
         c = Yield.Constant(Continuous(0.04))
         q = Quote(0.0, [Cashflow(-1.0, 0.0), Cashflow(1.2, 5.0)])
-        @test Yield.__quote_size(q, c) ≈ 1 + 1.2exp(-0.2)
+        @test Yield.__quote_size(q, c, pv(c, q.instrument)) ≈ 1 + 1.2exp(-0.2)
         qf = Quote(0.0, Bond.Floating(0.005, Periodic(2), 3.0, "SOFR"))
         ctx = Models(c)
         expected = 1 + 0.0025sum(exp.(-0.04 .* (0.5:0.5:3.0)))
-        @test Yield.__quote_size(qf, ctx) ≈ expected
+        @test Yield.__quote_size(qf, ctx, pv(ctx, qf.instrument)) ≈ expected
+    end
+
+    @testset "swap projections use gross payments at zero price" begin
+        quoted = Yield.Constant(Continuous(0.03))
+        curve = Yield.Constant(Continuous(0.05))
+        swap = InterestRateSwap(quoted, 5.0; frequency = 2)
+        q = Quote(0.0, swap)
+        ctx = Models(curve)
+        value = pv(ctx, swap)
+        # Floating principal/coupons are worth par; the fixed leg has its 3% par coupon.
+        gross = 1 + exp(-0.25) + expm1(0.015) * sum(exp.(-0.05 .* (0.5:0.5:5.0)))
+        @test FinanceModels.__projects_cashflows(swap)
+        @test Yield.__quote_size(q, ctx, value) ≈ gross rtol = 1.0e-14
+        @test abs(value) < gross / 10
     end
 
     @testset "bootstrap keeps finite scales for distant tiny prices" begin

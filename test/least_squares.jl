@@ -185,7 +185,7 @@ end
         q = Quote(0.0, [Cashflow(2.0, 1.0), Cashflow(-1.0, 1.0), Cashflow(1.0, 2.0)])
         A, times, gross = FinanceModels.__cashflow_matrix([q])
         c = Yield.Constant(Continuous(0.04))
-        @test only(gross * discount.(Ref(c), times)) ≈ Yield.__quote_size(q, c)
+        @test only(gross * discount.(Ref(c), times)) ≈ Yield.__quote_size(q, c, pv(c, q.instrument))
     end
 
     @testset "derivatives" begin

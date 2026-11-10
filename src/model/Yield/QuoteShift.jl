@@ -203,7 +203,10 @@ function quote_shift(rule::R, curve::AbstractYieldModel, family::F, tenors) wher
             )
         )
         # Solve relative to the quote's size, as `implied_quote` does.
-        magnitude(x) = __quote_size(qp, primal + __trial_quote_bumps(__with_bump(pb, k, x), ts))
+        function magnitude(x)
+            c = primal + __trial_quote_bumps(__with_bump(pb, k, x), ts)
+            return __quote_size(qp, c, FinanceCore.present_value(c, qp.instrument))
+        end
         s0 = magnitude(zero(t))
         σ = iszero(s0) ? one(s0) : s0
         g(x) = (value(curve, __with_bump(bumps, k, x), q.instrument) - q.price) / σ
