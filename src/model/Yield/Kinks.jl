@@ -5,7 +5,7 @@
 #
 # - `__check_dual_kinks(spline, grid)`: run by the public constructors' build (`__build_public`),
 #   it throws when the caller's dual knot rates move a PCHIP or Akima kink;
-# - `__near_kink(curve, z[, δ])`: whether knots `z` lie on a kink (a differentiated fit's check).
+# - `__near_kink(curve, z[, δ])`: whether knots `z` lie on a kink (a differentiated fit's check);
 #
 # `__kink_quantities(spline, z, tenors)` returns the scalar functions of the knot rates `z` whose
 # zeros are the switches (none for interpolants that are linear in the knot rates).

@@ -53,6 +53,37 @@ combined precompile workload.
 - Derivatives through an exact linear fit match `Fit.Bootstrap()` to `1e-13`.
 - `FitConvergenceError` messages end in "(return code …)" rather than "(optimizer return code …)".
 
+### Least-squares fits of a knot curve to many quotes: `Fit.LeastSquares`
+
+`Fit.LeastSquares(; weights = nothing, maxiters = 200)` fits knot rates by weighted squared
+pricing residuals. It is opt-in: every method-omitted spline fit and knot-curve refit keeps
+`Fit.Loss()`. Choose the knots explicitly to fit overlapping quotes or repeated maturities:
+
+```julia
+c0 = ZeroRateCurve(fill(0.05, length(knots)), knots, Spline.Cubic())
+curve = fit(c0, bond_quotes, Fit.LeastSquares())
+curve = fit(c0, bond_quotes, Fit.LeastSquares(weights = w))
+```
+
+Quotes must have fixed cashflows (`Cashflow`, `Bond.Fixed`, and compositions), covering every
+built-in quote family. Other contracts require `Fit.Loss()`. A sparse cashflow matrix evaluates
+the curve once per distinct payment date. Weights are finite, nonnegative, and one per quote;
+zero leaves a quote out. Quotes with positive weights must determine every knot rate.
+
+Levenberg–Marquardt seeks a local minimum from FinanceModels' standard seed rates. A fit that
+reprices its quotes to rounding can finish directly. Otherwise Gauss–Newton and Newton polishing
+check the full objective curvature and a Newton correction of at most `1e-10` in knot rates.
+The solver and first-order ForwardDiff sensitivities share AD-computed residual curvature;
+leaving that term out would give Gauss–Newton sensitivities, which are wrong at nonzero residuals.
+Derivatives propagate through quote prices, cashflow amounts, and weights. A differentiated fit
+also requires a well-conditioned Hessian and a point away from interpolation switches.
+
+A square system that reprices is a global minimum, but convergence is not guaranteed. Monotone
+Convex, PCHIP and Akima switch formulas and can fail on square systems that `Fit.Exact()` solves.
+Their minima can also lie on a switch. Such failures throw `FitConvergenceError`; smooth linear,
+quadratic and cubic interpolation avoids those shape switches. Exact and least squares retain
+separate solvers.
+
 ## v7.2.0
 
 This release adds equity price paths, joint economic scenarios and Copulas.jl integration, and

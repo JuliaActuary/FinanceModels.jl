@@ -47,6 +47,8 @@ using PrecompileTools
         fit(Spline.Cubic(), q_rate, Fit.Exact())
         fit(Spline.MonotoneConvex(), q_rate)
         fit(Spline.MonotoneConvex(), q_rate, Fit.Exact())
+        # A least-squares refit of coupon bonds, maturities repeated, on knots of its own.
+        fit(ZeroRateCurve(rates, knot_tenors3, Spline.Linear()), [q_cmt; q_par], Fit.LeastSquares())
 
         # Direct construction and the curve queries on each curve family.
         for c in (

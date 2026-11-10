@@ -36,7 +36,7 @@ const __EXACT_FIT_RTOL = sqrt(eps(Float64))
 # singular or not finite.
 @noinline __line_search_scale(sizes) = map(__nonzero, sizes)
 @noinline __scaled_residuals(v, search) = v ./ search
-@noinline __newton_trial(z, α, δ) = z .- α .* δ
+@noinline __fit_trial(z, α, δ) = z .+ α .* δ
 @noinline __relative_residuals(v, sizes) = map(__relative_residual, v, sizes)
 @noinline function __newton_step(J, search, f)
     J = J ./ search
@@ -77,16 +77,18 @@ function __solve_knot_rates(r::__RepricingResiduals, z0, maxiters)
         δ = __newton_step(ForwardDiff.jacobian(r, z, config)::Matrix{eltype(v0)}, search, f)
         isnothing(δ) && (retcode = ReturnCode.InternalLinearSolveFailed; break)
         if maximum(abs, δ) <= __EXACT_FIT_STEPTOL
-            z = __newton_trial(z, 1.0, δ)
+            z = __fit_trial(z, -1.0, δ)
             v, sizes = __repricing_point(r, z)
+
             f = __scaled_residuals(v, search)
             retcode = ReturnCode.Success
             break
         end
         α, accepted = 1.0, false
         for _ in 1:30
-            zt = __newton_trial(z, α, δ)
+            zt = __fit_trial(z, -α, δ)
             vt, st = __repricing_point(r, zt)
+
             ft = __scaled_residuals(vt, search)
             ϕt = sum(abs2, ft)
             if ϕt <= (1 - 1.0e-4 * α) * ϕ   # false for a non-finite trial
@@ -116,7 +118,7 @@ function __exact_fit_error(who, retcode, maxiters, z, residual, maturity)
         "$who $stopped: the largest relative residual is $residual, on the quote maturing at $maturity. No " *
             "curve with this interpolation may reprice the quotes (for example, a price that implies a " *
             "non-positive discount factor), or the quote prices may not determine every knot rate (a quote " *
-            "whose cashflows do not depend on its own maturity's knot). fit(spline, quotes, Fit.Loss()) " *
+            "whose cashflows do not depend on its own maturity's knot). Fit.LeastSquares() " *
             "minimizes the squared residuals instead."
     )
 end
