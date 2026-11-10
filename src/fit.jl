@@ -397,8 +397,8 @@ ForwardDiff.gradient(value, [0.03, 0.032, 0.035, 0.037])   # ∂value/∂quoted 
 
 - The derivatives are first order, with respect to the quotes passed to `fit`. Nested
   (higher-order) dual numbers, and dual maturities or cashflow times, throw.
-- A refitted knot curve needs one knot per quote; with another number of knots the implicit
-  solve is not square and throws a `DimensionMismatch`.
+- A differentiated loss refit needs one knot per quote; another number of knots throws an
+  `ArgumentError`. Use `Fit.LeastSquares()` for determined fixed-cashflow fits with more quotes than knots.
 - The fit must reprice its quotes. Bootstrap and `fit(spline, quotes, Fit.Exact())` do; a loss fit is differentiated only if the
   largest absolute component of one Newton correction of its knot rates towards the exact fit
   is at most `1e-6`. That correction is a local estimate of the fit's error, not a guaranteed
