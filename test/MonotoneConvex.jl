@@ -12,7 +12,7 @@
         ("direct constructor", Yield.MonotoneConvex(rates, times)),
         # the knot-point checks below compare at rtol √eps, tighter than the default
         # stopping rule (gradient norm 1e-8) guarantees, so the fit is asked for that
-        ("fit", fit(Spline.MonotoneConvex(), quotes; solve_kwargs = (; g_tol = 1.0e-12))),
+        ("fit", fit(Spline.MonotoneConvex(), quotes, Fit.Loss(); solve_kwargs = (; g_tol = 1.0e-12))),
     ]
 
     f, fᵈ = Yield.__monotone_convex_fs(rates, times)
@@ -290,7 +290,7 @@
                 FinanceModels.OptimizationOptimJL.BFGS(),
                 FinanceModels.OptimizationOptimJL.Newton(),
             )
-            c = fit(Spline.MonotoneConvex(), qs; optimizer = opt)
+            c = fit(Spline.MonotoneConvex(), qs, Fit.Loss(); optimizer = opt)
             @test reprice(c) < 1.0e-6   # finite (not NaN) and actually fits
         end
 
@@ -356,7 +356,7 @@
         reprice(c) = maximum(abs, present_value(c, q.instrument) - q.price for q in qs)
         N = FinanceModels.OptimizationOptimJL.Newton()
 
-        c = @test_logs fit(Spline.MonotoneConvex(), qs; optimizer = N)
+        c = @test_logs fit(Spline.MonotoneConvex(), qs, Fit.Loss(); optimizer = N)
         @test reprice(c) < 1.0e-10
 
         # the `Spline.MonotoneConvex` tag routes through the same loss function

@@ -60,6 +60,11 @@ function __primal_quote(q::FinanceCore.Quote)
     return (p === q.price && i === q.instrument) ? q : FinanceCore.Quote(p, i)
 end
 
+__nonzero(s) = iszero(s) ? one(s) : s
+# A residual relative to its quote's size: zero when both are, infinite for a nonzero residual of a quote
+# that the curve discounts to nothing.
+__relative_residual(r, s) = iszero(r) ? zero(r) : abs(r) / s
+
 __primal_extrapolation(e) = e
 __primal_extrapolation(e::Yield.FlatForwardAt) =
     __ad_depth(e.forward) == 0 ? e : Yield.FlatForwardAt(Continuous(__primal(e.forward)))
@@ -166,8 +171,9 @@ function __implicit_knot_curve(curve, quotes, primal_quotes, extrapolation)
             "fit cannot differentiate a curve that does not reprice its quotes: a Newton correction " *
                 "towards the exact fit moves its knot rate at $(tenors[worst]) by $(abs(δ[worst])) " *
                 "(largest quote residual $(maximum(abs, r0))), more than 1e-6. Its derivatives assume " *
-                "an exact fit; tighten the optimizer with `solve_kwargs` (for example " *
-                "`solve_kwargs = (; g_tol = 1e-12)`), or use Fit.Bootstrap() with Spline.Linear()."
+                "an exact fit; fit with Fit.Exact(), tighten the loss fit's optimizer " *
+                "with `solve_kwargs` (for example `Fit.Loss()` with `solve_kwargs = (; g_tol = 1e-12)`), or use " *
+                "Fit.Bootstrap() with Spline.Linear()."
         )
     )
     # The fitted knots must resolve which side of each kink the exact fit lies on.

@@ -6,6 +6,13 @@ end
 FinanceCore.maturity(c::PaysAfterMaturity) = c.stated_maturity
 FinanceCore.present_value(model, c::PaysAfterMaturity) = FinanceCore.present_value(model, c.inner)
 
+# A custom pricing callback can calibrate without providing a cashflow projection.
+struct PricingOnlyZCB <: FinanceCore.AbstractContract
+    time::Float64
+end
+FinanceCore.maturity(c::PricingOnlyZCB) = c.time
+FinanceCore.present_value(model, c::PricingOnlyZCB) = discount(model, c.time)
+
 @testset "Bootstrap strategy boundary" begin
     # Uneven coupon dates expose changed earlier segments; zero-coupon quotes at
     # knots alone cannot detect that a later solve has undone an earlier fit.
@@ -35,10 +42,10 @@ FinanceCore.present_value(model, c::PaysAfterMaturity) = FinanceCore.present_val
             Spline.Quadratic(), Spline.Cubic(),
             Spline.BSpline(2), Spline.BSpline(3), Spline.PCHIP(), Spline.Akima(),
         )
-        @test_throws "Fit.Loss" fit(spline, qs, Fit.Bootstrap())
+        @test_throws "all quotes at once with fit(" fit(spline, qs, Fit.Bootstrap())
         # Reject the strategy before even consuming the quotes or entering a solver.
         quotes = (error("quotes should not be consumed") for _ in 1:4)
-        @test_throws "Fit.Loss" fit(spline, quotes, Fit.Bootstrap())
+        @test_throws "all quotes at once with fit(" fit(spline, quotes, Fit.Bootstrap())
     end
     # Monotone convex curves have their own full-curve fit.
     @test_throws "fit(Spline.MonotoneConvex(), quotes)" fit(Spline.MonotoneConvex(), qs, Fit.Bootstrap())
@@ -48,6 +55,10 @@ FinanceCore.present_value(model, c::PaysAfterMaturity) = FinanceCore.present_val
     # misprice it.
     late = Quote(0.9, PaysAfterMaturity(Cashflow(1.0, 3.0), 1.5))
     @test_throws "could not reprice" fit(Spline.Linear(), [ZCBPrice(0.97, 1.0), late, ZCBPrice(0.93, 2.0)], Fit.Bootstrap())
+
+    opaque = Quote(0.95, PricingOnlyZCB(2.0))
+    @test discount(fit(Spline.Linear(), [opaque], Fit.Bootstrap()), 2.0) ≈ 0.95 rtol = 1.0e-12
+    @test implied_quote(Yield.Constant(Continuous(0.04)), (p, t) -> Quote(p, PricingOnlyZCB(t)), 2.0) ≈ exp(-0.08) rtol = 1.0e-12
 
     # Scaling every quote by a notional leaves the curve unchanged: the knot rates are the
     # zero rates the quotes were priced from, at every notional.

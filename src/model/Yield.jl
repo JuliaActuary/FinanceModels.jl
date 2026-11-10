@@ -31,6 +31,8 @@ include("Yield/NelsonSiegelSvensson.jl")
 include("Yield/CairnsPritchard.jl")
 include("Yield/MonotoneConvex.jl")
 include("Yield/ZeroRateCurve.jl")
+# Implemented by the projection layer once contracts and valuation contexts are loaded.
+function __quote_size end
 include("Yield/ImpliedQuote.jl")
 include("Yield/Blend.jl")
 include("Yield/Composition.jl")

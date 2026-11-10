@@ -105,3 +105,8 @@ function KnotGrid(rates, tenors, spline::Sp.SplineCurve; who = "KnotGrid")
     all(isfinite, r) || throw(ArgumentError("$who: all rates must be finite (got $(r))."))
     return KnotGrid(Unchecked(), r, t)
 end
+
+# `interpolation = __interpolation(spline, length(tenors))` once, outside its solve, so every
+# trial curve has one concrete type.
+__trial_curve(spline, interpolation, z, tenors, extrapolation) =
+    __build(spline, interpolation, KnotGrid(Unchecked(), z, tenors); extrapolation)

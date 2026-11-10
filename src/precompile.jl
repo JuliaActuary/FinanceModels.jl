@@ -27,10 +27,10 @@ using PrecompileTools
         Yield.Spline(Spline.Cubic(), times, curve_rates)
         Yield.Spline(Spline.BSpline(3), times, curve_rates)
 
-        # Retain one spline fit and one generic optic-based fit so both core
-        # Optimization/AD dispatch paths remain warm without repeating them for
-        # every interpolation implementation.
-        fit(Spline.Linear(), q_rate)
+        # Retain one exact spline fit and one generic optic-based fit, which
+        # minimizes with Optimization, so both core solve/AD paths remain warm
+        # without repeating them for every interpolation implementation.
+        fit(Spline.Linear(), q_rate, Fit.Exact())
         fit(Yield.NelsonSiegelSvensson(), q_rate)
 
         present_value(model_rate, Cashflow(1.0, 1.0))
@@ -39,12 +39,14 @@ using PrecompileTools
         first(q_rate).instrument |> collect
 
         # Coupon-bond quotes (CMTYield/ParYield) are the most common market inputs.
-        fit(Spline.Linear(), q_cmt)
+        fit(Spline.Linear(), q_cmt, Fit.Exact())
         fit(Spline.Linear(), q_cmt, Fit.Bootstrap())
         fit(Spline.Linear(), q_par, Fit.Bootstrap())
         # Whole-curve fits with the other common interpolants.
         fit(Spline.Cubic(), q_rate)
+        fit(Spline.Cubic(), q_rate, Fit.Exact())
         fit(Spline.MonotoneConvex(), q_rate)
+        fit(Spline.MonotoneConvex(), q_rate, Fit.Exact())
 
         # Direct construction and the curve queries on each curve family.
         for c in (

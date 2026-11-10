@@ -26,8 +26,11 @@ include("Contract.jl")
 include("model/Model.jl")
 include("Projection.jl")
 include("valuation_contexts.jl")
+import .Yield: __quote_size, __trial_curve
+include("quote_size.jl")
 include("fit_implicit.jl")
 include("fit.jl")
+include("fit_exact.jl")
 
 export Cashflow, Quote, Forward, CommonEquity, Option, InterestRateSwap
 
