@@ -392,7 +392,7 @@ using ForwardDiff
             [0.02, 0.03], [1.0, 2.0];
             extrapolation = "flat_forward"
         )
-        @test_throws "not Spline.MonotoneConvex()" ZeroRateCurve(
+        @test_throws "DataInterpolations-backed curve" ZeroRateCurve(
             [0.02, 0.03], [1.0, 2.0];
             extrapolation = :extension
         )  # MonotoneConvex has no polynomial extension

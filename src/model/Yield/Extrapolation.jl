@@ -101,7 +101,7 @@ function __build_tail(method::Symbol, t, z, forward, slope)
     method === :flat_forward || throw(
         ArgumentError(
             "extrapolation must be :flat_forward, :flat_zero, :linear, or Yield.FlatForwardAt(forward), " *
-                "or :extension for a DataInterpolations-backed curve (not Spline.MonotoneConvex()); " *
+                "or :extension for a DataInterpolations-backed curve; " *
                 "got $(repr(method))."
         )
     )

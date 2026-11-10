@@ -68,8 +68,8 @@ module Fit
     Built-in cashflow contracts measure residuals against gross discounted projected payments.
     Custom pricing-only contracts retain their price/value scale.
 
-    Supports `Spline.Linear()` (equivalently `Spline.PolynomialSpline(1)` or
-    `Spline.BSpline(1)`). Bootstrapping requires that adding a knot on the right
+    Supports `Spline.ConstantForward()` and `Spline.Linear()` (the latter is equivalent
+    to `Spline.PolynomialSpline(1)` or `Spline.BSpline(1)`). Bootstrapping requires that adding a knot on the right
     leaves every earlier curve segment unchanged, so earlier quotes stay exactly
     priced. Linear interpolation of zero rates has this property; quadratic,
     cubic, higher-order B-spline, PCHIP, and Akima interpolation do not, because
@@ -353,6 +353,7 @@ Fit a model to a collection of quotes.
   - [`Fit.LeastSquares()`](@ref FinanceModels.Fit.LeastSquares): minimize weighted squared residuals of fixed-cashflow quotes.
   - [`Fit.Bootstrap()`](@ref FinanceModels.Fit.Bootstrap): bootstrap a supported local interpolant one quote at a time.
 
+
   Spline fits, knot-curve refits, and generic optimizer fits default to `Fit.Loss()`.
 - `variables=default_variables(model)`: The variables to optimize over. This is a tuple of optic => interval pairs specifying which parameters of the model can vary. See extended help for more. Spline and knot-curve fits vary the knot rates and do not take `variables`.
 - `optimizer=default_optimizer(model)`: The optimization algorithm to use. The default optimization for a given model is `LBFGS()` from Optim.jl (via OptimizationOptimJL), a quasi-Newton method with automatic differentiation via ForwardDiff. See extended help for more on customizing the solver.
@@ -368,6 +369,7 @@ Fitting a `Spline.SplineCurve` places one knot at each distinct quote maturity a
 same curve type as [`ZeroRateCurve`](@ref). Refitting an existing knot curve preserves its knots,
 interpolation method and extrapolation policy. See each [`Fit`](@ref FinanceModels.Fit.Loss)
 method above for its solver, acceptance criteria and limitations.
+
 With fewer quotes than a polynomial or B-spline needs for its order, the order is reduced to one
 less than the number of knots (see
 [`Spline.PolynomialSpline`](@ref FinanceModels.Spline.PolynomialSpline)): `fit(Spline.Cubic(), quotes)`
@@ -643,6 +645,7 @@ fit(mod0::FX.Forwards{P, S, D, F}, quotes, method::Fit.LeastSquares; kwargs...) 
 # Appending a knot must preserve every earlier segment, not merely the earlier
 # knot values. In particular, "local" smooth splines need not have this property.
 __supports_bootstrap(::Spline.SplineCurve) = false
+__supports_bootstrap(::Spline.ConstantForward) = true
 __supports_bootstrap(s::Union{Spline.PolynomialSpline, Spline.BSpline}) = s.order == 1
 
 __bootstrap_alternative(s::Spline.SplineCurve) = "fit it to all quotes at once with fit($s, quotes)"
@@ -655,7 +658,7 @@ function fit(
     __supports_bootstrap(mod0) || throw(
         ArgumentError(
             "Fit.Bootstrap does not support $mod0: adding a knot would change earlier " *
-                "curve segments and reprice earlier quotes. Use Spline.Linear(), or " *
+                "curve segments and reprice earlier quotes. Use Spline.Linear(), Spline.ConstantForward(), or " *
                 __bootstrap_alternative(mod0) * "."
         )
     )

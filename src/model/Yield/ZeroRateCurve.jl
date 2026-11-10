@@ -11,7 +11,8 @@ convention, which is converted to its continuously compounded value; `rates` may
 [Rate conventions](@ref rate-conventions).
 
 The result is a [`Yield.AbstractInterpolatedZeroCurve`](@ref): a [`Yield.MonotoneConvex`](@ref)
-for `Spline.MonotoneConvex()`, and a [`Yield.Spline`](@ref) otherwise. `ZeroRateCurve` is a
+for `Spline.MonotoneConvex()`, a [`Yield.ConstantForward`](@ref) for `Spline.ConstantForward()`,
+and a [`Yield.Spline`](@ref) otherwise. `ZeroRateCurve` is a
 construction function, not a type. Dispatch on `Yield.AbstractInterpolatedZeroCurve` when code
 needs a curve's knots, or on `Yield.AbstractYieldModel` when it only discounts. Read the knots
 with [`knot_rates`](@ref) and [`knot_tenors`](@ref), and build a changed curve with
