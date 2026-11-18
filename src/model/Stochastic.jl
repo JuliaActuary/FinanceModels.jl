@@ -496,13 +496,20 @@ end
 
 # ─── pv_mc: Monte Carlo expected present value ───────────────────────────────
 
+# Built-in rate models share simulate's path iterator. Other model types can specialize
+# the public simulate method to supply their own scenarios for pricing.
+__pricing_paths(model::Union{ShortRate.Vasicek, ShortRate.CoxIngersollRoss, ShortRate.HullWhite}; kw...) =
+    __single_paths(model; kw...)
+__pricing_paths(model::AbstractStochasticModel; kw...) = simulate(model; kw...)
+
 """
     pv_mc(model, contract;
           n_scenarios=1000, timestep=1/12, horizon=nothing,
           rng=Random.default_rng())
 
 Estimate the expected present value of `contract` under the stochastic `model`
-by averaging `present_value` across simulated scenarios.
+by averaging `present_value` across simulated scenarios. For Vasicek, CIR and Hull–White,
+each path is priced as it is generated, so only the current path is needed.
 
 !!! note
     `pv_mc` is designed for fixed-cashflow instruments where each `RatePath` scenario
@@ -520,7 +527,7 @@ function pv_mc(
         rng::Random.AbstractRNG = Random.default_rng()
     )
     h = horizon === nothing ? Float64(FinanceModels.maturity(contract)) + 1.0 : Float64(horizon)
-    scenarios = simulate(model; n_scenarios, timestep, horizon = h, rng)
+    scenarios = __pricing_paths(model; n_scenarios, timestep, horizon = h, rng)
     total = sum(FinanceCore.present_value(sc, contract) for sc in scenarios)
     return total / n_scenarios
 end
