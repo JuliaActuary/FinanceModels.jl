@@ -45,7 +45,8 @@ FinanceModels.simulate(::CustomScenarioModel; n_scenarios, timestep, horizon, rn
     @test_throws FinanceModels.DataInterpolations.RightExtrapolationError pv_mc(model, Cashflow(1.0, 3.0); kw..., rng)
     simulate(model; kw..., n_scenarios = 1, rng = reference_rng)
     @test rand(rng) == rand(reference_rng)
-    @test_throws ArgumentError pv_mc(model, cf; kw..., n_scenarios = 0)
+    # Julia 1.10 raises MethodError for an empty reduction, newer Julia raises ArgumentError.
+    @test_throws Union{MethodError, ArgumentError} pv_mc(model, cf; kw..., n_scenarios = 0)
 end
 
 @testset "Black–Scholes–Merton price paths" begin
