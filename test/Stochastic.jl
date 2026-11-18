@@ -1823,6 +1823,63 @@ end
     end
 end
 
+@testset "Hull-White discounting follows the initial curve" begin
+    zero_vol(curve) = ShortRate.HullWhite(0.2, 0.0, curve)
+    path(hw, timestep, horizon) =
+        only(simulate(hw; n_scenarios = 1, timestep, horizon, rng = Random.Xoshiro(1)))
+
+    # A payment's value does not depend on how far the simulation runs past it. The curve is flat at
+    # 2% through 0.9, where its forward jumps to 20%. A path that ends at 0.9 records the 20% there,
+    # and discounts the step before it at the 2% the curve has over it.
+    curve = ZeroRateCurve([0.02, 0.02, 0.08], [0.3, 0.9, 1.2], Spline.Linear())
+    hw = zero_vol(curve)
+    payment = Cashflow(100.0, 0.9)
+    @test present_value(curve, payment) ≈ 100 * exp(-0.02 * 0.9)
+    for horizon in (0.9, 1.0, 1.2)
+        @test pv_mc(hw, payment; n_scenarios = 1, timestep = 0.3, horizon) ≈ 100 * exp(-0.02 * 0.9) rtol = 1.0e-14
+    end
+    p = path(hw, 0.3, 0.9)
+    @test rate(short_rate(p, 0.9)) ≈ 0.2
+    # inside the last step too, where the path interpolates its integral
+    @test all(t -> discount(p, t) ≈ exp(-0.02 * t), 0.6:0.05:0.9)
+
+    # Without volatility the path's discount factors are the curve's at every grid time, whichever
+    # grid times fall on knots. Knots at whole years lie exactly on a half-year grid.
+    yearly = ZeroRateCurve([0.02, 0.02, 0.08, 0.03], [1.0, 2.0, 3.0, 5.0], Spline.Linear())
+    for (c, timestep, horizon) in (
+            (yearly, 0.5, 5.0), (yearly, 0.25, 4.0), (yearly, 1.0, 5.0), (yearly, 0.3, 4.1),
+            (curve, 0.3, 0.9), (curve, 0.3, 1.2), (curve, 0.1, 1.2), (curve, 0.07, 0.9),
+        )
+        p = path(zero_vol(c), timestep, horizon)
+        ts = FinanceModels.simulation_times(p)
+        @test [discount(p, t) for t in ts] ≈ [discount(c, t) for t in ts] rtol = 1.0e-14
+    end
+
+    # With volatility, the expected path discount factor is the curve's: at the knots, where the
+    # forward jumps by as much as 25 points, and between them. The trapezoid on the rest of the rate
+    # leaves a relative bias of order σ²·t·dt²/8: 6e-6 here at t = 5, a fiftieth of the standard
+    # error.
+    vol = ShortRate.HullWhite(0.2, 0.01, yearly)
+    n = 20_000
+    paths = simulate(vol; n_scenarios = n, timestep = 0.5, horizon = 5.0, rng = Random.Xoshiro(7))
+    for t in (1.0, 1.5, 2.0, 3.0, 5.0)
+        d = [discount(p, t) for p in paths]
+        μ = sum(d) / n
+        se = sqrt(sum(abs2, d .- μ) / (n - 1) / n)
+        @test abs(μ - discount(yearly, t)) < 4se
+    end
+
+    # Sensitivities to the curve's rates flow through the same integral
+    tenors = [1.0, 2.0, 3.0, 5.0]
+    flows = [Cashflow(10.0, 1.0), Cashflow(10.0, 2.0), Cashflow(110.0, 3.0)]
+    on_curve(z) = sum(cf -> present_value(ZeroRateCurve(z, tenors, Spline.Linear()), cf), flows)
+    on_paths(z) = sum(flows) do cf
+        pv_mc(zero_vol(ZeroRateCurve(z, tenors, Spline.Linear())), cf; n_scenarios = 1, timestep = 0.5, horizon = 5.0)
+    end
+    z = [0.02, 0.02, 0.08, 0.03]
+    @test ForwardDiff.gradient(on_paths, z) ≈ ForwardDiff.gradient(on_curve, z) rtol = 1.0e-12
+end
+
 @testset "short_rate: the simulated rate at grid times" begin
     # The 7.0 simulation loop, which kept only the integral, replayed with the same internals
     function legacy(model, timestep, horizon, rng)
@@ -1846,6 +1903,8 @@ end
     end
     bits(x::ForwardDiff.Dual) = (ForwardDiff.value(x), Tuple(ForwardDiff.partials(x)))
     bits(x) = x
+    parts(x::ForwardDiff.Dual) = [ForwardDiff.value(x); collect(ForwardDiff.partials(x))]
+    parts(x) = [x]
 
     curve = Yield.Constant(Continuous(0.03))
     dual = ForwardDiff.Dual{Nothing}(0.136, 1.0)
@@ -1866,7 +1925,14 @@ end
         cumulative, observed = legacy(m, 0.1, 3.0, rng_b)
         # the integral, its type and the draws are those of the 7.0 loop
         @test eltype(p.interp.u) == eltype(cumulative)
-        @test isequal(bits.(p.interp.u), bits.(cumulative))
+        if m isa ShortRate.HullWhite
+            # Hull-White integrates its curve's forward as the curve's log-discount and only the
+            # rest of the rate by the trapezoid. A flat curve's forward integrates the same either
+            # way, so here the two differ by rounding, in value and in the derivative.
+            @test reduce(vcat, parts.(p.interp.u)) ≈ reduce(vcat, parts.(cumulative)) rtol = 1.0e-13
+        else
+            @test isequal(bits.(p.interp.u), bits.(cumulative))
+        end
         @test rng_a == rng_b
         # the recorded rates are the observed states, at the precision they were integrated in (the
         # initial rate is a plain number in a model whose other parameters carry derivatives)

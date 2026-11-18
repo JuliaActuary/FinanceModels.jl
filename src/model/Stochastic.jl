@@ -476,11 +476,21 @@ function __step(m::ShortRate.HullWhite, r, dt, sqrt_dt, Z, t, cache, j)
     return x * cache.ou.ϕ + cache.ou.sd * Z + cache.α[j + 1]
 end
 
-function __hw_alpha(m::ShortRate.HullWhite, t)
-    a, σ = m.a, m.σ
-    f0t = Yield.force_of_interest(m.curve, t)
-    return f0t + σ^2 / 2 * __decay_integral(a, t)^2
-end
+__hw_alpha(m::ShortRate.HullWhite, t) = Yield.force_of_interest(m.curve, t) + __hw_convexity(m, t)
+__hw_convexity(m::ShortRate.HullWhite, t) = m.σ^2 / 2 * __decay_integral(m.a, t)^2
+
+# The discount integral ∫r ds over step j, from the states at its two ends: trapezoidal.
+@inline __step_integral(m::AbstractStochasticModel, r, r_new, dt, cache, j) =
+    0.5 * (__observed_rate(m, r) + __observed_rate(m, r_new)) * dt
+# Hull-White: the initial curve's forward f(0,·) is integrated exactly, as the curve's own
+# log-discount over the step, and only the rest of the rate, r − f(0,·), by the trapezoid. That rest
+# is continuous; the forward need not be. Linear zero rates, for one, have a forward that jumps at
+# each knot, and a trapezoid ending on a knot would charge the next segment's forward over half of
+# the step before it. Without volatility the path's discount factors are the curve's.
+# `cache.shift[j]` is the log-discount over step j less the trapezoid of the forward, so the sum
+# below is that split.
+@inline __step_integral(::ShortRate.HullWhite, r, r_new, dt, cache, j) =
+    0.5 * (r + r_new) * dt + cache.shift[j]
 
 # Per-simulation cache: OU transition parameters for the Gaussian models
 # (plus the α(t) grid for Hull-White). Models that do not need a cache,
@@ -495,11 +505,15 @@ __sim_cache(m::ShortRate.Vasicek, dt, n_steps) = __ou_step_params(m.a, m.σ, dt)
 # α is evaluated at the grid's own times, so the rate recorded at a time is the model's rate at that
 # time. An aligned grid ends at the horizon rather than at n·dt, which can round to the other side
 # of it: at a kink of the initial curve's forward, α(n·dt) would be the forward of the wrong segment.
-# The OU transition keeps the fixed step length.
+# The OU transition keeps the fixed step length. `shift` is what `__step_integral` adds to the
+# trapezoid of the rate over each step.
 function __sim_cache(m::ShortRate.HullWhite, grid)
+    ts, dt = grid.times, grid.dt
+    f = map(t -> Yield.force_of_interest(m.curve, t), ts)
     return (
-        ou = __ou_step_params(m.a, m.σ, grid.dt),
-        α = map(t -> __hw_alpha(m, t), grid.times),
+        ou = __ou_step_params(m.a, m.σ, dt),
+        α = map((t, f0t) -> f0t + __hw_convexity(m, t), ts, f),
+        shift = map(j -> Yield.__log_interval(m.curve, ts[j], ts[j + 1]) - 0.5 * (f[j] + f[j + 1]) * dt, 1:grid.nsteps),
     )
 end
 

@@ -19,6 +19,28 @@ time. Only the last grid point of an aligned simulation can change, and only whe
 the size of the forward's jump when a kink sits there. Random draws, the other models and unaligned
 grids are unchanged.
 
+### Hull–White paths discount on the initial curve
+
+A Hull–White path's discount integral was the trapezoid of its short rate. That rate contains the
+initial curve's instantaneous forward, which need not be continuous: linear zero rates give a
+forward that jumps at each knot. The rate at a grid time on a knot is the forward to its right, and
+the trapezoid charged half of the jump over the step before the knot. With zero rates
+`[0.02, 0.02, 0.08, 0.03]` at years 1, 2, 3 and 5 and half-year steps, a zero-volatility path
+discounted a payment at year 2 by 0.9324, where the curve's discount factor is 0.9608. Evaluating
+`α` at the published times alone would have brought the same error to an aligned horizon on a knot.
+
+The forward's part of the integral is now the curve's own log-discount over each step, which is
+exact for any curve. The rest of the rate, the Ornstein–Uhlenbeck process and the convexity term of
+`α`, is continuous and keeps the trapezoid. Without volatility a path's discount factors are the
+initial curve's at every grid time, and a payment's value no longer depends on which grid times fall
+on knots or on how far the simulation runs past it.
+
+The simulated short rates and the random draws are unchanged. Hull–White path discount factors, and
+`pv_mc` values computed from them, change: by rounding on a flat curve, by the trapezoid's error on
+the forward for a smooth curve (of order `timestep²`), and, where a grid time lies on a kink, by
+half the forward's jump times the timestep in the log-discount from there on. Vasicek and
+Cox–Ingersoll–Ross paths are unchanged.
+
 ## v7.2.0
 
 This release adds equity price paths, joint economic scenarios and Copulas.jl integration, and

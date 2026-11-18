@@ -2,10 +2,10 @@
 #
 # `simulate` steps every model of a scenario together on one grid. Each model has a kernel, built
 # once per call: a short-rate model's from its simulation hooks (`__sim_cache`,
-# `__sim_initial_rate`, `__sim_eltype`, `__step`, `__observed_rate`), Black–Scholes–Merton's from
-# its drift and volatility. A scenario draws one standard normal per model per step, in the order
-# scenario, step, model, and feeds each model its shock. A single model is a one-model tuple, so it
-# draws exactly the shocks it drew before the loop was shared.
+# `__sim_initial_rate`, `__sim_eltype`, `__step`, `__step_integral`, `__observed_rate`),
+# Black–Scholes–Merton's from its drift and volatility. A scenario draws one standard normal per
+# model per step, in the order scenario, step, model, and feeds each model its shock. A single model
+# is a one-model tuple, so it draws exactly the shocks it drew before the loop was shared.
 
 """
     simulation_steps(horizon, timestep) -> (; nsteps, aligned)
@@ -167,7 +167,7 @@ end
     # step j starts at the grid's own time, the one its starting rate is published at
     r_new = __step(m, r, g.dt, g.sqrt_dt, Z, g.times[j], k.cache, j)
     # the integral is accumulated from the working states, never from the recorded rates
-    cumulative[j + 1] = cumulative[j] + 0.5 * (__observed_rate(m, r) + __observed_rate(m, r_new)) * g.dt
+    cumulative[j + 1] = cumulative[j] + __step_integral(m, r, r_new, g.dt, k.cache, j)
     rates[j + 1] = __observed_rate(m, r_new)
     return r_new
 end
@@ -298,10 +298,14 @@ Discretisation schemes:
   Weak bias vanishes as `timestep → 0`, but is material for coarse steps when
   the Feller condition is strongly violated.
 
-In all cases the cumulative discount integral ``∫₀ᵗ r(s)\\,ds`` is accumulated
-with the trapezoidal rule between grid points, so pathwise discount factors
-(and hence `pv_mc`) retain an integration error that grows with `timestep`
-even when the short-rate transition itself is exact.
+The cumulative discount integral ``∫₀ᵗ r(s)\\,ds`` is accumulated with the
+trapezoidal rule between grid points, so pathwise discount factors (and hence
+`pv_mc`) retain an integration error that grows with `timestep` even when the
+short-rate transition itself is exact. For Hull-White, the initial curve's
+forward is integrated exactly, as the curve's log-discount over each step, and
+the trapezoid applies to the rest of the rate: without volatility a path's
+discount factors are the curve's at every grid time, also where the curve's
+forward jumps.
 
 Each path also records the simulated short rate at its grid times
 ([`FinanceModels.simulation_times`](@ref)), read with [`short_rate`](@ref).
