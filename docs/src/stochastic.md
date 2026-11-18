@@ -117,8 +117,10 @@ discount(v, 5.0, 10.0, r5)    # P(5, 10 | r(5)) on this path
 ```
 
 `short_rate` answers at the path's grid times, allowing floating-point rounding around a grid time. `FinanceModels.simulation_times(path)` returns a copy of that grid. Other times throw a `DomainError`, because the simulation has no recorded rate there. A hand-built `RatePath(interp)` has no recorded rates, so `short_rate` throws an `ArgumentError` on it. `Yield.instantaneous_forward(path, t)` is the slope of the path's discount integral over the
-step that starts at `t`, the average of that step's two rates. It uses the rate at the end of the
-step, so it is not the state at `t`.
+step that starts at `t`, so it is not the state at `t`. For Vasicek, Cox-Ingersoll-Ross and custom
+models, whose integral is the trapezoid of the rate, that slope is the average of the step's two
+rates. For Hull-White it is the initial curve's average forward over the step plus the average of
+the two rates' excesses over the curve's forward at their times.
 
 ### Valuing Fixed-Income Contracts
 

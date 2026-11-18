@@ -35,6 +35,17 @@ exact for any curve. The rest of the rate, the Ornstein–Uhlenbeck process and 
 initial curve's at every grid time, and a payment's value no longer depends on which grid times fall
 on knots or on how far the simulation runs past it.
 
+`Yield.instantaneous_forward(path, t)`, the slope of a path's integral over a step, is accordingly
+the curve's average forward over the step plus the average of the two rates' excesses over the
+curve's forward, where it was the average of the step's two short rates. It still is that average
+for Vasicek, Cox–Ingersoll–Ross and custom models.
+
+Sensitivities to the curve now reach the integral through the curve's log-discount as well as its
+forward. A curve whose forward at 0 carries no derivative while its later values do, such as a
+spread that applies from a later time on, now simulates under ForwardDiff. Before, a spread lying
+between two grid times was missed in the price and its sensitivity was zero, and a spread covering
+a grid time threw a `MethodError`.
+
 The simulated short rates and the random draws are unchanged. Hull–White path discount factors, and
 `pv_mc` values computed from them, change: by rounding on a flat curve, by the trapezoid's error on
 the forward for a smooth curve (of order `timestep²`), and, where a grid time lies on a kink, by

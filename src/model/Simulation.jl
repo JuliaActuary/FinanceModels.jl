@@ -147,7 +147,7 @@ function __sim_kernel(m::AbstractStochasticModel, g::__SimGrid, ::Type{W}) where
     cache = __sim_cache(m, g)
     # Parameters other than the initial rate may carry an AD number type.
     r0 = __sim_initial_rate(m)
-    T = __integral_eltype(__sim_eltype(m, r0), W)
+    T = __integral_eltype(__sim_eltype(m, r0, cache), W)
     # The recorded rates keep the precision of the states the integral is accumulated from: a Float64
     # shock makes a Float32 model's states after the first step Float64.
     S = promote_type(T, W)

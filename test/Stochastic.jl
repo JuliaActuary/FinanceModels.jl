@@ -16,6 +16,16 @@ FinanceModels.__sim_initial_rate(::ClockStochasticModel) = 0.0
 FinanceModels.__sim_cache(::ClockStochasticModel, dt, n_steps) = (; dt, n_steps)
 FinanceModels.__step(::ClockStochasticModel, r, dt, sqrt_dt, Z, t, cache, j) = t + cache.dt
 
+# A 2% curve with a spread that applies only between two times. Its forward is a plain number
+# outside them, whatever the spread's type; its discount factors past `from` carry the spread's.
+struct SpreadCurve{S} <: FinanceModels.Yield.AbstractYieldModel
+    spread::S
+    from::Float64
+    to::Float64
+end
+FinanceCore.discount(c::SpreadCurve, t) = exp(-(0.02 * t + c.spread * (clamp(t, c.from, c.to) - c.from)))
+FinanceModels.Yield.force_of_interest(c::SpreadCurve, t) = c.from <= t < c.to ? 0.02 + c.spread : 0.02
+
 @testset "Stochastic Models" begin
 
     @testset "Vasicek" begin
@@ -1842,6 +1852,17 @@ end
     @test rate(short_rate(p, 0.9)) ≈ 0.2
     # inside the last step too, where the path interpolates its integral
     @test all(t -> discount(p, t) ≈ exp(-0.02 * t), 0.6:0.05:0.9)
+    # The path's forward over that step is the curve's 2%, not the 11% average of the step's two
+    # short rates.
+    @test rate(Yield.instantaneous_forward(p, 0.6)) ≈ 0.02
+    @test (rate(short_rate(p, 0.6)) + rate(short_rate(p, 0.9))) / 2 ≈ 0.11
+
+    # A forward too large to add to: with the last knot one rounding past 0.9, the curve is still
+    # flat at 2% through 0.9 and its forward there is near 5e14. The last step keeps its discount.
+    steep = ZeroRateCurve([0.02, 0.02, 0.08], [0.3, 0.9, nextfloat(0.9)], Spline.Linear())
+    @test rate(Yield.instantaneous_forward(steep, 0.9)) > 1.0e14
+    @test present_value(steep, payment) ≈ 100 * exp(-0.02 * 0.9)
+    @test pv_mc(zero_vol(steep), payment; n_scenarios = 1, timestep = 0.3, horizon = 0.9) ≈ 100 * exp(-0.02 * 0.9) rtol = 1.0e-14
 
     # Without volatility the path's discount factors are the curve's at every grid time, whichever
     # grid times fall on knots. Knots at whole years lie exactly on a half-year grid.
@@ -1878,6 +1899,24 @@ end
     end
     z = [0.02, 0.02, 0.08, 0.03]
     @test ForwardDiff.gradient(on_paths, z) ≈ ForwardDiff.gradient(on_curve, z) rtol = 1.0e-12
+
+    # A sensitivity that the curve's forward at 0 does not carry: a spread between 0.25 and 0.75.
+    # With one annual step it lies inside the step, and neither end's forward has it; with half-year
+    # steps the middle grid time's forward does. Each path discounts the payment at 1 by the spread
+    # for half a year, so the price's derivative is minus half the price, with volatility too.
+    payment = Cashflow(100.0, 1.0)
+    direct(s) = present_value(SpreadCurve(s, 0.25, 0.75), payment)
+    @test direct(0.01) ≈ 100 * exp(-0.025)
+    for timestep in (1.0, 0.5), (σ, n) in ((0.0, 1), (0.01, 50))
+        spread_pv(s) = pv_mc(
+            ShortRate.HullWhite(0.2, σ, SpreadCurve(s, 0.25, 0.75)), payment;
+            n_scenarios = n, timestep, horizon = 1.0, rng = Random.Xoshiro(3)
+        )
+        price = spread_pv(0.01)
+        iszero(σ) && @test price ≈ direct(0.01) rtol = 1.0e-14
+        @test ForwardDiff.derivative(spread_pv, 0.01) ≈ -price / 2 rtol = 1.0e-13
+    end
+    @test ForwardDiff.derivative(direct, 0.01) ≈ -direct(0.01) / 2
 end
 
 @testset "short_rate: the simulated rate at grid times" begin
