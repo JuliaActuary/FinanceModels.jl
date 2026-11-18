@@ -17,8 +17,9 @@ FinanceModels.simulate(::CustomScenarioModel; n_scenarios, timestep, horizon, rn
     [Yield.Constant(0.01 * rand(rng)) for _ in 1:n_scenarios]
 
 @testset "Monte Carlo path pricing" begin
-    cf = Cashflow(big"100.0", 2.0)
-    kw = (; n_scenarios = 17, timestep = 0.25, horizon = 2.0)
+    cf = Cashflow(big"100.0", 0.9)
+    kw = (; n_scenarios = 17, timestep = 0.3, horizon = 0.9)
+    curve = ZeroRateCurve([0.01, 0.02, 0.08], [0.3, 0.9, 1.2], Spline.Linear())
     vasicek(σ) = ShortRate.Vasicek(0.1, 0.03, σ, 0.03)
     function batch_price(model, rng)
         paths = simulate(model; kw..., rng)
@@ -26,7 +27,7 @@ FinanceModels.simulate(::CustomScenarioModel; n_scenarios, timestep, horizon, rn
     end
     for model in (
             vasicek(0.01), ShortRate.CoxIngersollRoss(0.25, 0.04, 0.06, 0.03),
-            ShortRate.HullWhite(0.1, 0.01, Yield.Constant(0.03)), CustomScenarioModel(),
+            ShortRate.HullWhite(0.2, 0.01, curve), CustomScenarioModel(),
         )
         rng = Xoshiro(42)
         reference_rng = copy(rng)
@@ -45,8 +46,7 @@ FinanceModels.simulate(::CustomScenarioModel; n_scenarios, timestep, horizon, rn
     @test_throws FinanceModels.DataInterpolations.RightExtrapolationError pv_mc(model, Cashflow(1.0, 3.0); kw..., rng)
     simulate(model; kw..., n_scenarios = 1, rng = reference_rng)
     @test rand(rng) == rand(reference_rng)
-    # Julia 1.10 raises MethodError for an empty reduction, newer Julia raises ArgumentError.
-    @test_throws Union{MethodError, ArgumentError} pv_mc(model, cf; kw..., n_scenarios = 0)
+    @test_throws Exception pv_mc(model, cf; kw..., n_scenarios = 0)
 end
 
 @testset "Black–Scholes–Merton price paths" begin

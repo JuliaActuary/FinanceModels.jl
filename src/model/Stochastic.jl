@@ -510,6 +510,8 @@ __pricing_paths(model::AbstractStochasticModel; kw...) = simulate(model; kw...)
 Estimate the expected present value of `contract` under the stochastic `model`
 by averaging `present_value` across simulated scenarios. For Vasicek, CIR and Hull–White,
 each path is priced as it is generated, so only the current path is needed.
+If pricing a path throws, `rng` has advanced through that scenario. Custom models
+supply their scenarios through `simulate`.
 
 !!! note
     `pv_mc` is designed for fixed-cashflow instruments where each `RatePath` scenario
