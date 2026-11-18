@@ -485,12 +485,21 @@ end
 # Per-simulation cache: OU transition parameters for the Gaussian models
 # (plus the α(t) grid for Hull-White). Models that do not need a cache,
 # including CIR and custom AbstractStochasticModel subtypes, receive `nothing`.
+#
+# The simulation builds a cache from its grid (a `__SimGrid`). A cache that depends only on the step
+# length and count is defined on those; one that depends on calendar time reads `grid.times`, the
+# times the path is published at.
+__sim_cache(m::AbstractStochasticModel, grid) = __sim_cache(m, grid.dt, grid.nsteps)
 __sim_cache(::AbstractStochasticModel, dt, n_steps) = nothing
 __sim_cache(m::ShortRate.Vasicek, dt, n_steps) = __ou_step_params(m.a, m.σ, dt)
-function __sim_cache(m::ShortRate.HullWhite, dt, n_steps)
+# α is evaluated at the grid's own times, so the rate recorded at a time is the model's rate at that
+# time. An aligned grid ends at the horizon rather than at n·dt, which can round to the other side
+# of it: at a kink of the initial curve's forward, α(n·dt) would be the forward of the wrong segment.
+# The OU transition keeps the fixed step length.
+function __sim_cache(m::ShortRate.HullWhite, grid)
     return (
-        ou = __ou_step_params(m.a, m.σ, dt),
-        α = [__hw_alpha(m, j * dt) for j in 0:n_steps],
+        ou = __ou_step_params(m.a, m.σ, grid.dt),
+        α = map(t -> __hw_alpha(m, t), grid.times),
     )
 end
 

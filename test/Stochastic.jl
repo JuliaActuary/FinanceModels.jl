@@ -8,6 +8,14 @@ end
 FinanceModels.__sim_initial_rate(m::TestStochasticModel) = m.initial
 FinanceModels.__step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) = r
 
+# A custom model whose cache is defined on the step length and count, and whose state is the calendar
+# time its step ends at: the step's start time, as the simulation passes it, plus the step length.
+struct ClockStochasticModel <: AbstractStochasticModel end
+
+FinanceModels.__sim_initial_rate(::ClockStochasticModel) = 0.0
+FinanceModels.__sim_cache(::ClockStochasticModel, dt, n_steps) = (; dt, n_steps)
+FinanceModels.__step(::ClockStochasticModel, r, dt, sqrt_dt, Z, t, cache, j) = t + cache.dt
+
 @testset "Stochastic Models" begin
 
     @testset "Vasicek" begin
@@ -948,13 +956,14 @@ FinanceModels.__step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) 
             dt = 1.0
             n_steps = round(Int, T / dt)
             sqrt_dt = sqrt(dt)
-            cache = FinanceModels.__sim_cache(hw, dt, n_steps)
+            grid = FinanceModels.__sim_grid(T, dt)
+            cache = FinanceModels.__sim_cache(hw, grid)
             rng = Random.MersenneTwister(42)
             rates = Vector{Float64}(undef, N)
             for i in 1:N
                 r = FinanceModels.__sim_initial_rate(hw)
                 for j in 1:n_steps
-                    r = FinanceModels.__step(hw, r, dt, sqrt_dt, randn(rng), (j - 1) * dt, cache, j)
+                    r = FinanceModels.__step(hw, r, dt, sqrt_dt, randn(rng), grid.times[j], cache, j)
                 end
                 rates[i] = r
             end
@@ -1748,12 +1757,78 @@ end
     @test length(q.interp.t) == FinanceModels.simulation_steps(0.9, 0.5).nsteps + 1
 end
 
+@testset "Hull-White drift on the published grid" begin
+    # Without volatility, a Hull-White path is the initial curve's instantaneous forward at every
+    # simulated time. The times are the path's own: an aligned grid ends at the horizon, while
+    # n·dt can round to either side of it, and at a kink of the forward the two sides differ.
+    forwards(curve, ts) = [rate(Yield.instantaneous_forward(curve, t)) for t in ts]
+    function zero_vol_path(curve, timestep, horizon)
+        hw = ShortRate.HullWhite(0.2, 0.0, curve)
+        p = only(simulate(hw; n_scenarios = 1, timestep, horizon, rng = Random.Xoshiro(1)))
+        ts = FinanceModels.simulation_times(p)
+        return ts, [rate(short_rate(p, t)) for t in ts]
+    end
+
+    # Linear zero rates have a forward that jumps at each knot. Three steps of 0.3 are
+    # 0.8999999999999999, left of the knot at 0.9, where the forward is 3.5%; the path ends at 0.9
+    # itself, where the right-hand forward is 20%.
+    curve = ZeroRateCurve([0.01, 0.02, 0.08], [0.3, 0.9, 1.2], Spline.Linear())
+    @test rate(Yield.instantaneous_forward(curve, 3 * 0.3)) ≈ 0.035
+    ts, rates = zero_vol_path(curve, 0.3, 0.9)
+    @test last(ts) == 0.9
+    @test last(rates) ≈ 0.2
+    @test rates ≈ forwards(curve, ts) rtol = 1.0e-14
+
+    # The other direction: three steps of 0.1 are 0.30000000000000004. With a knot there, the path
+    # ends at 0.3, left of the knot.
+    @test 3 * 0.1 == nextfloat(0.3)
+    late_knot = ZeroRateCurve([0.01, 0.02, 0.08], [nextfloat(0.3), 0.9, 1.2], Spline.Linear())
+    @test !(rate(Yield.instantaneous_forward(late_knot, 3 * 0.1)) ≈ rate(Yield.instantaneous_forward(late_knot, 0.3)))
+    ts, rates = zero_vol_path(late_knot, 0.1, 0.3)
+    @test last(ts) == 0.3
+    @test rates ≈ forwards(late_knot, ts) rtol = 1.0e-14
+
+    # An unaligned horizon is covered by an extra step, and its grid keeps its own multiples of the
+    # step: 0.8999999999999999 stays left of the knot at 0.9, and the path ends on the knot at 1.2.
+    ts, rates = zero_vol_path(curve, 0.3, 1.0)
+    @test ts == [0.0, 0.3, 0.6, 3 * 0.3, 4 * 0.3]
+    @test rates[4] ≈ 0.035
+    @test rates ≈ forwards(curve, ts) rtol = 1.0e-14
+
+    # Other grids through the same knots, aligned and not
+    for (timestep, horizon) in ((0.1, 0.9), (0.1, 1.2), (0.3, 1.2), (0.25, 1.1), (0.07, 0.9))
+        ts, rates = zero_vol_path(curve, timestep, horizon)
+        @test rates ≈ forwards(curve, ts) rtol = 1.0e-14
+    end
+
+    # With volatility, the path is that drift plus an Ornstein-Uhlenbeck process that does not
+    # depend on the curve: the same draws leave the same process around any initial curve.
+    function ou_part(curve)
+        hw = ShortRate.HullWhite(0.2, 0.015, curve)
+        p = only(simulate(hw; n_scenarios = 1, timestep = 0.3, horizon = 0.9, rng = Random.Xoshiro(5)))
+        ts = FinanceModels.simulation_times(p)
+        return [rate(short_rate(p, t)) for t in ts] .- FinanceModels.__hw_alpha.(Ref(hw), ts)
+    end
+    @test ou_part(curve) ≈ ou_part(Yield.Constant(Continuous(0.03))) atol = 1.0e-15
+    @test !iszero(last(ou_part(curve)))
+
+    # A custom model's cache defined on the step length and count is still built, and its step
+    # receives the grid's own start time.
+    for (timestep, horizon) in ((0.3, 0.9), (0.1, 0.3), (0.3, 1.0))
+        p = only(simulate(ClockStochasticModel(); n_scenarios = 1, timestep, horizon))
+        ts = FinanceModels.simulation_times(p)
+        @test [rate(short_rate(p, t)) for t in ts[2:end]] == ts[1:(end - 1)] .+ timestep
+        grid = FinanceModels.__sim_grid(horizon, timestep)
+        @test FinanceModels.__sim_cache(ClockStochasticModel(), grid) == (; dt = timestep, n_steps = length(ts) - 1)
+    end
+end
+
 @testset "short_rate: the simulated rate at grid times" begin
     # The 7.0 simulation loop, which kept only the integral, replayed with the same internals
     function legacy(model, timestep, horizon, rng)
-        grid = FinanceModels.simulation_steps(horizon, timestep)
-        dt = Float64(timestep)
-        cache = FinanceModels.__sim_cache(model, dt, grid.nsteps)
+        grid = FinanceModels.__sim_grid(horizon, timestep)
+        dt = grid.dt
+        cache = FinanceModels.__sim_cache(model, grid)
         r0 = FinanceModels.__sim_initial_rate(model)
         T = FinanceModels.__sim_eltype(model, r0)
         cumulative = Vector{T}(undef, grid.nsteps + 1)
@@ -1761,7 +1836,7 @@ end
         observed = Any[FinanceModels.__observed_rate(model, r0)]
         r = r0
         for j in 1:grid.nsteps
-            r_new = FinanceModels.__step(model, r, dt, sqrt(dt), randn(rng), (j - 1) * dt, cache, j)
+            r_new = FinanceModels.__step(model, r, dt, sqrt(dt), randn(rng), grid.times[j], cache, j)
             cumulative[j + 1] = cumulative[j] +
                 0.5 * (FinanceModels.__observed_rate(model, r) + FinanceModels.__observed_rate(model, r_new)) * dt
             push!(observed, FinanceModels.__observed_rate(model, r_new))

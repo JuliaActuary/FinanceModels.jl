@@ -130,8 +130,9 @@ FinanceModels.__step(::ConstantRateModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) = 
     end
     function innovations(model::ShortRate.HullWhite, p)
         r = p._rates
-        c = FinanceModels.__sim_cache(model, dt, length(r) - 1)
-        return [(r[j + 1] - c.α[j + 1] - (r[j] - c.α[j]) * c.ou.ϕ) / c.ou.sd for j in 1:(length(r) - 1)]
+        ou = FinanceModels.__ou_step_params(model.a, model.σ, dt)
+        α = FinanceModels.__hw_alpha.(Ref(model), FinanceModels.simulation_times(p))
+        return [(r[j + 1] - α[j + 1] - (r[j] - α[j]) * ou.ϕ) / ou.sd for j in 1:(length(r) - 1)]
     end
     function innovations(model::Equity.BlackScholesMerton, p)
         x = log.(p.(FinanceModels.simulation_times(p)))

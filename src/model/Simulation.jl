@@ -144,7 +144,7 @@ struct __RateKernel{M, C, R, T, S}
 end
 
 function __sim_kernel(m::AbstractStochasticModel, g::__SimGrid, ::Type{W}) where {W}
-    cache = __sim_cache(m, g.dt, g.nsteps)
+    cache = __sim_cache(m, g)
     # Parameters other than the initial rate may carry an AD number type.
     r0 = __sim_initial_rate(m)
     T = __integral_eltype(__sim_eltype(m, r0), W)
@@ -164,7 +164,8 @@ end
 
 @inline function __path_step!(k::__RateKernel, (cumulative, rates), r, j, g::__SimGrid, Z)
     m = k.model
-    r_new = __step(m, r, g.dt, g.sqrt_dt, Z, (j - 1) * g.dt, k.cache, j)
+    # step j starts at the grid's own time, the one its starting rate is published at
+    r_new = __step(m, r, g.dt, g.sqrt_dt, Z, g.times[j], k.cache, j)
     # the integral is accumulated from the working states, never from the recorded rates
     cumulative[j + 1] = cumulative[j] + 0.5 * (__observed_rate(m, r) + __observed_rate(m, r_new)) * g.dt
     rates[j + 1] = __observed_rate(m, r_new)

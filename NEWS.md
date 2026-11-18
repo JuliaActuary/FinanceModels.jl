@@ -1,5 +1,24 @@
 # FinanceModels.jl release notes
 
+## v7.2.1
+
+### Hull–White drift at the path's own times
+
+A simulated Hull–White rate is an Ornstein–Uhlenbeck process plus a deterministic drift `α(t)`,
+which contains the initial curve's instantaneous forward. `simulate` evaluated `α` at `j * timestep`
+while publishing the path on a grid whose aligned endpoint is the horizon itself. The two can
+differ by a rounding (`3 * 0.3` is `0.8999999999999999`), and where the initial curve's forward has
+a kink at the horizon they are on opposite sides of it. With linear zero rates `[0.01, 0.02, 0.08]`
+at tenors `[0.3, 0.9, 1.2]`, a zero-volatility path to a horizon of 0.9 in steps of 0.3 reported a
+short rate of 3.5% at 0.9, where the curve's forward is 20%.
+
+`α` is now evaluated at the path's published times
+(`FinanceModels.simulation_times(path)`), so the rate recorded at a time is the model's rate at that
+time. Only the last grid point of an aligned simulation can change, and only when
+`nsteps * timestep` is not the horizon in floating point: by a rounding on a smooth curve, and by
+the size of the forward's jump when a kink sits there. Random draws, the other models and unaligned
+grids are unchanged.
+
 ## v7.2.0
 
 This release adds equity price paths, joint economic scenarios and Copulas.jl integration, and
