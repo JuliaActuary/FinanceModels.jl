@@ -1,5 +1,42 @@
 # FinanceModels.jl release notes
 
+## v7.3.0 (unreleased)
+
+### Least-squares fits of any model: `Fit.LeastSquares`
+
+`Fit.LeastSquares(; weights = nothing, maxiters = 200)` fits a model by weighted squared pricing
+residuals. It is opt-in: every fit without a method keeps `Fit.Loss(x -> x^2)`.
+
+```julia
+c0 = ZeroRateCurve(fill(0.05, length(knots)), knots, Spline.Cubic())
+curve = fit(c0, bond_quotes, Fit.LeastSquares())                 # ten knots, a thousand bonds
+curve = fit(c0, bond_quotes, Fit.LeastSquares(weights = w))
+ns = fit(Yield.NelsonSiegel(), bond_quotes, Fit.LeastSquares())  # any model, by its `variables`
+```
+
+- **One solve for every model and contract.** The solver sees only the residuals
+  `√wᵢ (present_value(model, quoteᵢ.instrument) - quoteᵢ.price)`: a knot curve's knot rates or any
+  other model's `variables`, and any contract the model can value. Quote maturities may repeat,
+  and a spline or knot curve may have fewer knots than quotes.
+- **Solver.** Levenberg–Marquardt on the residuals' ForwardDiff Jacobian, then Newton's method
+  with the exact Hessian of the sum of squares. A fit is returned only as a certified local
+  minimum: a positive definite Hessian and a Newton correction of at most `1e-10` in every
+  parameter. Quotes that the model reprices are the zero-residual case.
+- **Errors.** A parameter that moves no quote's price throws an `ArgumentError` naming it. A fit
+  that cannot be certified throws a `FitConvergenceError`: quotes that do not determine the
+  parameters, a minimum on a formula switch of `Spline.MonotoneConvex()`, `Spline.PCHIP()` or
+  `Spline.Akima()`, or a minimum on or beyond the bound of a variable's interval.
+- **Weights.** One non-negative number per quote; zero leaves a quote out.
+- **Derivatives.** First-order ForwardDiff derivatives with respect to quote prices, the contract
+  numbers a spline fit differentiates, the weights and a `Yield.FlatForwardAt` forward, for any
+  model and any number of quotes. They are the derivatives of the minimum (the implicit function
+  theorem with the full Hessian). Loss fits of models other than knot curves still differentiate
+  nothing.
+- **Speed.** A ten-knot cubic curve fitted to 1,000 synthetic bonds takes about 16 ms and to
+  10,000 about 150 ms on Julia 1.13, against 30 ms and 280 ms for the loss fit, and reaches the
+  same knot rates to rounding. Its first call compiles second-order dual numbers, as the loss
+  fit's Newton optimizer does, and takes about as long.
+
 ## v7.2.0
 
 This release adds equity price paths, joint economic scenarios and Copulas.jl integration, and

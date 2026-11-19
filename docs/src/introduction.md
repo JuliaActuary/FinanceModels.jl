@@ -181,7 +181,7 @@ fit(Spline.Linear(), CMTYield.([0.04,0.05,0.055,0.06,0.055],[1,2,3,4,5]), Fit.Bo
 
 - **Model** could be `Spline.Linear()`, `Yield.NelsonSiegelSvensson()`, `Equity.BlackScholesMerton(...)`, etc.
 - **Quote** could be `CMTYield`s, `ParYield`s, `Option.EuroCall`, etc.
-- **Method** could be `Fit.Loss(x->x^2)`, `Fit.Loss(x->abs(x))`, `Fit.Bootstrap()`, etc.
+- **Method** could be `Fit.Loss(x->x^2)`, `Fit.Loss(x->abs(x))`, `Fit.LeastSquares()`, `Fit.Bootstrap()`, etc.
 
 The benefit of this versus the old Yields.jl API is:
 

@@ -28,6 +28,7 @@ include("Projection.jl")
 include("valuation_contexts.jl")
 include("fit_implicit.jl")
 include("fit.jl")
+include("fit_least_squares.jl")
 
 export Cashflow, Quote, Forward, CommonEquity, Option, InterestRateSwap
 

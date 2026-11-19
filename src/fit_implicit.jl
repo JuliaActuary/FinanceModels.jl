@@ -22,47 +22,54 @@ function __no_dual_time(t)
     return nothing
 end
 
-# Primal copy of a contract: dual numbers in prices, rates, and amounts are replaced by their
-# values. A contract that carries none is returned itself (`===`), so primal calibrations
-# take exactly their former path. Unknown contract types are returned unchanged; a dual
-# number hidden in one reaches the primal solve, which throws (`__foreign_dual`).
-__primal_contract(x) = x
-function __primal_contract(c::FinanceCore.Cashflow)
+# A copy of a contract with `f` applied to the numbers a fit differentiates: prices, rates, and
+# amounts. `f` is `__primal` (dual numbers replaced by their values) for the copy a solve runs on,
+# or a least-squares fit's `__Retag`. A contract that `f` leaves unchanged is returned itself
+# (`===`), so primal calibrations take exactly their former path. Unknown contract types are
+# returned unchanged; a dual number hidden in one reaches the primal solve, which throws
+# (`__foreign_dual`).
+__map_contract(f::F, x) where {F} = x
+function __map_contract(f::F, c::FinanceCore.Cashflow) where {F}
     __no_dual_time(c.time)
-    a = __primal(c.amount)
+    a = f(c.amount)
     return a === c.amount ? c : FinanceCore.Cashflow(a, c.time)
 end
-function __primal_contract(c::FinanceCore.Composite)
-    a, b = __primal_contract(c.a), __primal_contract(c.b)
+function __map_contract(f::F, c::FinanceCore.Composite) where {F}
+    a, b = __map_contract(f, c.a), __map_contract(f, c.b)
     return (a === c.a && b === c.b) ? c : FinanceCore.Composite(a, b)
 end
-function __primal_contract(b::Bond.Fixed)
+function __map_contract(f::F, b::Bond.Fixed) where {F}
     __no_dual_time(b.maturity)
-    r = __primal(b.coupon_rate)
+    r = f(b.coupon_rate)
     return r === b.coupon_rate ? b : Bond.Fixed(r, b.frequency, b.maturity)
 end
-function __primal_contract(b::Bond.Floating)
+function __map_contract(f::F, b::Bond.Floating) where {F}
     __no_dual_time(b.maturity)
-    r = __primal(b.coupon_rate)
+    r = f(b.coupon_rate)
     return r === b.coupon_rate ? b : Bond.Floating(r, b.frequency, b.maturity, b.key)
 end
-function __primal_contract(c::FX.BasisSwapLeg)
-    cfs = __primal_contract(c.cashflows)
+function __map_contract(f::F, c::FX.BasisSwapLeg) where {F}
+    cfs = __map_contract(f, c.cashflows)
     return cfs === c.cashflows ? c : FX.BasisSwapLeg(c.pair, cfs)
 end
-function __primal_contract(v::Union{AbstractVector, Tuple})
-    p = map(__primal_contract, v)
+function __map_contract(f::F, v::Union{AbstractVector, Tuple}) where {F}
+    p = map(x -> __map_contract(f, x), v)
     return all(((a, b),) -> a === b, zip(p, v)) ? v : p
 end
 
-function __primal_quote(q::FinanceCore.Quote)
-    p, i = __primal(q.price), __primal_contract(q.instrument)
+function __map_quote(f::F, q::FinanceCore.Quote) where {F}
+    p, i = f(q.price), __map_contract(f, q.instrument)
     return (p === q.price && i === q.instrument) ? q : FinanceCore.Quote(p, i)
 end
+__primal_quote(q) = __map_quote(__primal, q)
 
-__primal_extrapolation(e) = e
-__primal_extrapolation(e::Yield.FlatForwardAt) =
-    __ad_depth(e.forward) == 0 ? e : Yield.FlatForwardAt(Continuous(__primal(e.forward)))
+# The same for an extrapolation policy, whose only number is a `Yield.FlatForwardAt` forward.
+__map_extrapolation(f::F, e) where {F} = e
+function __map_extrapolation(f::F, e::Yield.FlatForwardAt) where {F}
+    v = f(e.forward)
+    return v === e.forward ? e : Yield.FlatForwardAt(Continuous(v))
+end
+__primal_extrapolation(e) = __map_extrapolation(__primal, e)
 
 # The quotes of a knot-curve fit and their primal copies. Knots sit at the quote maturities,
 # which therefore must be primal.
