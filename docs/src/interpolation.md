@@ -156,9 +156,10 @@ bbb = fit(c0, bond_quotes, Fit.LeastSquares(weights = w))
 model ForwardDiff can differentiate twice. It is opt-in, and the default method of every fit
 remains `Fit.Loss(x -> x^2)`.
 
-What a least-squares fit returns is a certified local minimum: at the fitted parameters the
+What a least-squares fit returns is a certified local minimum: at the fitted knot rates the
 Hessian of the sum of squares (including the residuals' curvature) is positive definite, and a
-Newton correction with it moves no knot rate by more than `1e-10`. Otherwise the fit throws:
+Newton correction with it would move the prices by no more than `1e-10` of their size. Otherwise
+the fit throws:
 
 - The quotes must determine every knot rate: enough quotes with a positive weight, and each knot
   moving some quote's price.

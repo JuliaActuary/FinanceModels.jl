@@ -137,9 +137,10 @@ exact fit is at most `1e-6`. The correction is a local estimate of the fit's err
 guaranteed distance to the exact solution; like the conditioning check, it does not depend on
 the quotes' notionals. To tighten a loss fit, pass solver settings through `fit`'s
 `solve_kwargs`, for example `fit(Spline.MonotoneConvex(), quotes; solve_kwargs = (; g_tol = 1e-12))`.
-A least-squares fit is certified before it is returned (a Newton correction with the full Hessian
-of at most `1e-10` of each parameter's scale), and its derivatives use that Hessian at the
-returned parameters, where the correction is checked once more; there is nothing to tighten.
+A least-squares fit is certified at the parameters it returns (a Newton correction with the full
+Hessian that moves the prices by at most `1e-10` of their size), and its derivatives use that same
+Hessian; there is nothing to tighten. They are exact for the returned parameters, which lie within
+that correction of the minimum.
 Refitting with bumped quotes and taking finite differences is a much noisier check: optimizer
 noise of `1e-11` in the fitted rates becomes an error of order `1e-4` in a difference quotient.
 

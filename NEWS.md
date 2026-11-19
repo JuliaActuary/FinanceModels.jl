@@ -22,9 +22,9 @@ ns = fit(Yield.NelsonSiegel(), bond_quotes, Fit.LeastSquares())  # any model, by
   differentiable only to first order (a Hull–White swaption) is not supported.
 - **Solver.** Levenberg–Marquardt on the residuals' ForwardDiff Jacobian, then Newton's method
   with the exact Hessian of the sum of squares. A fit is returned only as a certified local
-  minimum: a positive definite Hessian and a Newton correction of at most `1e-10` of each
-  parameter's scale (1, or its own size if larger, or its interval's width if narrower). Quotes
-  that the model reprices are the zero-residual case.
+  minimum, certified at the parameters returned: a positive definite Hessian, and a Newton
+  correction that moves the prices by at most `1e-10` of their size, a measure that does not
+  depend on the parameters' units. Quotes that the model reprices are the zero-residual case.
 - **Errors.** A parameter on which no quote's price depends throws an `ArgumentError` naming it. A
   fit that cannot be certified throws a `FitConvergenceError`: quotes that do not determine the
   parameters, a minimum on a formula switch of `Spline.MonotoneConvex()`, `Spline.PCHIP()` or
@@ -35,14 +35,16 @@ ns = fit(Yield.NelsonSiegel(), bond_quotes, Fit.LeastSquares())  # any model, by
 - **FX.** A foreign spline or knot curve of `FX.Forwards` is fitted to the quotes' own pricing
   residuals, so outrights and basis swaps in one quote set are weighted as given. (A loss fit
   minimizes the residuals of the implied quotes, in which an outright's is divided by spot.)
+  Contracts without an implied quote, such as a `Composite` of forwards, are priced under the FX
+  model itself; the loss fit and the bootstrap do not accept them.
 - **Derivatives.** First-order ForwardDiff derivatives with respect to quote prices, the contract
   numbers a spline fit differentiates, the weights and a `Yield.FlatForwardAt` forward, for any
   supported model and any number of quotes. They are the derivatives of the minimum (the implicit function
   theorem with the full Hessian). Loss fits of models other than knot curves still differentiate
   nothing.
-- **Speed.** A ten-knot cubic curve fitted to 1,000 synthetic bonds takes about 16 ms and to
-  10,000 about 150 ms on Julia 1.13, against 30 ms and 280 ms for the loss fit, and reaches the
-  same knot rates to rounding. Its first call compiles second-order dual numbers, as the loss
+- **Speed.** A ten-knot cubic curve fitted to 1,000 synthetic bonds takes about 18 ms and to
+  10,000 about 160 ms on Julia 1.13, against 30 ms and 280 ms for the loss fit, and reaches the
+  same knot rates to `1e-13`. Its first call compiles second-order dual numbers, as the loss
   fit's Newton optimizer does, and takes about as long.
 
 ## v7.2.1

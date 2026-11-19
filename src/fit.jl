@@ -90,9 +90,12 @@ module Fit
        only) takes the parameters to where a Gauss–Newton step is at rounding, or no longer shrinks.
        `maxiters` limits its iterations.
     2. Newton's method with the exact Hessian of the sum of squares, which includes the residuals'
-       curvature, certifies a local minimum there: the Hessian is positive definite and well
-       conditioned, and a Newton correction moves no parameter by more than `1e-10` of its scale.
-       A parameter's scale is 1, or its own size if larger, or its interval's width if narrower.
+       curvature, goes on from there to a point it can certify as a local minimum, and that point
+       is the fit. Its Hessian is positive definite and well conditioned, and its Newton
+       correction is negligible: for every parameter, the price change the correction stands for
+       (the correction times the square root of the Hessian's diagonal) is at most `1e-10` of the
+       size of the prices. The measure does not depend on the parameters' units, the quotes'
+       notionals or the scale of the weights.
 
     A fit that reprices its quotes is the zero-residual case of the same solve. A fit that cannot be
     certified throws a [`FitConvergenceError`](@ref FinanceModels.FitConvergenceError):
@@ -103,12 +106,17 @@ module Fit
     - `Spline.MonotoneConvex()`, `Spline.PCHIP()` and `Spline.Akima()` switch formulas as knot rates
       change, and a minimum on a switch cannot be certified by derivatives. Prefer
       `Spline.Linear()` or `Spline.Cubic()` for more quotes than knots.
-    - A model's variables stay strictly inside their intervals. A fit whose minimum is on or beyond
-      a bound, or too near one to tell, throws rather than return the bound.
+    - A model's variables stay strictly inside their intervals, and each needs an interval
+      (`lower .. upper`). A fit whose minimum is on or beyond a bound, or too near one to tell,
+      throws rather than return the bound.
     - The certificate takes second derivatives of the prices. A pricer that is differentiable only
       to first order (a Hull–White swaption, or a model that runs a `fit` of its own) throws; use
       `Fit.Loss`. A model without `variables` (`Yield.SmithWilson`, which has a closed-form
       `fit(model, quotes)`) is a `MethodError`.
+
+    For `FX.Forwards` with a foreign spline or knot curve, the residuals are the quotes' own under
+    the FX model, whatever mix of contracts they are. Derivatives with respect to the domestic
+    curve are available for outrights and par basis-swap legs only.
 
     The minimum is a local one, and need not be the best fit of all parameters. `optimizer` and
     `solve_kwargs` belong to [`Fit.Loss`](@ref FinanceModels.Fit.Loss) and are not accepted. The

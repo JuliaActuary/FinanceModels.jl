@@ -48,6 +48,11 @@ function __map_contract(f::F, b::Bond.Floating) where {F}
     r = f(b.coupon_rate)
     return r === b.coupon_rate ? b : Bond.Floating(r, b.frequency, b.maturity, b.key)
 end
+function __map_contract(f::F, c::FX.Forward) where {F}
+    __no_dual_time(c.time)
+    k = f(c.strike)
+    return k === c.strike ? c : FX.Forward(c.pair, k, c.time)
+end
 function __map_contract(f::F, c::FX.BasisSwapLeg) where {F}
     cfs = __map_contract(f, c.cashflows)
     return cfs === c.cashflows ? c : FX.BasisSwapLeg(c.pair, cfs)
