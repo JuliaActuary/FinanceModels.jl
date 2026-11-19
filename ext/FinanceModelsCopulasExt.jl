@@ -26,7 +26,7 @@ function FM.simulate(
     )
     d = length(models)
     length(C) == d || throw(DimensionMismatch("$d models need a $d-dimensional copula, got $(length(C))"))
-    return FM.__simulate(identity, models, copula_shocks(C, d), n_scenarios, timestep, horizon, rng)
+    return collect(FM.__scenarios(identity, models, copula_shocks(C, d), n_scenarios, timestep, horizon, rng))
 end
 
 # Gaussian and independent copulas need no uniforms (a Gaussian sample's uniforms can round to 0
