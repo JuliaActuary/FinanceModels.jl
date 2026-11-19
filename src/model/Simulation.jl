@@ -2,10 +2,10 @@
 #
 # `simulate` steps every model of a scenario together on one grid. Each model has a kernel, built
 # once per call: a short-rate model's from its simulation hooks (`__sim_cache`,
-# `__sim_initial_rate`, `__sim_eltype`, `__step`, `__observed_rate`), Black–Scholes–Merton's from
-# its drift and volatility. A scenario draws one standard normal per model per step, in the order
-# scenario, step, model, and feeds each model its shock. A single model is a one-model tuple, so it
-# draws exactly the shocks it drew before the loop was shared.
+# `__sim_initial_rate`, `__sim_eltype`, `__step`, `__step_integral`, `__observed_rate`),
+# Black–Scholes–Merton's from its drift and volatility. A scenario draws one standard normal per
+# model per step, in the order scenario, step, model, and feeds each model its shock. A single model
+# is a one-model tuple, so it draws exactly the shocks it drew before the loop was shared.
 
 """
     simulation_steps(horizon, timestep) -> (; nsteps, aligned)
@@ -97,30 +97,28 @@ __shock_eltype(::__IndependentShocks) = Float64
 
 # Every dependence adapter supplies a shock source and its numeric type. Preparation belongs here,
 # so model buffers and the innovations they receive always use the same type contract.
-function __simulate(finish::F, models::Tuple, shocks, n_scenarios, timestep, horizon, rng) where {F}
+function __scenarios(finish::F, models::Tuple, shocks, n_scenarios, timestep, horizon, rng) where {F}
     grid = __sim_grid(horizon, timestep)
     W = __shock_eltype(shocks)
     kernels = map(m -> __sim_kernel(m, grid, W), models)
-    return __simulate_paths(finish, kernels, grid, n_scenarios, rng, shocks)
+    return (finish(__simulate_path(kernels, grid, rng, shocks)) for _ in 1:n_scenarios)
 end
 
-# `n_scenarios` scenarios on grid `g`, each the tuple of the kernels' paths passed through `finish`
-# (`only` for a single model).
-function __simulate_paths(finish::F, kernels::Tuple, g::__SimGrid, n_scenarios::Int, rng, shocks) where {F}
-    # `map` (rather than filling a vector of an abstract path type) infers the concrete element
-    # type, so downstream pricing loops dispatch statically instead of dynamically per path
-    return map(1:n_scenarios) do _
-        started = map(k -> __path_start(k, g), kernels)
-        buffers, states0 = map(first, started), map(last, started)
-        # The first step is taken outside the loop: a state can change type there (a Float64
-        # initial rate becomes a dual number when the parameters carry derivatives, a Float32 one
-        # becomes Float64), and inside the loop it then keeps one type.
-        states = __step_all(kernels, buffers, states0, 1, g, __draw(shocks, rng))
-        for j in 2:g.nsteps
-            states = __step_all(kernels, buffers, states, j, g, __draw(shocks, rng))
-        end
-        finish(map((k, b) -> __path_finish(k, b, g), kernels, buffers))
+__single_paths(model; n_scenarios, timestep, horizon, rng) =
+    __scenarios(only, (model,), __IndependentShocks{1}(), n_scenarios, timestep, horizon, rng)
+
+# Step one scenario to completion. The caller can retain its paths or value them immediately.
+function __simulate_path(kernels::Tuple, g::__SimGrid, rng, shocks)
+    started = map(k -> __path_start(k, g), kernels)
+    buffers, states0 = map(first, started), map(last, started)
+    # The first step is taken outside the loop: a state can change type there (a Float64
+    # initial rate becomes a dual number when the parameters carry derivatives, a Float32 one
+    # becomes Float64), and inside the loop it then keeps one type.
+    states = __step_all(kernels, buffers, states0, 1, g, __draw(shocks, rng))
+    for j in 2:g.nsteps
+        states = __step_all(kernels, buffers, states, j, g, __draw(shocks, rng))
     end
+    return map((k, b) -> __path_finish(k, b, g), kernels, buffers)
 end
 
 # An inline callable keeps the per-model update visible without recursive tuple splatting.
@@ -144,10 +142,10 @@ struct __RateKernel{M, C, R, T, S}
 end
 
 function __sim_kernel(m::AbstractStochasticModel, g::__SimGrid, ::Type{W}) where {W}
-    cache = __sim_cache(m, g.dt, g.nsteps)
+    cache = __sim_cache(m, g)
     # Parameters other than the initial rate may carry an AD number type.
     r0 = __sim_initial_rate(m)
-    T = __integral_eltype(__sim_eltype(m, r0), W)
+    T = __integral_eltype(__sim_eltype(m, r0, cache), W)
     # The recorded rates keep the precision of the states the integral is accumulated from: a Float64
     # shock makes a Float32 model's states after the first step Float64.
     S = promote_type(T, W)
@@ -164,9 +162,10 @@ end
 
 @inline function __path_step!(k::__RateKernel, (cumulative, rates), r, j, g::__SimGrid, Z)
     m = k.model
-    r_new = __step(m, r, g.dt, g.sqrt_dt, Z, (j - 1) * g.dt, k.cache, j)
+    # step j starts at the grid's own time, the one its starting rate is published at
+    r_new = __step(m, r, g.dt, g.sqrt_dt, Z, g.times[j], k.cache, j)
     # the integral is accumulated from the working states, never from the recorded rates
-    cumulative[j + 1] = cumulative[j] + 0.5 * (__observed_rate(m, r) + __observed_rate(m, r_new)) * g.dt
+    cumulative[j + 1] = cumulative[j] + __step_integral(m, r, r_new, g.dt, k.cache, j)
     rates[j + 1] = __observed_rate(m, r_new)
     return r_new
 end
@@ -274,7 +273,7 @@ function simulate(
         horizon::Real = 30.0,
         rng::Random.AbstractRNG = Random.default_rng()
     )
-    return __simulate(only, (model,), __IndependentShocks{1}(), n_scenarios, timestep, horizon, rng)
+    return collect(__single_paths(model; n_scenarios, timestep, horizon, rng))
 end
 
 """
@@ -297,10 +296,14 @@ Discretisation schemes:
   Weak bias vanishes as `timestep → 0`, but is material for coarse steps when
   the Feller condition is strongly violated.
 
-In all cases the cumulative discount integral ``∫₀ᵗ r(s)\\,ds`` is accumulated
-with the trapezoidal rule between grid points, so pathwise discount factors
-(and hence `pv_mc`) retain an integration error that grows with `timestep`
-even when the short-rate transition itself is exact.
+The cumulative discount integral ``∫₀ᵗ r(s)\\,ds`` is accumulated with the
+trapezoidal rule between grid points, so pathwise discount factors (and hence
+`pv_mc`) retain an integration error that grows with `timestep` even when the
+short-rate transition itself is exact. For Hull-White, the initial curve's
+forward is integrated exactly, as the curve's log-discount over each step, and
+the trapezoid applies to the rest of the rate: without volatility a path's
+discount factors are the curve's at every grid time, also where the curve's
+forward jumps.
 
 Each path also records the simulated short rate at its grid times
 ([`FinanceModels.simulation_times`](@ref)), read with [`short_rate`](@ref).
@@ -317,7 +320,7 @@ function simulate(
         horizon::Real = 30.0,
         rng::Random.AbstractRNG = Random.default_rng()
     )
-    return __simulate(only, (model,), __IndependentShocks{1}(), n_scenarios, timestep, horizon, rng)
+    return collect(__single_paths(model; n_scenarios, timestep, horizon, rng))
 end
 
 # ─── Correlated simulation ───────────────────────────────────────────────────
@@ -448,7 +451,7 @@ function simulate(
         horizon::Real = 30.0,
         rng::Random.AbstractRNG = Random.default_rng()
     )
-    return __simulate(identity, models, __CorrelatedShocks(ρ, length(models)), n_scenarios, timestep, horizon, rng)
+    return collect(__scenarios(identity, models, __CorrelatedShocks(ρ, length(models)), n_scenarios, timestep, horizon, rng))
 end
 
 # Shape adaptation is shared by every dependence source, including package extensions.

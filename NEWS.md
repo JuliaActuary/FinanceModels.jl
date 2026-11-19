@@ -45,6 +45,58 @@ ns = fit(Yield.NelsonSiegel(), bond_quotes, Fit.LeastSquares())  # any model, by
   same knot rates to rounding. Its first call compiles second-order dual numbers, as the loss
   fit's Newton optimizer does, and takes about as long.
 
+## v7.2.1
+
+### Hull–White drift at the path's own times
+
+A simulated Hull–White rate is an Ornstein–Uhlenbeck process plus a deterministic drift `α(t)`,
+which contains the initial curve's instantaneous forward. `simulate` evaluated `α` at `j * timestep`
+while publishing the path on a grid whose aligned endpoint is the horizon itself. The two can
+differ by a rounding (`3 * 0.3` is `0.8999999999999999`), and where the initial curve's forward has
+a kink at the horizon they are on opposite sides of it. With linear zero rates `[0.01, 0.02, 0.08]`
+at tenors `[0.3, 0.9, 1.2]`, a zero-volatility path to a horizon of 0.9 in steps of 0.3 reported a
+short rate of 3.5% at 0.9, where the curve's forward is 20%.
+
+`α` is now evaluated at the path's published times
+(`FinanceModels.simulation_times(path)`), so the rate recorded at a time is the model's rate at that
+time. Only the last grid point of an aligned simulation can change, and only when
+`nsteps * timestep` is not the horizon in floating point: by a rounding on a smooth curve, and by
+the size of the forward's jump when a kink sits there. Random draws, the other models and unaligned
+grids are unchanged.
+
+### Hull–White paths discount on the initial curve
+
+A Hull–White path's discount integral was the trapezoid of its short rate. That rate contains the
+initial curve's instantaneous forward, which need not be continuous: linear zero rates give a
+forward that jumps at each knot. The rate at a grid time on a knot is the forward to its right, and
+the trapezoid charged half of the jump over the step before the knot. With zero rates
+`[0.02, 0.02, 0.08, 0.03]` at years 1, 2, 3 and 5 and half-year steps, a zero-volatility path
+discounted a payment at year 2 by 0.9324, where the curve's discount factor is 0.9608. Evaluating
+`α` at the published times alone would have brought the same error to an aligned horizon on a knot.
+
+The forward's part of the integral is now the curve's own log-discount over each step, which is
+exact for any curve. The rest of the rate, the Ornstein–Uhlenbeck process and the convexity term of
+`α`, is continuous and keeps the trapezoid. Without volatility a path's discount factors are the
+initial curve's at every grid time, and a payment's value no longer depends on which grid times fall
+on knots or on how far the simulation runs past it.
+
+`Yield.instantaneous_forward(path, t)`, the slope of a path's integral over a step, is accordingly
+the curve's average forward over the step plus the average of the two rates' excesses over the
+curve's forward, where it was the average of the step's two short rates. It still is that average
+for Vasicek, Cox–Ingersoll–Ross and custom models.
+
+Sensitivities to the curve now reach the integral through the curve's log-discount as well as its
+forward. A curve whose forward at 0 carries no derivative while its later values do, such as a
+spread that applies from a later time on, now simulates under ForwardDiff. Before, a spread lying
+between two grid times was missed in the price and its sensitivity was zero, and a spread covering
+a grid time threw a `MethodError`.
+
+The simulated short rates and the random draws are unchanged. Hull–White path discount factors, and
+`pv_mc` values computed from them, change: by rounding on a flat curve, by the trapezoid's error on
+the forward for a smooth curve (of order `timestep²`), and, where a grid time lies on a kink, by
+half the forward's jump times the timestep in the log-discount from there on. Vasicek and
+Cox–Ingersoll–Ross paths are unchanged.
+
 ## v7.2.0
 
 This release adds equity price paths, joint economic scenarios and Copulas.jl integration, and
