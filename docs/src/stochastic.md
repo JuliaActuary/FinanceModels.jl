@@ -117,8 +117,10 @@ discount(v, 5.0, 10.0, r5)    # P(5, 10 | r(5)) on this path
 ```
 
 `short_rate` answers at the path's grid times, allowing floating-point rounding around a grid time. `FinanceModels.simulation_times(path)` returns a copy of that grid. Other times throw a `DomainError`, because the simulation has no recorded rate there. A hand-built `RatePath(interp)` has no recorded rates, so `short_rate` throws an `ArgumentError` on it. `Yield.instantaneous_forward(path, t)` is the slope of the path's discount integral over the
-step that starts at `t`, the average of that step's two rates. It uses the rate at the end of the
-step, so it is not the state at `t`.
+step that starts at `t`, so it is not the state at `t`. For Vasicek, Cox-Ingersoll-Ross and custom
+models, whose integral is the trapezoid of the rate, that slope is the average of the step's two
+rates. For Hull-White it is the initial curve's average forward over the step plus the average of
+the two rates' excesses over the curve's forward at their times.
 
 ### Valuing Fixed-Income Contracts
 
@@ -164,7 +166,7 @@ Custom bounds can be passed via the `variables` keyword argument to `fit`.
 
 ### Generating Scenarios with `simulate`
 
-`simulate` generates interest-rate paths using the exact Gaussian transition density for Vasicek and Hull-White (no discretisation bias in the short rate at any timestep) and the full truncation scheme (Lord, Koekkoek & Van Dijk, 2010) for Cox-Ingersoll-Ross. Each path is returned as a [`RatePath`](@ref FinanceModels.RatePath), which is itself an `AbstractYieldModel` -- so `discount`, `zero`, `forward`, `par`, and `present_value` all work on individual scenarios. Path discount factors use trapezoidal integration of the short rate, so they still have time-discretization error even when rate transitions are exact. A path is defined only through its last grid time: evaluating it later throws. An aligned horizon is included exactly; otherwise the final full step ends just beyond the requested horizon. Choose a `horizon` that covers every cashflow you value and inspect `FinanceModels.simulation_times(path)` when grid alignment matters.
+`simulate` generates interest-rate paths using the exact Gaussian transition density for Vasicek and Hull-White (no discretisation bias in the short rate at any timestep) and the full truncation scheme (Lord, Koekkoek & Van Dijk, 2010) for Cox-Ingersoll-Ross. Each path is returned as a [`RatePath`](@ref FinanceModels.RatePath), which is itself an `AbstractYieldModel` -- so `discount`, `zero`, `forward`, `par`, and `present_value` all work on individual scenarios. Path discount factors use trapezoidal integration of the short rate, so they still have time-discretization error even when rate transitions are exact. For Hull-White, the initial curve's forward is integrated exactly, as the curve's log-discount over each step, and the trapezoid applies only to the rest of the rate: without volatility the path's discount factors are the curve's at every grid time. A path is defined only through its last grid time: evaluating it later throws. An aligned horizon is included exactly; otherwise the final full step ends just beyond the requested horizon. Choose a `horizon` that covers every cashflow you value and inspect `FinanceModels.simulation_times(path)` when grid alignment matters.
 
 ```julia
 using Random
@@ -491,7 +493,7 @@ EconomicScenarioGenerators.jl is frozen at 0.7.1. Its generators map to FinanceM
 | `HullWhite(a, σ, curve)`; `HullWhite(a, σ, r)` for a flat rate | `ShortRate.HullWhite(a, σ, curve)`; `ShortRate.HullWhite(a, σ, Yield.Constant(Continuous(r)))` | the exact transition, starting from the curve's instantaneous forward at 0 |
 | `BlackScholesMerton(r, q, σ, S0)` | `Equity.BlackScholesMerton(r, q, σ)`, with prices `S0 .* p.(FinanceModels.simulation_times(p))` | the same exact step; FinanceModels' paths start at 1 |
 | `collect(ScenarioGenerator(dt, T, m, rng))` | `p = only(simulate(m; n_scenarios=1, timestep=dt, horizon=T, rng))`, then `short_rate.(p, FinanceModels.simulation_times(p))` or `p.(FinanceModels.simulation_times(p))` | FinanceModels covers a `T` that isn't a whole number of steps with one more step |
-| `YieldCurve(sg)` | the `RatePath` itself | the discount integral is trapezoidal, and the path throws beyond its last simulated time |
+| `YieldCurve(sg)` | the `RatePath` itself | the discount integral is trapezoidal (for Hull-White, exact in the initial curve's forward), and the path throws beyond its last simulated time |
 | `Correlated([s1, s2], GaussianCopula(Σ), rng)` | `simulate((m1, m2), Σ; rng)` | one tuple of paths per scenario; ESG gave one tuple of values per timestep for a single scenario |
 | `Correlated([s1, s2], ClaytonCopula(2, θ), rng)` | `using Copulas; simulate((m1, m2), ClaytonCopula(2, θ); rng)` | |
 | each generator's own `RNG` (which `Correlated` ignored) | one `rng` keyword | |

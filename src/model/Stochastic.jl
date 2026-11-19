@@ -376,10 +376,13 @@ end
 A simulated interest-rate path wrapped as an `AbstractYieldModel`. `interp` interpolates the
 cumulative integral ∫₀ᵗ r(s) ds linearly over the path's time grid, so
 `discount(path, t) = exp(-interp(t))` and the path's forward is constant on each step: at a grid
-time, `Yield.instantaneous_forward(path, t)` is the slope of the step that starts there, which for
-a simulated path is the average of that step's two simulated rates. The grid starts at `t = 0`,
-where the integral is 0; otherwise construction throws an `ArgumentError`. The path is defined
-where `interp` is; `simulate` builds paths that throw outside their time grid.
+time, `Yield.instantaneous_forward(path, t)` is the slope of the step that starts there. For a
+simulated path whose integral is the trapezoid of its rates (Vasicek, Cox-Ingersoll-Ross, custom
+models) that slope is the average of the step's two simulated rates. A Hull-White path integrates
+its initial curve's forward exactly, so its slope is the curve's average forward over the step plus
+the average of the two rates' excesses over the curve's forward. The grid starts at `t = 0`, where
+the integral is 0; otherwise construction throws an `ArgumentError`. The path is defined where
+`interp` is; `simulate` builds paths that throw outside their time grid.
 
 A path from [`simulate`](@ref) also records the simulated short rate at each grid time, read with
 [`short_rate`](@ref). A path built from an integral alone, as here, records none, and `short_rate`
@@ -432,6 +435,12 @@ __sim_eltype(m::ShortRate.CoxIngersollRoss, r0) =
     promote_type(typeof(r0), typeof(m.a), typeof(m.b), typeof(m.σ))
 __sim_eltype(m::ShortRate.HullWhite, r0) =
     promote_type(typeof(r0), typeof(m.a), typeof(m.σ))
+# The simulation asks with the model's cache. Hull-White's holds the curve's forward at the grid
+# times and its log-discount over the steps, which can carry derivatives that its forward at 0 does
+# not: a spread that applies from a later time on, for one.
+__sim_eltype(m::AbstractStochasticModel, r0, cache) = __sim_eltype(m, r0)
+__sim_eltype(m::ShortRate.HullWhite, r0, cache) =
+    promote_type(__sim_eltype(m, r0), eltype(cache.α), eltype(cache.ΔL))
 
 # Exact Ornstein-Uhlenbeck transition parameters over one step of length dt:
 #   x_{t+dt} | x_t ~ Normal(x_t·ϕ, sd²),  ϕ = exp(-a·dt),  sd² = σ²(1-ϕ²)/(2a)
@@ -476,22 +485,57 @@ function __step(m::ShortRate.HullWhite, r, dt, sqrt_dt, Z, t, cache, j)
     return x * cache.ou.ϕ + cache.ou.sd * Z + cache.α[j + 1]
 end
 
-function __hw_alpha(m::ShortRate.HullWhite, t)
-    a, σ = m.a, m.σ
-    f0t = Yield.force_of_interest(m.curve, t)
-    return f0t + σ^2 / 2 * __decay_integral(a, t)^2
-end
+__hw_alpha(m::ShortRate.HullWhite, t) = Yield.force_of_interest(m.curve, t) + __hw_convexity(m, t)
+__hw_convexity(m::ShortRate.HullWhite, t) = m.σ^2 / 2 * __decay_integral(m.a, t)^2
+
+# The discount integral ∫r ds over step j, from the states at its two ends: trapezoidal.
+@inline __step_integral(m::AbstractStochasticModel, r, r_new, dt, cache, j) =
+    0.5 * (__observed_rate(m, r) + __observed_rate(m, r_new)) * dt
+# Hull-White: the initial curve's forward f(0,·) is integrated exactly, as the curve's own
+# log-discount over the step, and only the rest of the rate, r − f(0,·), by the trapezoid. That rest
+# is continuous; the forward need not be. Linear zero rates, for one, have a forward that jumps at
+# each knot, and a trapezoid ending on a knot would charge the next segment's forward over half of
+# the step before it. Without volatility the rest is zero and the path's discount factors are the
+# curve's.
+# The forward is subtracted from each rate before the two are added. A trapezoid of the rate less a
+# trapezoid of the forward would cancel, and lose the step where the forward is very large (just
+# past a knot a rounding away from the one before it).
+@inline __step_integral(::ShortRate.HullWhite, r, r_new, dt, cache, j) =
+    cache.ΔL[j] + 0.5 * ((r - cache.f[j]) + (r_new - cache.f[j + 1])) * dt
 
 # Per-simulation cache: OU transition parameters for the Gaussian models
 # (plus the α(t) grid for Hull-White). Models that do not need a cache,
 # including CIR and custom AbstractStochasticModel subtypes, receive `nothing`.
+#
+# The simulation builds a cache from its grid (a `__SimGrid`). A cache that depends only on the step
+# length and count is defined on those; one that depends on calendar time reads `grid.times`, the
+# times the path is published at.
+__sim_cache(m::AbstractStochasticModel, grid) = __sim_cache(m, grid.dt, grid.nsteps)
 __sim_cache(::AbstractStochasticModel, dt, n_steps) = nothing
 __sim_cache(m::ShortRate.Vasicek, dt, n_steps) = __ou_step_params(m.a, m.σ, dt)
-function __sim_cache(m::ShortRate.HullWhite, dt, n_steps)
+# α is evaluated at the grid's own times, so the rate recorded at a time is the model's rate at that
+# time. An aligned grid ends at the horizon rather than at n·dt, which can round to the other side
+# of it: at a kink of the initial curve's forward, α(n·dt) would be the forward of the wrong segment.
+# The OU transition keeps the fixed step length. `f` is the curve's forward at those times and `ΔL`
+# its log-discount over each step, for `__step_integral`.
+function __sim_cache(m::ShortRate.HullWhite, grid)
+    ts = grid.times
+    f = __grid_values(t -> Yield.force_of_interest(m.curve, t), ts)
     return (
-        ou = __ou_step_params(m.a, m.σ, dt),
-        α = [__hw_alpha(m, j * dt) for j in 0:n_steps],
+        ou = __ou_step_params(m.a, m.σ, grid.dt),
+        α = map((t, f0t) -> f0t + __hw_convexity(m, t), ts, f),
+        f = f,
+        ΔL = __grid_values(j -> Yield.__log_interval(m.curve, ts[j], ts[j + 1]), 1:grid.nsteps),
     )
+end
+
+# A curve's values over the grid, in one numeric type. A curve can answer with a plain number at
+# some times and a number that carries derivatives at others, and `map` then gives an abstract
+# element type.
+function __grid_values(f::F, ts) where {F}
+    values = map(f, ts)
+    isconcretetype(eltype(values)) && return values
+    return convert(Vector{mapreduce(typeof, promote_type, values)}, values)
 end
 
 # ─── pv_mc: Monte Carlo expected present value ───────────────────────────────
@@ -698,8 +742,10 @@ is read as that time. Any other `t`, between grid times or outside the grid, thr
 `RatePath(interp)`, records no rates, and `short_rate` throws an `ArgumentError`.
 
 `Yield.instantaneous_forward(path, t)` is different: it is the slope of the discount integral over
-the step that starts at `t`, the average of that step's two simulated rates, so it depends on the
-rate at the end of the step.
+the step that starts at `t`, so it depends on the rate at the end of the step. Where the integral is
+the trapezoid of the rates (Vasicek, Cox-Ingersoll-Ross, custom models) the slope is the average of
+the step's two simulated rates; for Hull-White it is the initial curve's average forward over the
+step plus the average of the two rates' excesses over the curve's forward.
 """
 function short_rate(path::RatePath{<:DataInterpolations.LinearInterpolation, <:AbstractVector}, t)
     return Continuous(path._rates[__grid_index(path.interp.t, t)])
