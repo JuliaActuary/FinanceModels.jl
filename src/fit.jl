@@ -92,10 +92,14 @@ module Fit
     2. Newton's method with the exact Hessian of the sum of squares, which includes the residuals'
        curvature, goes on from there to a point it can certify as a local minimum, and that point
        is the fit. Its Hessian is positive definite and well conditioned, and its Newton
-       correction is negligible: for every parameter, the price change the correction stands for
-       (the correction times the square root of the Hessian's diagonal) is at most `1e-10` of the
-       size of the prices. The measure does not depend on the parameters' units, the quotes'
-       notionals or the scale of the weights.
+       correction is negligible in prices: the correction of any one parameter moves no quote's
+       price by more than `1e-10` of that quote's size. A quote's size is the larger of its price
+       and its value; one priced at zero is measured against its value under the starting model.
+       The test is made quote by quote, so a quote that a parameter does not move has no say in
+       it, and neither the parameters' units nor the notionals matter. A parameter that the
+       prices' curvature determines more than their slope (the prices are nearly flat in it) is
+       refined further, until its correction no longer shrinks. The correction is a local
+       estimate of the distance to the minimum, not a bound on it.
 
     A fit that reprices its quotes is the zero-residual case of the same solve. A fit that cannot be
     certified throws a [`FitConvergenceError`](@ref FinanceModels.FitConvergenceError):
@@ -109,6 +113,10 @@ module Fit
     - A model's variables stay strictly inside their intervals, and each needs an interval
       (`lower .. upper`). A fit whose minimum is on or beyond a bound, or too near one to tell,
       throws rather than return the bound.
+    - Where the prices cannot be resolved to that tolerance the fit throws rather than stop short:
+      quotes whose sizes differ by many orders of magnitude and share a parameter, a price that
+      is a small difference of large amounts, or a quote priced at zero that the starting model
+      also values at zero.
     - The certificate takes second derivatives of the prices. A pricer that is differentiable only
       to first order (a Hull–White swaption, or a model that runs a `fit` of its own) throws; use
       `Fit.Loss`. A model without `variables` (`Yield.SmithWilson`, which has a closed-form
@@ -126,7 +134,7 @@ module Fit
     Fits are differentiable with ForwardDiff with respect to quote prices, the contract numbers
     listed under "Differentiating through a fit" in [`fit`](@ref FinanceModels.fit), the weights,
     and a `Yield.FlatForwardAt` forward, for any such model and any number of quotes. The derivatives are
-    those of the minimum, by the implicit function theorem with the same full Hessian.
+    implicit ones, evaluated at the fitted parameters with the Hessian that certified them.
 
     A subtype of FitMethod.
 

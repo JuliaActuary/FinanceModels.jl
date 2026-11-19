@@ -23,8 +23,11 @@ ns = fit(Yield.NelsonSiegel(), bond_quotes, Fit.LeastSquares())  # any model, by
 - **Solver.** Levenberg–Marquardt on the residuals' ForwardDiff Jacobian, then Newton's method
   with the exact Hessian of the sum of squares. A fit is returned only as a certified local
   minimum, certified at the parameters returned: a positive definite Hessian, and a Newton
-  correction that moves the prices by at most `1e-10` of their size, a measure that does not
-  depend on the parameters' units. Quotes that the model reprices are the zero-residual case.
+  correction of any one parameter that moves no quote's price by more than `1e-10` of that
+  quote's size. The test is made parameter by parameter and quote by quote, so it does not depend
+  on the parameters' units or on quotes a parameter does not move. A parameter that only the
+  prices' curvature determines is refined until its correction no longer shrinks. Quotes that the model reprices are the zero-residual
+  case.
 - **Errors.** A parameter on which no quote's price depends throws an `ArgumentError` naming it. A
   fit that cannot be certified throws a `FitConvergenceError`: quotes that do not determine the
   parameters, a minimum on a formula switch of `Spline.MonotoneConvex()`, `Spline.PCHIP()` or
@@ -37,10 +40,13 @@ ns = fit(Yield.NelsonSiegel(), bond_quotes, Fit.LeastSquares())  # any model, by
   minimizes the residuals of the implied quotes, in which an outright's is divided by spot.)
   Contracts without an implied quote, such as a `Composite` of forwards, are priced under the FX
   model itself; the loss fit and the bootstrap do not accept them.
+- **Precision.** Where the prices cannot be resolved to the tolerance (quotes of very different
+  sizes sharing a parameter, or a price that is a small difference of large amounts), the fit
+  throws rather than stop short.
 - **Derivatives.** First-order ForwardDiff derivatives with respect to quote prices, the contract
   numbers a spline fit differentiates, the weights and a `Yield.FlatForwardAt` forward, for any
-  supported model and any number of quotes. They are the derivatives of the minimum (the implicit function
-  theorem with the full Hessian). Loss fits of models other than knot curves still differentiate
+  supported model and any number of quotes. They are implicit derivatives evaluated at the fitted
+  parameters (the implicit function theorem with the full Hessian). Loss fits of models other than knot curves still differentiate
   nothing.
 - **Speed.** A ten-knot cubic curve fitted to 1,000 synthetic bonds takes about 18 ms and to
   10,000 about 160 ms on Julia 1.13, against 30 ms and 280 ms for the loss fit, and reaches the

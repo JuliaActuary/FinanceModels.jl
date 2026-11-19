@@ -13,7 +13,7 @@
 #    parameters to where a Gauss–Newton step is at rounding, or no longer shrinks.
 # 2. Newton's method with the exact Hessian of the sum of squares goes on to a point it can certify
 #    as a minimum, which is the point returned: the Hessian there is positive definite, and the
-#    Newton correction there is negligible against the size of the prices.
+#    Newton correction there moves no quote's price by more than 1e-10 of that quote's size.
 # 3. When the quotes carry a caller's dual numbers, the implicit function theorem at that minimum
 #    gives its derivatives, with the Hessian there.
 
@@ -99,17 +99,31 @@ end
 
 __column_norms(J) = [norm(view(J, :, k)) for k in axes(J, 2)]
 
-# Every tolerance is relative to the size of the prices, which the parameters' units, the quotes'
-# notionals and the weights cannot change: the norm of the weighted prices and of the weighted
-# residuals `f`, or (for quotes that are all priced at zero and fitted exactly) of the price changes
-# `D .* θ` that the parameters themselves stand for. `D` measures each parameter in prices: its
-# column norm in the residuals' Jacobian, or the square root of its diagonal in the Hessian.
-__price_size(prices, f, D, θ) = max(prices + norm(f), norm(D .* θ))
+# Every tolerance is on a price, quote by quote: `__price_move` is the largest change that the step
+# `δ` of any one parameter makes in any one quote's price (to first order, `J[i, k] * δ[k]`), as a
+# fraction of that quote's size. A quote that a parameter does not move says nothing about that
+# parameter, however large it is, and neither the parameters' units nor the notionals matter.
+#
+# A quote's size is the larger of its price and its value now (`f` holds the pricing errors), which
+# is also the scale of its error's rounding. A quote priced at zero has its value under the starting
+# parameters as a `floor`, as a bootstrap step does; one that has no size at all cannot be measured,
+# and a parameter that moves it is never found to have converged.
+function __price_move(J, δ, f, prices, floor)
+    worst = zero(float(real(eltype(J))))
+    for i in axes(J, 1)
+        size = max(abs(prices[i]), abs(f[i] + prices[i]), floor[i])
+        for k in axes(J, 2)
+            move = abs(J[i, k] * δ[k])
+            iszero(move) || (worst = max(worst, move / size))
+        end
+    end
+    return worst
+end
 
 const __LSQ_FLAT = 1.0e-12       # a relative change of the sum of squares that is rounding
-const __LSQ_STEP = 1.0e-12       # the search ends at a Gauss–Newton step that moves the prices by this much of their size
+const __LSQ_STEP = 1.0e-12       # the search ends at a Gauss–Newton step that moves no price by more than this of its size
 const __LSQ_PATIENCE = 10        # or after this many steps without a clearly smaller one, once the sum of squares is flat
-const __LSQ_NEWTON = 1.0e-10     # a certified minimum: no parameter's Newton correction moves the prices by more
+const __LSQ_NEWTON = 1.0e-10     # a certified minimum: its Newton correction moves no price by more than this of its size
 const __LSQ_NEWTON_STEPS = 10
 
 __undetermined(who, parameters, k) = ArgumentError(
@@ -118,10 +132,11 @@ __undetermined(who, parameters, k) = ArgumentError(
 )
 
 # Levenberg–Marquardt from `θ`, with Marquardt's scaling by the largest column norms seen and
-# Nielsen's update of the damping `μ`. It ends where the undamped Gauss–Newton step moves the prices
-# by at most `__LSQ_STEP` of their size (`prices` is the norm of the weighted prices), or has stopped
-# shrinking, and returns that point without judging it: `__certify_minimum` does.
-function __levenberg_marquardt(r::R, θ::Vector{T}, cfg::C, bounds, prices, maxiters::Int) where {R, T, C}
+# Nielsen's update of the damping `μ`. It ends where the undamped Gauss–Newton step moves no price by
+# more than `__LSQ_STEP` of its size (`__price_move`; `prices` and `floor` are weighted as the
+# residuals are), or has stopped shrinking, and returns that point without judging it:
+# `__certify_minimum` does.
+function __levenberg_marquardt(r::R, θ::Vector{T}, cfg::C, bounds, prices, floor, maxiters::Int) where {R, T, C}
     n = length(θ)
     f = r(θ)
     J = ForwardDiff.jacobian(r, θ, cfg, Val(false))
@@ -140,7 +155,7 @@ function __levenberg_marquardt(r::R, θ::Vector{T}, cfg::C, bounds, prices, maxi
     # rounding of the largest until it moves.
     widen!(D, J) = (c = __column_norms(J); D .= max.(D, c, eps(T) * maximum(c)); D)
     widen!(D, J)
-    gauss_newton(θ, f, J) = norm(D .* (qr(J, ColumnNorm()) \ f)) / __price_size(prices, f, D, θ)
+    gauss_newton(θ, f, J) = __price_move(J, qr(J, ColumnNorm()) \ f, f, prices, floor)
     step = least = gauss_newton(θ, f, J)
     waited = 0
     A = Matrix{T}(undef, m + n, n)
@@ -243,28 +258,35 @@ end
 # true of the parameters returned. A certified point has:
 #
 # - a Hessian that is positive definite and well conditioned;
-# - a Newton correction that is negligible: for each parameter, `d` times its correction (the price
-#   change it stands for) is at most `__LSQ_NEWTON` of the size of the prices. A rate that matters in
-#   its eleventh decimal, because its cashflows are 1e11 years away, is measured as finely;
-# - every bounded parameter farther from the ends of its interval than a correction of that size.
+# - a Newton correction that moves no quote's price by more than `__LSQ_NEWTON` of that quote's size
+#   (`__price_move`), parameter by parameter. A rate that matters in its eleventh decimal, because
+#   its cashflows are 1e11 years away, is measured as finely; a parameter that the prices are flat in
+#   where it stands is measured as loosely as they are flat, which is why there is the next test;
+# - where the prices' curvature determines the fit more than their slope does (along the correction,
+#   or for one parameter), a correction that has stopped shrinking from one Newton step to the next
+#   (`__settled`). The price test says little there, and the fit's derivatives change quickly;
+# - every bounded parameter strictly inside its interval, and farther from its ends than a move the
+#   price test would not notice.
 #
-# Steps on the way may not raise the sum of squares.
-function __certify_minimum(e, w, prices, searched, outer, inner, maxiters)
+# The correction is a local estimate of the distance to the minimum, not a bound on it. Steps on the
+# way may not raise the sum of squares.
+function __certify_minimum(e, w, prices, floor, searched, outer, inner, maxiters)
     parameters, who = e.parameters, e.who
     θ = searched.θ
     stopped = searched.step > __LSQ_STEP && searched.iters >= maxiters
     failed(why) = FitConvergenceError(
         stopped ? Optimization.SciMLBase.ReturnCode.MaxIters : Optimization.SciMLBase.ReturnCode.Stalled,
         "$who " * (stopped ? "did not converge within $maxiters iterations" : "did not reach a minimum") *
-            ": $why (after $(searched.iters) Levenberg–Marquardt iterations, where a Gauss–Newton step moved the " *
-            "prices by $(searched.step) of their size). " * __failure_hint(parameters, θ)
+            ": $why (after $(searched.iters) Levenberg–Marquardt iterations, where a Gauss–Newton step moved a " *
+            "price by $(searched.step) of its size). " * __failure_hint(parameters, θ)
     )
     stopped && throw(failed("the search was still moving"))
-    sum_of_squares(x) = (f = e(x); w === nothing ? sum(abs2, f) : sum(w .* abs2.(f)))
+    weighted(f) = w === nothing ? f : w .* f
     bounds = __bounds(parameters)
     margin(x, k) = bounds === nothing ? oftype(x[k], Inf) : min(x[k] - bounds[1][k], bounds[2][k] - x[k])
-    ϕ = sum_of_squares(θ)
-    moved = zero(ϕ)
+    f = e(θ)
+    ϕ = dot(f, weighted(f))
+    moved, priced, previous = zero(ϕ), false, nothing
     for steps in 0:__LSQ_NEWTON_STEPS
         H = __hessian(e, w, θ, outer, inner)
         # Neither the prices nor their curvature depend on such a parameter.
@@ -273,32 +295,71 @@ function __certify_minimum(e, w, prices, searched, outer, inner, maxiters)
         factors = __hessian_factors(H)
         factors isa String && throw(failed(factors))
         C, d = factors
-        δ = -(C \ (__least_squares_gradient(e, w, θ, inner) ./ d)) ./ d
-        size = max(prices + sqrt(ϕ), norm(d .* θ))
-        moved = maximum(d .* abs.(δ)) / size
-        if all(d .* abs.(δ) .<= __LSQ_NEWTON * size)
-            # A minimum this near a bound cannot be told from one on it.
-            k = findfirst(k -> margin(θ, k) <= __LSQ_NEWTON * size / d[k], eachindex(θ))
-            k === nothing || throw(failed("$(__parameter_name(parameters, k)) is within the fit's resolution of an end of its interval"))
+        J = ForwardDiff.jacobian(e, θ, ForwardDiff.JacobianConfig(e, θ, ForwardDiff.Chunk(θ), inner), Val(false))
+        δ = -(C \ ((J' * weighted(f)) ./ d)) ./ d
+        moved = __price_move(J, δ, f, prices, floor)
+        priced = moved <= __LSQ_NEWTON
+        if priced && __settled(J, w, H, δ, previous)
+            # A minimum on a bound, or so near one that it cannot be told from one on it: going there
+            # would move some price, and none by more than the tolerance.
+            near(k) = margin(θ, k) <= 0 || 0 < __price_move(view(J, :, k:k), margin(θ, k), f, prices, floor) <= __LSQ_NEWTON
+            k = bounds === nothing ? nothing : findfirst(near, eachindex(θ))
+            k === nothing || throw(failed("$(__parameter_name(parameters, k)) is on an end of its interval, or within the fit's resolution of one"))
             return θ, δ, C, d
         end
         steps == __LSQ_NEWTON_STEPS && break
+        previous = (; δ, decrement = dot(δ, H, δ))
         all(k -> margin(θ .+ δ, k) > 0, eachindex(θ)) || throw(failed("a Newton step leaves a variable's interval"))
         # A step may not raise the sum of squares beyond rounding. It is halved until it does not:
         # where the curvature changes quickly (near a fold), a full step overshoots.
         θt = θ .+ δ
-        ϕt = sum_of_squares(θt)
+        ft = e(θt)
+        ϕt = dot(ft, weighted(ft))
         halvings = 0
         while !(ϕt <= ϕ * (1 + __LSQ_FLAT))
             halvings == 30 && throw(failed("a Newton step with the full Hessian raises the sum of squares"))
             halvings += 1
             δ = δ ./ 2
             θt = θ .+ δ
-            ϕt = sum_of_squares(θt)
+            ft = e(θt)
+            ϕt = dot(ft, weighted(ft))
         end
-        θ, ϕ = θt, ϕt
+        θ, f, ϕ = θt, ft, ϕt
     end
-    throw(failed("after $(__LSQ_NEWTON_STEPS) Newton steps with the full Hessian, a correction still moves the prices by $moved of their size"))
+    throw(
+        failed(
+            "after $(__LSQ_NEWTON_STEPS) Newton steps with the full Hessian, " * (
+                priced ? "a correction that the prices' curvature determines is still shrinking" :
+                    "a correction still moves a price by $moved of its size"
+            )
+        )
+    )
+end
+
+# Whether the correction `δ` has settled where the price test does not control it: where the
+# residuals' curvature, not the pricing derivatives `J`, makes up most of the Hessian. Prices are
+# nearly flat there, a correction that moves no price can still be most of the distance to the
+# minimum, and the derivatives of the fit vary over that distance. Two places are looked at:
+#
+# - along the correction itself, by the share of `δ'Hδ` that the price moves `Jδ` account for. This
+#   does not depend on the coordinates: a direction in which the prices are flat need not be any one
+#   parameter's;
+# - each parameter by itself, by the share of its Hessian diagonal, in case the correction's larger
+#   part lies elsewhere.
+#
+# Where either share is under a half, the fit takes Newton steps until the correction is zero or no
+# longer halves from the `previous` one, which is as far as the arithmetic resolves it.
+function __settled(J, w, H, δ, previous)
+    squares(v) = w === nothing ? sum(abs2, v) : sum(w[i] * abs2(v[i]) for i in eachindex(v))
+    decrement = dot(δ, H, δ)
+    if 2 * squares(J * δ) < decrement
+        (previous !== nothing && decrement >= previous.decrement / 4) || return false
+    end
+    for k in eachindex(δ)
+        (2 * squares(view(J, :, k)) >= H[k, k] || iszero(δ[k])) && continue
+        (previous !== nothing && abs(δ[k]) >= abs(previous.δ[k]) / 2) || return false
+    end
+    return true
 end
 
 __failure_hint(p::__KnotRates, z) = isempty(__switch_hint(p)) ?
@@ -383,12 +444,16 @@ function __least_squares(::Val{O}, parameters, θ0, quotes, primal_quotes, weigh
         kept_primal_quotes = primal_quotes
     end
     scale = primal_weights === nothing ? nothing : map(sqrt, primal_weights)
-    prices = norm(scale === nothing ? [float(q.price) for q in primal_quotes] : [s * q.price for (s, q) in zip(scale, primal_quotes)])
     r = __Residuals(primal_parameters, primal_quotes, scale, Own, who)
-    cfg = ForwardDiff.JacobianConfig(r, θ0, ForwardDiff.Chunk(θ0), inner)
-    searched = __levenberg_marquardt(r, θ0, cfg, __bounds(parameters), prices, maxiters)
     e = __Residuals(primal_parameters, primal_quotes, nothing, Own, who)
-    θ, δ, C, d = __certify_minimum(e, primal_weights, prices, searched, outer, inner, maxiters)
+    # The quotes' sizes for the tolerances (`__price_move`): prices, and for a quote priced at zero its
+    # value under the starting parameters.
+    prices = [eltype(θ0)(q.price) for q in primal_quotes]
+    floor = [iszero(p) ? abs(v) : zero(v) for (p, v) in zip(prices, e(θ0))]
+    cfg = ForwardDiff.JacobianConfig(r, θ0, ForwardDiff.Chunk(θ0), inner)
+    scaled(x) = scale === nothing ? x : scale .* x
+    searched = __levenberg_marquardt(r, θ0, cfg, __bounds(parameters), scaled(prices), scaled(floor), maxiters)
+    θ, δ, C, d = __certify_minimum(e, primal_weights, prices, floor, searched, outer, inner, maxiters)
     differentiated = parameters !== primal_parameters ||
         any(((q, p),) -> q !== p, zip(quotes, kept_primal_quotes)) ||
         (weights !== nothing && any(w -> __ad_depth(w) > 0, weights))
