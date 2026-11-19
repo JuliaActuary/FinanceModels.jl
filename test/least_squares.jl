@@ -75,10 +75,26 @@ end
         @test Fit.LeastSquares(maxiters = 5).maxiters == 5
         @test_throws "within 1 iterations" fit(c0, qs, Fit.LeastSquares(maxiters = 1))
         @test_throws DimensionMismatch fit(c0, qs, Fit.LeastSquares(weights = w[1:10]))
-        @test_throws DomainError fit(c0, qs, Fit.LeastSquares(weights = -w))
-        @test_throws "not finite" fit(c0, qs, Fit.LeastSquares(weights = fill(NaN, length(qs))))
+        @test_throws "finite and non-negative" fit(c0, qs, Fit.LeastSquares(weights = -w))
+        @test_throws "finite and non-negative" fit(c0, qs, Fit.LeastSquares(weights = [NaN; w[2:end]]))
+        @test_throws "finite and non-negative" fit(c0, qs, Fit.LeastSquares(weights = [Inf; w[2:end]]))
         # the loss fit's solver options are not least-squares options
         @test_throws MethodError fit(c0, qs, Fit.LeastSquares(); solve_kwargs = (; maxiters = 10))
+    end
+
+    @testset "a weight of zero leaves its quote out" begin
+        # The quote is not priced at all: one that cannot be priced does not disturb the fit of the others.
+        good, bad = ZCBPrice(0.9, 1.0), ZCBPrice(NaN, 2.0)
+        alone = fit(Yield.Constant(), [good], Fit.LeastSquares())
+        @test fit(Yield.Constant(), [good, bad], Fit.LeastSquares(weights = [1.0, 0.0])) == alone
+        @test_throws "not finite" fit(Yield.Constant(), [good, bad], Fit.LeastSquares(weights = [1.0, 1.0]))
+        # nor does it get a knot in a spline fit
+        @test isequal(fit(Spline.Linear(), [good, bad], Fit.LeastSquares(weights = [1.0, 0.0])), fit(Spline.Linear(), [good], Fit.LeastSquares()))
+        # A zero weight has a derivative on a curve with knots of its own (see "derivatives"), but not in a
+        # spline fit, where a positive weight would add a knot.
+        two = ZCBPrice.([0.9, 0.8], [1.0, 2.0])
+        @test_throws "would add a knot" ForwardDiff.derivative(x -> discount(fit(Spline.Linear(), two, Fit.LeastSquares(weights = [1.0, x])), 1.5), 0.0)
+        @test ForwardDiff.derivative(x -> discount(fit(Spline.Linear(), two, Fit.LeastSquares(weights = [1.0, x])), 1.5), 1.0) == 0   # an exact fit
     end
 
     @testset "repeated maturities" begin
@@ -179,6 +195,12 @@ end
     end
 
     @testset "quotes that do not determine the parameters throw" begin
+        # A parameter with a zero pricing derivative is determined when the residuals' curvature says so: the
+        # present value of -2 at year 1 and +1 at year 2 is (exp(-r) - 1)² - 1, flat at r = 0, so for a price
+        # of -1.1 the sum of squares has its only minimum there, with a Hessian of 0.2. (From a review.)
+        flat = [Quote(-1.1, Composite(Cashflow(-2.0, 1.0), Cashflow(1.0, 2.0)))]
+        @test abs(fit(Yield.Constant(Continuous(0.0)), flat, Fit.LeastSquares()).rate.continuous_value) <= 1.0e-10
+        @test fit(Yield.Constant(Continuous(0.01)), flat, Fit.LeastSquares()).rate.continuous_value ≈ 0 atol = 1.0e-10
         # fewer quotes than knots: the Hessian is singular
         @test_throws "not positive definite" fit(c0, qs[1:5], Fit.LeastSquares())
         @test_throws FitConvergenceError fit(c0, qs[1:5], Fit.LeastSquares())
@@ -234,9 +256,42 @@ end
         v0 = ShortRate.Vasicek(0.1, 0.03, 0.01, Continuous(0.03))
         vsse(v) = sum(abs2, pv(v, q.instrument) - q.price for q in vq)
         @test vsse(fit(v0, vq, Fit.LeastSquares())) <= vsse(fit(v0, vq)) * (1 + 1.0e-8)
-        # a minimum on or beyond a variable's bound throws
+        # a minimum beyond a variable's bound throws
         tight = (@optic(_.rate.continuous_value) => 0.0 .. 0.05,)
         @test_throws "upper end of its interval" fit(Yield.Constant(), q4, Fit.LeastSquares(); variables = tight)
+        # So does one on the bound, which rounding would otherwise put just inside, with a two-sided
+        # derivative: a one-year zero at a price of 1 is fitted by a rate of exactly 0. (From a review.)
+        bounded(p) = fit(Yield.Constant(Continuous(0.02)), [ZCBPrice(p, 1.0)], Fit.LeastSquares(); variables = tight).rate.continuous_value
+        @test_throws "lower end of its interval" bounded(1.0)
+        @test_throws "lower end of its interval" ForwardDiff.derivative(bounded, 1.0)
+        near = exp(-1.0e-5)
+        @test bounded(near) ≈ 1.0e-5 atol = 1.0e-14
+        @test ForwardDiff.derivative(bounded, near) ≈ -1 / near rtol = 1.0e-10
+        # The tolerance is in the variable's own units, whatever its interval: a 30-year zero at 1.8 from a
+        # rate of zero, where a full Newton step overshoots to a price of 54.6. (From a review.)
+        wide = (@optic(_.rate.continuous_value) => -1.0e9 .. 1.0e9,)
+        @test fit(Yield.Constant(Continuous(0.0)), [ZCBPrice(1.8, 30.0)], Fit.LeastSquares(); variables = wide).rate.continuous_value ≈ -log(1.8) / 30 atol = 1.0e-14
+        # Other number types: the solve works in Float64 at least, and keeps a wider type.
+        function optimum(prices)
+            r = big"0.1"
+            for _ in 1:60
+                d = [exp(-r * t) for t in 1:3]
+                r -= sum(-t * d[t] * (d[t] - prices[t]) for t in 1:3) / sum(t^2 * d[t] * (2 * d[t] - prices[t]) for t in 1:3)
+            end
+            return r
+        end
+        for T in (Float32, BigFloat)
+            prices = T.([0.91, 0.82, 0.75])
+            vars = (@optic(_.rate.continuous_value) => T(-1) .. T(1),)
+            fitted = fit(Yield.Constant(Continuous(T(0.05))), ZCBPrice.(prices, T.(1:3)), Fit.LeastSquares(); variables = vars).rate.continuous_value
+            @test fitted isa (T == BigFloat ? BigFloat : Float64)
+            @test abs(fitted - optimum(prices)) <= (T == BigFloat ? 1.0e-20 : 1.0e-14)
+        end
+        # What the method needs of a model: `variables`, and prices that ForwardDiff differentiates twice.
+        @test_throws MethodError fit(Yield.SmithWilson(ufr = 0.03, α = 0.1), ZCBPrice([0.97, 0.94]), Fit.LeastSquares())
+        hw = ShortRate.HullWhite(0.1, 0.015, Yield.Constant(Continuous(0.03)))
+        swaptions = [Option.Swaption(e, e + 5.0, 0.03, 2) for e in 1.0:3.0]
+        @test_throws "first-order" fit(ShortRate.HullWhite(0.05, 0.01, Yield.Constant(Continuous(0.03))), [Quote(pv(hw, s), s) for s in swaptions], Fit.LeastSquares())
         # more variables than the quotes determine: these prices came from a Nelson–Siegel curve
         @test_throws FitConvergenceError fit(Yield.NelsonSiegelSvensson(), zq(truth), Fit.LeastSquares())
     end
@@ -338,5 +393,26 @@ end
         @test knot_tenors(m.foreign) == [1.0, 3.0, 6.0]
         @test all(abs(pv(m, q.instrument)) < 1.0e-12 for q in outrights)   # a flat curve is representable
         @test zr(m.foreign) ≈ fill(0.03, 3) atol = 1.0e-12
+
+        # Outrights and basis swaps together: the residuals minimized are the quotes' own, whatever curve the
+        # model holds. With a spot of 100, a one-year outright at 90 and a par basis leg under zero rates
+        # are worth 100 DF - 90 and DF, so the weighted minimum is in closed form. (From a review: the fit
+        # of a knot curve runs on implied quotes, whose outright residuals are a hundredth of these.)
+        zero = Yield.Constant(Continuous(0.0))
+        mixed = [FX.Outright(eurusd, 90.0, 1.0), FX.ParBasisSwap(eurusd, 0.0, 1.0; reference = zero)]
+        knot = ZeroRateCurve([0.02], [1.0], Spline.Linear())
+        df(foreign, spot, method) = discount(fit(FX.Forwards(eurusd, spot, zero, foreign), mixed, method).foreign, 1.0)
+        @test df(knot, 100.0, Fit.LeastSquares()) ≈ 9001 / 10001 atol = 1.0e-13
+        @test df(Yield.Constant(Continuous(0.02)), 100.0, Fit.LeastSquares()) ≈ 9001 / 10001 atol = 1.0e-13
+        closed(s) = (2 * 90 * s + 0.5) / (2 * s^2 + 0.5)   # weights of 2 and 0.5
+        weighted = Fit.LeastSquares(weights = [2.0, 0.5])
+        @test df(knot, 100.0, weighted) ≈ closed(100.0) atol = 1.0e-13
+        @test ForwardDiff.derivative(s -> df(knot, s, weighted), 100.0) ≈ ForwardDiff.derivative(closed, 100.0) rtol = 1.0e-10
+        @test_throws DimensionMismatch df(knot, 100.0, Fit.LeastSquares(weights = [1.0]))
+        priced = FX.Forwards(eurusd, 100.0, zero, Yield.Constant(Continuous(0.03)))
+        for q in mixed
+            implied = FX.__implied_foreign_quote(priced, q)
+            @test FinanceModels.__quote_value(priced, q) - q.price ≈ FX.__implied_residual_scale(priced, q) * (pv(priced.foreign, implied.instrument) - implied.price) rtol = 1.0e-12
+        end
     end
 end

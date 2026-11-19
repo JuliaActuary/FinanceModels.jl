@@ -65,8 +65,9 @@ module Fit
 
         Σᵢ wᵢ (present_value(model, qᵢ.instrument) - qᵢ.price)²
 
-    over the quotes `qᵢ`, with `wᵢ = 1` when `weights` is `nothing`. It applies to every model
-    `fit` accepts and to every contract the model can value:
+    over the quotes `qᵢ`, with `wᵢ = 1` when `weights` is `nothing`. It applies to splines, knot
+    curves and every model with `variables`, and to the contracts whose prices under the model
+    ForwardDiff can differentiate twice:
 
     ```julia
     fit(model, quotes, Fit.LeastSquares())                     # the model's `variables`
@@ -78,7 +79,8 @@ module Fit
     thousand bonds of an index, for example. Like every knot-curve fit it starts from FinanceModels'
     standard initial rates, not the supplied curve's.
 
-    `weights` holds one non-negative number per quote; a weight of zero leaves its quote out. With
+    `weights` holds one finite, non-negative number per quote. A weight of zero leaves its quote
+    out: it is not priced, and in a spline fit it gets no knot. With
     `D` a bond's modified duration, weights of `1 / (price * D)^2` make each weighted residual
     approximately a yield error, so that long bonds do not dominate the fit.
 
@@ -88,28 +90,34 @@ module Fit
        only) takes the parameters to where a Gauss–Newton step is at rounding, or no longer shrinks.
        `maxiters` limits its iterations.
     2. Newton's method with the exact Hessian of the sum of squares, which includes the residuals'
-       curvature, certifies a local minimum there: the Hessian is positive definite, and a Newton
-       correction moves no parameter by more than `1e-10` (a knot rate, or a variable as a fraction
-       of its interval).
+       curvature, certifies a local minimum there: the Hessian is positive definite and well
+       conditioned, and a Newton correction moves no parameter by more than `1e-10` of its scale.
+       A parameter's scale is 1, or its own size if larger, or its interval's width if narrower.
 
     A fit that reprices its quotes is the zero-residual case of the same solve. A fit that cannot be
     certified throws a [`FitConvergenceError`](@ref FinanceModels.FitConvergenceError):
 
-    - The quotes must determine every parameter. A parameter that moves no quote's price throws an
-      `ArgumentError` naming it; fewer quotes than parameters, or parameters that move the prices
-      only together, leave the Hessian singular.
+    - The quotes must determine every parameter. A parameter on which neither the prices nor their
+      curvature depend throws an `ArgumentError` naming it; fewer quotes than parameters, or
+      parameters that move the prices only together, leave the Hessian singular.
     - `Spline.MonotoneConvex()`, `Spline.PCHIP()` and `Spline.Akima()` switch formulas as knot rates
       change, and a minimum on a switch cannot be certified by derivatives. Prefer
       `Spline.Linear()` or `Spline.Cubic()` for more quotes than knots.
     - A model's variables stay strictly inside their intervals. A fit whose minimum is on or beyond
-      a bound throws rather than return the bound.
+      a bound, or too near one to tell, throws rather than return the bound.
+    - The certificate takes second derivatives of the prices. A pricer that is differentiable only
+      to first order (a Hull–White swaption, or a model that runs a `fit` of its own) throws; use
+      `Fit.Loss`. A model without `variables` (`Yield.SmithWilson`, which has a closed-form
+      `fit(model, quotes)`) is a `MethodError`.
 
     The minimum is a local one, and need not be the best fit of all parameters. `optimizer` and
-    `solve_kwargs` belong to [`Fit.Loss`](@ref FinanceModels.Fit.Loss) and are not accepted.
+    `solve_kwargs` belong to [`Fit.Loss`](@ref FinanceModels.Fit.Loss) and are not accepted. The
+    solve works in `Float64` at least: a model of `Float32` numbers is returned with `Float64`
+    variables.
 
     Fits are differentiable with ForwardDiff with respect to quote prices, the contract numbers
     listed under "Differentiating through a fit" in [`fit`](@ref FinanceModels.fit), the weights,
-    and a `Yield.FlatForwardAt` forward, for any model and any number of quotes. The derivatives are
+    and a `Yield.FlatForwardAt` forward, for any such model and any number of quotes. The derivatives are
     those of the minimum, by the implicit function theorem with the same full Hessian.
 
     A subtype of FitMethod.
@@ -580,8 +588,6 @@ function __fit_fx_via_implied(mod0, quotes, method; kwargs...)
 end
 fit(mod0::FX.Forwards{P, S, D, F}, quotes, method::Fit.Bootstrap; kwargs...) where {P, S, D, F <: Spline.SplineCurve} = __fit_fx_via_implied(mod0, quotes, method; kwargs...)
 fit(mod0::FX.Forwards{P, S, D, F}, quotes, method::Fit.Loss; kwargs...) where {P, S, D, F <: Union{Spline.SplineCurve, Yield.AbstractInterpolatedZeroCurve}} =
-    __fit_fx_via_implied(mod0, quotes, method; kwargs...)
-fit(mod0::FX.Forwards{P, S, D, F}, quotes, method::Fit.LeastSquares; kwargs...) where {P, S, D, F <: Union{Spline.SplineCurve, Yield.AbstractInterpolatedZeroCurve}} =
     __fit_fx_via_implied(mod0, quotes, method; kwargs...)
 
 # Appending a knot must preserve every earlier segment, not merely the earlier

@@ -2,7 +2,7 @@
 
 ## v7.3.0 (unreleased)
 
-### Least-squares fits of any model: `Fit.LeastSquares`
+### Least-squares fits with one solver for every model: `Fit.LeastSquares`
 
 `Fit.LeastSquares(; weights = nothing, maxiters = 200)` fits a model by weighted squared pricing
 residuals. It is opt-in: every fit without a method keeps `Fit.Loss(x -> x^2)`.
@@ -14,22 +14,30 @@ curve = fit(c0, bond_quotes, Fit.LeastSquares(weights = w))
 ns = fit(Yield.NelsonSiegel(), bond_quotes, Fit.LeastSquares())  # any model, by its `variables`
 ```
 
-- **One solve for every model and contract.** The solver sees only the residuals
+- **One solve.** The solver sees only the residuals
   `√wᵢ (present_value(model, quoteᵢ.instrument) - quoteᵢ.price)`: a knot curve's knot rates or any
-  other model's `variables`, and any contract the model can value. Quote maturities may repeat,
-  and a spline or knot curve may have fewer knots than quotes.
+  other model's `variables`, and any contract whose price under the model ForwardDiff can
+  differentiate twice. Quote maturities may repeat, and a spline or knot curve may have fewer
+  knots than quotes. A model without `variables` (`Yield.SmithWilson`) or a pricer that is
+  differentiable only to first order (a Hull–White swaption) is not supported.
 - **Solver.** Levenberg–Marquardt on the residuals' ForwardDiff Jacobian, then Newton's method
   with the exact Hessian of the sum of squares. A fit is returned only as a certified local
-  minimum: a positive definite Hessian and a Newton correction of at most `1e-10` in every
-  parameter. Quotes that the model reprices are the zero-residual case.
-- **Errors.** A parameter that moves no quote's price throws an `ArgumentError` naming it. A fit
-  that cannot be certified throws a `FitConvergenceError`: quotes that do not determine the
+  minimum: a positive definite Hessian and a Newton correction of at most `1e-10` of each
+  parameter's scale (1, or its own size if larger, or its interval's width if narrower). Quotes
+  that the model reprices are the zero-residual case.
+- **Errors.** A parameter on which no quote's price depends throws an `ArgumentError` naming it. A
+  fit that cannot be certified throws a `FitConvergenceError`: quotes that do not determine the
   parameters, a minimum on a formula switch of `Spline.MonotoneConvex()`, `Spline.PCHIP()` or
-  `Spline.Akima()`, or a minimum on or beyond the bound of a variable's interval.
-- **Weights.** One non-negative number per quote; zero leaves a quote out.
+  `Spline.Akima()`, or a minimum on, beyond or indistinguishably near the bound of a variable's
+  interval.
+- **Weights.** One finite, non-negative number per quote. A quote with a weight of zero is left
+  out: it is not priced, and gets no knot in a spline fit.
+- **FX.** A foreign spline or knot curve of `FX.Forwards` is fitted to the quotes' own pricing
+  residuals, so outrights and basis swaps in one quote set are weighted as given. (A loss fit
+  minimizes the residuals of the implied quotes, in which an outright's is divided by spot.)
 - **Derivatives.** First-order ForwardDiff derivatives with respect to quote prices, the contract
   numbers a spline fit differentiates, the weights and a `Yield.FlatForwardAt` forward, for any
-  model and any number of quotes. They are the derivatives of the minimum (the implicit function
+  supported model and any number of quotes. They are the derivatives of the minimum (the implicit function
   theorem with the full Hessian). Loss fits of models other than knot curves still differentiate
   nothing.
 - **Speed.** A ten-knot cubic curve fitted to 1,000 synthetic bonds takes about 16 ms and to

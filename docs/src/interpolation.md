@@ -151,13 +151,14 @@ w = [1 / (q.price * D[i])^2 for (i, q) in enumerate(bond_quotes)]
 bbb = fit(c0, bond_quotes, Fit.LeastSquares(weights = w))
 ```
 
-`Fit.LeastSquares` is not specific to knot curves or to bonds: it fits any model `fit` accepts
-(`fit(Yield.NelsonSiegel(), quotes, Fit.LeastSquares())`) to any contracts the model can value.
-It is opt-in, and the default method of every fit remains `Fit.Loss(x -> x^2)`.
+`Fit.LeastSquares` is not specific to knot curves or to bonds: it fits any model with `variables`
+(`fit(Yield.NelsonSiegel(), quotes, Fit.LeastSquares())`) to any contracts whose prices under the
+model ForwardDiff can differentiate twice. It is opt-in, and the default method of every fit
+remains `Fit.Loss(x -> x^2)`.
 
 What a least-squares fit returns is a certified local minimum: at the fitted parameters the
 Hessian of the sum of squares (including the residuals' curvature) is positive definite, and a
-Newton correction with it moves no parameter by more than `1e-10`. Otherwise the fit throws:
+Newton correction with it moves no knot rate by more than `1e-10`. Otherwise the fit throws:
 
 - The quotes must determine every knot rate: enough quotes with a positive weight, and each knot
   moving some quote's price.

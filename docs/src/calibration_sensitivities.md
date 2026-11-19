@@ -48,7 +48,7 @@ table below).
   the fit must reprice its quotes. Bootstrap does; a loss fit is accepted only when one Newton
   correction of its knot rates is at most `1e-6` in every component (see "Accuracy" below).
   `Fit.LeastSquares()` differentiates the optimality condition of its minimum instead, with any
-  number of quotes and for any model.
+  number of quotes and for any model it fits.
 - **Kinks.** Linear, quadratic, cubic, and B-spline interpolation are differentiable in their knot rates at fixed tenors. This does not imply smoothness in tenor at the knots.
   At a kink of `Spline.MonotoneConvex()` (a flat stretch of the curve, or two equal adjacent
   forwards), each partial is the centered response to a bump in its own direction. **On a flat
@@ -119,7 +119,7 @@ for the calculation and written back at the end, so they still never mix.
 | `fit(Spline.Linear(), quotes, Fit.Bootstrap())` | yes | exact to root-finder precision |
 | `fit(FX.Forwards(pair, spot, domestic, spline), quotes, …)` | yes | through the implied foreign quotes |
 | `fit(curve, quotes)`, refitting an existing knot curve | with one knot per quote | the spline fit on the curve's knots; another number of knots throws a `DimensionMismatch` |
-| `fit(model, quotes, Fit.LeastSquares(; weights))`, any model, spline or knot curve | yes, with any number of quotes | the optimality condition at a certified local minimum; also with respect to the weights |
+| `fit(model, quotes, Fit.LeastSquares(; weights))`, a spline, a knot curve or a model with `variables` | yes, with any number of quotes | the optimality condition at a certified local minimum; also with respect to the weights |
 | `fit(Yield.SmithWilson(…), quotes)` | quote prices and cashflow amounts (such as `Bond.Fixed` coupons) | differentiates the closed form directly; values match the primal fit to rounding, not bitwise |
 | other models (`Yield.NelsonSiegel`, `Yield.Constant`, short-rate models) with `Fit.Loss` | no | `fit` throws an `ArgumentError`; use `Fit.LeastSquares()` |
 
@@ -138,8 +138,8 @@ guaranteed distance to the exact solution; like the conditioning check, it does 
 the quotes' notionals. To tighten a loss fit, pass solver settings through `fit`'s
 `solve_kwargs`, for example `fit(Spline.MonotoneConvex(), quotes; solve_kwargs = (; g_tol = 1e-12))`.
 A least-squares fit is certified before it is returned (a Newton correction with the full Hessian
-of at most `1e-10` in every parameter), and its derivatives use that Hessian at the returned
-parameters; there is nothing to tighten.
+of at most `1e-10` of each parameter's scale), and its derivatives use that Hessian at the
+returned parameters, where the correction is checked once more; there is nothing to tighten.
 Refitting with bumped quotes and taking finite differences is a much noisier check: optimizer
 noise of `1e-11` in the fitted rates becomes an error of order `1e-4` in a difference quotient.
 
