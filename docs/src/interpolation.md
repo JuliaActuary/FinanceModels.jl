@@ -128,6 +128,9 @@ instantaneous forward and can also change interior interpolation.
 
 ## Fitting More Quotes Than Knots
 
+For a runnable example that builds 1,000 bond quotes, chooses weights, and checks the fit in
+price points and yield basis points, see [Fitting a Curve to a Bond Portfolio](@ref bond-portfolio-fit).
+
 `fit(spline, quotes)` places one knot at each quote maturity. To fit a curve to more quotes than
 you want knots (the bonds of a credit index, say, whose maturities repeat and whose prices no
 single curve reprices), choose the knots, build a curve that has them, and refit it with
