@@ -120,6 +120,7 @@ end
         # (nine knots each, so that the Hessians of the checks compile once per interpolation)
         knotsets = (knots, [1.0, 2.0, 3.0, 4.0, 5.0, 7.0, 10.0, 15.0, 19.0], [0.25, 0.5, 1.0, 2.0, 4.0, 6.0, 9.0, 13.0, 20.0])
         converged = Dict{Any, Int}()
+        unexplained = String[]
         for seed in 1:20
             kn = knotsets[mod1(seed, 3)]
             q = lsq_index(80; seed)
@@ -133,8 +134,9 @@ end
                 end
                 if spline isa Union{Spline.MonotoneConvex, Spline.PCHIP}
                     # They switch formulas, so a minimum can lie on a switch: such a fit throws, and says so.
-                    @test !(c isa Exception) || (c isa FitConvergenceError && occursin("switches formulas", sprint(showerror, c)))
                     converged[spline] = get(converged, spline, 0) + !(c isa Exception)
+                    (c isa Exception && !(c isa FitConvergenceError && occursin("switches formulas", sprint(showerror, c)))) &&
+                        push!(unexplained, "index $seed, $(length(qx)) bonds, $spline: " * sprint(showerror, c))
                 else
                     # Some of these have directions in which the residuals' curvature offsets most of JᵀJ: the
                     # first-order search alone ends up to 2e-7 from the minimum there.
@@ -142,6 +144,7 @@ end
                 end
             end
         end
+        @test isempty(unexplained)   # (shown when not)
         @test converged[Spline.MonotoneConvex()] >= 8 && converged[Spline.PCHIP()] >= 8   # of 25 each
     end
 

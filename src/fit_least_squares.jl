@@ -28,7 +28,11 @@ __map_parameters(f::F, p::__KnotRates) where {F} =
 __parameter_duals(p::__KnotRates) = __extrapolation_dual(p.extrapolation)
 __bounded(::__KnotRates) = false
 __parameter_name(p::__KnotRates, k) = "the knot rate at $(p.tenors[k])"
-__switches_formulas(p::__KnotRates) = p.spline isa Union{Spline.MonotoneConvex, Spline.PCHIP, Spline.Akima}
+# What to say when a fit of an interpolation with formula switches fails (nothing for the others).
+__switch_hint(p::__KnotRates) = p.spline isa Union{Spline.MonotoneConvex, Spline.PCHIP, Spline.Akima} ?
+    "$(p.spline) switches formulas as its knot rates change, and a minimum on a switch cannot be reached by " *
+    "derivatives (on one, they may not even be finite). Use Spline.Linear() or Spline.Cubic(), or a loss fit " *
+    "with an optimizer that does not use derivatives." : ""
 __on_kink(p::__KnotRates, z, δ) = Yield.__near_kink(p(z), z, δ)
 
 # θ = the model's variables in AccessibleModels' unit box, each interval mapped to (0, 1).
@@ -40,6 +44,7 @@ __map_parameters(f::F, p::__UnitBox) where {F} = p
 __parameter_duals(::__UnitBox) = ()
 __bounded(::__UnitBox) = true
 __parameter_name(::__UnitBox, k) = "variable $k"
+__switch_hint(::__UnitBox) = ""
 __on_kink(::__UnitBox, x, δ) = false
 
 const __LEAST_SQUARES_HINT = "Fit.LeastSquares differentiates quote prices, the coupon rates of Bond.Fixed " *
@@ -95,7 +100,7 @@ function __levenberg_marquardt(r::R, θ::Vector{T}, cfg::C, bounded::Bool, maxit
     J = ForwardDiff.jacobian(r, θ, cfg, Val(false))
     nonfinite(at) = FitConvergenceError(
         Optimization.SciMLBase.ReturnCode.Failure,
-        "$(r.who): the pricing residuals or their Jacobian are not finite $at"
+        String(rstrip("$(r.who): the pricing residuals or their Jacobian are not finite $at. $(__switch_hint(r.parameters))"))
     )
     (all(isfinite, f) && all(isfinite, J)) || throw(nonfinite("at the starting parameters"))
     m = length(f)
@@ -239,15 +244,10 @@ function __certify_minimum(e, w, searched, outer, inner, maxiters)
     throw(failed("after $(__LSQ_NEWTON_STEPS) Newton steps with the full Hessian, a correction is still $(maximum(abs, δ))"))
 end
 
-__failure_hint(p::__KnotRates, z) = if __switches_formulas(p)
-    "$(p.spline) switches formulas as its knot rates change, and a minimum on a switch cannot be reached by " *
-        "derivatives. Use Spline.Linear() or Spline.Cubic(), or a loss fit with an optimizer that does not use " *
-        "derivatives."
-else
+__failure_hint(p::__KnotRates, z) = isempty(__switch_hint(p)) ?
     "With fewer quotes than knots, or knots that move the quotes' prices only together, the quotes do not " *
-        "determine the knot rates: use fewer knots, or knots where the quotes' cashflows are. Otherwise check " *
-        "the quotes for prices that no curve with this interpolation comes near."
-end
+    "determine the knot rates: use fewer knots, or knots where the quotes' cashflows are. Otherwise check " *
+    "the quotes for prices that no curve with this interpolation comes near." : __switch_hint(p)
 function __failure_hint(p::__UnitBox, x)
     k = findfirst(v -> min(v, 1 - v) <= 1.0e-6, x)
     k === nothing || return "Variable $k is at the $(x[k] < 0.5 ? "lower" : "upper") end of its interval: the quotes " *
