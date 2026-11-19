@@ -346,6 +346,8 @@ Practical notes:
   different scales — discount-factor units for implied zero-coupon quotes, par-price
   units for basis-swap strips — implicitly weighting the two families differently; the
   bootstrap solves each quote exactly and involves no such weighting.
+  `Fit.LeastSquares` minimizes the quotes' own pricing residuals instead, with the weights
+  given to it.
 - Interbank basis swaps are quoted on the mark-to-market (resetting-notional)
   structure, in which the flat domestic leg's notional resets to spot each period while
   the spread leg's stays constant. Under deterministic curves the constant-notional and

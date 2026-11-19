@@ -18,6 +18,7 @@ makedocs(;
             "Models, Valuation, and Fitting" => "models.md",
             "Stochastic Models" => "stochastic.md",
             "Interpolation Methods" => "interpolation.md",
+            "Fitting a Curve to a Bond Portfolio" => "bond_portfolio_fit.md",
             "Sensitivities Through Calibration" => "calibration_sensitivities.md",
             "Contracts" => "contracts.md",
             "Rates" => "Rates.md",

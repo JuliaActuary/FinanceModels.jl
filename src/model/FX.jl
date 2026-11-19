@@ -554,6 +554,12 @@ function __implied_foreign_quote(m::Forwards, q::Quote{<:Any, <:Forward})
     return __implied_zcb_quote(q, m.spot, m.domestic)
 end
 
+# How many times an implied quote's residual on the foreign curve the quote's own pricing residual
+# under `m` is: an outright is worth `spot * DF_f(t) - strike * DF_d(t)` in the quote currency, and
+# its implied quote is a base-currency discount factor; a par basis-swap leg is its own implied quote.
+__implied_residual_scale(m::Forwards, ::Quote{<:Any, <:Forward}) = m.spot
+__implied_residual_scale(m::Forwards, ::Quote{<:Any, <:BasisSwapLeg}) = one(m.spot)
+
 # a par basis-swap leg is already denominated on the base-currency curve; only check
 # that it belongs to the model's pair
 function __implied_foreign_quote(m::Forwards, q::Quote{<:Any, <:BasisSwapLeg})

@@ -126,6 +126,57 @@ stored as its continuously compounded value and stays fixed when knot rates are 
 fitted. Appending a synthetic far knot does not generally impose a chosen terminal
 instantaneous forward and can also change interior interpolation.
 
+## Fitting More Quotes Than Knots
+
+For a runnable example that builds 1,000 bond quotes, chooses weights, and checks the fit in
+price points and yield basis points, see [Fitting a Curve to a Bond Portfolio](@ref bond-portfolio-fit).
+
+`fit(spline, quotes)` places one knot at each quote maturity. To fit a curve to more quotes than
+you want knots (the bonds of a credit index, say, whose maturities repeat and whose prices no
+single curve reprices), choose the knots, build a curve that has them, and refit it with
+[`Fit.LeastSquares`](@ref FinanceModels.Fit.LeastSquares):
+
+```julia
+knots = [0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0, 15.0, 20.0, 30.0]
+c0 = ZeroRateCurve(fill(0.05, length(knots)), knots, Spline.Cubic())
+bbb = fit(c0, bond_quotes, Fit.LeastSquares())   # e.g. 1000 `Quote(price, Bond.Fixed(...))`s
+```
+
+The fit minimizes the sum of squared pricing residuals. Unweighted residuals are price errors,
+and for a given yield error a longer bond has a larger price error, so long bonds dominate the
+fit. With `D` a bond's modified duration at its own yield, a price error is about `-price * D`
+times the yield error, so weights of `1 / (price * D)^2` make each weighted residual
+approximately a yield error:
+
+```julia
+# D[i]: bond i's modified duration, e.g. ActuaryUtilities' duration(Modified(), yield, cashflows, times)
+w = [1 / (q.price * D[i])^2 for (i, q) in enumerate(bond_quotes)]
+bbb = fit(c0, bond_quotes, Fit.LeastSquares(weights = w))
+```
+
+`Fit.LeastSquares` is not specific to knot curves or to bonds: it fits any model with `variables`
+(`fit(Yield.NelsonSiegel(), quotes, Fit.LeastSquares())`) to any contracts whose prices under the
+model ForwardDiff can differentiate twice. It is opt-in, and the default method of every fit
+remains `Fit.Loss(x -> x^2)`.
+
+What a least-squares fit returns is a certified local minimum: at the fitted knot rates the
+Hessian of the sum of squares (including the residuals' curvature) is positive definite, and the
+Newton correction of any one knot rate would move no quote's price by more than `1e-10` of its
+size. Otherwise the fit throws:
+
+- The quotes must determine every knot rate: enough quotes with a positive weight, and each knot
+  moving some quote's price.
+- Prefer `Spline.Linear()` or `Spline.Cubic()`. `Spline.MonotoneConvex()`, `Spline.PCHIP()` and
+  `Spline.Akima()` switch formulas as knot rates change, and the minimum of an overdetermined fit
+  often lies on a switch, where no derivative can certify it. In a sweep of random 80-bond
+  indices about half of the monotone convex and PCHIP fits threw a
+  [`FitConvergenceError`](@ref FinanceModels.FitConvergenceError), and none of the linear,
+  quadratic or cubic ones.
+- The minimum is local, and need not be the best fit of all curves.
+
+Least-squares fits are differentiable with respect to the quote prices, coupons and weights,
+with any number of quotes; see [Sensitivities Through Calibration](@ref).
+
 ## Key Tradeoffs
 
 ### Forward Curve Smoothness
