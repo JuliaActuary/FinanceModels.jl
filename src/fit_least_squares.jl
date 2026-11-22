@@ -271,7 +271,7 @@ function __hessian(e, w, θ, outer, inner, noise, ::ForwardDiff.Chunk{N} = Forwa
             lane = k - firstcol + 1
             for j in axes(H, 1)
                 H[j, k] = ForwardDiff.partials(g[j], lane)
-                R[j, k] = sum(i -> noise[i] * abs(ForwardDiff.partials(J[i, j], lane)), axes(J, 1))
+                R[j, k] = sum(i -> noise[i] * abs(ForwardDiff.partials(J[i, j], lane)), axes(J, 1); init = zero(eltype(R)))
             end
         end
     end

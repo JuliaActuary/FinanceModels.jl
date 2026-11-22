@@ -353,7 +353,7 @@ FinanceCore.present_value(m::LsqPair, ::LsqShortBill) = exp(-0.01 * lsq_d(m))
         cz = ZeroRateCurve(fill(0.05, 3), [1.0, 2.0, 3.0], Spline.Linear())
         zqs = ZCBPrice.([0.97, 0.94, 0.941, 0.9, 0.91], [1.0, 2.0, 2.0, 3.0, 3.0])
         @test_throws "the knot rate at 3.0" fit(cz, zqs, Fit.LeastSquares(weights = [1.0, 1.0, 1.0, 0.0, 0.0]))
-        @test_throws ArgumentError fit(cz, zqs, Fit.LeastSquares(weights = zeros(5)))
+        @test_throws "the knot rate at 1.0 does not move any quote" fit(cz, zqs, Fit.LeastSquares(weights = zeros(5)))
     end
 
     @testset "any contract" begin
