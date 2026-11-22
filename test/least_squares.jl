@@ -14,11 +14,19 @@ function lsq_index(nb; seed = 11)
 end
 
 # A contract type that `fit` knows nothing about.
+struct LsqNoMaturity <: FinanceCore.AbstractContract end
 struct LsqOpaque{C} <: FinanceCore.AbstractContract
     inner::C
 end
 FinanceCore.maturity(c::LsqOpaque) = FinanceCore.maturity(c.inner)
 FinanceCore.present_value(m, c::LsqOpaque) = FinanceCore.present_value(m, c.inner)
+
+# The price is flat both at an interior minimum (r=0) and at a different value at r=1.
+struct LsqSmoothstep <: FinanceCore.AbstractContract end
+function FinanceCore.present_value(m::Yield.Constant, ::LsqSmoothstep)
+    r = m.rate.continuous_value
+    return r^2 * (3 - 2r)
+end
 
 # A contract priced through a least-squares fit of its own: the 5-year discount factor of a two-knot curve
 # fitted to `quotes` with their prices scaled by the model's 1-year discount factor.
@@ -109,6 +117,12 @@ FinanceCore.present_value(m::LsqPair, ::LsqShortBill) = exp(-0.01 * lsq_d(m))
         @test_throws "not finite" fit(Yield.Constant(), [good, bad], Fit.LeastSquares(weights = [1.0, 1.0]))
         # nor does it get a knot in a spline fit
         @test isequal(fit(Spline.Linear(), [good, bad], Fit.LeastSquares(weights = [1.0, 0.0])), fit(Spline.Linear(), [good], Fit.LeastSquares()))
+        for model in (Yield.Constant(), Spline.Linear(), ZeroRateCurve([0.05], [1.0], Spline.Linear()))
+            method = Fit.LeastSquares(weights = [1.0, 0.0])
+            @test discount(fit(model, [good, Quote(1.0, LsqNoMaturity())], method), 1.0) ≈ 0.9
+            excluded_time(x) = discount(fit(model, [ZCBPrice(x, 1.0), Quote(1.0, Cashflow(1.0, zero(x) + 2))], method), 1.0)
+            @test ForwardDiff.derivative(excluded_time, 0.9) ≈ 1
+        end
         # A zero weight has a derivative on a curve with knots of its own (see "derivatives"), but not in a
         # spline fit, where a positive weight would add a knot.
         two = ZCBPrice.([0.9, 0.8], [1.0, 2.0])
@@ -259,6 +273,30 @@ FinanceCore.present_value(m::LsqPair, ::LsqShortBill) = exp(-0.01 * lsq_d(m))
             @test pv(curved(price), flat[1].instrument) ≈ -1 atol = 1.0e-14
             @test ForwardDiff.derivative(p -> curved(p).rate.continuous_value, price) ≈ 0 atol = 1.0e-9
         end
+        flat_rate(p, start) = fit(Yield.Constant(Continuous(start)), [Quote(p, flat[1].instrument)], Fit.LeastSquares()).rate.continuous_value
+        for (p, start, tol) in ((-1 - 1.0e-13, 0.01, 0.01), (-1 - 1.0e-9, 5.0e-7, 1.0e-6))
+            @test abs(flat_rate(p, start)) < 1.0e-12
+            @test abs(ForwardDiff.derivative(x -> flat_rate(x, start), p)) < tol
+        end
+        @test_throws FitConvergenceError ForwardDiff.derivative(p -> flat_rate(p, 0.01), -1.0)
+        above = -1 + 1.0e-9
+        root = sqrt(1 + above)
+        @test ForwardDiff.derivative(p -> flat_rate(p, 0.01), above) ≈ inv(2root * (1 - root)) rtol = 1.0e-6
+        vars = (@optic(_.rate.continuous_value) => -2.0 .. 1.0,)
+        stationary(p) = fit(Yield.Constant(Continuous(0.0)), [Quote(p, LsqSmoothstep())], Fit.LeastSquares(); variables = vars).rate.continuous_value
+        @test stationary(-0.1) == 0
+        @test ForwardDiff.derivative(stationary, -0.1) == 0
+        # A badly mispriced time-zero cashflow adds a constant to the objective. It must
+        # preserve both an off-market minimum and the selected root when two roots exist.
+        function add_constant(p, extra)
+            q = Quote(p, flat[1].instrument)
+            quotes = extra ? [q, Quote(1.0e12, Cashflow(1.0, 0.0))] : [q]
+            return fit(Yield.Constant(Continuous(0.05)), quotes, Fit.LeastSquares()).rate.continuous_value
+        end
+        for p in (-1.23, -0.8)
+            @test add_constant(p, true) ≈ add_constant(p, false) atol = 1.0e-10
+            @test ForwardDiff.derivative(x -> add_constant(x, true), p) ≈ ForwardDiff.derivative(x -> add_constant(x, false), p) atol = 1.0e-9
+        end
         # The direction in which the prices are flat need not be one parameter's. With a short bill that
         # the second parameter moves, the minimum is at s = d = 0 and ds/dprice is zero, whether the fit's
         # variables are s and d or a and b with s = a + b and d = a - b. In a and b each variable alone
@@ -270,6 +308,9 @@ FinanceCore.present_value(m::LsqPair, ::LsqShortBill) = exp(-0.01 * lsq_d(m))
             @test s(price) ≈ 0 atol = 1.0e-12
             @test ForwardDiff.derivative(s, price) ≈ 0 atol = 1.0e-9
         end
+        # Seeding another, well-determined quote in the same AD lane cannot regularize a fold.
+        joint(p) = lsq_s(fit(LsqPair(0.01, 0.0, false), [Quote(p, LsqFlatPrice()), Quote(1 + 1.0e8 * (p + 1), LsqShortBill())], Fit.LeastSquares(); variables = ab))
+        @test_throws FitConvergenceError ForwardDiff.derivative(joint, -1.0)
         # (A price above -1 is repriced, at a rate where the price has a slope: -0.99 at a discount factor of 0.9.)
         sloped(p) = fit(Yield.Constant(Continuous(0.01)), [Quote(p, flat[1].instrument)], Fit.LeastSquares()).rate.continuous_value
         @test sloped(-0.99) ≈ -log(0.9) atol = 1.0e-10
@@ -370,6 +411,22 @@ FinanceCore.present_value(m::LsqPair, ::LsqShortBill) = exp(-0.01 * lsq_d(m))
             @test fitted isa (T == BigFloat ? BigFloat : Float64)
             @test abs(fitted - optimum(prices)) <= 1.0e-12
         end
+        for spline in (Spline.Linear(), Spline.Cubic(), Spline.MonotoneConvex())
+            ts = [1.0, 2.0, 4.0, 6.0]
+            curve = ZeroRateCurve(fill(big"0.04", 4), ts, spline)
+            prices = [exp(-t * (big"0.03" + big"0.001" * t)) for t in ts]
+            first_rate(p) = first(zr(fit(curve, ZCBPrice.([p; prices[2:end]], ts), Fit.LeastSquares())))
+            @test first_rate(prices[1]) isa BigFloat
+            sensitivity = ForwardDiff.derivative(first_rate, prices[1])
+            @test sensitivity isa BigFloat
+            @test sensitivity ≈ -1 / prices[1] rtol = 1.0e-10
+        end
+        # More parameters than one ForwardDiff chunk, including the last partial chunk.
+        ts17 = collect(1.0:17.0)
+        prices17 = exp.(-0.03 .* ts17)
+        long_curve = ZeroRateCurve(fill(0.04, 17), ts17, Spline.Linear())
+        last_rate(p) = last(zr(fit(long_curve, ZCBPrice.([prices17[1:(end - 1)]; p], ts17), Fit.LeastSquares())))
+        @test ForwardDiff.derivative(last_rate, last(prices17)) ≈ -1 / (17 * last(prices17)) rtol = 1.0e-10
         # A variable needs an interval: a set of values to choose from is not one. (From a review: the fit
         # took the set's ends for an interval, and returned 0.03.)
         three = [ZCBPrice(exp(-0.03), 1.0)]
@@ -507,14 +564,14 @@ FinanceCore.present_value(m::LsqPair, ::LsqShortBill) = exp(-0.01 * lsq_d(m))
         @test df(knot, 100.0, weighted) ≈ closed(100.0) atol = 1.0e-13
         @test ForwardDiff.derivative(s -> df(knot, s, weighted), 100.0) ≈ ForwardDiff.derivative(closed, 100.0) rtol = 1.0e-10
         @test_throws DimensionMismatch df(knot, 100.0, Fit.LeastSquares(weights = [1.0]))
-        # A quote left out by its weight is not converted to an implied quote either, with knots of the
+        # A quote left out by its weight is not converted to foreign-curve cashflows either, with knots of the
         # curve's own or at the quotes' maturities. (From a review.)
         good, bad = FX.Outright(eurusd, 90.0, 1.0), FX.Outright(eurusd, NaN, 2.0)
         for foreign in (knot, Spline.Linear())
             fitted(quotes, method) = discount(fit(FX.Forwards(eurusd, 100.0, zero, foreign), quotes, method).foreign, 1.0)
             @test fitted([good, bad], Fit.LeastSquares(weights = [1.0, 0.0])) == fitted([good], Fit.LeastSquares())
             @test fitted([good], Fit.LeastSquares()) ≈ 0.9 atol = 1.0e-12
-            # nor does it stop a derivative with respect to spot, which the outright's weight carries
+            # nor does it stop a derivative with respect to spot in the outright's foreign receipt
             other = [good, FX.Outright(eurusd, 85.0, 2.0)]
             @test ForwardDiff.derivative(s -> discount(fit(FX.Forwards(eurusd, s, zero, foreign), other, Fit.LeastSquares(weights = [1.0, 0.0])).foreign, 1.0), 100.0) ≈ -0.009 rtol = 1.0e-10
         end
@@ -533,15 +590,47 @@ FinanceCore.present_value(m::LsqPair, ::LsqShortBill) = exp(-0.01 * lsq_d(m))
             # the strikes inside the contract
             struck(k) = discount(fit(FX.Forwards(eurusd, 100.0, zero, foreign), [Quote(0.0, Composite(FX.Forward(eurusd, k, 1.0), good.instrument))], Fit.LeastSquares()).foreign, 1.0)
             @test ForwardDiff.derivative(struck, 90.0) ≈ 1 / 200 rtol = 1.0e-10
-            # The domestic curve is differentiated through implied quotes only: DF = 0.9 exp(-r) for outrights.
+            # The discounted strike carries the domestic curve derivative: DF = 0.9 exp(-r) for outrights.
             @test ForwardDiff.derivative(r -> discount(fit(FX.Forwards(eurusd, 100.0, Yield.Constant(Continuous(r)), foreign), [good], Fit.LeastSquares()).foreign, 1.0), 0.0) ≈ -0.9 rtol = 1.0e-10
             @test_throws "Fit.LeastSquares differentiates" ForwardDiff.derivative(r -> swapfit(foreign, 100.0, 0.0; domestic = Yield.Constant(Continuous(r))), 0.0)
         end
 
+        # Net PV can be many orders of magnitude smaller than either discounted leg.
+        for spot in (1.0, 100.0, 1.0e6, 1.0e12), ratio in (0.5e-12, 0.8e-12, 1.0e-9, 1.0e-6)
+            strike = spot * exp(-0.05)
+            c = FX.Forward(eurusd, strike, 1.0)
+            p = spot * ratio
+            fx = fit(FX.Forwards(eurusd, spot, zero, knot), [Quote(p, c)], Fit.LeastSquares())
+            @test pv(fx, c) ≈ p atol = 4eps(strike) rtol = 1.0e-10
+            if spot == 1.0e12 && p == 0.5
+                @test pv(fx, c) == p
+            end
+        end
+        for r in (0.049, 0.05, 0.051)
+            truth = FX.Forwards(eurusd, 1.1, usd, Yield.Constant(Continuous(r)))
+            ts = 0.5:0.5:6.0
+            qs = [FX.Outright(eurusd, forward(truth, t), t) for t in ts]
+            curve = ZeroRateCurve(fill(0.05, 4), [1.0, 2.0, 4.0, 6.0], Spline.Linear())
+            fitted = fit(FX.Forwards(eurusd, 1.1, usd, curve), qs, Fit.LeastSquares())
+            @test maximum(t -> abs(discount(fitted.foreign, t) - exp(-r * t)), ts) < 1.0e-12
+        end
+        function kink(r)
+            ts = [1.0, 2.0, 3.0, 5.0]
+            curve = ZeroRateCurve(fill(0.03, 4), ts, Spline.MonotoneConvex())
+            qs = map(ts) do t
+                f = FX.Forward(eurusd, 0.0, t)
+                Quote(2exp(-r * t), Composite(f, f))
+            end
+            return discount(fit(FX.Forwards(eurusd, 1.0, zero, curve), qs, Fit.LeastSquares()).foreign, 1.5)
+        end
+        @test kink(0.03) ≈ exp(-0.03 * 1.5)
+        @test_throws ArgumentError ForwardDiff.derivative(kink, 0.03)
+        @test_throws "switches shape" ForwardDiff.derivative(kink, 0.03)
+
         priced = FX.Forwards(eurusd, 100.0, zero, Yield.Constant(Continuous(0.03)))
         for q in mixed
-            implied = FX.__implied_foreign_quote(priced, q)
-            @test FinanceModels.__quote_value(priced, q) - q.price ≈ FX.__implied_residual_scale(priced, q) * (pv(priced.foreign, implied.instrument) - implied.price) rtol = 1.0e-12
+            legs = FinanceModels.__foreign_lsq_quote(priced, q)
+            @test FinanceModels.__quote_value(priced, q) - q.price ≈ FinanceModels.__quote_value(priced.foreign, legs) - legs.price rtol = 1.0e-12
         end
     end
 end

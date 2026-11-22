@@ -132,7 +132,7 @@ DF_f(t) = \frac{K \cdot DF_d(t) + p}{S_0}
 Given spot and the domestic curve, *each forward quote pins the implied foreign discount
 factor in closed form* — no optimizer, no iteration. Curve construction therefore reduces
 to a quote transformation followed by the ordinary fitting machinery, which is what the
-one-step `fit` methods do:
+`Fit.Bootstrap` and `Fit.Loss` methods do:
 
 ```@example fx
 m = fit(FX.Forwards(eurusd, 1.10, usd, Spline.Linear()), quotes, Fit.Bootstrap())
@@ -346,8 +346,10 @@ Practical notes:
   different scales — discount-factor units for implied zero-coupon quotes, par-price
   units for basis-swap strips — implicitly weighting the two families differently; the
   bootstrap solves each quote exactly and involves no such weighting.
-  `Fit.LeastSquares` minimizes the quotes' own pricing residuals instead, with the weights
-  given to it.
+  `Fit.LeastSquares` fits each outright's net present value using its original weight. On the
+  foreign curve the two legs receive spot at maturity and pay the discounted strike today.
+  Subtracting those legs sets an absolute precision limit, so the net-price tolerance allows
+  four floating-point spacings at the larger discounted leg. This applies to par outrights too.
 - Interbank basis swaps are quoted on the mark-to-market (resetting-notional)
   structure, in which the flat domestic leg's notional resets to spot each period while
   the spread leg's stays constant. Under deterministic curves the constant-notional and

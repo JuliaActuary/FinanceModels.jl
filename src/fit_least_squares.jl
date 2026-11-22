@@ -35,7 +35,11 @@ __switch_hint(p::__KnotRates) = p.spline isa Union{Spline.MonotoneConvex, Spline
     "$(p.spline) switches formulas as its knot rates change, and a minimum on a switch cannot be reached by " *
     "derivatives (on one, they may not even be finite). Use Spline.Linear() or Spline.Cubic(), or a loss fit " *
     "with an optimizer that does not use derivatives." : ""
-__on_kink(p::__KnotRates, z, δ) = Yield.__near_kink(p(z), z, δ)
+function __check_fit_kink(p::__KnotRates, z, δ)
+    curve = p(z)
+    Yield.__near_kink(curve, z, δ) && throw(__fit_kink_error(curve))
+    return nothing
+end
 
 # θ = the knot rates of the foreign curve of an `FX.Forwards`, which is the model priced: for quotes
 # that have no implied quote on the foreign curve (see the `FX.Forwards` method of `fit`).
@@ -52,7 +56,7 @@ __parameter_duals(p::__ForeignKnotRates) = (p.spot, __parameter_duals(p.knots)..
 __bounds(::__ForeignKnotRates) = nothing
 __parameter_name(p::__ForeignKnotRates, k) = __parameter_name(p.knots, k)
 __switch_hint(p::__ForeignKnotRates) = __switch_hint(p.knots)
-__on_kink(p::__ForeignKnotRates, z, δ) = __on_kink(p.knots, z, δ)
+__check_fit_kink(p::__ForeignKnotRates, z, δ) = __check_fit_kink(p.knots, z, δ)
 
 # θ = the model's variables, in their own units, strictly inside their intervals `lower .. upper`.
 # (Not AccessibleModels' unit box, which the loss fit uses: a tolerance there is a fraction of the
@@ -68,7 +72,7 @@ __parameter_duals(::__Variables) = ()
 __bounds(p::__Variables) = (p.lower, p.upper)
 __parameter_name(::__Variables, k) = "variable $k"
 __switch_hint(::__Variables) = ""
-__on_kink(::__Variables, x, δ) = false
+__check_fit_kink(::__Variables, x, δ) = nothing
 
 const __LEAST_SQUARES_HINT = "Fit.LeastSquares differentiates quote prices, the coupon rates of Bond.Fixed " *
     "and Bond.Floating, the amounts of Cashflow and FX.BasisSwapLeg, the strike of FX.Forward (also inside a " *
@@ -124,12 +128,29 @@ const __LSQ_FLAT = 1.0e-12       # a relative change of the sum of squares that 
 const __LSQ_STEP = 1.0e-12       # the search ends at a Gauss–Newton step that moves no price by more than this of its size
 const __LSQ_PATIENCE = 10        # or after this many steps without a clearly smaller one, once the sum of squares is flat
 const __LSQ_NEWTON = 1.0e-10     # a certified minimum: its Newton correction moves no price by more than this of its size
+const __LSQ_SLOPE = 1.0e-8
 const __LSQ_NEWTON_STEPS = 10
 
 __undetermined(who, parameters, k) = ArgumentError(
     "$who: $(__parameter_name(parameters, k)) does not move any quote's price (with a nonzero weight), " *
         "so the quotes do not determine it. Remove it from the fit, or add quotes that depend on it."
 )
+
+# Compare the predicted and observed reductions before summing. An immovable quote can
+# contribute an arbitrarily large constant to the loss and must cancel from both reductions
+# and from the scale used to decide whether a trial step improved it.
+function __lm_reductions(f, ft, linear_step)
+    predicted = actual = level = zero(eltype(f))
+    for i in eachindex(f)
+        change = f[i] - ft[i]
+        linear = linear_step[i]
+        iszero(change) && iszero(linear) && continue
+        predicted -= linear * (2 * f[i] + linear)
+        actual += change * (f[i] + ft[i])
+        level += abs2(f[i])
+    end
+    return predicted, actual, level
+end
 
 # Levenberg–Marquardt from `θ`, with Marquardt's scaling by the largest column norms seen and
 # Nielsen's update of the damping `μ`. It ends where the undamped Gauss–Newton step moves no price by
@@ -146,7 +167,6 @@ function __levenberg_marquardt(r::R, θ::Vector{T}, cfg::C, bounds, prices, floo
     )
     (all(isfinite, f) && all(isfinite, J)) || throw(nonfinite("at the starting parameters"))
     m = length(f)
-    ϕ = sum(abs2, f)
     D = __column_norms(J)
     # No parameter moves a residual here, so there is no step to take. That is a minimum when the
     # residuals' curvature alone makes the Hessian positive definite, which is the certificate's call.
@@ -174,16 +194,13 @@ function __levenberg_marquardt(r::R, θ::Vector{T}, cfg::C, bounds, prices, floo
         δ = -(qr!(A) \ b)
         # A bounded parameter covers at most 90% of the distance to a bound, so it stays inside.
         bounds === nothing || (δ .= clamp.(δ, 0.9 .* (bounds[1] .- θ), 0.9 .* (bounds[2] .- θ)))
-        predicted = ϕ - sum(abs2, f .+ J * δ)
-        # Below this the sum of squares cannot tell a better point from a worse one: steps are then
-        # taken while it does not rise, until Gauss–Newton steps stop shrinking.
-        flat = predicted <= __LSQ_FLAT * ϕ
         θt = θ .+ δ
         ft = r(θt)
-        ϕt = sum(abs2, ft)
-        ρ = (ϕ - ϕt) / predicted
-        if (predicted > 0 && ρ > 1.0e-4) || (flat && ϕt <= ϕ * (1 + __LSQ_FLAT))
-            θ, f, ϕ = θt, ft, ϕt
+        predicted, actual, level = __lm_reductions(f, ft, J * δ)
+        flat = predicted <= __LSQ_FLAT * level
+        ρ = actual / predicted
+        if (predicted > 0 && ρ > 1.0e-4) || (flat && actual >= -__LSQ_FLAT * level)
+            θ, f = θt, ft
             J = ForwardDiff.jacobian(r, θ, cfg, Val(false))
             all(isfinite, J) || throw(nonfinite("after $iters iterations"))
             widen!(D, J)
@@ -224,16 +241,42 @@ end
 # tag never meets FinanceModels' own (see `implicit.jl`), and the partials are written back into the
 # caller's dual type at the end.
 
-function __least_squares_gradient(e::E, w, θ, inner) where {E}
+function __least_squares_gradient(e::E, w, θ, inner, uncertainty = nothing, noise = nothing) where {E}
     J = ForwardDiff.jacobian(e, θ, ForwardDiff.JacobianConfig(e, θ, ForwardDiff.Chunk(θ), inner), Val(false))
+    uncertainty === nothing || __residual_curvature!(uncertainty, J, θ, noise)
     f = e(θ)
     return J' * (w === nothing ? f : w .* f)
 end
 
-function __hessian(e, w, θ, outer, inner)
-    gradient(x) = __least_squares_gradient(e, w, x, inner)
+function __hessian(e, w, θ, outer, inner, uncertainty, noise)
+    gradient(x) = __least_squares_gradient(e, w, x, inner, uncertainty, noise)
     H = ForwardDiff.jacobian(gradient, θ, ForwardDiff.JacobianConfig(gradient, θ, ForwardDiff.Chunk(θ), outer), Val(false))
     return (H .+ H') ./ 2
+end
+
+# H = J'WJ + Σ wᵢ eᵢ ∇²PVᵢ. At a turning point, rounding eᵢ to zero can make a
+# singular minimum appear differentiable. Bound the perturbation of each Hessian entry
+# by Σ wᵢ uᵢ |∂²PVᵢ/∂θⱼ∂θₖ|, where uᵢ is the resolution of the price. These second
+# derivatives are already in the outer Jacobian's dual lanes. Accumulate one chunk at
+# a time, retaining only a parameter-by-parameter matrix, irrespective of quote count.
+function __residual_curvature!(R, J, x, noise)
+    for (k, parameter) in pairs(x)
+        lane = findfirst(!iszero, ForwardDiff.partials(parameter))
+        lane === nothing && continue
+        for j in axes(J, 2)
+            R[j, k] = sum(i -> noise[i] * abs(ForwardDiff.partials(J[i, j], lane)), axes(J, 1))
+        end
+    end
+    return nothing
+end
+
+# If H = D U'U D, a symmetric error E with |Eⱼₖ| ≤ Rⱼₖ preserves positive
+# definiteness whenever ‖U⁻ᵀ D⁻¹ E D⁻¹ U⁻¹‖₂ < 1. The 1-norm of the symmetric
+# entrywise bound is a conservative upper bound, shared by all sensitivity directions.
+function __resolved_curvature(R, C, d)
+    A = abs.(inv(C.U))
+    bound = A' * (max.(R, R') ./ (d .* d')) * A
+    return opnorm(bound, 1) < 1
 end
 
 # The Cholesky factor `C` of H equilibrated by `d = √diag(H)` (so that no check depends on the
@@ -252,6 +295,23 @@ function __hessian_factors(H)
     return C, d
 end
 
+# Compare changes in individual squared residuals before summing. Constant cashflows then
+# cancel exactly, even when their value dwarfs every instrument the model can move.
+function __acceptable_step(e, model, w, prices, f, ft)
+    change = slack = zero(eltype(ft))
+    for i in eachindex(ft)
+        delta = ft[i] - f[i]
+        iszero(delta) && continue
+        weight = w === nothing ? 1 : w[i]
+        p = prices[i]
+        size = max(abs(p), abs(p + f[i]), abs(p + ft[i]))
+        u = __price_spacing(model, e.quotes[i], p, size)
+        change += weight * delta * (ft[i] + f[i])
+        slack += weight * (2u * (abs(ft[i]) + abs(f[i])) + 2u^2)
+    end
+    return isfinite(change) && change <= slack
+end
+
 # From where the search ended, Newton's method on g = 0 with the exact Hessian, until it stands on a
 # point it can certify. That point is returned, with the Newton correction `δ` left there and the
 # factors `C`, `d` of its Hessian; the correction is not applied, so that everything certified is
@@ -262,15 +322,14 @@ end
 #   (`__price_move`), parameter by parameter. A rate that matters in its eleventh decimal, because
 #   its cashflows are 1e11 years away, is measured as finely; a parameter that the prices are flat in
 #   where it stands is measured as loosely as they are flat, which is why there is the next test;
-# - where the prices' curvature determines the fit more than their slope does (along the correction,
-#   or for one parameter), a correction that has stopped shrinking from one Newton step to the next
-#   (`__settled`). The price test says little there, and the fit's derivatives change quickly;
+# - stable pricing slopes across that correction, measured in the Hessian metric. When this
+#   check calls for refinement, a full Newton step must also have stopped improving the correction;
 # - every bounded parameter strictly inside its interval, and farther from its ends than a move the
 #   price test would not notice.
 #
 # The correction is a local estimate of the distance to the minimum, not a bound on it. Steps on the
 # way may not raise the sum of squares.
-function __certify_minimum(e, w, prices, floor, searched, outer, inner, maxiters)
+function __certify_minimum(e, w, prices, floor, searched, outer, inner, maxiters, differentiated)
     parameters, who = e.parameters, e.who
     θ = searched.θ
     stopped = searched.step > __LSQ_STEP && searched.iters >= maxiters
@@ -285,85 +344,89 @@ function __certify_minimum(e, w, prices, floor, searched, outer, inner, maxiters
     bounds = __bounds(parameters)
     margin(x, k) = bounds === nothing ? oftype(x[k], Inf) : min(x[k] - bounds[1][k], bounds[2][k] - x[k])
     f = e(θ)
-    ϕ = dot(f, weighted(f))
-    moved, priced, previous = zero(ϕ), false, nothing
+    jacobian(x) = ForwardDiff.jacobian(e, x, ForwardDiff.JacobianConfig(e, x, ForwardDiff.Chunk(x), inner), Val(false))
+    moved, priced = zero(eltype(θ)), false
+    refining, previous = false, nothing
+    uncertainty = differentiated ? similar(θ, length(θ), length(θ)) : nothing
     for steps in 0:__LSQ_NEWTON_STEPS
-        H = __hessian(e, w, θ, outer, inner)
+        model = parameters(θ)
+        noise = if differentiated
+            [
+                __price_spacing(model, q, p, max(abs(p), abs(p + v))) * (w === nothing ? 1 : w[i])
+                    for (i, (q, p, v)) in enumerate(zip(e.quotes, prices, f))
+            ]
+        end
+        H = __hessian(e, w, θ, outer, inner, uncertainty, noise)
         # Neither the prices nor their curvature depend on such a parameter.
         k = findfirst(iszero, diag(H))
         k === nothing || throw(__undetermined(who, parameters, k))
         factors = __hessian_factors(H)
         factors isa String && throw(failed(factors))
         C, d = factors
-        J = ForwardDiff.jacobian(e, θ, ForwardDiff.JacobianConfig(e, θ, ForwardDiff.Chunk(θ), inner), Val(false))
+        J = jacobian(θ)
         δ = -(C \ ((J' * weighted(f)) ./ d)) ./ d
         moved = __price_move(J, δ, f, prices, floor)
         priced = moved <= __LSQ_NEWTON
-        if priced && __settled(J, w, H, δ, previous)
-            # A minimum on a bound, or so near one that it cannot be told from one on it: going there
-            # would move some price, and none by more than the tolerance.
-            near(k) = margin(θ, k) <= 0 || 0 < __price_move(view(J, :, k:k), margin(θ, k), f, prices, floor) <= __LSQ_NEWTON
-            k = bounds === nothing ? nothing : findfirst(near, eachindex(θ))
-            k === nothing || throw(failed("$(__parameter_name(parameters, k)) is on an end of its interval, or within the fit's resolution of one"))
-            return θ, δ, C, d
+        θt = θ .+ δ
+        inside = bounds === nothing || all(k -> margin(θt, k) > 0, eachindex(θ))
+        if priced && inside
+            slope = __slope_norm(jacobian(θt) .- J, w, C, d)
+            decrement = dot(δ, H, δ)
+            settled = !refining || iszero(decrement) || (previous !== nothing && decrement >= previous / 4)
+            if slope <= __LSQ_SLOPE && settled
+                function near(k)
+                    m = margin(θ, k)
+                    m <= 0 && return true
+                    isfinite(m) || return false
+                    __price_move(view(J, :, k:k), m, f, prices, floor) <= __LSQ_NEWTON || return false
+                    # Use the local variation of the pricing slopes over this distance.
+                    # A distant bound can itself be a stationary point of a different price.
+                    xb = [ForwardDiff.Dual{typeof(outer)}(x, i == k ? m : zero(m)) for (i, x) in pairs(θ)]
+                    slopes = map(x -> ForwardDiff.partials(x, 1), jacobian(xb))
+                    return __slope_norm(slopes, w, C, d) <= __LSQ_SLOPE
+                end
+                k = bounds === nothing ? nothing : findfirst(near, eachindex(θ))
+                k === nothing || throw(failed("$(__parameter_name(parameters, k)) is on an end of its interval, or within the fit's resolution of one"))
+                if differentiated && !__resolved_curvature(uncertainty, C, d)
+                    throw(failed("a two-sided sensitivity cannot be resolved at the precision of the quoted prices"))
+                end
+                return θ, δ, C, d
+            end
+            refining = true
         end
         steps == __LSQ_NEWTON_STEPS && break
-        previous = (; δ, decrement = dot(δ, H, δ))
-        all(k -> margin(θ .+ δ, k) > 0, eachindex(θ)) || throw(failed("a Newton step leaves a variable's interval"))
-        # A step may not raise the sum of squares beyond rounding. It is halved until it does not:
-        # where the curvature changes quickly (near a fold), a full step overshoots.
-        θt = θ .+ δ
+        inside || throw(failed("a Newton step leaves a variable's interval"))
         ft = e(θt)
-        ϕt = dot(ft, weighted(ft))
         halvings = 0
-        while !(ϕt <= ϕ * (1 + __LSQ_FLAT))
+        while !__acceptable_step(e, model, w, prices, f, ft)
             halvings == 30 && throw(failed("a Newton step with the full Hessian raises the sum of squares"))
             halvings += 1
             δ = δ ./ 2
             θt = θ .+ δ
             ft = e(θt)
-            ϕt = dot(ft, weighted(ft))
         end
-        θ, f, ϕ = θt, ft, ϕt
+        previous = iszero(halvings) ? dot(δ, H, δ) : nothing
+        θ, f = θt, ft
     end
     throw(
         failed(
             "after $(__LSQ_NEWTON_STEPS) Newton steps with the full Hessian, " * (
-                priced ? "a correction that the prices' curvature determines is still shrinking" :
+                priced ? "the pricing slopes or their Newton correction have not settled" :
                     "a correction still moves a price by $moved of its size"
             )
         )
     )
 end
 
-# Whether the correction `δ` has settled where the price test does not control it: where the
-# residuals' curvature, not the pricing derivatives `J`, makes up most of the Hessian. Prices are
-# nearly flat there, a correction that moves no price can still be most of the distance to the
-# minimum, and the derivatives of the fit vary over that distance. Two places are looked at:
-#
-# - along the correction itself, by the share of `δ'Hδ` that the price moves `Jδ` account for. This
-#   does not depend on the coordinates: a direction in which the prices are flat need not be any one
-#   parameter's;
-# - each parameter by itself, by the share of its Hessian diagonal, in case the correction's larger
-#   part lies elsewhere.
-#
-# Where either share is under a half, the fit takes Newton steps until the correction is zero or no
-# longer halves from the `previous` one, which is as far as the arithmetic resolves it.
-function __settled(J, w, H, δ, previous)
-    squares(v) = w === nothing ? sum(abs2, v) : sum(w[i] * abs2(v[i]) for i in eachindex(v))
-    decrement = dot(δ, H, δ)
-    if 2 * squares(J * δ) < decrement
-        (previous !== nothing && decrement >= previous.decrement / 4) || return false
-    end
-    for k in eachindex(δ)
-        (2 * squares(view(J, :, k)) >= H[k, k] || iszero(δ[k])) && continue
-        (previous !== nothing && abs(δ[k]) >= abs(previous.δ[k]) / 2) || return false
-    end
-    return true
+# Largest weighted change of an individual pricing gradient in the inverse Hessian metric.
+# Whitening by the existing Cholesky factor makes the test independent of parameter coordinates.
+function __slope_norm(change, w, C, d)
+    V = C.L \ (change' ./ d)
+    return maximum(i -> (w === nothing ? 1 : sqrt(w[i])) * norm(view(V, :, i)), axes(change, 1))
 end
 
 __failure_hint(p::__KnotRates, z) = isempty(__switch_hint(p)) ?
-    "With fewer quotes than knots, or knots that move the quotes' prices only together, the quotes do not " *
+    "Fewer quotes than knots, or knots that move prices only together, can leave the quotes unable to " *
     "determine the knot rates: use fewer knots, or knots where the quotes' cashflows are. Otherwise check " *
     "the quotes for prices that no curve with this interpolation comes near." : __switch_hint(p)
 __failure_hint(p::__ForeignKnotRates, z) = __failure_hint(p.knots, z)
@@ -373,8 +436,8 @@ function __failure_hint(p::__Variables, x)
     below, above = x[k] - p.lower[k], p.upper[k] - x[k]
     min(below, above) <= 1.0e-6 * width[k] && return "Variable $k is at the $(below < above ? "lower" : "upper") end of " *
         "its interval: the quotes pull it to or beyond that bound. Widen the interval in `variables`."
-    return "With fewer quotes than variables, or variables that move the quotes' prices only together, the quotes " *
-        "do not determine them. Otherwise check the quotes for prices that the model cannot come near, or start " *
+    return "Fewer quotes than variables, or variables that move prices only together, can leave the quotes " *
+        "unable to determine them. Otherwise check the quotes for prices that the model cannot come near, or start " *
         "from a model nearer the fit."
 end
 
@@ -394,7 +457,7 @@ function __implicit_least_squares(outer::TO, inner, ::Type{Own}, parameters, pri
     D === nothing && return θ
     # On a kink of the interpolant the refit has no derivative; nor may the minimum, a correction
     # away, lie across one from the point whose Hessian this is (see `__implicit_knot_curve`).
-    __on_kink(primal_parameters, θ, .-δ) && throw(__fit_kink_error(primal_parameters(θ)))
+    __check_fit_kink(primal_parameters, θ, .-δ)
     # g at the fit with the caller's numbers under `outer`: its partials are ∂g/∂p.
     retag = __Retag{TO}()
     K = ForwardDiff.npartials(D)
@@ -431,17 +494,12 @@ function __least_squares(::Val{O}, parameters, θ0, quotes, primal_quotes, weigh
     inner = ForwardDiff.Tag(__FitTagKey{O, :inner}(), eltype(θ0))  # created second, so it nests inside `outer`
     Own = Tuple{typeof(outer), typeof(inner)}
     primal_parameters = __map_parameters(__primal, parameters)
-    primal_weights = __primal_weights(weights, length(quotes), who)
-    # A quote with a weight of zero is left out: it is not priced. Its row returns for the derivatives
-    # only if its weight carries them, since the minimum does respond to that weight.
-    if primal_weights !== nothing && !all(>(0), primal_weights)
+    kept_primal_quotes = primal_quotes
+    primal_weights = weights === nothing ? nothing : map(__primal, weights)
+    # Seeded zero weights contribute to the weight derivative only.
+    if primal_weights !== nothing && any(iszero, primal_weights)
         active = findall(>(0), primal_weights)
-        kept = findall(i -> primal_weights[i] > 0 || __has_partials(weights[i]), eachindex(primal_weights))
-        quotes, weights = quotes[kept], [weights[i] for i in kept]
-        kept_primal_quotes = primal_quotes[kept]
         primal_quotes, primal_weights = primal_quotes[active], primal_weights[active]
-    else
-        kept_primal_quotes = primal_quotes
     end
     scale = primal_weights === nothing ? nothing : map(sqrt, primal_weights)
     r = __Residuals(primal_parameters, primal_quotes, scale, Own, who)
@@ -449,27 +507,34 @@ function __least_squares(::Val{O}, parameters, θ0, quotes, primal_quotes, weigh
     # The quotes' sizes for the tolerances (`__price_move`): prices, and for a quote priced at zero its
     # value under the starting parameters.
     prices = [eltype(θ0)(q.price) for q in primal_quotes]
-    floor = [iszero(p) ? abs(v) : zero(v) for (p, v) in zip(prices, e(θ0))]
+    initial = primal_parameters(θ0)
+    floor = [
+        max(iszero(p) ? abs(v) : zero(v), __fx_roundoff(initial, q, p) / __LSQ_NEWTON)
+            for (q, p, v) in zip(primal_quotes, prices, e(θ0))
+    ]
     cfg = ForwardDiff.JacobianConfig(r, θ0, ForwardDiff.Chunk(θ0), inner)
     scaled(x) = scale === nothing ? x : scale .* x
     searched = __levenberg_marquardt(r, θ0, cfg, __bounds(parameters), scaled(prices), scaled(floor), maxiters)
-    θ, δ, C, d = __certify_minimum(e, primal_weights, prices, floor, searched, outer, inner, maxiters)
     differentiated = parameters !== primal_parameters ||
         any(((q, p),) -> q !== p, zip(quotes, kept_primal_quotes)) ||
         (weights !== nothing && any(w -> __ad_depth(w) > 0, weights))
+    θ, δ, C, d = __certify_minimum(e, primal_weights, prices, floor, searched, outer, inner, maxiters, differentiated)
     differentiated || return θ
     return __implicit_least_squares(outer, inner, Own, parameters, primal_parameters, θ, δ, C, d, quotes, weights, who)
 end
 
-# The weights without their dual numbers, validated: one per quote, finite and non-negative. (Rows
-# with a weight of zero are skipped, which would drop a negative or NaN weight without a word; and
-# `map` over quotes and weights of different lengths would drop the extra ones.)
-__primal_weights(::Nothing, n, who) = nothing
-function __primal_weights(weights, n, who)
-    length(weights) == n || throw(DimensionMismatch("$who: Fit.LeastSquares has $(length(weights)) weights for $n quotes"))
+# Drop excluded rows before reading any contract fields, even its maturity. A zero weight
+# seeded by the caller is retained for implicit differentiation on a fixed parameter grid.
+function __included_quotes(quotes, method, who)
+    qs = collect(quotes)
+    weights = method.weights
+    weights === nothing && return qs, method
+    length(weights) == length(qs) || throw(DimensionMismatch("$who: Fit.LeastSquares has $(length(weights)) weights for $(length(qs)) quotes"))
     w = map(__primal, weights)
     all(x -> isfinite(x) && x >= 0, w) || throw(ArgumentError("$who: Fit.LeastSquares weights must be finite and non-negative"))
-    return w
+    all(>(0), w) && return qs, method
+    rows = findall(i -> w[i] > 0 || __has_partials(weights[i]), eachindex(w))
+    return qs[rows], Fit.LeastSquares(; weights = [weights[i] for i in rows], maxiters = method.maxiters)
 end
 
 # ── `fit` methods ──────────────────────────────────────────────────────────────────────
@@ -478,8 +543,8 @@ end
 # variable on a bound starts from the middle of its interval, as in a loss fit). The solve works in
 # Float64 at least, whatever the model's own number type: its tolerances assume that precision.
 function fit(mod0, quotes, method::Fit.LeastSquares; variables = default_variables(mod0))
-    quotes = collect(quotes)
     who = "fit($(nameof(typeof(mod0))), Fit.LeastSquares)"
+    quotes, method = __included_quotes(quotes, method, who)
     model = AccessibleModel(mod0, variables)
     # A variable given a set of values rather than an interval would be fitted between them.
     k = findfirst(d -> !(d isa AccessibleModels.Distributions.ContinuousUnivariateDistribution), model.distributions)
@@ -494,45 +559,37 @@ function fit(mod0, quotes, method::Fit.LeastSquares; variables = default_variabl
 end
 
 # A spline: one knot at the maturity of each quote that is part of the fit.
-fit(mod0::T, quotes, method::Fit.LeastSquares; extrapolation = :flat_forward) where {T <: Spline.SplineCurve} =
-    __fit_knots(mod0, quotes, method, identity; extrapolation)
+function fit(spline::Spline.SplineCurve, quotes, method::Fit.LeastSquares; extrapolation = :flat_forward)
+    qs, method = __included_quotes(quotes, method, "fit($(spline), Fit.LeastSquares)")
+    return __fit_knots(spline, qs, method, identity; extrapolation)
+end
 
-# A knot curve: its knots, wherever they are, its interpolation method and its extrapolation policy.
-fit(c::Yield.AbstractInterpolatedZeroCurve, quotes, method::Fit.LeastSquares) = __fit_knots(c, quotes, method, identity)
+function fit(c::Yield.AbstractInterpolatedZeroCurve, quotes, method::Fit.LeastSquares)
+    qs, method = __included_quotes(quotes, method, "fit($(c.spline), Fit.LeastSquares)")
+    return __fit_knots(c, qs, method, identity)
+end
 
-# `model` makes the fit's parameters from the curve's `__KnotRates`: themselves, or an FX model's.
+# A positive weight would give this quote a knot, so its weight derivative at zero is undefined.
 function __fit_knots(spline::Spline.SplineCurve, quotes, method, model::M; extrapolation = :flat_forward) where {M}
+    if method.weights !== nothing && any(w -> iszero(__primal(w)), method.weights)
+        throw(ArgumentError("fit($(spline), Fit.LeastSquares) cannot differentiate with respect to a weight of zero: a positive weight would add a knot at its quote's maturity. Fit a curve with knots of its own."))
+    end
     quotes, primal_quotes = __calibration_quotes(quotes)
-    tenors = sort!([maturity(q) for q in __knot_quotes(primal_quotes, method.weights, "fit($(spline), Fit.LeastSquares)")])
-    return __fit_knot_rates(spline, tenors, quotes, primal_quotes, method, extrapolation, model)
+    tenors = sort!(maturity.(primal_quotes))
+    return __fit_knot_rates(spline, tenors, quotes, primal_quotes, method, extrapolation, model, Float64)
 end
 function __fit_knots(c::Yield.AbstractInterpolatedZeroCurve, quotes, method, model::M) where {M}
     quotes, primal_quotes = __calibration_quotes(quotes)
-    return __fit_knot_rates(c.spline, Yield.knot_tenors(c), quotes, primal_quotes, method, c.extrapolation, model)
-end
-
-# The quotes that get a knot: those that are part of the fit. A weight of zero that carries
-# derivatives has none here: any positive weight would add a knot at its quote's maturity, so the
-# fitted curve does not change smoothly with it.
-__knot_quotes(quotes, ::Nothing, who) = quotes
-function __knot_quotes(quotes, weights, who)
-    w = __primal_weights(weights, length(quotes), who)
-    any(i -> iszero(w[i]) && __has_partials(weights[i]), eachindex(w)) && throw(
-        ArgumentError(
-            "$who cannot differentiate with respect to a weight of zero: a positive weight would add a knot at " *
-                "its quote's maturity. Fit a curve with knots of its own: " *
-                "fit(ZeroRateCurve(rates, knots, spline), quotes, Fit.LeastSquares(weights = w))."
-        )
-    )
-    return [q for (q, x) in zip(quotes, w) if x > 0]
+    T = typeof(__primal(rate(first(Yield.knot_rates(c)))))
+    return __fit_knot_rates(c.spline, Yield.knot_tenors(c), quotes, primal_quotes, method, c.extrapolation, model, T)
 end
 
 # The knot grid is validated once, up front, as in a loss fit, from the same starting rates.
-function __fit_knot_rates(spline, tenors, quotes, primal_quotes, method::Fit.LeastSquares, extrapolation, model::M) where {M}
+function __fit_knot_rates(spline, tenors, quotes, primal_quotes, method::Fit.LeastSquares, extrapolation, model::M, ::Type{T}) where {M, T}
     who = "fit($(spline), Fit.LeastSquares)"
     grid0 = Yield.KnotGrid(__knot_fit_seed(spline, tenors), tenors, spline; who)
     knots = __KnotRates(spline, Yield.__interpolation(spline, length(grid0.tenors)), grid0.tenors, extrapolation)
-    z = __least_squares(model(knots), collect(float.(grid0.rates)), quotes, primal_quotes, method, who)
+    z = __least_squares(model(knots), collect(promote_type(Float64, T, eltype(grid0.rates)), grid0.rates), quotes, primal_quotes, method, who)
     # The public result is validated; knot rates that carry derivatives keep the caller's policy.
     eltype(z) <: ForwardDiff.Dual || return Yield.ZeroRateCurve(z, grid0.tenors, spline; extrapolation = __primal_extrapolation(extrapolation))
     return Yield.__build_public(
@@ -540,31 +597,44 @@ function __fit_knot_rates(spline, tenors, quotes, primal_quotes, method::Fit.Lea
     )
 end
 
-# `FX.Forwards` with a spline or a knot curve as the foreign curve. Quotes left out by their weights
-# are dropped first, so that they are not converted either.
-#
-# Outrights and basis-swap legs have implied quotes on the foreign curve, and the curve is fitted to
-# those like the other methods' (`__fit_fx_via_implied`), which keeps the derivatives with respect to
-# the domestic curve. An implied quote's residual is its own quote's pricing residual divided by
-# `FX.__implied_residual_scale`, so each weight is multiplied by that scale squared: the fit then
-# minimizes the weighted pricing residuals of the quotes as given, whatever mix they are.
-#
-# Any other contract (a `Composite` of forwards, for one) is priced under the FX model itself, whose
-# foreign knot rates are the parameters (`__ForeignKnotRates`).
+# On the foreign curve an outright receives spot at maturity and pays the discounted strike
+# today. Keeping the two legs identifiable gives this quote its own cancellation allowance.
+struct __ForwardLegs{C, K} <: FinanceCore.AbstractContract
+    receipt::C
+    discounted_strike::K
+end
+FinanceCore.maturity(c::__ForwardLegs) = c.receipt.time
+__quote_value(curve, q::Quote{<:Any, <:__ForwardLegs}) = present_value(curve, q.instrument.receipt) - q.instrument.discounted_strike
+function __map_contract(f::F, c::__ForwardLegs) where {F}
+    receipt, strike = __map_contract(f, c.receipt), f(c.discounted_strike)
+    return receipt === c.receipt && strike === c.discounted_strike ? c : __ForwardLegs(receipt, strike)
+end
+
+function __foreign_lsq_quote(m, q::Quote{<:Any, <:FX.Forward})
+    FX.__check_quote_pair(m, q)
+    c = q.instrument
+    strike = c.strike * discount(m.domestic, c.time)
+    FX.__implied_df(q, m.spot, strike)  # validate the implied discount factor
+    return Quote(q.price, __ForwardLegs(Cashflow(m.spot, c.time), strike))
+end
+__foreign_lsq_quote(m, q::Quote{<:Any, <:FX.BasisSwapLeg}) = FX.__implied_foreign_quote(m, q)
+
+__price_spacing(model, q, p, size) = max(4 * eps(size), __fx_roundoff(model, q, p))
+__fx_roundoff(model, q, p) = zero(p)
+__leg_roundoff(strike, p) = 4 * eps(max(abs(oftype(p, strike)), abs(oftype(p, strike) + p)))
+__fx_roundoff(curve, q::Quote{<:Any, <:__ForwardLegs}, p) = __leg_roundoff(q.instrument.discounted_strike, p)
+function __fx_roundoff(m::FX.Forwards, q::Quote{<:Any, <:FX.Forward}, p)
+    c = q.instrument
+    return __leg_roundoff(c.strike * discount(m.domestic, c.time), p)
+end
+
 function fit(mod0::FX.Forwards{P, S, D, F}, quotes, method::Fit.LeastSquares; kwargs...) where {P, S, D, F <: Union{Spline.SplineCurve, Yield.AbstractInterpolatedZeroCurve}}
-    quotes = collect(quotes)
-    weights = method.weights
-    if weights !== nothing
-        w = __primal_weights(weights, length(quotes), "fit(FX.Forwards, Fit.LeastSquares)")
-        rows = findall(i -> w[i] > 0 || __has_partials(weights[i]), eachindex(w))
-        quotes, weights = quotes[rows], [weights[i] for i in rows]
+    qs, method = __included_quotes(quotes, method, "fit(FX.Forwards, Fit.LeastSquares)")
+    if all(q -> q isa Quote{<:Any, <:Union{FX.Forward, FX.BasisSwapLeg}}, qs)
+        foreign = __fit_knots(mod0.foreign, map(q -> __foreign_lsq_quote(mod0, q), qs), method, identity; kwargs...)
+    else
+        model(knots) = __ForeignKnotRates(mod0.pair, mod0.spot, mod0.domestic, knots)
+        foreign = __fit_knots(mod0.foreign, qs, method, model; kwargs...)
     end
-    if all(q -> q isa FinanceCore.Quote{<:Any, <:Union{FX.Forward, FX.BasisSwapLeg}}, quotes)
-        scales = [FX.__implied_residual_scale(mod0, q) for q in quotes]
-        weights = weights === nothing ? scales .^ 2 : [x * s^2 for (x, s) in zip(weights, scales)]
-        return __fit_fx_via_implied(mod0, quotes, Fit.LeastSquares(; weights, maxiters = method.maxiters); kwargs...)
-    end
-    model(knots) = __ForeignKnotRates(mod0.pair, mod0.spot, mod0.domestic, knots)
-    foreign = __fit_knots(mod0.foreign, quotes, Fit.LeastSquares(; weights, maxiters = method.maxiters), model; kwargs...)
     return @set mod0.foreign = foreign
 end

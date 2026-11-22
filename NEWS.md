@@ -25,9 +25,8 @@ ns = fit(Yield.NelsonSiegel(), bond_quotes, Fit.LeastSquares())  # any model, by
   minimum, certified at the parameters returned: a positive definite Hessian, and a Newton
   correction of any one parameter that moves no quote's price by more than `1e-10` of that
   quote's size. The test is made parameter by parameter and quote by quote, so it does not depend
-  on the parameters' units or on quotes a parameter does not move. A parameter that only the
-  prices' curvature determines is refined until its correction no longer shrinks. Quotes that the model reprices are the zero-residual
-  case.
+  on the parameters' units or on quotes a parameter does not move. The solver checks pricing slopes across the correction and
+  refines the fit when those slopes change materially.
 - **Errors.** A parameter on which no quote's price depends throws an `ArgumentError` naming it. A
   fit that cannot be certified throws a `FitConvergenceError`: quotes that do not determine the
   parameters, a minimum on a formula switch of `Spline.MonotoneConvex()`, `Spline.PCHIP()` or
@@ -38,9 +37,10 @@ ns = fit(Yield.NelsonSiegel(), bond_quotes, Fit.LeastSquares())  # any model, by
 - **FX.** A foreign spline or knot curve of `FX.Forwards` is fitted to the quotes' own pricing
   residuals, so outrights and basis swaps in one quote set are weighted as given. (A loss fit
   minimizes the residuals of the implied quotes, in which an outright's is divided by spot.)
+  Outrights allow four floating-point spacings at their discounted-leg size when testing net PV.
   Contracts without an implied quote, such as a `Composite` of forwards, are priced under the FX
   model itself; the loss fit and the bootstrap do not accept them.
-- **Precision.** Where the prices cannot be resolved to the tolerance (quotes of very different
+- **Precision.** Refits preserve `BigFloat` knot rates with the same stopping tolerances. Where the prices cannot be resolved to the tolerance (quotes of very different
   sizes sharing a parameter, or a price that is a small difference of large amounts), the fit
   throws rather than stop short.
 - **Derivatives.** First-order ForwardDiff derivatives with respect to quote prices, the contract

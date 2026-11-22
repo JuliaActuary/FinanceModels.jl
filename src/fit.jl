@@ -96,17 +96,17 @@ module Fit
        price by more than `1e-10` of that quote's size. A quote's size is the larger of its price
        and its value; one priced at zero is measured against its value under the starting model.
        The test is made quote by quote, so a quote that a parameter does not move has no say in
-       it, and neither the parameters' units nor the notionals matter. A parameter that the
-       prices' curvature determines more than their slope (the prices are nearly flat in it) is
-       refined further, until its correction no longer shrinks. The correction is a local
-       estimate of the distance to the minimum, not a bound on it.
+       it. The solver also checks how much each pricing gradient changes across the correction,
+       scaled by the fitted Hessian. When the slopes change materially, it takes further Newton
+       steps. These local tests estimate the accuracy of the returned parameters.
 
     A fit that reprices its quotes is the zero-residual case of the same solve. A fit that cannot be
     certified throws a [`FitConvergenceError`](@ref FinanceModels.FitConvergenceError):
 
     - The quotes must determine every parameter. A parameter on which neither the prices nor their
-      curvature depend throws an `ArgumentError` naming it; fewer quotes than parameters, or
-      parameters that move the prices only together, leave the Hessian singular.
+      curvature depend throws an `ArgumentError` naming it. At an exact fit the pricing
+      Jacobian must have full column rank. With nonzero residuals their curvature can also
+      identify parameters.
     - `Spline.MonotoneConvex()`, `Spline.PCHIP()` and `Spline.Akima()` switch formulas as knot rates
       change, and a minimum on a switch cannot be certified by derivatives. Prefer
       `Spline.Linear()` or `Spline.Cubic()` for more quotes than knots.
@@ -124,17 +124,21 @@ module Fit
 
     For `FX.Forwards` with a foreign spline or knot curve, the residuals are the quotes' own under
     the FX model, whatever mix of contracts they are. Derivatives with respect to the domestic
-    curve are available for outrights and par basis-swap legs only.
+    curve are available for sets of outrights and par basis-swap legs. An outright's tolerance
+    applies to its net present value, with an absolute allowance of four floating-point spacings
+    at the size of its discounted legs. This also covers zero-price par outrights.
 
     The minimum is a local one, and need not be the best fit of all parameters. `optimizer` and
     `solve_kwargs` belong to [`Fit.Loss`](@ref FinanceModels.Fit.Loss) and are not accepted. The
     solve works in `Float64` at least: a model of `Float32` numbers is returned with `Float64`
-    variables.
+    variables. Refitting a curve with `BigFloat` knot rates preserves that precision and uses the same stopping tolerances.
 
     Fits are differentiable with ForwardDiff with respect to quote prices, the contract numbers
     listed under "Differentiating through a fit" in [`fit`](@ref FinanceModels.fit), the weights,
     and a `Yield.FlatForwardAt` forward, for any such model and any number of quotes. The derivatives are
     implicit ones, evaluated at the fitted parameters with the Hessian that certified them.
+    A differentiated fit can throw when a repriced quote is at a turning point and a two-sided
+    sensitivity cannot be resolved at the precision of the quoted price.
 
     A subtype of FitMethod.
 

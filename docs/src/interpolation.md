@@ -162,7 +162,9 @@ remains `Fit.Loss(x -> x^2)`.
 What a least-squares fit returns is a certified local minimum: at the fitted knot rates the
 Hessian of the sum of squares (including the residuals' curvature) is positive definite, and the
 Newton correction of any one knot rate would move no quote's price by more than `1e-10` of its
-size. Otherwise the fit throws:
+size. The solver also checks the change in pricing slopes across that correction. Refitting a
+curve with `BigFloat` knot rates preserves their type and uses the same stopping tolerances.
+A fit can throw in the following cases:
 
 - The quotes must determine every knot rate: enough quotes with a positive weight, and each knot
   moving some quote's price.

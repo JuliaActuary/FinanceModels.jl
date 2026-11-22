@@ -117,7 +117,7 @@ for the calculation and written back at the end, so they still never mix.
 |:------------|:---------------|:------|
 | `fit(spline, quotes)` (`Fit.Loss`), every interpolation method | yes | the fit must reprice its quotes; see below |
 | `fit(Spline.Linear(), quotes, Fit.Bootstrap())` | yes | exact to root-finder precision |
-| `fit(FX.Forwards(pair, spot, domestic, spline), quotes, …)` | yes | through the implied foreign quotes |
+| `fit(FX.Forwards(pair, spot, domestic, spline), quotes, …)` | yes | through the foreign-curve quotes for outrights and par basis swaps |
 | `fit(curve, quotes)`, refitting an existing knot curve | with one knot per quote | the spline fit on the curve's knots; another number of knots throws a `DimensionMismatch` |
 | `fit(model, quotes, Fit.LeastSquares(; weights))`, a spline, a knot curve or a model with `variables` | yes, with any number of quotes | the optimality condition at a certified local minimum; also with respect to the weights |
 | `fit(Yield.SmithWilson(…), quotes)` | quote prices and cashflow amounts (such as `Bond.Fixed` coupons) | differentiates the closed form directly; values match the primal fit to rounding, not bitwise |
@@ -137,13 +137,14 @@ exact fit is at most `1e-6`. The correction is a local estimate of the fit's err
 guaranteed distance to the exact solution; like the conditioning check, it does not depend on
 the quotes' notionals. To tighten a loss fit, pass solver settings through `fit`'s
 `solve_kwargs`, for example `fit(Spline.MonotoneConvex(), quotes; solve_kwargs = (; g_tol = 1e-12))`.
-A least-squares fit is certified at the parameters it returns (with the full Hessian, the Newton
-correction of any one parameter moves no quote's price by more than `1e-10` of its size), and its
-derivatives use that same Hessian; there is nothing to tighten. They are implicit sensitivities evaluated at the
-returned parameters, an approximate solution: the Newton correction is a local estimate of its
-distance from the minimum, not a bound on it. Where the prices are nearly flat in a parameter and
-their curvature determines it, the price test says little and the sensitivities change quickly, so
-the fit refines that parameter until its correction no longer shrinks.
+A least-squares fit evaluates its implicit sensitivities with the Hessian at the fitted
+parameters. It checks both the price move from the Newton correction and the change in the
+pricing gradients across that correction. A nearly flat price can have a rapidly changing
+sensitivity, even when two candidate fits reprice equally well. The solver refines such fits
+using full Newton steps. Before returning derivatives, it checks whether price rounding could
+erase the positive curvature of the objective. A fit can therefore reprice an instrument at a
+turning point and still throw when asked for a two-sided sensitivity.
+
 Refitting with bumped quotes and taking finite differences is a much noisier check: optimizer
 noise of `1e-11` in the fitted rates becomes an error of order `1e-4` in a difference quotient.
 
