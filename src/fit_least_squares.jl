@@ -3,17 +3,17 @@
 # `Fit.LeastSquares` fits a model to quotes with one solve for every model. A fit has a parameter
 # vector θ and a rule that builds the model from it: `__KnotRates` (a knot curve from its knot rates),
 # `__ForeignKnotRates` (an FX model from its foreign curve's) or `__Variables` (any other model from
-# its variables). Everything else sees only the residuals
+# its variables). The search and the certificate use the same weighted pricing objective with residuals
 #
 #     rᵢ(θ) = √wᵢ · (value(model(θ), quoteᵢ) − priceᵢ)
 #
-# and never the model or the contracts:
+# The model and contract also determine the price resolution used in the rounding checks.
 #
 # 1. Levenberg–Marquardt on the residuals' ForwardDiff Jacobian (first derivatives only) takes the
 #    parameters to where a Gauss–Newton step is at rounding, or no longer shrinks.
 # 2. Newton's method with the exact Hessian of the sum of squares goes on to a point it can certify
 #    as a minimum, which is the point returned: the Hessian there is positive definite, and the
-#    Newton correction there moves no quote's price by more than 1e-10 of that quote's size.
+#    Newton correction meets the price and slope tolerances for each quote.
 # 3. When the quotes carry a caller's dual numbers, the implicit function theorem at that minimum
 #    gives its derivatives, with the Hessian there.
 
@@ -103,9 +103,9 @@ end
 
 __column_norms(J) = [norm(view(J, :, k)) for k in axes(J, 2)]
 
-# Every tolerance is on a price, quote by quote: `__price_move` is the largest change that the step
-# `δ` of any one parameter makes in any one quote's price (to first order, `J[i, k] * δ[k]`), as a
-# fraction of that quote's size. A quote that a parameter does not move says nothing about that
+# `__price_move` measures the largest first-order change in any one quote's price from any one
+# parameter's step (`J[i, k] * δ[k]`), as a fraction of that quote's size.
+# A quote that a parameter does not move says nothing about that
 # parameter, however large it is, and neither the parameters' units nor the notionals matter.
 #
 # A quote's size is the larger of its price and its value now (`f` holds the pricing errors), which
@@ -128,7 +128,7 @@ const __LSQ_FLAT = 1.0e-12       # a relative change of the sum of squares that 
 const __LSQ_STEP = 1.0e-12       # the search ends at a Gauss–Newton step that moves no price by more than this of its size
 const __LSQ_PATIENCE = 10        # or after this many steps without a clearly smaller one, once the sum of squares is flat
 const __LSQ_NEWTON = 1.0e-10     # a certified minimum: its Newton correction moves no price by more than this of its size
-const __LSQ_SLOPE = 1.0e-8
+const __LSQ_SLOPE = 1.0e-8       # maximum weighted change of a pricing gradient in the inverse Hessian metric
 const __LSQ_NEWTON_STEPS = 10
 
 __undetermined(who, parameters, k) = ArgumentError(
@@ -504,8 +504,9 @@ function __least_squares(::Val{O}, parameters, θ0, quotes, primal_quotes, weigh
     scale = primal_weights === nothing ? nothing : map(sqrt, primal_weights)
     r = __Residuals(primal_parameters, primal_quotes, scale, Own, who)
     e = __Residuals(primal_parameters, primal_quotes, nothing, Own, who)
-    # The quotes' sizes for the tolerances (`__price_move`): prices, and for a quote priced at zero its
-    # value under the starting parameters.
+    # A zero-price quote also uses its absolute starting PV. For FX outrights, dividing the
+    # leg rounding allowance by the Newton tolerance puts both floors in units of quote size.
+    # The search uses a tighter tolerance on that scale so it can resolve a one-spacing move.
     prices = [eltype(θ0)(q.price) for q in primal_quotes]
     initial = primal_parameters(θ0)
     floor = [

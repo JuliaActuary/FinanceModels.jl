@@ -92,13 +92,14 @@ module Fit
     2. Newton's method with the exact Hessian of the sum of squares, which includes the residuals'
        curvature, goes on from there to a point it can certify as a local minimum, and that point
        is the fit. Its Hessian is positive definite and well conditioned, and its Newton
-       correction is negligible in prices: the correction of any one parameter moves no quote's
-       price by more than `1e-10` of that quote's size. A quote's size is the larger of its price
-       and its value; one priced at zero is measured against its value under the starting model.
-       The test is made quote by quote, so a quote that a parameter does not move has no say in
-       it. The solver also checks how much each pricing gradient changes across the correction,
-       scaled by the fitted Hessian. When the slopes change materially, it takes further Newton
-       steps. These local tests estimate the accuracy of the returned parameters.
+       correction is tested one parameter and one quote at a time. The estimated price move
+       must be at most `1e-10` times the larger of the absolute quoted and current model prices,
+       subject to the FX outright allowance below. A quote priced at zero also includes its
+       absolute starting value in that scale. Across the full correction, the change in each
+       quote's pricing gradient, multiplied by the square root of its weight, must have norm
+       at most `1e-8` in the inverse Hessian metric of half the weighted sum of squares.
+       The solver takes further Newton steps when the gradients change more than this.
+       These local tests estimate the accuracy of the returned parameters.
 
     A fit that reprices its quotes is the zero-residual case of the same solve. A fit that cannot be
     certified throws a [`FitConvergenceError`](@ref FinanceModels.FitConvergenceError):
@@ -124,9 +125,10 @@ module Fit
 
     For `FX.Forwards` with a foreign spline or knot curve, the residuals are the quotes' own under
     the FX model, whatever mix of contracts they are. Derivatives with respect to the domestic
-    curve are available for sets of outrights and par basis-swap legs. An outright's tolerance
-    applies to its net present value, with an absolute allowance of four floating-point spacings
-    at the size of its discounted legs. This also covers zero-price par outrights.
+    curve are available for sets of outrights and par basis-swap legs. The tolerance on the
+    Newton correction in an outright's net present value is at least four floating-point
+    spacings at the size of the larger discounted leg. For a par outright the relative
+    tolerance based on its starting or current value can give a larger allowance.
 
     The minimum is a local one, and need not be the best fit of all parameters. `optimizer` and
     `solve_kwargs` belong to [`Fit.Loss`](@ref FinanceModels.Fit.Loss) and are not accepted. The

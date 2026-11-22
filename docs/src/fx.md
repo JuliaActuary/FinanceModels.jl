@@ -348,8 +348,11 @@ Practical notes:
   bootstrap solves each quote exactly and involves no such weighting.
   `Fit.LeastSquares` fits each outright's net present value using its original weight. On the
   foreign curve the two legs receive spot at maturity and pay the discounted strike today.
-  Subtracting those legs sets an absolute precision limit, so the net-price tolerance allows
-  four floating-point spacings at the larger discounted leg. This applies to par outrights too.
+  Rounding in either discounted leg can be large relative to a near-zero net PV.
+  When checking the Newton correction in net PV, the solver therefore uses the larger of
+  the relative price allowance and four floating-point spacings at the larger discounted leg.
+  For a par outright the target PV is zero, so the relative allowance is `1e-10` times the
+  larger of the absolute starting and current PVs.
 - Interbank basis swaps are quoted on the mark-to-market (resetting-notional)
   structure, in which the flat domestic leg's notional resets to spot each period while
   the spread leg's stays constant. Under deterministic curves the constant-notional and

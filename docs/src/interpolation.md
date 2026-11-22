@@ -154,10 +154,17 @@ w = [1 / (q.price * D[i])^2 for (i, q) in enumerate(bond_quotes)]
 bbb = fit(c0, bond_quotes, Fit.LeastSquares(weights = w))
 ```
 
-`Fit.LeastSquares` is not specific to knot curves or to bonds: it fits any model with `variables`
-(`fit(Yield.NelsonSiegel(), quotes, Fit.LeastSquares())`) to any contracts whose prices under the
-model ForwardDiff can differentiate twice. It is opt-in, and the default method of every fit
-remains `Fit.Loss(x -> x^2)`.
+`Fit.LeastSquares` also fits parametric models with `variables` when ForwardDiff can
+differentiate the contract prices twice. For a Nelson–Siegel curve, start the level near
+the yields in the portfolio. Here the starting curve is flat at 5%.
+
+```julia
+start = Yield.NelsonSiegel(1.0, 0.05, 0.0, 0.0)
+ns = fit(start, bond_quotes, Fit.LeastSquares())
+```
+
+For daily Nelson–Siegel fits, you can pass the previous day's fitted model as the starting
+curve. The default fitting method is `Fit.Loss(x -> x^2)`.
 
 What a least-squares fit returns is a certified local minimum: at the fitted knot rates the
 Hessian of the sum of squares (including the residuals' curvature) is positive definite, and the

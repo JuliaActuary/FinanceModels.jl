@@ -248,12 +248,17 @@ FinanceCore.present_value(m::LsqPair, ::LsqShortBill) = exp(-0.01 * lsq_d(m))
         # rather than stop where the larger quote alone is satisfied.
         soon = Quote(1.0e12, Cashflow(1.0e12, 1.0e-9))
         @test_throws "still moves a price" fit(c1, [ZCBPrice(0.9, 1.0), soon], Fit.LeastSquares())
-        # Nor does the size of a parameter stand in for the size of a price: an FX spot of 1e12 and a forward
-        # struck there, quoted at 0.5. (From a review: the spot was returned as it started.)
+        # At zero rates PV equals spot minus strike. Even a single representable spot increment
+        # must be fitted when the quote calls for it.
         eurusd = FX.Pair(:EUR, :USD)
         flat = Yield.Constant(Continuous(0.0))
-        fx = fit(FX.Forwards(eurusd, 1.0e12, flat, flat), [Quote(0.5, FX.Forward(eurusd, 1.0e12, 1.0))], Fit.LeastSquares(); variables = (@optic(_.spot) => 1.0 .. 1.0e13,))
-        @test fx.spot - 1.0e12 ≈ 0.5 atol = 1.0e-3   # (a spot of 1e12 has steps of 1e-4)
+        spot = 1.0e12
+        model = FX.Forwards(eurusd, spot, flat, flat)
+        outright = FX.Forward(eurusd, spot, 1.0)
+        for price in (0.5, eps(spot))
+            fx = fit(model, [Quote(price, outright)], Fit.LeastSquares(); variables = (@optic(_.spot) => 1.0 .. 1.0e13,))
+            @test pv(fx, outright) == price
+        end
     end
 
     @testset "quotes that do not determine the parameters throw" begin

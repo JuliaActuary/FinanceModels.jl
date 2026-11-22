@@ -11,14 +11,15 @@ residuals. It is opt-in: every fit without a method keeps `Fit.Loss(x -> x^2)`.
 c0 = ZeroRateCurve(fill(0.05, length(knots)), knots, Spline.Cubic())
 curve = fit(c0, bond_quotes, Fit.LeastSquares())                 # ten knots, a thousand bonds
 curve = fit(c0, bond_quotes, Fit.LeastSquares(weights = w))
-ns = fit(Yield.NelsonSiegel(), bond_quotes, Fit.LeastSquares())  # any model, by its `variables`
+start = Yield.NelsonSiegel(1.0, 0.05, 0.0, 0.0)                  # flat 5% starting curve
+ns = fit(start, bond_quotes, Fit.LeastSquares())
 ```
 
-- **One solve.** The solver sees only the residuals
-  `√wᵢ (present_value(model, quoteᵢ.instrument) - quoteᵢ.price)`: a knot curve's knot rates or any
-  other model's `variables`, and any contract whose price under the model ForwardDiff can
-  differentiate twice. Quote maturities may repeat, and a spline or knot curve may have fewer
-  knots than quotes. A model without `variables` (`Yield.SmithWilson`) or a pricer that is
+- **One solve.** All models use the same weighted pricing residuals
+  `√wᵢ (present_value(model, quoteᵢ.instrument) - quoteᵢ.price)`. The solver fits a knot curve's
+  knot rates or another model's `variables` for any contract whose price under the model
+  ForwardDiff can differentiate twice. Quote maturities may repeat, and a spline or knot curve
+  may have fewer knots than quotes. A model without `variables` (`Yield.SmithWilson`) or a pricer that is
   differentiable only to first order (a Hull–White swaption) is not supported.
 - **Solver.** Levenberg–Marquardt on the residuals' ForwardDiff Jacobian, then Newton's method
   with the exact Hessian of the sum of squares. A fit is returned only as a certified local
@@ -37,7 +38,8 @@ ns = fit(Yield.NelsonSiegel(), bond_quotes, Fit.LeastSquares())  # any model, by
 - **FX.** A foreign spline or knot curve of `FX.Forwards` is fitted to the quotes' own pricing
   residuals, so outrights and basis swaps in one quote set are weighted as given. (A loss fit
   minimizes the residuals of the implied quotes, in which an outright's is divided by spot.)
-  Outrights allow four floating-point spacings at their discounted-leg size when testing net PV.
+  For an outright the tolerance on the Newton correction in net PV is at least four
+  floating-point spacings at the size of the larger discounted leg.
   Contracts without an implied quote, such as a `Composite` of forwards, are priced under the FX
   model itself; the loss fit and the bootstrap do not accept them.
 - **Precision.** Refits preserve `BigFloat` knot rates with the same stopping tolerances. Where the prices cannot be resolved to the tolerance (quotes of very different
