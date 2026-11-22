@@ -21,6 +21,9 @@ end
 FinanceCore.maturity(c::LsqOpaque) = FinanceCore.maturity(c.inner)
 FinanceCore.present_value(m, c::LsqOpaque) = FinanceCore.present_value(m, c.inner)
 
+struct LsqLinearPrice <: FinanceCore.AbstractContract end
+FinanceCore.present_value(m::Yield.Constant, ::LsqLinearPrice) = m.rate.continuous_value
+
 # The price is flat both at an interior minimum (r=0) and at a different value at r=1.
 struct LsqSmoothstep <: FinanceCore.AbstractContract end
 function FinanceCore.present_value(m::Yield.Constant, ::LsqSmoothstep)
@@ -202,10 +205,8 @@ FinanceCore.present_value(m::LsqPair, ::LsqShortBill) = exp(-0.01 * lsq_d(m))
     end
 
     @testset "a fit is accepted on the full Hessian, not on a Gauss-Newton step" begin
-        # One knot and two zero-coupon prices, chosen so that at 5% the residuals' curvature cancels JᵀJ but
-        # for 1e-5, with a gradient of 1e-9: a Gauss-Newton step there is 5.6e-11, while the minimum is
-        # 1.1e-6 away, where the curvature is 1.8e-3. (From a review of an earlier least-squares fit.) A
-        # one-knot fit starts at 5%.
+        # At the 5% start, residual curvature cancels all but 1e-5 of JᵀJ. The Gauss-Newton
+        # step is only 5.6e-11, but the minimum is 1.1e-6 away and has curvature 1.8e-3.
         ts = [1.0, 50.0]
         ps = [0.5704183799730305, 0.17034440723747699]
         c1 = ZeroRateCurve([0.04], [1.5], Spline.Linear())
@@ -231,11 +232,30 @@ FinanceCore.present_value(m::LsqPair, ::LsqShortBill) = exp(-0.01 * lsq_d(m))
         @test dz ≈ [(kn(ps .+ ε .* (1:2 .== i)) - kn(ps .- ε .* (1:2 .== i))) / 2ε for i in 1:2] rtol = 1.0e-3
     end
 
+    @testset "Hessian and curvature uncertainty across a partial chunk" begin
+        # Each residual has Hessian 2aᵢaᵢ′. Mixed signs distinguish the uncertainty
+        # bound (entrywise absolute values before summing) from the signed Hessian.
+        A = [1.0 -2.0 3.0; -2.0 1.0 1.0]
+        θ, w, noise = [1.0, 2.0, 3.0], [3.0, 2.0], [0.25, 0.5]
+        residual(x) = (A * x) .^ 2 .- [2, 1]
+        outer = ForwardDiff.Tag(Val(:outer_lsq_test), Float64)
+        inner = ForwardDiff.Tag(Val(:inner_lsq_test), Float64)
+        H, R = FinanceModels.__hessian(residual, w, θ, outer, inner, noise, ForwardDiff.Chunk{2}())
+        @test H == A' * Diagonal(w .* (4 .* (A * θ) .^ 2 .+ 2 .* residual(θ))) * A
+        @test R == 2 .* abs.(A)' * Diagonal(noise) * abs.(A)
+    end
+
     @testset "tolerances are on prices, quote by quote" begin
-        # A quote that the parameters do not move has no say in whether they have converged, whatever its
-        # size: a cashflow of 1e12 today is worth 1e12 on every curve. (From a review: with one tolerance
-        # for all quotes together, adding it made the fit of a one-year zero stop where it started, at a
-        # discount factor of 0.95 for a price of 0.9.)
+        # Ordinary price spacing at the starting model must not widen the final
+        # relative tolerance or make an interior solution look like a bound.
+        linear(p, start) = fit(
+            Yield.Constant(Continuous(start)), [Quote(p, LsqLinearPrice())], Fit.LeastSquares();
+            variables = (@optic(_.rate.continuous_value) => 0.0 .. 2.0e15,)
+        ).rate.continuous_value
+        @test linear(0.123, 1.0e10) ≈ 0.123 rtol = 1.0e-10
+        @test linear(0.03, 1.0e14) ≈ 0.03 rtol = 1.0e-10
+        # A cashflow of 1e12 today has the same value on every curve. Adding it must preserve
+        # both the one-year discount factor and its derivative with respect to the bill price.
         c1 = ZeroRateCurve([0.02], [1.0], Spline.Linear())
         today = Quote(1.0e12, Cashflow(1.0e12, 0.0))
         df(p, others...) = discount(fit(c1, [ZCBPrice(p, 1.0), others...], Fit.LeastSquares()), 1.0)
@@ -264,14 +284,14 @@ FinanceCore.present_value(m::LsqPair, ::LsqShortBill) = exp(-0.01 * lsq_d(m))
     @testset "quotes that do not determine the parameters throw" begin
         # A parameter with a zero pricing derivative is determined when the residuals' curvature says so: the
         # present value of -2 at year 1 and +1 at year 2 is (exp(-r) - 1)² - 1, flat at r = 0, so for a price
-        # of -1.1 the sum of squares has its only minimum there, with a Hessian of 0.2. (From a review.)
+        # of -1.1 the sum of squares has its only minimum there, with a Hessian of 0.2.
         flat = [Quote(-1.1, Composite(Cashflow(-2.0, 1.0), Cashflow(1.0, 2.0)))]
         @test abs(fit(Yield.Constant(Continuous(0.0)), flat, Fit.LeastSquares()).rate.continuous_value) <= 1.0e-10
         # From elsewhere the price test alone would stop short: at a rate of 1e-8 a correction of the whole
         # distance moves the price by 1e-16. A parameter that the curvature determines is refined until its
         # correction settles, because the fit's derivatives depend on where it is. Every price below -1 has
         # its minimum at a rate of zero, so the rate's derivative with respect to the price is zero; at a
-        # rate of 1e-8 the implicit formula gives 9 for a price of -1.000000001. (From a review.)
+        # rate of 1e-8 the implicit formula gives 9 for a price of -1.000000001.
         for price in (-1.1, -1.000000001)
             curved(p) = fit(Yield.Constant(Continuous(0.01)), [Quote(p, flat[1].instrument)], Fit.LeastSquares())
             @test curved(price).rate.continuous_value ≈ 0 atol = 1.0e-12
@@ -284,6 +304,11 @@ FinanceCore.present_value(m::LsqPair, ::LsqShortBill) = exp(-0.01 * lsq_d(m))
             @test abs(ForwardDiff.derivative(x -> flat_rate(x, start), p)) < tol
         end
         @test_throws FitConvergenceError ForwardDiff.derivative(p -> flat_rate(p, 0.01), -1.0)
+        # One spacing below the turning price, r = 0 has a strictly positive Hessian.
+        # Rounding the quote can remove that curvature, so only the plain fit is resolved.
+        pflat = prevfloat(-1.0)
+        @test flat_rate(pflat, 0.0) == 0.0
+        @test_throws "two-sided sensitivity cannot be resolved" ForwardDiff.derivative(p -> flat_rate(p, 0.0), pflat)
         above = -1 + 1.0e-9
         root = sqrt(1 + above)
         @test ForwardDiff.derivative(p -> flat_rate(p, 0.01), above) ≈ inv(2root * (1 - root)) rtol = 1.0e-6
@@ -305,8 +330,7 @@ FinanceCore.present_value(m::LsqPair, ::LsqShortBill) = exp(-0.01 * lsq_d(m))
         # The direction in which the prices are flat need not be one parameter's. With a short bill that
         # the second parameter moves, the minimum is at s = d = 0 and ds/dprice is zero, whether the fit's
         # variables are s and d or a and b with s = a + b and d = a - b. In a and b each variable alone
-        # moves the bill, so neither looks determined by curvature; together they do not, and s is. (From
-        # a review: the fit in a and b stopped at s = -1.3e-9 with ds/dprice = -1.25.)
+        # moves the bill, while the common shift leaves the bill unchanged and is determined by curvature.
         ab = (@optic(_.a) => -1.0 .. 1.0, @optic(_.b) => -1.0 .. 1.0)
         for (rotated, a, b) in ((false, 0.01, 0.0), (true, 0.005, 0.005)), price in (-1.1, -1.000000001)
             s(p) = lsq_s(fit(LsqPair(a, b, rotated), [Quote(p, LsqFlatPrice()), Quote(1.0, LsqShortBill())], Fit.LeastSquares(); variables = ab))
@@ -379,16 +403,15 @@ FinanceCore.present_value(m::LsqPair, ::LsqShortBill) = exp(-0.01 * lsq_d(m))
         tight = (@optic(_.rate.continuous_value) => 0.0 .. 0.05,)
         @test_throws "upper end of its interval" fit(Yield.Constant(), q4, Fit.LeastSquares(); variables = tight)
         # So does one on the bound, which rounding would otherwise put just inside, with a two-sided
-        # derivative: a one-year zero at a price of 1 is fitted by a rate of exactly 0. (From a review.)
+        # derivative: a one-year zero at a price of 1 is fitted by a rate of exactly 0.
         bounded(p) = fit(Yield.Constant(Continuous(0.02)), [ZCBPrice(p, 1.0)], Fit.LeastSquares(); variables = tight).rate.continuous_value
         @test_throws "lower end of its interval" bounded(1.0)
         @test_throws "lower end of its interval" ForwardDiff.derivative(bounded, 1.0)
         near = exp(-1.0e-5)
         @test bounded(near) ≈ 1.0e-5 atol = 1.0e-14
         @test ForwardDiff.derivative(bounded, near) ≈ -1 / near rtol = 1.0e-10
-        # ... and so does one that the search's rounding puts exactly on the bound: an FX spot allowed up to
-        # 100.001, and a forward struck at 100 that is worth spot - 100, quoted at 100.001 - 100. (From a
-        # review: that spot was returned, with a derivative of 1.)
+        # This forward requires a spot of exactly 100.001, the upper bound. A quote just
+        # inside that bound has a two-sided spot sensitivity of one.
         eurusd = FX.Pair(:EUR, :USD)
         norates = Yield.Constant(Continuous(0.0))
         capped(p) = fit(FX.Forwards(eurusd, 100.0, norates, norates), [Quote(p, FX.Forward(eurusd, 100.0, 1.0))], Fit.LeastSquares(); variables = (@optic(_.spot) => 99.0 .. 100.001,)).spot
@@ -396,8 +419,8 @@ FinanceCore.present_value(m::LsqPair, ::LsqShortBill) = exp(-0.01 * lsq_d(m))
         @test_throws "upper end of its interval" ForwardDiff.derivative(capped, 100.001 - 100)
         @test capped(0.00099) ≈ 100.00099 atol = 1.0e-10
         @test ForwardDiff.derivative(capped, 0.00099) ≈ 1 rtol = 1.0e-10
-        # The tolerance is in the variable's own units, whatever its interval: a 30-year zero at 1.8 from a
-        # rate of zero, where a full Newton step overshoots to a price of 54.6. (From a review.)
+        # Widening the rate interval must preserve the fitted price of the 30-year zero.
+        # A full Newton step from a zero rate would overshoot to 54.6.
         wide = (@optic(_.rate.continuous_value) => -1.0e9 .. 1.0e9,)
         @test fit(Yield.Constant(Continuous(0.0)), [ZCBPrice(1.8, 30.0)], Fit.LeastSquares(); variables = wide).rate.continuous_value ≈ -log(1.8) / 30 atol = 1.0e-14
         # Other number types: the solve works in Float64 at least, and keeps a wider type.
@@ -432,15 +455,13 @@ FinanceCore.present_value(m::LsqPair, ::LsqShortBill) = exp(-0.01 * lsq_d(m))
         long_curve = ZeroRateCurve(fill(0.04, 17), ts17, Spline.Linear())
         last_rate(p) = last(zr(fit(long_curve, ZCBPrice.([prices17[1:(end - 1)]; p], ts17), Fit.LeastSquares())))
         @test ForwardDiff.derivative(last_rate, last(prices17)) ≈ -1 / (17 * last(prices17)) rtol = 1.0e-10
-        # A variable needs an interval: a set of values to choose from is not one. (From a review: the fit
-        # took the set's ends for an interval, and returned 0.03.)
+        # A discrete set excludes the continuous optimum of 0.03 between its first two values.
         three = [ZCBPrice(exp(-0.03), 1.0)]
         @test_throws "variable 1 is not given an interval" fit(Yield.Constant(Continuous(0.05)), three, Fit.LeastSquares(); variables = (@optic(_.rate.continuous_value) => [0.0, 0.05, 0.1],))
         @test fit(Yield.Constant(Continuous(0.05)), three, Fit.LeastSquares(); variables = (@optic(_.rate.continuous_value) => 0.0 .. 0.1,)).rate.continuous_value ≈ 0.03 atol = 1.0e-12
         # The certificate measures a correction by the prices it moves, not in the variable's units: the
         # same contract in years and with cashflows 1e11 years out, where the rate that fits is 7e-12.
-        # (From a review: a tolerance of 1e-10 in the rate certified a point there with a negative
-        # Hessian.) -3 at t and +1 at 2t are worth d² - 3d for d = discount(t), and -1.23 at d = 0.49005.
+        # The two cashflows are worth d² - 3d for d = discount(t), and -1.23 at d = 0.49005.
         for t in (1.0, 1.0e11)
             far = [Quote(-1.23, Composite(Cashflow(-3.0, t), Cashflow(1.0, 2t)))]
             d(p) = discount(fit(Yield.Constant(Continuous(0.0)), [Quote(p, far[1].instrument)], Fit.LeastSquares()), t)
@@ -556,8 +577,7 @@ FinanceCore.present_value(m::LsqPair, ::LsqShortBill) = exp(-0.01 * lsq_d(m))
 
         # Outrights and basis swaps together: the residuals minimized are the quotes' own, whatever curve the
         # model holds. With a spot of 100, a one-year outright at 90 and a par basis leg under zero rates
-        # are worth 100 DF - 90 and DF, so the weighted minimum is in closed form. (From a review: the fit
-        # of a knot curve runs on implied quotes, whose outright residuals are a hundredth of these.)
+        # are worth 100 DF - 90 and DF, so the weighted minimum is in closed form.
         zero = Yield.Constant(Continuous(0.0))
         mixed = [FX.Outright(eurusd, 90.0, 1.0), FX.ParBasisSwap(eurusd, 0.0, 1.0; reference = zero)]
         knot = ZeroRateCurve([0.02], [1.0], Spline.Linear())
@@ -569,8 +589,12 @@ FinanceCore.present_value(m::LsqPair, ::LsqShortBill) = exp(-0.01 * lsq_d(m))
         @test df(knot, 100.0, weighted) ≈ closed(100.0) atol = 1.0e-13
         @test ForwardDiff.derivative(s -> df(knot, s, weighted), 100.0) ≈ ForwardDiff.derivative(closed, 100.0) rtol = 1.0e-10
         @test_throws DimensionMismatch df(knot, 100.0, Fit.LeastSquares(weights = [1.0]))
+        # Each outright must imply a positive discount factor, even when the average
+        # of the implied factors would give a feasible least-squares optimum.
+        invalid = [Quote(p, FX.Forward(eurusd, 1.0, 1.0)) for p in (-2.0, 4.0)]
+        @test_throws "implies a non-positive" fit(FX.Forwards(eurusd, 1.0, zero, knot), invalid, Fit.LeastSquares())
         # A quote left out by its weight is not converted to foreign-curve cashflows either, with knots of the
-        # curve's own or at the quotes' maturities. (From a review.)
+        # curve's own or at the quotes' maturities.
         good, bad = FX.Outright(eurusd, 90.0, 1.0), FX.Outright(eurusd, NaN, 2.0)
         for foreign in (knot, Spline.Linear())
             fitted(quotes, method) = discount(fit(FX.Forwards(eurusd, 100.0, zero, foreign), quotes, method).foreign, 1.0)
@@ -583,7 +607,7 @@ FinanceCore.present_value(m::LsqPair, ::LsqShortBill) = exp(-0.01 * lsq_d(m))
 
         # A contract with no implied quote on the foreign curve is priced under the FX model itself: two
         # one-year forwards at 90 in one contract are worth 2 (spot DF - 90), so a price p is fitted by
-        # DF = (180 + p) / (2 spot). (From a review: only the constant foreign curve could fit it.)
+        # DF = (180 + p) / (2 spot).
         pair_of = Composite(good.instrument, good.instrument)
         swapfit(foreign, spot, p; domestic = zero) = discount(fit(FX.Forwards(eurusd, spot, domestic, foreign), [Quote(p, pair_of)], Fit.LeastSquares()).foreign, 1.0)
         for foreign in (knot, Spline.Linear(), Yield.Constant(Continuous(0.02)))
