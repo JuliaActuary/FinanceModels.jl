@@ -381,6 +381,7 @@ function __certify_minimum(e, w, prices, floor, searched, outer, inner, maxiters
     jacobian(x) = __pricing_jacobian(e, x, inner)
     f = e(θ)
     refining, previous = false, nothing
+    local reason
     for steps in 0:__LSQ_NEWTON_STEPS
         model = parameters(θ)
         sizes = __quote_size.(prices, f)
@@ -412,8 +413,8 @@ function __certify_minimum(e, w, prices, floor, searched, outer, inner, maxiters
             refining = true
         end
         if steps == __LSQ_NEWTON_STEPS
-            why = priced ? "the pricing slopes or their Newton correction have not settled" : "a correction still moves a price by $moved of its size"
-            throw(failed("after $steps Newton steps with the full Hessian, $why", θ))
+            reason = priced ? "the pricing slopes or their Newton correction have not settled" : "a correction still moves a price by $moved of its size"
+            break
         end
         inside || throw(failed("a Newton step leaves a variable's interval", θ))
         trial = __backtrack_newton(e, model, w, prices, θ, f, δ, θt)
@@ -421,7 +422,7 @@ function __certify_minimum(e, w, prices, floor, searched, outer, inner, maxiters
         θ, f, full_step = trial
         previous = full_step ? dot(δ, H, δ) : nothing
     end
-    return
+    throw(failed("after $__LSQ_NEWTON_STEPS Newton steps with the full Hessian, $reason", θ))
 end
 
 # Largest weighted change of an individual pricing gradient in the inverse Hessian metric.
