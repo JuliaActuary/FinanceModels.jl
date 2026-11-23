@@ -1,6 +1,10 @@
 # FinanceModels.jl release notes
 
-## v7.3.0 (unreleased)
+## v7.3.0
+
+This release adds `Fit.LeastSquares`, a least-squares calibration for any model, corrects
+Hull–White paths on curves whose forward has kinks, and prices Monte Carlo present values one
+scenario at a time. Hull–White path discount factors and `pv_mc` values computed from them change.
 
 ### Least-squares fits with one solver for every model: `Fit.LeastSquares`
 
@@ -55,8 +59,6 @@ ns = fit(start, bond_quotes, Fit.LeastSquares())
   same knot rates to `1e-13`. Its first call compiles second-order dual numbers, as the loss
   fit's Newton optimizer does, and takes about as long.
 
-## v7.2.1
-
 ### Hull–White drift at the path's own times
 
 A simulated Hull–White rate is an Ornstein–Uhlenbeck process plus a deterministic drift `α(t)`,
@@ -106,6 +108,17 @@ The simulated short rates and the random draws are unchanged. Hull–White path 
 the forward for a smooth curve (of order `timestep²`), and, where a grid time lies on a kink, by
 half the forward's jump times the timestep in the log-discount from there on. Vasicek and
 Cox–Ingersoll–Ross paths are unchanged.
+
+### Monte Carlo present values one scenario at a time
+
+`pv_mc` generated every path before pricing the first. For Vasicek, Cox–Ingersoll–Ross and
+Hull–White it now prices each path as it completes, so only one scenario's path is in memory. For
+a 30-year Vasicek projection with monthly steps and 100,000 scenarios, peak process memory fell
+from 1,138 MiB to 505 MiB on Julia 1.13. Custom stochastic models still supply their scenarios
+through `simulate`.
+
+Values and the order of random draws are unchanged. If pricing a scenario throws, the caller's
+random number generator has advanced through that scenario and no further.
 
 ## v7.2.0
 
