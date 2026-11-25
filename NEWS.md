@@ -1,5 +1,26 @@
 # FinanceModels.jl release notes
 
+## v7.3.1
+
+### `Spline.MonotoneConvex()`: the first and last knot intervals have no kink at equal forwards
+
+A MonotoneConvex curve switches formula where two adjacent discrete forwards are equal, and its
+derivatives with respect to the knot rates treated every interval beside such a pair as a kink:
+second derivatives threw, and a fit that ended there could not be differentiated. The first and
+the last knot interval do not switch there. The forward at the curve's end is set from its
+neighbor's, so the interval's two boundary deviations keep one ratio as the knot rates move, and
+one Hagan–West polynomial, linear in them, applies on both sides of equal forwards. This holds
+while the forwards at both ends of the interval are strictly inside their positivity bounds.
+
+- A curve with two knots has only those two intervals. `fit(Spline.MonotoneConvex(),
+  CMTYield.(0.04, [2, 4]), Fit.LeastSquares())` threw; it now returns the flat curve at
+  `2log(1 + 4%/2)` that reprices both bonds, and the fitted rates have derivatives with respect to
+  the quotes (as they now do after the default fit of the same quotes).
+- On a longer curve, values in the first and last intervals have second derivatives where the
+  neighboring discrete forwards are equal. Values in the interval between still throw there: that
+  kink is real.
+- Values and first derivatives are unchanged, up to rounding at the equal forwards.
+
 ## v7.3.0
 
 This release adds `Fit.LeastSquares`, a least-squares calibration for any model, corrects

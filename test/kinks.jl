@@ -102,6 +102,56 @@ using ForwardDiff
         @test second(x -> rate(FinanceModels.Yield.instantaneous_forward(ZeroRateCurve([x], [2.0]), 0.5)), 0.05) == 0
     end
 
+    @testset "MonotoneConvex: an end interval between free node forwards has no kink" begin
+        # An end node forward is set from its neighbor's, so the deviations of the first and of the last
+        # interval keep one ratio for every knot rate: an edge of sector (i), whose polynomial is linear
+        # in them, on both sides of equal discrete forwards. Its second derivatives exist there.
+        Y = FinanceModels.Yield
+        hessian_fd(f, z) = reduce(hcat, [centred(x -> ForwardDiff.gradient(f, x), z, E(length(z), j); h = 1.0e-5) for j in eachindex(z)])
+        # Two knots: both intervals are end intervals, and the log-discount is linear in the knot rates,
+        # so the Hessian of a discount factor D is ∇D ∇Dᵀ / D, also on a flat curve.
+        for r in (0.05, -0.01), t in (1.0, 3.0)
+            f = x -> discount(ZeroRateCurve(x, [2.0, 4.0]), t)
+            z = fill(r, 2)
+            H, g = ForwardDiff.hessian(f, z), ForwardDiff.gradient(f, z)
+            @test H ≈ g * g' / f(z) rtol = 1.0e-12
+            @test H ≈ hessian_fd(f, z) rtol = 1.0e-8
+        end
+        # Time and a knot rate differentiated one inside the other carry two ForwardDiff tags, which one
+        # `hessian` call does not. On one knot the discount factor is exp(-r t).
+        d = (r, t) -> discount(ZeroRateCurve([r], [2.0]), t)
+        r, t = 1 / 32, 1.0
+        @test ForwardDiff.derivative(s -> ForwardDiff.derivative(a -> d(a, s), r), t) ≈ (r * t - 1) * exp(-r * t) rtol = 1.0e-13
+        @test ForwardDiff.derivative(a -> ForwardDiff.derivative(s -> d(a, s), t), r) ≈ (r * t - 1) * exp(-r * t) rtol = 1.0e-13
+        # On a flat two-knot curve, in each interval: the time derivative of the knot-rate gradient.
+        for t in (1.0, 3.0)
+            z = fill(0.04, 2)
+            grad = s -> ForwardDiff.gradient(x -> discount(ZeroRateCurve(x, [2.0, 4.0]), s), z)
+            mixed = ForwardDiff.derivative(grad, t)
+            @test mixed ≈ centred(grad, t, 1.0; h = 1.0e-6) rtol = 1.0e-7
+            @test mixed ≈ ForwardDiff.gradient(x -> ForwardDiff.derivative(s -> discount(ZeroRateCurve(x, [2.0, 4.0]), s), t), z) rtol = 1.0e-13
+        end
+        # Three knots with two equal discrete forwards: the end interval beside them is smooth, and the
+        # interior interval has the kink.
+        for (z, smooth) in (([0.02, 0.02, 0.08 / 3], 0.5), ([0.02, 0.03, 0.03 + 0.01 / 3], 2.5))
+            f = x -> discount(ZeroRateCurve(x, ts), smooth)
+            @test ForwardDiff.hessian(f, z) ≈ hessian_fd(f, z) rtol = 1.0e-8
+            @test_throws "second derivatives" ForwardDiff.hessian(x -> discount(ZeroRateCurve(x, ts), 1.5), z)
+        end
+        # A collar that binds at either node of an end interval breaks that ratio. Here the node forward
+        # between the two intervals, (1% + 5%)/2, is cut to twice the smaller discrete forward.
+        f, fᵈ = Y.__monotone_convex_fs([0.01, 0.03], [1.0, 2.0])
+        @test f[2] == 2 * fᵈ[1]
+        @test !Y.__mc_free_end(f, fᵈ, 1) && !Y.__mc_free_end(f, fᵈ, 2)
+        # A fit's kink check follows: a flat two-knot curve is not on a kink, a flat three-knot curve is,
+        # and a correction that reaches a collar is seen in the collar's bounds.
+        flat2 = ZeroRateCurve(fill(0.02, 2), [1.0, 2.0])
+        @test !Y.__near_kink(flat2, fill(0.02, 2))
+        @test !Y.__near_kink(flat2, fill(0.02, 2), [1.0e-6, -1.0e-6])
+        @test Y.__near_kink(flat2, fill(0.02, 2), fill(0.02, 2) .- [0.01, 0.03])
+        @test Y.__near_kink(ZeroRateCurve(fill(0.02, 3), ts), fill(0.02, 3))
+    end
+
     # These tests tie the copies of DataInterpolations' branch rules (`src/model/Yield/Kinks.jl`)
     # to the installed version. Revisit both together when its compat bound changes.
     @testset "DataInterpolations branch rules (PCHIP and Akima)" begin
