@@ -54,7 +54,8 @@ stretch of the curve) and where a node forward meets its positivity bound, so it
 piecewise smooth in its knot rates. With ForwardDiff dual knot rates, derivatives are exact away
 from those points; at them, each partial is the limit of a centered bump in its direction. The
 first and the last interval do not switch at equal forwards while the node forwards at their ends
-are inside their positivity bounds, so a curve of one or two knots has that kink nowhere. See
+are inside their positivity bounds: a one-knot curve has no kink, and a two-knot curve has none
+at equal forwards unless they are zero, where those bounds collapse. See
 "Sensitivities Through Calibration" in the documentation.
 
 # References

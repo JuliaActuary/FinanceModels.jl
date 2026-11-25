@@ -189,9 +189,11 @@ of the knot *values*, not of the tenors:
 
 Flat curves sit on a kink, and repeated or rounded quotes can put a fitted curve on one.
 `Spline.MonotoneConvex()` has one exception: its first and last knot intervals do not switch
-formula at equal forwards while the forwards at their ends are inside their positivity bounds, so
-a flat curve of one or two knots is not on a kink, and values in those two intervals of a longer
-curve have second derivatives there.
+formula at equal forwards while the forwards at their ends are inside their positivity bounds.
+A one-knot curve is therefore never on a kink, and a flat two-knot curve is not on one at any
+rate other than 0%, where the positivity bounds collapse to zero and derivatives with respect to
+the knot rates throw. Values in those two intervals of a longer curve have second derivatives at
+equal forwards.
 Away from a kink, every derivative on this page is exact. Close to one it is still exact, but a
 bump of one basis point may cross the kink and move the value differently.
 
