@@ -231,13 +231,16 @@ function __mc_kernel(k, x, g0::D, g1::D, fᵈ, ktol = nothing, ends = nothing) w
     v0, v1 = ForwardDiff.value(g0), ForwardDiff.value(g1)
     n0, n1 = abs(v0) <= tol, abs(v1) <= tol
     (n0 || n1) || return __mc_sector(k, x, g0, g1)
-    xv = x isa ForwardDiff.Dual ? ForwardDiff.value(x) : x
     if ends !== nothing && __mc_free_end(ends...)
-        return D(__mc_kernel(k, xv, v0, v1, ForwardDiff.value(fᵈ), ktol, ends), ForwardDiff.partials(k.i(x, g0, g1)))
+        # The polynomial's derivatives of every order, in its own type (a dual time may carry a tag
+        # other than `D`'s), on the primal value.
+        polynomial = k.i(x, g0, g1)
+        return (polynomial - __primal(polynomial)) + __mc_kernel(k, __primal(x), __primal(v0), __primal(v1), __primal(fᵈ))
     end
     (__ad_depth(D) == 1 || (iszero(g0) && iszero(g1))) || throw(
         __mc_kink_error("second derivatives do not exist where adjacent discrete forwards are equal")
     )
+    xv = x isa ForwardDiff.Dual ? ForwardDiff.value(x) : x
     value = __mc_kernel(k, xv, v0, v1, ForwardDiff.value(fᵈ))
     partials = if n0 && n1
         p0, p1 = ForwardDiff.partials(g0), ForwardDiff.partials(g1)

@@ -117,6 +117,20 @@ using ForwardDiff
             @test H ≈ g * g' / f(z) rtol = 1.0e-12
             @test H ≈ hessian_fd(f, z) rtol = 1.0e-8
         end
+        # Time and a knot rate differentiated one inside the other carry two ForwardDiff tags, which one
+        # `hessian` call does not. On one knot the discount factor is exp(-r t).
+        d = (r, t) -> discount(ZeroRateCurve([r], [2.0]), t)
+        r, t = 1 / 32, 1.0
+        @test ForwardDiff.derivative(s -> ForwardDiff.derivative(a -> d(a, s), r), t) ≈ (r * t - 1) * exp(-r * t) rtol = 1.0e-13
+        @test ForwardDiff.derivative(a -> ForwardDiff.derivative(s -> d(a, s), t), r) ≈ (r * t - 1) * exp(-r * t) rtol = 1.0e-13
+        # On a flat two-knot curve, in each interval: the time derivative of the knot-rate gradient.
+        for t in (1.0, 3.0)
+            z = fill(0.04, 2)
+            grad = s -> ForwardDiff.gradient(x -> discount(ZeroRateCurve(x, [2.0, 4.0]), s), z)
+            mixed = ForwardDiff.derivative(grad, t)
+            @test mixed ≈ centred(grad, t, 1.0; h = 1.0e-6) rtol = 1.0e-7
+            @test mixed ≈ ForwardDiff.gradient(x -> ForwardDiff.derivative(s -> discount(ZeroRateCurve(x, [2.0, 4.0]), s), t), z) rtol = 1.0e-13
+        end
         # Three knots with two equal discrete forwards: the end interval beside them is smooth, and the
         # interior interval has the kink.
         for (z, smooth) in (([0.02, 0.02, 0.08 / 3], 0.5), ([0.02, 0.03, 0.03 + 0.01 / 3], 2.5))
