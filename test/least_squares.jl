@@ -217,7 +217,7 @@ FinanceCore.present_value(m::LsqPair, ::LsqShortBill) = exp(-0.01 * lsq_d(m))
     @testset "a search that stops on a formula switch throws a FitConvergenceError" begin
         # Bonds priced off a flat curve have their minimum at that curve, where all of MonotoneConvex's
         # adjacent forwards are equal. A search started there does not move, and the certificate asks for
-        # a Hessian that the interpolation does not have. (A fit reaches such a point by rounding: about
+        # a Hessian that the interpolation does not supply. (A fit reaches such a point by rounding: about
         # one in a hundred of the fits of index 19 above, with its prices moved in their eleventh digit.)
         flat = [Quote(pv(Yield.Constant(Continuous(0.05)), q.instrument), q.instrument) for q in lsq_index(40)]
         spline = Spline.MonotoneConvex()
@@ -228,7 +228,7 @@ FinanceCore.present_value(m::LsqPair, ::LsqShortBill) = exp(-0.01 * lsq_d(m))
             e
         end
         @test err isa FitConvergenceError
-        @test occursin("stopped on a formula switch", sprint(showerror, err))
+        @test occursin("could not supply the second derivatives needed to certify this fit", sprint(showerror, err))
         @test occursin("switches formulas", sprint(showerror, err))
     end
 
