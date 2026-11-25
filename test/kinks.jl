@@ -84,9 +84,22 @@ using ForwardDiff
         @test_throws "positivity collar" ForwardDiff.gradient(f, zeros(3))
         # second derivatives do not exist at a kink
         @test_throws "second derivatives" ForwardDiff.hessian(f, fill(0.03, 3))
+        # nor where the knot rates move only at second order (a mixed partial alone)
+        @test_throws "second derivatives" ForwardDiff.hessian(p -> f(fill(0.03, 3) .+ p[1] * p[2] .* E(3, 1)), zeros(2))
         # the value is the primal value
         d = f(ForwardDiff.Dual.(fill(0.03, 3), 1.0))
         @test ForwardDiff.value(d) == f(fill(0.03, 3))
+    end
+
+    @testset "MonotoneConvex: one knot has no kink" begin
+        # One knot gives a flat curve for every rate: both deviations are r - r, zero in every
+        # direction and to every order, so the discount factor exp(-r t) has all its derivatives.
+        second(g, r) = ForwardDiff.derivative(a -> ForwardDiff.derivative(g, a), r)
+        for r in (-0.01, 0.0, 0.05), t in (0.5, 2.0, 3.0)
+            @test second(x -> discount(ZeroRateCurve([x], [2.0]), t), r) ≈ t^2 * exp(-r * t) rtol = 1.0e-13
+            @test ForwardDiff.derivative(x -> discount(ZeroRateCurve([x], [2.0]), t), r) ≈ -t * exp(-r * t) rtol = 1.0e-13
+        end
+        @test second(x -> rate(FinanceModels.Yield.instantaneous_forward(ZeroRateCurve([x], [2.0]), 0.5)), 0.05) == 0
     end
 
     # These tests tie the copies of DataInterpolations' branch rules (`src/model/Yield/Kinks.jl`)

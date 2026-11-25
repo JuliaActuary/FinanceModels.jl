@@ -204,6 +204,34 @@ FinanceCore.present_value(m::LsqPair, ::LsqShortBill) = exp(-0.01 * lsq_d(m))
         @test converged[Spline.MonotoneConvex()] >= 8 && converged[Spline.PCHIP()] >= 8   # of 25 each
     end
 
+    @testset "one quote: a one-knot MonotoneConvex curve has no formula switch" begin
+        # One knot gives a flat curve for every rate, so the certificate's Hessian exists. A two-year par
+        # bond with a 5% semiannual coupon has the continuous rate 2 log(1 + 5%/2); its interim coupons are
+        # discounted inside the curve's only interval.
+        q = CMTYield(0.05, 2)
+        c = fit(Spline.MonotoneConvex(), [q], Fit.LeastSquares())
+        @test rate(only(knot_rates(c))) ≈ 2 * log1p(0.05 / 2) atol = 1.0e-13
+        @test pv(c, q.instrument) ≈ q.price atol = 1.0e-13
+    end
+
+    @testset "a search that stops on a formula switch throws a FitConvergenceError" begin
+        # Bonds priced off a flat curve have their minimum at that curve, where all of MonotoneConvex's
+        # adjacent forwards are equal. A search started there does not move, and the certificate asks for
+        # a Hessian that the interpolation does not supply. (A fit reaches such a point by rounding: about
+        # one in a hundred of the fits of index 19 above, with its prices moved in their eleventh digit.)
+        flat = [Quote(pv(Yield.Constant(Continuous(0.05)), q.instrument), q.instrument) for q in lsq_index(40)]
+        spline = Spline.MonotoneConvex()
+        rates = FinanceModels.__KnotRates(spline, Yield.__interpolation(spline, length(knots)), knots, :flat_forward)
+        err = try
+            FinanceModels.__least_squares(rates, fill(0.05, length(knots)), flat, flat, Fit.LeastSquares(), "fit")
+        catch e
+            e
+        end
+        @test err isa FitConvergenceError
+        @test occursin("could not supply the second derivatives needed to certify this fit", sprint(showerror, err))
+        @test occursin("switches formulas", sprint(showerror, err))
+    end
+
     @testset "a fit is accepted on the full Hessian, not on a Gauss-Newton step" begin
         # At the 5% start, residual curvature cancels all but 1e-5 of JᵀJ. The Gauss-Newton
         # step is only 5.6e-11, but the minimum is 1.1e-6 away and has curvature 1.8e-3.

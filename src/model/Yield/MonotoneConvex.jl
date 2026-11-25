@@ -212,13 +212,18 @@ __mc_kernel(k, x, g0, g1, fᵈ) = __mc_negligible(g0, g1, fᵈ) ? k.flat(x, g0, 
 #   (g0, g1), so a bump in direction d moves them by the formula evaluated at d, equally up and
 #   down. This is not linear in d: sensitivities to single knots need not add up to the parallel
 #   sensitivity.
+# Second derivatives do not exist at a kink, with one exception: where both deviations are exactly
+# zero in every seeded direction, to every order, no direction leaves the flat interval, and its
+# value has derivatives of every order. A one-knot curve is always there (its deviations are r - r);
+# a parallel shift of a flat curve is where rounding leaves its deviations exactly zero, and
+# otherwise throws as any kink does.
 __mc_kernel(k, x, g0, g1, fᵈ, ktol) = __mc_kernel(k, x, g0, g1, fᵈ)
 function __mc_kernel(k, x, g0::D, g1::D, fᵈ, ktol = nothing) where {D <: ForwardDiff.Dual}
     tol = max(__mc_tol(ForwardDiff.value(fᵈ)), something(ktol, zero(ForwardDiff.value(fᵈ))))
     v0, v1 = ForwardDiff.value(g0), ForwardDiff.value(g1)
     n0, n1 = abs(v0) <= tol, abs(v1) <= tol
     (n0 || n1) || return __mc_sector(k, x, g0, g1)
-    __ad_depth(D) == 1 || throw(
+    (__ad_depth(D) == 1 || (iszero(g0) && iszero(g1))) || throw(
         __mc_kink_error("second derivatives do not exist where adjacent discrete forwards are equal")
     )
     xv = x isa ForwardDiff.Dual ? ForwardDiff.value(x) : x
@@ -255,11 +260,15 @@ function __mc_kink_tol(mc, i)
     return eltype(rates) <: ForwardDiff.Dual ? __mc_kink_tol(rates, mc.tenors, i) : nothing
 end
 
+const __MC_KINK_ERROR = "Yield.MonotoneConvex cannot differentiate with respect to its knot rates here: "
 __mc_kink_error(why) = ArgumentError(
-    "Yield.MonotoneConvex cannot differentiate with respect to its knot rates here: $why. Use a " *
+    __MC_KINK_ERROR * "$why. Use a " *
         "smooth interpolation (e.g. Spline.Linear() or Spline.Cubic()), key-rate shifts added to the " *
         "curve (ActuaryUtilities `KeyRates`), or finite bumps."
 )
+# Whether `err` is that refusal, for a caller that knows more about how it came to stand on a kink
+# (a least-squares fit's certificate).
+__is_mc_kink_error(err) = err isa ArgumentError && startswith(err.msg, __MC_KINK_ERROR)
 
 """
     __g(x, f⁻, f, fᵈ)
