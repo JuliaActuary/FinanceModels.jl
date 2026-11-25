@@ -255,11 +255,15 @@ function __mc_kink_tol(mc, i)
     return eltype(rates) <: ForwardDiff.Dual ? __mc_kink_tol(rates, mc.tenors, i) : nothing
 end
 
+const __MC_KINK_ERROR = "Yield.MonotoneConvex cannot differentiate with respect to its knot rates here: "
 __mc_kink_error(why) = ArgumentError(
-    "Yield.MonotoneConvex cannot differentiate with respect to its knot rates here: $why. Use a " *
+    __MC_KINK_ERROR * "$why. Use a " *
         "smooth interpolation (e.g. Spline.Linear() or Spline.Cubic()), key-rate shifts added to the " *
         "curve (ActuaryUtilities `KeyRates`), or finite bumps."
 )
+# Whether `err` is that refusal, for a caller that knows more about how it came to stand on a kink
+# (a least-squares fit's certificate).
+__is_mc_kink_error(err) = err isa ArgumentError && startswith(err.msg, __MC_KINK_ERROR)
 
 """
     __g(x, f⁻, f, fᵈ)

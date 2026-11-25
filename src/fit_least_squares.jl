@@ -386,7 +386,14 @@ function __certify_minimum(e, w, prices, floor, searched, outer, inner, maxiters
         model = parameters(θ)
         sizes = __quote_size.(prices, f)
         spacing = __price_spacing.(Ref(model), e.quotes, prices, sizes)
-        H, uncertainty = __hessian(e, w, θ, outer, inner, w === nothing ? spacing : w .* spacing)
+        # On a formula switch of MonotoneConvex the sum of squares has no second derivatives, and the
+        # interpolation refuses to give any: the search stopped on one, or within rounding of it.
+        H, uncertainty = try
+            __hessian(e, w, θ, outer, inner, w === nothing ? spacing : w .* spacing)
+        catch err
+            Yield.__is_mc_kink_error(err) || rethrow()
+            throw(failed("the search stopped on a formula switch, where the sum of squares has no second derivatives", θ))
+        end
         k = findfirst(iszero, diag(H))
         k === nothing || throw(__undetermined(who, parameters, k))
         factors = __hessian_factors(H)
