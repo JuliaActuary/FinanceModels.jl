@@ -204,6 +204,16 @@ FinanceCore.present_value(m::LsqPair, ::LsqShortBill) = exp(-0.01 * lsq_d(m))
         @test converged[Spline.MonotoneConvex()] >= 8 && converged[Spline.PCHIP()] >= 8   # of 25 each
     end
 
+    @testset "one quote: a one-knot MonotoneConvex curve has no formula switch" begin
+        # One knot gives a flat curve for every rate, so the certificate's Hessian exists. A two-year par
+        # bond with a 5% semiannual coupon has the continuous rate 2 log(1 + 5%/2); its interim coupons are
+        # discounted inside the curve's only interval.
+        q = CMTYield(0.05, 2)
+        c = fit(Spline.MonotoneConvex(), [q], Fit.LeastSquares())
+        @test rate(only(knot_rates(c))) ≈ 2 * log1p(0.05 / 2) atol = 1.0e-13
+        @test pv(c, q.instrument) ≈ q.price atol = 1.0e-13
+    end
+
     @testset "a search that stops on a formula switch throws a FitConvergenceError" begin
         # Bonds priced off a flat curve have their minimum at that curve, where all of MonotoneConvex's
         # adjacent forwards are equal. A search started there does not move, and the certificate asks for
