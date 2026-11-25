@@ -387,9 +387,8 @@ function __certify_minimum(e, w, prices, floor, searched, outer, inner, maxiters
         sizes = __quote_size.(prices, f)
         spacing = __price_spacing.(Ref(model), e.quotes, prices, sizes)
         # MonotoneConvex refuses second derivatives where it takes the knot rates to stand on a formula
-        # switch. That is a minimum on one (or within rounding of it), where the sum of squares has no
-        # Hessian; it also refuses at some points where its value is smooth (equal discrete forwards
-        # across an end interval of the curve). Either way there is no Hessian to certify the fit with.
+        # switch: a minimum on one (or within rounding of it), where the sum of squares has no Hessian.
+        # Either way there is no Hessian to certify the fit with.
         H, uncertainty = try
             __hessian(e, w, θ, outer, inner, w === nothing ? spacing : w .* spacing)
         catch err

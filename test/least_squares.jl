@@ -214,6 +214,21 @@ FinanceCore.present_value(m::LsqPair, ::LsqShortBill) = exp(-0.01 * lsq_d(m))
         @test pv(c, q.instrument) ≈ q.price atol = 1.0e-13
     end
 
+    @testset "two quotes at one yield: a flat two-knot MonotoneConvex curve has no formula switch" begin
+        # Both intervals of a two-knot curve are end intervals, whose deviations keep one ratio as the
+        # knot rates move: the interim coupons of two par bonds at 4% are priced where the two discrete
+        # forwards are equal, and the certificate's Hessian exists there.
+        qq = CMTYield.(0.04, [2, 4])
+        c = fit(Spline.MonotoneConvex(), qq, Fit.LeastSquares())
+        @test zr(c) ≈ fill(2 * log1p(0.04 / 2), 2) atol = 1.0e-13
+        @test maximum(abs(pv(c, q.instrument) - q.price) for q in qq) < 1.0e-13
+        # and the fit has derivatives there: the sensitivities of the fitted rates to the prices invert
+        # the sensitivities of the prices to the rates
+        refit(p) = zr(fit(Spline.MonotoneConvex(), [Quote(p[i], qq[i].instrument) for i in eachindex(qq)], Fit.LeastSquares()))
+        prices(z) = [pv(ZeroRateCurve(z, [2.0, 4.0], Spline.MonotoneConvex()), q.instrument) for q in qq]
+        @test ForwardDiff.jacobian(prices, zr(c)) * ForwardDiff.jacobian(refit, [1.0, 1.0]) ≈ I atol = 1.0e-12
+    end
+
     @testset "a search that stops on a formula switch throws a FitConvergenceError" begin
         # Bonds priced off a flat curve have their minimum at that curve, where all of MonotoneConvex's
         # adjacent forwards are equal. A search started there does not move, and the certificate asks for

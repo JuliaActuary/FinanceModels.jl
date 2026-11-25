@@ -183,11 +183,15 @@ of the knot *values*, not of the tenors:
 
 | Interpolation | Kinks |
 |:--------------|:------|
-| `Spline.MonotoneConvex()` | two adjacent discrete forwards equal (every flat stretch of the curve); a node forward exactly at its positivity bound |
+| `Spline.MonotoneConvex()` | two adjacent discrete forwards equal (every flat stretch of the curve), for values between the first and the last knot interval; a node forward exactly at its positivity bound |
 | `Spline.PCHIP()` | two adjacent knot rates equal (a flat segment) |
 | `Spline.Akima()` | three or more knots on a straight line; a knot whose slope weight is exactly `1e-9` of the largest, where the curve's value jumps |
 
 Flat curves sit on a kink, and repeated or rounded quotes can put a fitted curve on one.
+`Spline.MonotoneConvex()` has one exception: its first and last knot intervals do not switch
+formula at equal forwards while the forwards at their ends are inside their positivity bounds, so
+a flat curve of one or two knots is not on a kink, and values in those two intervals of a longer
+curve have second derivatives there.
 Away from a kink, every derivative on this page is exact. Close to one it is still exact, but a
 bump of one basis point may cross the kink and move the value differently.
 
