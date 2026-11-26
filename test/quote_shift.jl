@@ -151,6 +151,25 @@ using ForwardDiff
         @test quotes(shocked, upfront, [1.0, 2.0]) ≈ [-0.49, -0.49] atol = 1.0e-13
     end
 
+    @testset "portfolios" begin
+        # A quote on several contracts: a vector of bonds, a tuple of cashflows, and one inside the other.
+        flat = Yield.Constant(Continuous(0.03))
+        ts = [1.0, 2.0, 5.0]
+        families = (
+            (q, t) -> Quote(q, [Bond.Fixed(0.03, Periodic(2), t)]),
+            (q, t) -> Quote(q, [Bond.Fixed(0.03, Periodic(2), t), Bond.Fixed(0.05, Periodic(1), t)]),
+            (q, t) -> Quote(q, (Cashflow(0.02, t / 2), Cashflow(1.0, t))),
+            (q, t) -> Quote(q, ([Bond.Fixed(0.03, Periodic(2), t)], Cashflow(0.1, t))),
+        )
+        for family in families
+            shocked = quote_shift((q, t) -> 0.98q, flat, family, ts)
+            @test quotes(shocked, family, ts) ≈ 0.98 .* quotes(flat, family, ts) rtol = 1.0e-13
+        end
+        # The checks see every member's payments: one bond of the two matures after the tenor.
+        longer(q, t) = Quote(q, [Bond.Fixed(0.03, Periodic(2), t), Bond.Fixed(0.03, Periodic(2), t + 1)])
+        @test throws(() -> quote_shift((q, t) -> q, flat, longer, ts), "after its tenor")
+    end
+
     @testset "long tenors" begin
         # Doubling a 1000-year zero-coupon price needs a bump of -log(2)/1000, although a probe at
         # x = -1 overflows.

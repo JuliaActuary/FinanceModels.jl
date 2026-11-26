@@ -14,12 +14,17 @@ function __with_bump(b, k, x)
     return v
 end
 
+# The fixed cashflows of a quote's instrument: a contract's own, or those of every member of a
+# portfolio, which is an array or a tuple of contracts (or of portfolios). An instrument whose
+# cashflows depend on a model, such as a floating leg, fails in `collect`.
+__quote_cashflows(contract) = collect(contract)
+__quote_cashflows(portfolio::Union{AbstractArray, Tuple}) = reduce(vcat, map(__quote_cashflows, portfolio))
+
 # A quote's payments as `(time, amount)` pairs sorted by time, one per time. Payments at one time
 # share their discount factor, so only their sum counts. The amounts keep their dual parts: the
-# check for payments after the tenor needs them. An instrument whose cashflows depend on a model,
-# such as a floating leg, fails in `collect`.
+# check for payments after the tenor needs them.
 function __quote_payments(instrument)
-    ps = sort!([(__primal(cf.time), cf.amount) for cf in collect(instrument)]; by = first)
+    ps = sort!([(__primal(cf.time), cf.amount) for cf in __quote_cashflows(instrument)]; by = first)
     merged = empty(ps)
     for (s, a) in ps
         if !isempty(merged) && first(last(merged)) == s
