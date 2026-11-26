@@ -215,6 +215,12 @@ using ForwardDiff
             @test only(bumps(shocked)) ≈ b rtol = 1.0e-13
             @test discount(shocked, t) ≈ exp(-(0.03 + b) * t) rtol = 1.0e-10
         end
+        # A target price hundreds of orders above today's value: exp(-690) to exp(334). Both are
+        # finite numbers, and so is the bump, but their ratio is not.
+        steep = Yield.Constant(Continuous(0.69))
+        raised = quote_shift((q, t) -> exp(334.0), steep, ZCBPrice, [1000.0])
+        @test only(bumps(raised)) ≈ -1.024 rtol = 1.0e-13
+        @test discount(raised, 1000.0) ≈ exp(334.0) rtol = 1.0e-10
         # A tenor so short that 1/t overflows its type: the first probe is the largest finite number.
         tiny = quote_shift((q, t) -> 0.999, Yield.Constant(Continuous(0.0)), ZCBPrice, Float16[1.0e-5])
         @test discount(tiny, Float16(1.0e-5)) ≈ 0.999 rtol = 1.0e-3
@@ -267,6 +273,18 @@ using ForwardDiff
         moving_rule(s) = (q, t) -> t == 1 ? 1 + s : 0.8
         @test throws(() -> ForwardDiff.derivative(s -> discount(quote_shift(moving_rule(s), level, moving, [1.0, 2.0]), 1.5), 0.0), "exactly at its tenor")
         @test bumps(quote_shift(moving_rule(0.0), level, moving, [1.0, 2.0])) ≈ [0.0, -log(0.8) / 2] atol = 1.0e-14
+        # A payment of nothing may sit on a moving date at the tenor.
+        idle(q, t) = t == 1 ? Quote(q, [Cashflow(1.0, 0.5), Cashflow(0.0, (1 + q) / 2)]) : ZCBPrice(q, t)
+        @test ForwardDiff.derivative(s -> bumps(quote_shift(moving_rule(s), level, idle, [1.0, 2.0]))[1], 0.0) ≈ -2 rtol = 1.0e-12
+        # (S1) Two payments after the tenor that offset only where their dates coincide: one date
+        # moves with the quote, the other does not. A step to either side leaves a payment after the
+        # tenor (and throws), so the quote has no derivative here either. Without dual numbers
+        # the two are one payment of nothing.
+        crossing(q, t) = t == 1 ? Quote(q, [Cashflow(1.0, 1.0), Cashflow(1.0, 2 + (q - 1) / 2), Cashflow(-1.0, 2.0)]) : ZCBPrice(q, t)
+        @test throws(() -> ForwardDiff.derivative(s -> discount(quote_shift(moving_rule(s), level, crossing, [1.0, 2.0]), 1.5), 0.0), "after its tenor")
+        @test bumps(quote_shift(moving_rule(0.0), level, crossing, [1.0, 2.0])) ≈ [0.0, -log(0.8) / 2] atol = 1.0e-14
+        @test throws(() -> quote_shift(moving_rule(1.0e-6), level, crossing, [1.0, 2.0]), "after its tenor")
+        @test throws(() -> quote_shift(moving_rule(-1.0e-6), level, crossing, [1.0, 2.0]), "after its tenor")
         # (S2) nothing to move
         early(q, t) = Quote(q, Cashflow(1.0, t / 4))
         @test throws(() -> quote_shift((q, t) -> q, base, early, [1.0, 2.0]), "pays nothing after the previous tenor")

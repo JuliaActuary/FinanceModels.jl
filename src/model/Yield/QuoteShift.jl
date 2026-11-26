@@ -20,52 +20,69 @@ end
 __quote_cashflows(contract) = collect(contract)
 __quote_cashflows(portfolio::Union{AbstractArray, Tuple}) = mapreduce(__quote_cashflows, vcat, portfolio; init = Union{}[])
 
-# A quote's payments as `(time, amount)` pairs sorted by time, one per time. Payments at one time
-# share their discount factor, so only their sum counts. The amounts are floating-point numbers, so
-# that integer amounts cannot overflow in that sum, and keep their dual parts: the check for
-# payments after the tenor needs them.
-#
-# A payment date may move with a differentiated quantity (a family whose dates depend on the quote),
-# but not when it is exactly the tenor `t`. The bumps have a kink in time at every tenor, and a
-# dual time there reads the piece that starts at it: the next tenor's, in which this quote may not
-# pay at all. The derivative would describe a move the quote cannot make. `!=` between dual numbers
-# also compares their partials, so a date at `t` that does not move passes.
-function __quote_payments(instrument, t)
-    cashflows = __quote_cashflows(instrument)
-    any(cf -> __primal(cf.time) == t && cf.time != t, cashflows) && throw(
-        ArgumentError(
-            "quote_shift: the quote at tenor $t pays exactly at its tenor on a date that moves with a differentiated " *
-                "quantity (the quote, the curve or the shock). Its derivative is not defined there: any later, the payment " *
-                "would belong to the next tenor's bump. A moving payment date must stay before its tenor."
-        )
-    )
-    ps = sort!([(__primal(cf.time), float(cf.amount)) for cf in cashflows]; by = first)
-    merged = empty(ps)
-    for (s, a) in ps
-        if !isempty(merged) && first(last(merged)) == s
-            merged[end] = (s, last(merged[end]) + a)
+# `(time, amount)` pairs, sorted by the value of the time, with the amounts of equal times summed.
+# Payments at one time share their discount factor, so only their sum counts. `==` between dual
+# numbers also compares their partials, so two dates that coincide in value but move differently
+# stay apart: their payments offset in value only, not in derivative.
+function __sum_by_time(dated)
+    summed = empty(dated)
+    for (s, a) in dated
+        i = lastindex(summed)
+        while i >= firstindex(summed) && __primal(first(summed[i])) == __primal(s) && first(summed[i]) != s
+            i -= 1
+        end
+        if i >= firstindex(summed) && first(summed[i]) == s
+            summed[i] = (s, last(summed[i]) + a)
         else
-            push!(merged, (s, a))
+            push!(summed, (s, a))
         end
     end
-    return merged
+    return summed
 end
 
-# The structural conditions (S1)–(S3) of `quote_shift` for the quote at tenor `t`, whose bump moves
-# only the payments in `(t_prev, t]`. (S2) and (S3) are about the root's value, so they read the
-# primal amounts, zero ones dropped.
-function __check_quote_payments(payments, t_prev, t, target)
-    # A dual number is zero only if its partials are too. A payment after the tenor whose value is
-    # zero but whose derivative is not would have that derivative moved by a later tenor's bump,
-    # after this quote's solve, so it is rejected like any other.
-    i = findfirst(p -> first(p) > t && !iszero(last(p)), payments)
-    isnothing(i) || throw(
-        ArgumentError(
-            "quote_shift: the quote at tenor $t (target $target) pays at time $(first(payments[i])), after its tenor. " *
-                "Each quote may pay only up to its own tenor, so that a later tenor's bump cannot move it."
+# A quote's payments with their dual parts, one per time. The amounts are floating-point numbers,
+# so that integer amounts cannot overflow in a sum.
+__quote_payments(instrument) =
+    __sum_by_time(sort!([(cf.time, float(cf.amount)) for cf in __quote_cashflows(instrument)]; by = __primal ∘ first))
+
+# The payments the solve works on: values only, one per time.
+__primal_payments(payments) = __sum_by_time([(__primal(s), __primal(a)) for (s, a) in payments])
+
+# Structural condition (S1) of `quote_shift` for the quote at tenor `t`, on its payments with their
+# dual parts. A dual number is zero only if its partials are too, and equal only to a number with
+# the same partials. So a payment after the tenor that is zero in value only, or that another
+# offsets only where their dates coincide, is rejected like any other: a later tenor's bump would
+# move its derivative after this quote's solve.
+#
+# A payment date may move with a differentiated quantity (a family whose dates depend on the quote),
+# but not when it is exactly the tenor. The bumps have a kink in time at every tenor, and a dual
+# time there reads the piece that starts at it: the next tenor's, in which this quote may not pay
+# at all. The derivative would describe a move the quote cannot make.
+function __check_late_payments(payments, t, target)
+    for (s, a) in payments
+        iszero(a) && continue
+        (__primal(s) == t && s != t) && throw(
+            ArgumentError(
+                "quote_shift: the quote at tenor $t pays exactly at its tenor on a date that moves with a differentiated " *
+                    "quantity (the quote, the curve or the shock). Its derivative is not defined there: any later, the payment " *
+                    "would belong to the next tenor's bump. A moving payment date must stay before its tenor."
+            )
         )
-    )
-    window = [__primal(a) for (s, a) in payments if t_prev < s <= t && !iszero(__primal(a))]
+        __primal(s) > t && throw(
+            ArgumentError(
+                "quote_shift: the quote at tenor $t (target $target) pays at time $(__primal(s)), after its tenor. " *
+                    "Each quote may pay only up to its own tenor, so that a later tenor's bump cannot move it."
+            )
+        )
+    end
+    return nothing
+end
+
+# The structural conditions (S2) and (S3) of `quote_shift` for the quote at tenor `t`, whose bump
+# moves only the payments in `(t_prev, t]`. They are about the root's value, so they read the
+# primal payments, zero amounts dropped.
+function __check_quote_payments(payments, t_prev, t, target)
+    window = [a for (s, a) in payments if t_prev < s <= t && !iszero(a)]
     isempty(window) && throw(
         ArgumentError(
             "quote_shift: the quote at tenor $t (target $target) pays nothing after the previous tenor $t_prev, " *
@@ -176,7 +193,8 @@ solved one tenor at a time, shortest first: the quote at a tenor depends only on
   with negative coupons. A violation throws an `ArgumentError` naming the tenor and the
   condition, as does a bump that cannot be bracketed within floating-point limits. Under
   differentiation, condition 1 also rejects a payment after `tₖ` that is zero in value but not
-  in derivative: a later bump would move that derivative.
+  in derivative (an amount, or two offsetting payments whose dates coincide but move
+  differently): a later bump would move that derivative.
 
 The derivative at a zero shock is local quote risk on `curve`. To get risk to quotes that
 calibrate a curve, differentiate through [`fit`](@ref FinanceModels.fit) instead.
@@ -232,10 +250,12 @@ function quote_shift(rule::R, curve::AbstractYieldModel, family::F, tenors) wher
         pb = map(__primal, bumps)
         value(c, b, instrument) = FinanceCore.present_value(c + __trial_quote_bumps(b, ts), instrument)
         target = __primal(news[k])
-        payments = __quote_payments(q.instrument, t)
+        dual_payments = __quote_payments(q.instrument)
+        __check_late_payments(dual_payments, t, target)
+        payments = __primal_payments(dual_payments)
         __check_quote_payments(payments, t_prev, t, target)
         solved = primal + __trial_quote_bumps(pb, ts)
-        fixed = sum(__primal(a) * discount(solved, s) for (s, a) in payments if s <= t_prev; init = zero(qp.price))
+        fixed = sum(a * discount(solved, s) for (s, a) in payments if s <= t_prev; init = zero(qp.price))
         qp.price > fixed || throw(
             ArgumentError(
                 "quote_shift: the target $target at tenor $t is unreachable: its price $(qp.price) does not exceed " *
@@ -244,13 +264,15 @@ function quote_shift(rule::R, curve::AbstractYieldModel, family::F, tenors) wher
         )
         # Solve relative to the quote's size: the gross value of its payments, each in absolute
         # value. The net value is no measure of size where payments offset one another, and a
-        # target price of zero would leave no tolerance at the root at all.
-        sizes = [(s, abs(__primal(a))) for (s, a) in payments]
+        # target price of zero would leave no tolerance at the root at all. The residual's own unit
+        # `σ` is the larger of that size before the bump and the target price: a price many orders
+        # above today's value, divided by today's value alone, overflows before the search starts.
+        sizes = [(s, abs(a)) for (s, a) in payments]
         function magnitude(x)
             c = primal + __trial_quote_bumps(__with_bump(pb, k, x), ts)
             return sum(a * discount(c, s) for (s, a) in sizes; init = zero(qp.price))
         end
-        s0 = magnitude(zero(t))
+        s0 = max(magnitude(zero(t)), abs(qp.price))
         σ = iszero(s0) ? one(s0) : s0
         g(x) = (value(curve, __with_bump(bumps, k, x), q.instrument) - q.price) / σ
         g_primal(x) = (value(primal, __with_bump(pb, k, x), qp.instrument) - qp.price) / σ
