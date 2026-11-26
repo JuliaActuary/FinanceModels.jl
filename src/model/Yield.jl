@@ -10,6 +10,7 @@ import ..__strong_zero_mul, ..__strong_zero_log, ..__wexp
 import ..ForwardDiff
 import ..Accessors
 import ..Compat
+import ..__PrimalResidual
 
 using ..FinanceCore: Continuous, Periodic, discount, accumulation, forward, pv, AbstractContract
 

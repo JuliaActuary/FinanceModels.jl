@@ -15,6 +15,47 @@ end
 Base.zero(c::__PrimalCurve, t) = Continuous(__primal(__continuous(Base.zero(c.curve, t))))
 force_of_interest(c::__PrimalCurve, t) = __primal(force_of_interest(c.curve, t))
 
+# The slope of an implicit solve is `ForwardDiff.derivative(residual, x)` on this view. Its dual
+# number reaches the curve inside a time when the solved variable moves a payment date (a quote
+# family whose dates depend on the quote). That part belongs to the solve, so it is kept: dropping
+# it with the caller's dual numbers left the date's effect out of the slope, and every derivative
+# of the root was off by that factor. In time, L has the derivative f, the forward, so each
+# capability takes its time derivative from `force_of_interest` at the time's value, itself
+# evaluated without the caller's dual numbers. A time without the solve's dual number adds nothing.
+const __SolveTime = ForwardDiff.Dual{<:ForwardDiff.Tag{<:__PrimalResidual}}
+__time_value(t) = t
+__time_value(t::__SolveTime) = ForwardDiff.value(t)
+__time_step(c::__PrimalCurve, t) = false
+__time_step(c::__PrimalCurve, t::__SolveTime) = force_of_interest(c, ForwardDiff.value(t)) * (t - ForwardDiff.value(t))
+
+__log_discount(c::__PrimalCurve, t::__SolveTime) = __log_discount(c, __time_value(t)) + __time_step(c, t)
+function FinanceCore.discount(c::__PrimalCurve, t::__SolveTime)
+    D = FinanceCore.discount(c, __time_value(t))
+    return D - D * __time_step(c, t)
+end
+function Base.zero(c::__PrimalCurve, t::__SolveTime)
+    s = __time_value(t)
+    # as for any curve without its own rule, L/t has no derivative in time at t = 0
+    iszero(s) && __throw_zero_rate_derivative_at_origin(t)
+    z = __continuous(Base.zero(c, s))
+    return Continuous(z + (__time_step(c, t) - z * (t - s)) / s)
+end
+# The forward's own derivative in time is the curvature of L, which no capability gives.
+force_of_interest(c::__PrimalCurve, t::__SolveTime) = throw(
+    ArgumentError(
+        "an implicit solve cannot differentiate a curve's instantaneous forward with respect to the time it is read at " *
+            "(a time that depends on the solved quote)."
+    )
+)
+for (From, To) in ((:__SolveTime, :Any), (:Any, :__SolveTime), (:__SolveTime, :__SolveTime))
+    @eval __log_interval(c::__PrimalCurve, from::$From, to::$To) =
+        __log_interval(c, __time_value(from), __time_value(to)) + __time_step(c, to) - __time_step(c, from)
+    @eval function FinanceCore.discount(c::__PrimalCurve, from::$From, to::$To)
+        D = FinanceCore.discount(c, __time_value(from), __time_value(to))
+        return D - D * (__time_step(c, to) - __time_step(c, from))
+    end
+end
+
 """
     implied_quote(curve, family, maturity; guess = 0.0, bracket = (-0.5, 1.0))
 
