@@ -51,6 +51,8 @@ combined_par = fit(Spline.Linear(), ParYield.(rates + spreads, tenors))
 discount(base_par + spread_par, 7.0) ≈ discount(combined_par, 7.0) # false
 ```
 
+To apply par spreads over an existing curve without refitting it, use [`quote_shift`](@ref FinanceModels.Yield.quote_shift); it meets the shifted quotes at the quoted tenors only.
+
 ## I have another question
 
 Ask on the discussion forum here: [https://github.com/JuliaActuary/FinanceModels.jl/discussions](https://github.com/JuliaActuary/FinanceModels.jl/discussions)

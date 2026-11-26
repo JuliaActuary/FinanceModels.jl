@@ -1,5 +1,34 @@
 # FinanceModels.jl release notes
 
+## v7.4.0 (unreleased)
+
+### Quote shifts: `quote_shift`
+
+`quote_shift(rule, curve, family, tenors)` shifts quoted rates the way `curve + (z, t) -> …`
+shifts zero rates. It shifts par yields, CMT and OIS rates, swap rates or zero-coupon prices,
+with no refit. `rule(q, t)` receives each tenor's quote from `implied_quote` and returns the new
+quote. The result is a `CompositeYield`: the curve plus continuous zero-rate hats at the tenors
+(`ZeroRateCurve(bumps, tenors, Spline.Linear(); extrapolation = :flat_zero)`), solved one tenor
+at a time so that every shifted quote reprices.
+
+```julia
+up = quote_shift(curve, (y, t) -> ParYield(y, t; frequency = 2), [1, 2, 3, 5, 7, 10, 20, 30]) do q, t
+    q + 0.01   # every quoted par yield +100bp
+end
+```
+
+- **What is exact.** Quotes reprice at the tenors only. Between tenors they move approximately,
+  and forwards jump at the tenors.
+- **Derivatives.** First-order ForwardDiff derivatives are exact, through the base curve and the
+  new quotes, so the gradient at a zero shock is quote key-rate risk. Nested dual numbers throw.
+- **Accepted quotes.** Each quote must pay only up to its own tenor, and must have a price its
+  bump can reach. Every standard family qualifies, including at negative rates, and a quote's
+  instrument may be a portfolio of fixed-cashflow contracts. Others throw an `ArgumentError`
+  naming the tenor and the failed condition.
+
+See "Quote shifts" in the models guide and "Quote shifts and quote risk" in Calibration
+sensitivities.
+
 ## v7.3.1
 
 ### `Spline.MonotoneConvex()`: the first and last knot intervals have no kink at equal forwards

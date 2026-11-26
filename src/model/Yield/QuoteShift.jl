@@ -116,9 +116,10 @@ bumps at `tenors` that reprice each shifted quote.
 
 `rule(q, t)` receives the quote `q = implied_quote(curve, family, t)` at each tenor `t` and returns
 the new quote, in the family's own units: a rate number for `ParYield`, `CMTYield` or `ZCBYield`,
-a price for `ZCBPrice`. `family` is a quote constructor taking `(quote, maturity)`, as in
-[`implied_quote`](@ref FinanceModels.Yield.implied_quote). `tenors` are positive, strictly
-increasing, and not dual numbers.
+a price for `ZCBPrice`. `curve` is a yield model. `family` is a quote constructor taking
+`(quote, maturity)`, as in [`implied_quote`](@ref FinanceModels.Yield.implied_quote). Its
+instrument has fixed cashflows, and may be a portfolio: an array or a tuple of contracts, whose
+payments are taken together. `tenors` are positive, strictly increasing, and not dual numbers.
 
 The result is `curve + ZeroRateCurve(bumps, tenors, Spline.Linear(); extrapolation = :flat_zero)`,
 a [`CompositeYield`](@ref). Each bump is a continuous zero-rate hat, linear between neighboring
@@ -147,7 +148,9 @@ solved one tenor at a time, shortest first: the quote at a tenor depends only on
   Then, with positive discount factors, the target determines the bump uniquely. Every standard
   family meets 1–3 at any rates where its final payment is positive, including negative rates
   with negative coupons. A violation throws an `ArgumentError` naming the tenor and the
-  condition, as does a bump that cannot be bracketed within floating-point limits.
+  condition, as does a bump that cannot be bracketed within floating-point limits. Under
+  differentiation, condition 1 also rejects a payment after `tₖ` that is zero in value but not
+  in derivative: a later bump would move that derivative.
 
 The derivative at a zero shock is local quote risk on `curve`. To get risk to quotes that
 calibrate a curve, differentiate through [`fit`](@ref FinanceModels.fit) instead.
