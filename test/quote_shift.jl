@@ -145,6 +145,16 @@ using ForwardDiff
         flat = Yield.Constant(Continuous(0.03))
         shocked = quote_shift((q, t) -> 2q, flat, ZCBPrice, [1000.0])
         @test only(bumps(shocked)) ≈ -log(2) / 1000 rtol = 1.0e-12
+        # Large shocks at long tenors: the residual, relative to the quote's size before the shock,
+        # is far below any absolute tolerance long before the root (the 1000-year target price is
+        # about 4e-31), so the root is solved in its bracket and checked against the price itself.
+        for (t, b) in ((1000.0, 0.04), (100.0, 0.4), (50.0, 0.5), (30.0, 0.5))
+            shocked = quote_shift((q, t) -> q * exp(-b * t), flat, ZCBPrice, [t])
+            @test only(bumps(shocked)) ≈ b rtol = 1.0e-13
+            @test discount(shocked, t) ≈ exp(-(0.03 + b) * t) rtol = 1.0e-10
+        end
+        # A probe that lands on the root exactly is a bracket end.
+        @test only(bumps(quote_shift((q, t) -> q * exp(-1.0), flat, ZCBPrice, [1.0]))) ≈ 1.0 rtol = 1.0e-14
     end
 
     @testset "an exact root at zero keeps its partials" begin

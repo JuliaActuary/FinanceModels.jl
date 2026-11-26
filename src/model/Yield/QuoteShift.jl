@@ -59,9 +59,9 @@ end
 
 # A bracket around the unique root of the primal residual `r` of the bump at tenor `t`. The residual
 # is positive below the root and negative above it. An exact root at zero gives the degenerate
-# bracket `(0, 0)`, which the solve never uses: its secant stops at the starting point. Otherwise the
-# probes step toward the root by `2ⁱ/t`; the bump moves each payment's log discount by at most `x·t`,
-# so the first probe changes each payment's value by at most a factor of e. Upward, every term
+# bracket `(0, 0)`, which is the root. Otherwise the probes step toward the root by `2ⁱ/t`; the bump
+# moves each payment's log discount by at most `x·t`, so the first probe changes each payment's
+# value by at most a factor of e. Upward, every term
 # decays and stays finite. Downward, terms grow and can overflow before the root; a non-finite
 # probe is never a bracket end, even `+Inf`, and the search bisects back toward the last finite one.
 function __quote_bracket(r, t)
@@ -209,8 +209,13 @@ function quote_shift(rule::R, curve::AbstractYieldModel, family::F, tenors) wher
         g(x) = (value(curve, __with_bump(bumps, k, x), q.instrument) - q.price) / σ
         g_primal(x) = (value(primal, __with_bump(pb, k, x), qp.instrument) - qp.price) / σ
         scale(x) = magnitude(x) / σ
-        bracket = __quote_bracket(__PrimalResidual(g_primal, who, hint), t)
-        bumps[k] = __implicit_root(g, g_primal, zero(t); bracket, scale, who, hint)
+        # The root is solved inside its bracket. A secant search from zero stops where this
+        # residual is small in absolute terms, which a long quote under a large shock reaches far
+        # from its root: `exp(-x·t)` is below every absolute tolerance once `x·t` passes about 30.
+        residual = __PrimalResidual(g_primal, who, hint)
+        lo, hi = __quote_bracket(residual, t)
+        x = lo == hi ? lo : Roots.find_zero(residual, (lo, hi), Roots.A42())
+        bumps[k] = __implicit_step(g, residual, x; scale, who)
     end
     return curve + __quote_bumps(bumps, ts)
 end

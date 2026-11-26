@@ -77,7 +77,13 @@ dual numbers, a dual number in `g_primal`'s argument or value, a root that does 
 """
 function __implicit_root(g::G, g_primal::P, x0; bracket = (-1.0, 1.0), who, hint = "", slope::S = nothing, scale::C) where {G, P, S, C}
     residual = __PrimalResidual(g_primal, who, hint)
-    x = __solve_primal_root(residual, x0, bracket)
+    return __implicit_step(g, residual, __solve_primal_root(residual, x0, bracket); who, slope, scale)
+end
+
+# The checks and the dual correction step of `__implicit_root`, at a root `x` of the primal
+# `residual` that the caller has found with a solver of its own: `quote_shift` solves inside a
+# bracket it has proved.
+function __implicit_step(g::G, residual::P, x; who, slope::S = nothing, scale::C) where {G, P, S, C}
     # A solver can accept a point whose residual is small in absolute terms only.
     tol = sqrt(eps(float(typeof(x)))) * scale(x)
     abs(residual(x)) <= tol || throw(
