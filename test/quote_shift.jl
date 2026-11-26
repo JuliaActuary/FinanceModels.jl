@@ -165,9 +165,29 @@ using ForwardDiff
             shocked = quote_shift((q, t) -> 0.98q, flat, family, ts)
             @test quotes(shocked, family, ts) ≈ 0.98 .* quotes(flat, family, ts) rtol = 1.0e-13
         end
+        # An empty member adds no payments.
+        hollow(q, t) = Quote(q, (Cashflow{Float64, Float64}[], Cashflow(1.0, t)))
+        @test quotes(quote_shift((q, t) -> 0.98q, flat, hollow, ts), hollow, ts) ≈ 0.98 .* quotes(flat, hollow, ts) rtol = 1.0e-13
+        # Integer amounts on one date are summed as floating-point numbers: two of 1.5e9 overflow an Int32.
+        whole(q, t) = Quote(q, [Cashflow(Int32(1_500_000_000), t), Cashflow(Int32(1_500_000_000), t)])
+        @test quotes(quote_shift((q, t) -> 0.98q, flat, whole, ts), whole, ts) ≈ 0.98 .* quotes(flat, whole, ts) rtol = 1.0e-13
         # The checks see every member's payments: one bond of the two matures after the tenor.
         longer(q, t) = Quote(q, [Bond.Fixed(0.03, Periodic(2), t), Bond.Fixed(0.03, Periodic(2), t + 1)])
         @test throws(() -> quote_shift((q, t) -> q, flat, longer, ts), "after its tenor")
+    end
+
+    @testset "a target price of zero" begin
+        # Payments that offset one another: the quote's size is their gross value, 1.53 here, not
+        # its price, so a target of zero is reached and checked like any other.
+        level = Yield.Constant(Continuous(0.0))
+        netted(q, t) = Quote(q, [Cashflow(-0.33, 0.0), Cashflow(0.2, t / 2), Cashflow(1.0, t)])
+        @test implied_quote(level, netted, 1.0) ≈ 0.87 atol = 1.0e-14
+        shocked = quote_shift((q, t) -> 0.0, level, netted, [1.0])
+        @test pv(shocked, netted(0.0, 1.0).instrument) ≈ 0 atol = 1.0e-15
+        # 0.2·exp(-x/2) + exp(-x) = 0.33, a quadratic in exp(-x/2)
+        @test only(bumps(shocked)) ≈ -2log((-0.2 + sqrt(0.2^2 + 4 * 0.33)) / 2) rtol = 1.0e-13
+        slope = ForwardDiff.derivative(s -> only(bumps(quote_shift((q, t) -> s, level, netted, [1.0]))), 0.0)
+        @test slope ≈ (only(bumps(quote_shift((q, t) -> 1.0e-6, level, netted, [1.0]))) - only(bumps(quote_shift((q, t) -> -1.0e-6, level, netted, [1.0])))) / 2.0e-6 rtol = 1.0e-7
     end
 
     @testset "long tenors" begin
@@ -238,6 +258,11 @@ using ForwardDiff
             () -> quote_shift((q, t) -> 0.5, Yield.Constant(Continuous(0.03)), (q, t) -> Quote(q, [Cashflow(-1.0, t - 0.001), Cashflow(1.0e-300, t)]), [1.0]),
             "could not bracket"
         )
+        # A residual that keeps its sign and stays finite at every probe: the probes stop at the
+        # largest finite one. (They used to double to `Inf` and repeat it without end.)
+        probes = Ref(0)
+        @test throws(() -> Yield.__quote_bracket(x -> (probes[] += 1; probes[] > 5000 && error("still probing at $x"); 5.0e-18), 1.0), "could not bracket")
+        @test probes[] < 1100
         @test throws(
             () -> ForwardDiff.derivative(u -> ForwardDiff.derivative(s -> pv(quote_shift((q, t) -> q + s + u, base, semiannual, tenors), liability), 0.0), 0.0),
             "first-order"

@@ -15,16 +15,17 @@ function __with_bump(b, k, x)
 end
 
 # The fixed cashflows of a quote's instrument: a contract's own, or those of every member of a
-# portfolio, which is an array or a tuple of contracts (or of portfolios). An instrument whose
-# cashflows depend on a model, such as a floating leg, fails in `collect`.
+# portfolio, which is an array or a tuple of contracts (or of portfolios). An empty portfolio has
+# none. An instrument whose cashflows depend on a model, such as a floating leg, fails in `collect`.
 __quote_cashflows(contract) = collect(contract)
-__quote_cashflows(portfolio::Union{AbstractArray, Tuple}) = reduce(vcat, map(__quote_cashflows, portfolio))
+__quote_cashflows(portfolio::Union{AbstractArray, Tuple}) = mapreduce(__quote_cashflows, vcat, portfolio; init = Union{}[])
 
 # A quote's payments as `(time, amount)` pairs sorted by time, one per time. Payments at one time
-# share their discount factor, so only their sum counts. The amounts keep their dual parts: the
-# check for payments after the tenor needs them.
+# share their discount factor, so only their sum counts. The amounts are floating-point numbers, so
+# that integer amounts cannot overflow in that sum, and keep their dual parts: the check for
+# payments after the tenor needs them.
 function __quote_payments(instrument)
-    ps = sort!([(__primal(cf.time), cf.amount) for cf in __quote_cashflows(instrument)]; by = first)
+    ps = sort!([(__primal(cf.time), float(cf.amount)) for cf in __quote_cashflows(instrument)]; by = first)
     merged = empty(ps)
     for (s, a) in ps
         if !isempty(merged) && first(last(merged)) == s
@@ -71,9 +72,10 @@ end
 # is positive below the root and negative above it. An exact root at zero gives the degenerate
 # bracket `(0, 0)`, which is the root. Otherwise the probes step toward the root by `2ⁱ/t`; the bump
 # moves each payment's log discount by at most `x·t`, so the first probe changes each payment's
-# value by at most a factor of e. Upward, every term
-# decays and stays finite. Downward, terms grow and can overflow before the root; a non-finite
-# probe is never a bracket end, even `+Inf`, and the search bisects back toward the last finite one.
+# value by at most a factor of e. Upward, every term decays and stays finite. Downward, terms grow
+# and can overflow before the root; a non-finite probe is never a bracket end, even `+Inf`, and the
+# search bisects back toward the last finite one. The probes themselves stop at the largest finite
+# one: a residual that keeps its sign and stays finite all the way there has no bracket.
 function __quote_bracket(r, t)
     x0 = zero(float(t))
     g0 = r(x0)
@@ -82,6 +84,7 @@ function __quote_bracket(r, t)
     lo, step = x0, inv(float(t))
     while true
         x = dir * step
+        isfinite(x) || break
         v = r(x)
         isfinite(v) || break
         sign(v) == sign(g0) || return minmax(lo, x)
@@ -103,7 +106,7 @@ function __quote_bracket(r, t)
     throw(
         ArgumentError(
             "quote_shift could not bracket the bump for the quote at tenor $t within floating-point limits: " *
-                "the residual keeps its sign up to $lo and is not finite at $hi."
+                "the residual keeps its sign up to $lo" * (isfinite(hi) ? " and is not finite at $hi." : ", the last finite probe.")
         )
     )
 end
@@ -216,8 +219,14 @@ function quote_shift(rule::R, curve::AbstractYieldModel, family::F, tenors) wher
                     "$fixed, the value of its payments at or before $t_prev, which its bump cannot move."
             )
         )
-        # Solve relative to the quote's size, as `implied_quote` does.
-        magnitude(x) = max(abs(value(primal, __with_bump(pb, k, x), qp.instrument)), abs(qp.price))
+        # Solve relative to the quote's size: the gross value of its payments, each in absolute
+        # value. The net value is no measure of size where payments offset one another, and a
+        # target price of zero would leave no tolerance at the root at all.
+        sizes = [(s, abs(__primal(a))) for (s, a) in payments]
+        function magnitude(x)
+            c = primal + __trial_quote_bumps(__with_bump(pb, k, x), ts)
+            return sum(a * discount(c, s) for (s, a) in sizes; init = zero(qp.price))
+        end
         s0 = magnitude(zero(t))
         σ = iszero(s0) ? one(s0) : s0
         g(x) = (value(curve, __with_bump(bumps, k, x), q.instrument) - q.price) / σ
