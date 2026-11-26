@@ -86,6 +86,18 @@ using ForwardDiff
         zcb(s) = pv(quote_shift((q, t) -> q + s, base, ZCBYield, tenors), liability)
         @test ForwardDiff.derivative(zcb, 0.0) ≈ (zcb(h) - zcb(-h)) / 2h rtol = 1.0e-7
 
+        # A payment up to the tenor that is zero in value only keeps its derivative: the quote's
+        # own solve carries it. The coupon at t/2 is `(q - q0)/2`, zero at a zero shock.
+        q0 = [implied_quote(base, ZCBPrice, t) for t in tenors]
+        early(q, t) = Quote(q, [Cashflow((q - q0[findfirst(==(t), tenors)]) / 2, t / 2), Cashflow(1.0, t)])
+        coupon(s) = pv(quote_shift((q, t) -> q + s, base, early, tenors), liability)
+        @test ForwardDiff.derivative(coupon, 0.0) ≈ (coupon(h) - coupon(-h)) / 2h rtol = 1.0e-7
+        reprice = ForwardDiff.derivative(0.0) do s
+            c = quote_shift((q, t) -> q + s, base, early, tenors)
+            pv(c, early(q0[4] + s, tenors[4]).instrument)
+        end
+        @test reprice ≈ 1 rtol = 1.0e-12
+
         # Partials that a rule introduces only at the last tenor.
         last_only(s) = quote_shift((q, t) -> t == last(tenors) ? q + s : q, base, semiannual, tenors)
         db = ForwardDiff.derivative(s -> bumps(last_only(s)), 0.0)
@@ -183,6 +195,18 @@ using ForwardDiff
         beyond(q, t) = Quote(q, [Cashflow(1.0, t), Cashflow(1.0, t + 1)])
         @test throws(() -> quote_shift((q, t) -> q, base, beyond, [1.0, 2.0]), "after its tenor")
         @test throws(() -> ForwardDiff.derivative(s -> pv(quote_shift((q, t) -> q + s, base, beyond, [1.0, 2.0]), liability), 0.0), "after its tenor")
+        # (S1) also for a payment after the tenor that is zero in value only. Its derivative with
+        # respect to the shock is not zero, and the two-year bump would move it after the one-year
+        # solve: the one-year quote's own sensitivity would come out as 0.9, not 1. Without dual
+        # numbers the payment is zero, and the quote is accepted.
+        late(q, t) = t == 1 ? Quote(q, [Cashflow(1.0, 1.0), Cashflow((q - 1) / 2, 2.0)]) : ZCBPrice(q, t)
+        late_rule(s) = (q, t) -> t == 1 ? 1 + s : 0.8
+        level = Yield.Constant(Continuous(0.0))
+        @test throws(() -> ForwardDiff.derivative(s -> discount(quote_shift(late_rule(s), level, late, [1.0, 2.0]), 1.5), 0.0), "after its tenor")
+        @test bumps(quote_shift(late_rule(0.0), level, late, [1.0, 2.0])) ≈ [0.0, -log(0.8) / 2] atol = 1.0e-14
+        @test throws(() -> quote_shift(late_rule(0.01), level, late, [1.0, 2.0]), "after its tenor")
+        # An error reports the target's value, not its dual number.
+        @test !occursin("Dual", sprint(showerror, thrown(() -> ForwardDiff.derivative(s -> discount(quote_shift(late_rule(s), level, late, [1.0, 2.0]), 1.5), 0.0))))
         # (S2) nothing to move
         early(q, t) = Quote(q, Cashflow(1.0, t / 4))
         @test throws(() -> quote_shift((q, t) -> q, base, early, [1.0, 2.0]), "pays nothing after the previous tenor")

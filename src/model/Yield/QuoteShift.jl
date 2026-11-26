@@ -14,11 +14,12 @@ function __with_bump(b, k, x)
     return v
 end
 
-# A quote's payments as sorted `(time, amount)` pairs of primal values, one per time, with zero
-# amounts dropped. Payments at one time share their discount factor, so only their sum counts. An
-# instrument whose cashflows depend on a model, such as a floating leg, fails in `collect`.
+# A quote's payments as `(time, amount)` pairs sorted by time, one per time. Payments at one time
+# share their discount factor, so only their sum counts. The amounts keep their dual parts: the
+# check for payments after the tenor needs them. An instrument whose cashflows depend on a model,
+# such as a floating leg, fails in `collect`.
 function __quote_payments(instrument)
-    ps = sort!([(__primal(cf.time), __primal(cf.amount)) for cf in collect(instrument)]; by = first)
+    ps = sort!([(__primal(cf.time), cf.amount) for cf in collect(instrument)]; by = first)
     merged = empty(ps)
     for (s, a) in ps
         if !isempty(merged) && first(last(merged)) == s
@@ -27,20 +28,24 @@ function __quote_payments(instrument)
             push!(merged, (s, a))
         end
     end
-    return filter!(p -> !iszero(last(p)), merged)
+    return merged
 end
 
 # The structural conditions (S1)–(S3) of `quote_shift` for the quote at tenor `t`, whose bump moves
-# only the payments in `(t_prev, t]`.
+# only the payments in `(t_prev, t]`. (S2) and (S3) are about the root's value, so they read the
+# primal amounts, zero ones dropped.
 function __check_quote_payments(payments, t_prev, t, target)
-    i = findfirst(p -> first(p) > t, payments)
+    # A dual number is zero only if its partials are too. A payment after the tenor whose value is
+    # zero but whose derivative is not would have that derivative moved by a later tenor's bump,
+    # after this quote's solve, so it is rejected like any other.
+    i = findfirst(p -> first(p) > t && !iszero(last(p)), payments)
     isnothing(i) || throw(
         ArgumentError(
             "quote_shift: the quote at tenor $t (target $target) pays at time $(first(payments[i])), after its tenor. " *
                 "Each quote may pay only up to its own tenor, so that a later tenor's bump cannot move it."
         )
     )
-    window = [a for (s, a) in payments if s > t_prev]
+    window = [__primal(a) for (s, a) in payments if t_prev < s <= t && !iszero(__primal(a))]
     isempty(window) && throw(
         ArgumentError(
             "quote_shift: the quote at tenor $t (target $target) pays nothing after the previous tenor $t_prev, " *
@@ -192,13 +197,14 @@ function quote_shift(rule::R, curve::AbstractYieldModel, family::F, tenors) wher
         q, qp = targets[k], primal_targets[k]
         pb = map(__primal, bumps)
         value(c, b, instrument) = FinanceCore.present_value(c + __trial_quote_bumps(b, ts), instrument)
-        payments = __quote_payments(qp.instrument)
-        __check_quote_payments(payments, t_prev, t, news[k])
+        target = __primal(news[k])
+        payments = __quote_payments(q.instrument)
+        __check_quote_payments(payments, t_prev, t, target)
         solved = primal + __trial_quote_bumps(pb, ts)
-        fixed = sum(a * discount(solved, s) for (s, a) in payments if s <= t_prev; init = zero(qp.price))
+        fixed = sum(__primal(a) * discount(solved, s) for (s, a) in payments if s <= t_prev; init = zero(qp.price))
         qp.price > fixed || throw(
             ArgumentError(
-                "quote_shift: the target $(news[k]) at tenor $t is unreachable: its price $(qp.price) does not exceed " *
+                "quote_shift: the target $target at tenor $t is unreachable: its price $(qp.price) does not exceed " *
                     "$fixed, the value of its payments at or before $t_prev, which its bump cannot move."
             )
         )
