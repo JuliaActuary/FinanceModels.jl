@@ -24,8 +24,22 @@ __quote_cashflows(portfolio::Union{AbstractArray, Tuple}) = mapreduce(__quote_ca
 # share their discount factor, so only their sum counts. The amounts are floating-point numbers, so
 # that integer amounts cannot overflow in that sum, and keep their dual parts: the check for
 # payments after the tenor needs them.
-function __quote_payments(instrument)
-    ps = sort!([(__primal(cf.time), float(cf.amount)) for cf in __quote_cashflows(instrument)]; by = first)
+#
+# A payment date may move with a differentiated quantity (a family whose dates depend on the quote),
+# but not when it is exactly the tenor `t`. The bumps have a kink in time at every tenor, and a
+# dual time there reads the piece that starts at it: the next tenor's, in which this quote may not
+# pay at all. The derivative would describe a move the quote cannot make. `!=` between dual numbers
+# also compares their partials, so a date at `t` that does not move passes.
+function __quote_payments(instrument, t)
+    cashflows = __quote_cashflows(instrument)
+    any(cf -> __primal(cf.time) == t && cf.time != t, cashflows) && throw(
+        ArgumentError(
+            "quote_shift: the quote at tenor $t pays exactly at its tenor on a date that moves with a differentiated " *
+                "quantity (the quote, the curve or the shock). Its derivative is not defined there: any later, the payment " *
+                "would belong to the next tenor's bump. A moving payment date must stay before its tenor."
+        )
+    )
+    ps = sort!([(__primal(cf.time), float(cf.amount)) for cf in cashflows]; by = first)
     merged = empty(ps)
     for (s, a) in ps
         if !isempty(merged) && first(last(merged)) == s
@@ -74,24 +88,33 @@ end
 # moves each payment's log discount by at most `x·t`, so the first probe changes each payment's
 # value by at most a factor of e. Upward, every term decays and stays finite. Downward, terms grow
 # and can overflow before the root; a non-finite probe is never a bracket end, even `+Inf`, and the
-# search bisects back toward the last finite one. The probes themselves stop at the largest finite
-# one: a residual that keeps its sign and stays finite all the way there has no bracket.
+# search bisects back toward the last finite one. The probes themselves are capped at the largest
+# finite number, which is also the first probe of a tenor so short that `1/t` overflows its type: a
+# residual that keeps its sign and stays finite all the way there has no bracket.
 function __quote_bracket(r, t)
     x0 = zero(float(t))
     g0 = r(x0)
     iszero(g0) && return (x0, x0)
     dir = g0 > 0 ? one(x0) : -one(x0)
-    lo, step = x0, inv(float(t))
-    while true
-        x = dir * step
-        isfinite(x) || break
-        v = r(x)
-        isfinite(v) || break
-        sign(v) == sign(g0) || return minmax(lo, x)
-        lo, step = x, 2 * step
-    end
+    top = floatmax(x0)
+    lo, step = x0, min(inv(float(t)), top)
     hi = dir * step
-    m = (lo + hi) / 2
+    while true
+        v = r(hi)
+        isfinite(v) || break
+        sign(v) == sign(g0) || return minmax(lo, hi)
+        lo = hi
+        step == top && throw(
+            ArgumentError(
+                "quote_shift could not bracket the bump for the quote at tenor $t within floating-point limits: " *
+                    "the residual keeps its sign up to $lo, the largest finite probe."
+            )
+        )
+        step = min(2 * step, top)
+        hi = dir * step
+    end
+    # halves, so that the midpoint of two large probes does not overflow
+    m = lo / 2 + hi / 2
     while m != lo && m != hi
         v = r(m)
         if !isfinite(v)
@@ -101,12 +124,12 @@ function __quote_bracket(r, t)
         else
             return minmax(lo, m)
         end
-        m = (lo + hi) / 2
+        m = lo / 2 + hi / 2
     end
     throw(
         ArgumentError(
             "quote_shift could not bracket the bump for the quote at tenor $t within floating-point limits: " *
-                "the residual keeps its sign up to $lo" * (isfinite(hi) ? " and is not finite at $hi." : ", the last finite probe.")
+                "the residual keeps its sign up to $lo and is not finite at $hi."
         )
     )
 end
@@ -209,7 +232,7 @@ function quote_shift(rule::R, curve::AbstractYieldModel, family::F, tenors) wher
         pb = map(__primal, bumps)
         value(c, b, instrument) = FinanceCore.present_value(c + __trial_quote_bumps(b, ts), instrument)
         target = __primal(news[k])
-        payments = __quote_payments(q.instrument)
+        payments = __quote_payments(q.instrument, t)
         __check_quote_payments(payments, t_prev, t, target)
         solved = primal + __trial_quote_bumps(pb, ts)
         fixed = sum(__primal(a) * discount(solved, s) for (s, a) in payments if s <= t_prev; init = zero(qp.price))
@@ -232,13 +255,21 @@ function quote_shift(rule::R, curve::AbstractYieldModel, family::F, tenors) wher
         g(x) = (value(curve, __with_bump(bumps, k, x), q.instrument) - q.price) / σ
         g_primal(x) = (value(primal, __with_bump(pb, k, x), qp.instrument) - qp.price) / σ
         scale(x) = magnitude(x) / σ
+        # The slope is the bump's own effect, so it is measured against the payments the bump
+        # moves. Against all of them, large payments that offset one another before the previous
+        # tenor would make a sound slope look like none.
+        moved = [(s, a) for (s, a) in sizes if s > t_prev]
+        function slope_scale(x)
+            c = primal + __trial_quote_bumps(__with_bump(pb, k, x), ts)
+            return sum(a * discount(c, s) for (s, a) in moved; init = zero(qp.price)) / σ
+        end
         # The root is solved inside its bracket. A secant search from zero stops where this
         # residual is small in absolute terms, which a long quote under a large shock reaches far
         # from its root: `exp(-x·t)` is below every absolute tolerance once `x·t` passes about 30.
         residual = __PrimalResidual(g_primal, who, hint)
         lo, hi = __quote_bracket(residual, t)
         x = lo == hi ? lo : Roots.find_zero(residual, (lo, hi), Roots.A42())
-        bumps[k] = __implicit_step(g, residual, x; scale, who)
+        bumps[k] = __implicit_step(g, residual, x; scale, slope_scale, who)
     end
     return curve + __quote_bumps(bumps, ts)
 end

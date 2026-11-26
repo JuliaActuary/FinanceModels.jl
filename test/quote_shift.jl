@@ -190,6 +190,17 @@ using ForwardDiff
         @test slope ≈ (only(bumps(quote_shift((q, t) -> 1.0e-6, level, netted, [1.0]))) - only(bumps(quote_shift((q, t) -> -1.0e-6, level, netted, [1.0])))) / 2.0e-6 rtol = 1.0e-7
     end
 
+    @testset "offsetting payments the bump does not move" begin
+        # +1e8 today and -1e8 at one year cancel, and the two-year bump moves neither. The quote's
+        # gross size is 2e8, but the bump's slope is that of the unit payment at two years: with
+        # the one-year quote held, d(bump)/d(price) = -1/2.
+        level = Yield.Constant(Continuous(0.0))
+        offset(q, t) = t == 1 ? ZCBPrice(q, t) : Quote(q, [Cashflow(1.0e8, 0.0), Cashflow(-1.0e8, 1.0), Cashflow(1.0, 2.0)])
+        second(s) = bumps(quote_shift((q, t) -> t == 2 ? q + s : q, level, offset, [1.0, 2.0]))[2]
+        @test ForwardDiff.derivative(second, 0.0) ≈ -0.5 rtol = 1.0e-7
+        @test second(1.0e-3) ≈ -log(1.001) / 2 rtol = 1.0e-6
+    end
+
     @testset "long tenors" begin
         # Doubling a 1000-year zero-coupon price needs a bump of -log(2)/1000, although a probe at
         # x = -1 overflows.
@@ -204,6 +215,9 @@ using ForwardDiff
             @test only(bumps(shocked)) ≈ b rtol = 1.0e-13
             @test discount(shocked, t) ≈ exp(-(0.03 + b) * t) rtol = 1.0e-10
         end
+        # A tenor so short that 1/t overflows its type: the first probe is the largest finite number.
+        tiny = quote_shift((q, t) -> 0.999, Yield.Constant(Continuous(0.0)), ZCBPrice, Float16[1.0e-5])
+        @test discount(tiny, Float16(1.0e-5)) ≈ 0.999 rtol = 1.0e-3
         # A probe that lands on the root exactly is a bracket end.
         @test only(bumps(quote_shift((q, t) -> q * exp(-1.0), flat, ZCBPrice, [1.0]))) ≈ 1.0 rtol = 1.0e-14
     end
@@ -246,6 +260,13 @@ using ForwardDiff
         @test throws(() -> quote_shift(late_rule(0.01), level, late, [1.0, 2.0]), "after its tenor")
         # An error reports the target's value, not its dual number.
         @test !occursin("Dual", sprint(showerror, thrown(() -> ForwardDiff.derivative(s -> discount(quote_shift(late_rule(s), level, late, [1.0, 2.0]), 1.5), 0.0))))
+        # A payment date that moves with the shock and sits exactly on its tenor: one step later
+        # it would belong to the next bump (and throws, above), so there is no derivative to give.
+        # Without dual numbers the date is just the tenor.
+        moving(q, t) = t == 1 ? Quote(q, Cashflow(1.0, (1 + q) / 2)) : ZCBPrice(q, t)
+        moving_rule(s) = (q, t) -> t == 1 ? 1 + s : 0.8
+        @test throws(() -> ForwardDiff.derivative(s -> discount(quote_shift(moving_rule(s), level, moving, [1.0, 2.0]), 1.5), 0.0), "exactly at its tenor")
+        @test bumps(quote_shift(moving_rule(0.0), level, moving, [1.0, 2.0])) ≈ [0.0, -log(0.8) / 2] atol = 1.0e-14
         # (S2) nothing to move
         early(q, t) = Quote(q, Cashflow(1.0, t / 4))
         @test throws(() -> quote_shift((q, t) -> q, base, early, [1.0, 2.0]), "pays nothing after the previous tenor")
@@ -263,6 +284,10 @@ using ForwardDiff
         probes = Ref(0)
         @test throws(() -> Yield.__quote_bracket(x -> (probes[] += 1; probes[] > 5000 && error("still probing at $x"); 5.0e-18), 1.0), "could not bracket")
         @test probes[] < 1100
+        # also from the negative side, and where the last probes are too large to average by their sum
+        probes[] = 0
+        @test throws(() -> Yield.__quote_bracket(x -> (probes[] += 1; probes[] > 5000 && error("still probing at $x"); -5.0e-18), 1.0), "could not bracket")
+        @test Yield.__quote_bracket(x -> x < 1.0e308 ? 1.0 : x < 1.5e308 ? -1.0 : Inf, 1.0) == (2.0^1023, 2.0^1022 + floatmax(Float64) / 2)
         @test throws(
             () -> ForwardDiff.derivative(u -> ForwardDiff.derivative(s -> pv(quote_shift((q, t) -> q + s + u, base, semiannual, tenors), liability), 0.0), 0.0),
             "first-order"
