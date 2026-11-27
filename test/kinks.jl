@@ -192,26 +192,39 @@ using ForwardDiff
 
         @testset "Akima: the fallback-slope cutoff" begin
             # Knot 3's slope weight is 3e and the largest weight about 0.019, so DataInterpolations
-            # switches knot 3 to its fallback slope near e = 0.019e-9/3, and the curve's value jumps.
+            # switches knot 3 to its fallback slope near e = 0.019e-9/3.
             t7 = collect(1.0:7.0)
             knots(e) = [0.02; 0.02 .+ cumsum([0.001, 0.001 + e, 0.01, 0.01 + 2e, 0.02, 0.022])]
-            cutoff(e) = FinanceModels.Yield.__kink_quantities(Spline.Akima(), knots(e), t7)[9 + 3]
-            lo, hi = 0.0, 1.0e-10
-            for _ in 1:200
-                mid = (lo + hi) / 2
-                (mid == lo || mid == hi) && break
-                cutoff(mid) > 0 ? (hi = mid) : (lo = mid)
+            # Adjacent floating-point e either side of the zero of the guard's quantity `i`.
+            function straddle(i)
+                below, above = 0.0, 1.0e-10
+                for _ in 1:200
+                    mid = (below + above) / 2
+                    (mid == below || mid == above) && break
+                    FinanceModels.Yield.__kink_quantities(Spline.Akima(), knots(mid), t7)[i] > 0 ? (above = mid) : (below = mid)
+                end
+                return below, above
             end
             f = x -> discount(ZeroRateCurve(x, t7, Spline.Akima()), 2.5)
-            # The guard's quantity changes sign exactly where the installed DataInterpolations switches
-            # formula: the value jumps between adjacent floating-point e. If this fails,
-            # DataInterpolations changed the rule `__kink_quantities(::Sp.Akima, ...)` mirrors.
-            @test abs(f(knots(hi)) - f(knots(lo))) > 1.0e-4
-            @test_throws "switches formula" ForwardDiff.gradient(f, knots(lo))
-            @test_throws "switches formula" ForwardDiff.gradient(f, knots(hi))
-            # Either side, clear of the cutoff (and of knot 1's, at 1.5 times it), the derivative is
-            # the local one: compare with a centered difference in high precision.
-            for e in (0.8lo, 1.2hi)
+            slope(e, h) = (f(knots(e + h)) - f(knots(e))) / h   # of the value in e, over (e, e + h)
+            lo, hi = straddle(9 + 3)                 # knot 3's weight at the cutoff
+            half_lo, half_hi = straddle(9 + 7 + 3)   # and at half of it
+            @test half_lo ≈ lo / 2 rtol = 1.0e-3   # the largest weight moves a little with e
+            # The guard's quantities change sign exactly where the installed DataInterpolations
+            # switches formula: the value is continuous, and its slope in e jumps at the cutoff and
+            # at half of it. If these fail, DataInterpolations changed the rule
+            # `__kink_quantities(::Sp.Akima, ...)` mirrors.
+            h = 1.0e-3 * lo
+            for (below, above) in ((lo, hi), (half_lo, half_hi))
+                @test abs(f(knots(above)) - f(knots(below))) < 1.0e-8
+                @test abs(slope(above + h, h) - slope(below - 2h, h)) > 1.0e6
+                @test_throws "switches formula" ForwardDiff.gradient(f, knots(below))
+                @test_throws "switches formula" ForwardDiff.gradient(f, knots(above))
+            end
+            # Below the band, inside it, and above it, clear of its ends (and of knot 1's band, from
+            # 0.75 to 1.5 times the cutoff), the derivative is the local one: compare with a
+            # centered difference in high precision.
+            for e in (0.4lo, 0.6lo, 0.8lo, 1.2hi)
                 z = knots(e)
                 ref = Float64.(centred(f, big.(z); h = big(1.0e-30)))
                 @test ForwardDiff.gradient(f, z) ≈ ref rtol = 1.0e-5

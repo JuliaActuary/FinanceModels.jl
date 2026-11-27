@@ -158,7 +158,7 @@ end
 
 # The interpolant's left-hand slope at the last knot `t`: `DataInterpolations.derivative(interpolant, t)`
 # at a time inside the grid, which is `_derivative(interpolant, t, interpolant.iguesser)` (DataInterpolations
-# 9.2 through 10.1). `derivative` branches on a runtime `order`, so calling it compiled its second-order
+# 10.1). `derivative` branches on a runtime `order`, so calling it compiled its second-order
 # branch, a ForwardDiff derivative of the interpolant at a dual time, for every interpolant and element type
 # a curve is built with: each policy's curve compiles this slope, `:linear` or not. That made the first
 # gradient through `ZeroRateCurve(rates, tenors, Spline.Linear())` take 6.8 s instead of 1.9 s.
