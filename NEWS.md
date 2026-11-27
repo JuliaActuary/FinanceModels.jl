@@ -34,6 +34,10 @@ end
 See "Quote shifts" in the models guide and "Quote shifts and quote risk" in Calibration
 sensitivities.
 
+FinanceModels now requires Roots 2.2.7 or later. The old floor, 2.0.2, was allowed only because it
+predates Roots' ForwardDiff extension; no release between the two can be installed with
+ForwardDiff 1.
+
 ## v7.3.2
 
 ### `implied_quote`: a root the first search only nearly reached

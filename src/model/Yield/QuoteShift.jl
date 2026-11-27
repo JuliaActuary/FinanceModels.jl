@@ -308,11 +308,7 @@ function quote_shift(rule::R, curve::AbstractYieldModel, family::F, tenors) wher
         # has no slope to follow under a large shock.
         residual = __PrimalResidual(g_primal, who, hint)
         lo, hi = __quote_bracket(residual, t)
-        # The bracket is found in the tenor's type and the root is solved in the type the bump is
-        # stored in: a `Float16` tenor on a `Float64` curve has no `Float16` bump that reprices.
-        # (Whether the search widens a bracket to its residual's type depends on the Roots version.)
-        X = promote_type(typeof(lo), typeof(__primal(zero(B))))
-        x = lo == hi ? X(lo) : Roots.find_zero(residual, (X(lo), X(hi)), Roots.A42())
+        x = lo == hi ? lo : Roots.find_zero(residual, (lo, hi), Roots.A42())
         # The contract's target: at the root the quote reprices within `sqrt(eps)` of its unit. This
         # is the valuation the caller can repeat, on the curve and the target as given, with their
         # dual parts. Later bumps are zero up to this tenor, where every payment of this quote
