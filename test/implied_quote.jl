@@ -105,6 +105,21 @@ using ForwardDiff
         @test ForwardDiff.gradient(price, z0) ≈ fd rtol = 1.0e-7
     end
 
+    @testset "a secant search that stalls beside the root" begin
+        # For a 50-year zero-coupon yield near -4.335% the secant search stops on its relaxed
+        # test, at a yield whose price is off by 9e-7 of the quote's size. The root is inside the
+        # bracket, and the bracketed search finds it. (The call used to throw "did not converge".)
+        for r in -0.04338:0.00001:-0.0433
+            @test implied_quote(Yield.Constant(r), ZCBYield, 50.0) ≈ r atol = 1.0e-13
+        end
+        dr = ForwardDiff.derivative(r -> implied_quote(Yield.Constant(r), ZCBYield, 50.0), -0.04335)
+        @test dr ≈ 1 rtol = 1.0e-10
+        # A point whose residual is not a number is not a root, from either search: this
+        # family's price jumps from 0 to 2 at a quote of 2, where it is `NaN`.
+        gap(q, t) = ZCBPrice(q == 2 ? NaN : q < 2 ? 0.0 : 2.0, t)
+        @test_throws ArgumentError implied_quote(Yield.Constant(Continuous(0.0)), gap, 1.0; bracket = (1.0, 3.0))
+    end
+
     @testset "loud errors" begin
         @test_throws ArgumentError ForwardDiff.derivative(
             x -> ForwardDiff.derivative(y -> implied_quote(Yield.Constant(Continuous(x + y)), ZCBYield, 2.0), 0.0), 0.03
