@@ -31,6 +31,21 @@ sensitivities.
 
 ## v7.3.1
 
+### `implied_quote`: derivatives when the quote moves a payment date
+
+`implied_quote` solves its quote on an internal view of the curve without the caller's dual
+numbers, and takes the slope of that solve with ForwardDiff. The view also dropped the slope's own
+dual number from every time it was read at. For a quote family whose payment dates depend on the
+quote, the slope then left out the date's effect, and each derivative of the implied quote with
+respect to the curve was off by that factor. The implied quote itself was right.
+
+For a unit payment at `t(1 + q)/3` priced `q` on a flat 10% continuous curve, at `t = 1`, the
+derivative with respect to the curve's rate was -0.6054. It is now -0.5871, the closed form
+`-qτ/(1 + q·r·t/3)` and the central difference.
+
+Families whose dates are fixed by the maturity, which includes every family FinanceModels defines,
+are unchanged.
+
 ### `Spline.MonotoneConvex()`: the first and last knot intervals have no kink at equal forwards
 
 A MonotoneConvex curve switches formula where two adjacent discrete forwards are equal, and its

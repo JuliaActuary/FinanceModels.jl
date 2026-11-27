@@ -507,6 +507,49 @@ FinanceModels.Yield.force_of_interest(::__ClosedFormForwardCurve, t) = 0.03 + 0.
         # a time derivative of Hull–White's zero rate at 0 (it threw: the generic zero is L/t there)
         @test ForwardDiff.derivative(t -> rate(zero(hw, t)), 0.0) == ForwardDiff.derivative(t -> rate(zero(lin, t)), 0.0)
     end
+
+    @testset "a primal curve view keeps a solve's own derivative in time" begin
+        # An implicit solve's slope is `ForwardDiff.derivative` of a `__PrimalResidual` on the view.
+        # A time that depends on the solved variable carries that dual number to the curve, and
+        # each capability keeps it: its derivative is the curve's own derivative in time. The curve
+        # is also checked with a caller's dual number in its rates, which the view drops.
+        slope(f) = ForwardDiff.derivative(FinanceModels.__PrimalResidual(f, "test", ""), 0.3)
+        rates = [0.02, 0.03, 0.035]
+        tenors = [1.0, 5.0, 10.0]
+        plain = ZeroRateCurve(rates, tenors, Spline.Cubic())
+        when(x) = 2 + 5x^2          # a time that moves with the solved variable
+        other(x) = 9 - x
+        capabilities = (
+            (c, x) -> discount(c, when(x)),
+            (c, x) -> Yield.__log_discount(c, when(x)),
+            (c, x) -> rate(zero(c, when(x))),
+            (c, x) -> discount(c, when(x), 8.0),
+            (c, x) -> discount(c, 1.5, when(x)),
+            (c, x) -> discount(c, when(x), other(x)),
+            (c, x) -> Yield.__log_interval(c, when(x), 8.0),
+            (c, x) -> Yield.__log_interval(c, 1.5, when(x)),
+            (c, x) -> Yield.__log_interval(c, when(x), other(x)),
+        )
+        function check(curve)
+            view = Yield.__PrimalCurve(curve)
+            for f in capabilities
+                @test slope(x -> f(view, x)) ≈ ForwardDiff.derivative(x -> f(plain, x), 0.3) rtol = 1.0e-13
+                @test slope(x -> f(view, x)) isa Float64
+                @test f(view, 0.3) ≈ f(plain, 0.3) rtol = 1.0e-15
+            end
+            # The zero rate has no derivative in time at 0, and the forward's derivative in time
+            # is the curvature of the log-discount, which a curve does not provide.
+            @test_throws DomainError slope(x -> rate(zero(view, x - 0.3)))
+            @test_throws ArgumentError slope(x -> Yield.force_of_interest(view, when(x)))
+            return nothing
+        end
+        check(plain)
+        # with a caller's derivative in the curve's rates
+        ForwardDiff.derivative(0.0) do θ
+            check(ZeroRateCurve(rates .+ θ, tenors, Spline.Cubic()))
+            θ
+        end
+    end
 end
 
 @testset "instantaneous_forward is a Continuous rate" begin

@@ -5,12 +5,13 @@ import ..Spline as Sp
 import ..ReadOnlyVector
 import ..DataInterpolations
 import ..Bond: coupon_times, __regular_schedule, __par_coupon
-import ..__implicit_root, ..__implicit_step, ..__PrimalResidual, ..__primal, ..__ad_depth, ..__evalpoly_exact, ..__float_eltype, ..__continuous, ..__frequency
+import ..__implicit_root, ..__implicit_step, ..__primal, ..__ad_depth, ..__evalpoly_exact, ..__float_eltype, ..__continuous, ..__frequency
 import ..__strong_zero_mul, ..__strong_zero_log, ..__wexp
 import ..ForwardDiff
 import ..Roots
 import ..Accessors
 import ..Compat
+import ..__PrimalResidual
 
 using ..FinanceCore: Continuous, Periodic, discount, accumulation, forward, pv, AbstractContract
 
