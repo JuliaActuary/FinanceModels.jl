@@ -77,15 +77,7 @@ dual numbers, a dual number in `g_primal`'s argument or value, a root that does 
 """
 function __implicit_root(g::G, g_primal::P, x0; bracket = (-1.0, 1.0), who, hint = "", slope::S = nothing, scale::C) where {G, P, S, C}
     residual = __PrimalResidual(g_primal, who, hint)
-    return __implicit_step(g, residual, __solve_primal_root(residual, x0, bracket); who, slope, scale)
-end
-
-# The checks and the dual correction step of `__implicit_root`, at a root `x` of the primal
-# `residual` that the caller has found with a solver of its own: `quote_shift` solves inside a
-# bracket it has proved. `slope_scale(x)` is the magnitude the slope is checked against, where that
-# is not the residual's: `quote_shift` measures its residual against all of a quote's payments and
-# its slope against those the bump moves.
-function __implicit_step(g::G, residual::P, x; who, slope::S = nothing, scale::C, slope_scale::D = scale) where {G, P, S, C, D}
+    x = __solve_primal_root(residual, x0, bracket)
     # A solver can accept a point whose residual is small in absolute terms only.
     tol = sqrt(eps(float(typeof(x)))) * scale(x)
     abs(residual(x)) <= tol || throw(
@@ -96,7 +88,7 @@ function __implicit_step(g::G, residual::P, x; who, slope::S = nothing, scale::C
     depth == 0 && return x
     depth == 1 || throw(ArgumentError("$who supports first-order ForwardDiff derivatives only; nested dual numbers are not supported"))
     s = slope === nothing ? ForwardDiff.derivative(residual, x) : slope(x)
-    (isfinite(s) && abs(s) > sqrt(eps(typeof(s))) * slope_scale(x)) ||
+    (isfinite(s) && abs(s) > sqrt(eps(typeof(s))) * scale(x)) ||
         throw(ArgumentError("$who has a vanishing or non-finite derivative at the solution ($s); its sensitivity is undefined"))
     # `gx` has a primal value of zero at the root, so this step keeps the root's
     # value and carries only the implicit-function partials.

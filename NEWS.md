@@ -17,14 +17,19 @@ up = quote_shift(curve, (y, t) -> ParYield(y, t; frequency = 2), [1, 2, 3, 5, 7,
 end
 ```
 
-- **What is exact.** Quotes reprice at the tenors only. Between tenors they move approximately,
-  and forwards jump at the tenors.
+- **What is exact.** Each shifted quote reprices on the result, by `pv` of its instrument, within
+  `sqrt(eps)` of the quote's size, or the call throws. That holds at the tenors only: between
+  them quotes move approximately, and forwards jump at the tenors.
 - **Derivatives.** First-order ForwardDiff derivatives are exact, through the base curve and the
-  new quotes, so the gradient at a zero shock is quote key-rate risk. Nested dual numbers throw.
-- **Accepted quotes.** Each quote must pay only up to its own tenor, and must have a price its
-  bump can reach. Every standard family qualifies, including at negative rates, and a quote's
-  instrument may be a portfolio of fixed-cashflow contracts. Others throw an `ArgumentError`
-  naming the tenor and the failed condition.
+  new quotes, so the gradient at a zero shock is quote key-rate risk. Nested dual numbers throw,
+  and so does a payment date that depends on a differentiated quantity.
+- **Accepted quotes.** Each quote must pay only up to its own tenor, every payment taken on its
+  own, and must have a price its bump can reach. Its value must respond to its bump: payments
+  that offset one another beyond the precision of the valuation, or that all fall just after
+  the previous tenor, would leave the bump to rounding. Every standard family
+  qualifies, including at negative rates, and a quote's instrument may be a portfolio of
+  fixed-cashflow contracts. Others throw an `ArgumentError` naming the tenor and the failed
+  condition.
 
 See "Quote shifts" in the models guide and "Quote shifts and quote risk" in Calibration
 sensitivities.
