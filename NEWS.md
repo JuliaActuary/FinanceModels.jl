@@ -1,5 +1,20 @@
 # FinanceModels.jl release notes
 
+## v7.3.2
+
+### `implied_quote`: a root the first search only nearly reached
+
+`implied_quote` searches for its quote with the secant method and falls back to a bracketed search
+when that fails. The secant method can also stop without failing, on a relaxed test, where its
+steps have stalled beside the root. `implied_quote` then checked the point, found its residual too
+large, and threw `implied_quote did not converge`, although the root was inside the bracket.
+
+It now retries such a point with the bracketed search when the residual changes sign over the
+bracket. A 50-year `ZCBYield` on a flat curve between -4.338% and -4.330% (annual effective) was
+one such case: the first search stopped at a yield whose price was off by 9e-7 of the quote's size.
+The swaption critical rate uses the same search and gets the same retry. Results that did not throw
+are unchanged.
+
 ## v7.3.1
 
 ### `implied_quote`: derivatives when the quote moves a payment date
