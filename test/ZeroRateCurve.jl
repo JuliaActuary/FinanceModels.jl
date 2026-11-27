@@ -734,7 +734,7 @@ using ForwardDiff
             )
             s = repr(c)
             @test startswith(s, "ZeroRateCurve(")
-            rebuilt = Core.eval(Main, Meta.parse(s))
+            rebuilt = Core.eval(@__MODULE__, Meta.parse(s))
             @test rebuilt == c && typeof(rebuilt) == typeof(c)
         end
     end
