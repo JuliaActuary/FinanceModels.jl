@@ -1,6 +1,8 @@
-# Blends of curves in discount-factor, zero-rate and forward-rate space. Uses the curve types defined
-# at the top of log_discount.jl (`__HalfFlatCurve`, `__NegativeDiscountCurve`).
+# Blends of curves in discount-factor, zero-rate and forward-rate space.
 import Random
+using ForwardDiff
+
+include("helpers/discount_only_curves.jl")   # `__HalfFlatCurve`, `__NegativeDiscountCurve`
 
 @testset "Blend" begin
     flat(r) = Yield.Constant(Continuous(r))

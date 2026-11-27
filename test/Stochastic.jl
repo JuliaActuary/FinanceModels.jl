@@ -1,6 +1,8 @@
 using Random
 using ForwardDiff
 
+include("helpers/black_reference.jl")   # `black_reference`, also used in Equity.jl
+
 struct TestStochasticModel <: AbstractStochasticModel
     initial::Float64
 end
@@ -2116,7 +2118,7 @@ end
 
 @testset "Gaussian bond options at zero and tiny volatility (#291)" begin
     # 7.0.0 switched to intrinsic values below a bond-price volatility σ_P of 1e-15: at the money the
-    # σ-derivative dropped from 0.34 to 0 there, and was 0 at σ = 0. (`black_reference` is in Equity.jl.)
+    # σ-derivative dropped from 0.34 to 0 there, and was 0 at σ = 0.
     D(f, x) = ForwardDiff.derivative(f, x)
     a, T, S = 0.1, 1.0, 2.0
     curve = Yield.Constant(Continuous(0.03))
@@ -2237,8 +2239,8 @@ end
         # a swaption's critical rate takes first-order derivatives only
         c isa Option.Swaption || @test D(x -> D(y -> f((x - y)^2), 0.0), 0.0) ≈ -2D(f, 0.0) rtol = 1.0e-14 atol = 1.0e-16
     end
-    # Hull-White caps and floors against 256-bit references (`black_reference` is in Equity.jl): each
-    # caplet is (1 + Kτ) puts on the bond paying at T_pay, struck at 1/(1 + Kτ), expiring at T_reset
+    # Hull-White caps and floors against 256-bit references: each caplet is (1 + Kτ) puts on the bond
+    # paying at T_pay, struck at 1/(1 + Kτ), expiring at T_reset
     A = big(0.1)
     vP(T, S) = setprecision(() -> Float64((1 - exp(-A * (S - T))) / A * sqrt((1 - exp(-2A * T)) / (2A))), BigFloat, 256)
     for K in (0.02, fwd_rate, 0.04), σ in (1.0e-300, 1.0e-16, 1.0e-15, 3.0e-15, 1.0e-14, 0.01)
