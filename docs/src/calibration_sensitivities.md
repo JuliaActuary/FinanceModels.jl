@@ -188,7 +188,7 @@ of the knot *values*, not of the tenors:
 |:--------------|:------|
 | `Spline.MonotoneConvex()` | two adjacent discrete forwards equal (every flat stretch of the curve), for values between the first and the last knot interval; a node forward exactly at its positivity bound |
 | `Spline.PCHIP()` | two adjacent knot rates equal (a flat segment) |
-| `Spline.Akima()` | three or more knots on a straight line; a knot whose slope weight is exactly `1e-9` of the largest, where the curve's value jumps |
+| `Spline.Akima()` | three or more knots on a straight line; a knot whose slope weight is exactly `1e-9` or `0.5e-9` of the largest, the two ends of the band where its slope changes over to a fallback |
 
 Flat curves sit on a kink, and repeated or rounded quotes can put a fitted curve on one.
 `Spline.MonotoneConvex()` has one exception: its first and last knot intervals do not switch
@@ -212,7 +212,7 @@ At a kink, the derivative depends on the direction of the bump:
   exactly zero (a 0% curve).
 - **`Spline.PCHIP()`** and **`Spline.Akima()`** throw an `ArgumentError` when dual knot rates move
   a kink, since their implementation returns a one-sided value, `NaN`, or the derivative of a
-  fallback formula there, and Akima's value can jump. A parallel shift of a flat PCHIP or Akima curve is fine.
+  fallback formula there. A parallel shift of a flat PCHIP or Akima curve is fine.
 - **`fit`** throws when the fitted curve lies on a kink, or within the fit's precision of one:
   the refitted curve has no derivative with respect to the quotes there.
 
