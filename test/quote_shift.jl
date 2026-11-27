@@ -107,6 +107,30 @@ using ForwardDiff
         @test ForwardDiff.derivative(tail, 0.0) ≈ (tail(h) - tail(-h)) / 2h rtol = 1.0e-7
     end
 
+    @testset "payment dates that depend on the quote" begin
+        # A unit payment at t(1 + q)/3, priced q. A rule that returns each quote unchanged gives
+        # back the curve for every curve, so the bumps have no derivative in the curve's rate, and
+        # the result has the curve's own. (`implied_quote` once dropped the date's derivative in
+        # the quote, and the bumps then moved with the rate.)
+        dated(q, t) = Quote(q, Cashflow(1.0, t * (1 + q) / 3))
+        level(r) = Yield.Constant(Continuous(r))
+        same(r) = quote_shift((q, t) -> q, level(r), dated, [1.0, 2.0])
+        @test ForwardDiff.derivative(r -> bumps(same(r)), 0.1) ≈ zeros(2) atol = 1.0e-12
+        @test ForwardDiff.derivative(r -> discount(same(r), 1.5), 0.1) ≈ -1.5 * exp(-0.15) rtol = 1.0e-12
+
+        # A date that moves across an earlier tenor meets a kink in time there. Either direction
+        # is a valid move, with its own derivative (-0.6947 later, -0.6250 earlier, for this
+        # two-year quote that costs 1.8 + s and pays at 1 + s and at 2), and ForwardDiff would take
+        # the side from the seed's direction. Under differentiation the date is rejected.
+        crossing(q, t) = t == 1 ? ZCBPrice(q, t) : Quote(q, [Cashflow(1.0, q - 0.8), Cashflow(1.0, 2.0)])
+        second(s) = bumps(quote_shift((q, t) -> t == 1 ? 1.0 : 1.8 + s, level(0.0), crossing, [1.0, 2.0]))[2]
+        h = 1.0e-6
+        @test (second(h) - second(0.0)) / h ≈ -0.6947 rtol = 1.0e-3
+        @test (second(0.0) - second(-h)) / h ≈ -0.625 rtol = 1.0e-3
+        @test throws(() -> ForwardDiff.derivative(second, 0.0), "exactly on a tenor")
+        @test throws(() -> ForwardDiff.derivative(s -> second(-s), 0.0), "exactly on a tenor")
+    end
+
     @testset "a shock and its reverse cancel" begin
         up = quote_shift((q, t) -> q + 0.01, base, semiannual, tenors)
         back = quote_shift((q, t) -> q - 0.01, up, semiannual, tenors)
@@ -176,6 +200,19 @@ using ForwardDiff
         @test throws(() -> quote_shift((q, t) -> q, flat, longer, ts), "after its tenor")
     end
 
+    @testset "an unchanged quote on payments that offset beyond the precision" begin
+        # +1e17 today, a nested leg of -1e17 and -0.5 today, and +1 in a year. The portfolio's
+        # value rounds the 0.5 away, and its implied price is the discount factor. A rule that
+        # returns that price must return the curve: the residual is that same valuation, not a sum
+        # of the payments in another order (which would ask for a discount factor of 1.5).
+        par = Yield.Constant(Continuous(0.0))
+        legs(q, t) = Quote(q, (Cashflow(1.0e17, 0.0), [Cashflow(-1.0e17, 0.0), Cashflow(-0.5, 0.0)], Cashflow(1.0, t)))
+        @test implied_quote(par, legs, 1.0) == 1
+        same = quote_shift((q, t) -> q, par, legs, [1.0])
+        @test bumps(same) == [0]
+        @test discount(same, 1.0) == 1
+    end
+
     @testset "a target price of zero" begin
         # Payments that offset one another: the quote's size is their gross value, 1.53 here, not
         # its price, so a target of zero is reached and checked like any other.
@@ -221,6 +258,17 @@ using ForwardDiff
         raised = quote_shift((q, t) -> exp(334.0), steep, ZCBPrice, [1000.0])
         @test only(bumps(raised)) ≈ -1.024 rtol = 1.0e-13
         @test discount(raised, 1000.0) ≈ exp(334.0) rtol = 1.0e-10
+        # And one hundreds of orders below it: exp(50) to exp(-700), a yield of -5% raised by 75%.
+        # Measured against today's value, that target is nothing: a bump of 1.024, which discounts
+        # the price to zero, used to pass for the root.
+        negative = Yield.Constant(Continuous(-0.05))
+        spread(s, t) = ZCBYield(Continuous(s - 0.05), t)
+        lowered = quote_shift((q, t) -> 0.75, negative, spread, [1000.0])
+        @test only(bumps(lowered)) ≈ 0.75 rtol = 1.0e-13
+        @test discount(lowered, 1000.0) ≈ exp(-700.0) rtol = 1.0e-10
+        # Its bump moves one for one with the quoted spread. (The slope of a residual divided by a
+        # unit that carried the bump's derivative was not a number here: the unit's square is zero.)
+        @test ForwardDiff.derivative(s -> only(bumps(quote_shift((q, t) -> s, negative, spread, [1000.0]))), 0.75) ≈ 1 rtol = 1.0e-12
         # A tenor so short that 1/t overflows its type: the first probe is the largest finite number.
         tiny = quote_shift((q, t) -> 0.999, Yield.Constant(Continuous(0.0)), ZCBPrice, Float16[1.0e-5])
         @test discount(tiny, Float16(1.0e-5)) ≈ 0.999 rtol = 1.0e-3
@@ -271,7 +319,7 @@ using ForwardDiff
         # Without dual numbers the date is just the tenor.
         moving(q, t) = t == 1 ? Quote(q, Cashflow(1.0, (1 + q) / 2)) : ZCBPrice(q, t)
         moving_rule(s) = (q, t) -> t == 1 ? 1 + s : 0.8
-        @test throws(() -> ForwardDiff.derivative(s -> discount(quote_shift(moving_rule(s), level, moving, [1.0, 2.0]), 1.5), 0.0), "exactly at its tenor")
+        @test throws(() -> ForwardDiff.derivative(s -> discount(quote_shift(moving_rule(s), level, moving, [1.0, 2.0]), 1.5), 0.0), "exactly on a tenor")
         @test bumps(quote_shift(moving_rule(0.0), level, moving, [1.0, 2.0])) ≈ [0.0, -log(0.8) / 2] atol = 1.0e-14
         # A payment of nothing may sit on a moving date at the tenor.
         idle(q, t) = t == 1 ? Quote(q, [Cashflow(1.0, 0.5), Cashflow(0.0, (1 + q) / 2)]) : ZCBPrice(q, t)

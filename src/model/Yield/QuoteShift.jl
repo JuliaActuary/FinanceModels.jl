@@ -45,7 +45,7 @@ end
 __quote_payments(instrument) =
     __sum_by_time(sort!([(cf.time, float(cf.amount)) for cf in __quote_cashflows(instrument)]; by = __primal ∘ first))
 
-# The payments the solve works on: values only, one per time.
+# The payments the checks and the sizes work on: values only, one per time.
 __primal_payments(payments) = __sum_by_time([(__primal(s), __primal(a)) for (s, a) in payments])
 
 # Structural condition (S1) of `quote_shift` for the quote at tenor `t`, on its payments with their
@@ -55,17 +55,19 @@ __primal_payments(payments) = __sum_by_time([(__primal(s), __primal(a)) for (s, 
 # move its derivative after this quote's solve.
 #
 # A payment date may move with a differentiated quantity (a family whose dates depend on the quote),
-# but not when it is exactly the tenor. The bumps have a kink in time at every tenor, and a dual
-# time there reads the piece that starts at it: the next tenor's, in which this quote may not pay
-# at all. The derivative would describe a move the quote cannot make.
-function __check_late_payments(payments, t, target)
+# but not when it sits exactly on a tenor of `ts`. The bumps' zero rates have a kink in time at
+# every tenor, so the derivative there is one-sided, and ForwardDiff takes the side from the
+# direction of the first seed: one gradient would mix the two sides. At the quote's own tenor the
+# later side is the next tenor's bump, in which this quote may not pay at all.
+function __check_late_payments(payments, ts, t, target)
     for (s, a) in payments
         iszero(a) && continue
-        (__primal(s) == t && s != t) && throw(
+        (s != __primal(s) && __primal(s) <= t && insorted(__primal(s), ts)) && throw(
             ArgumentError(
-                "quote_shift: the quote at tenor $t pays exactly at its tenor on a date that moves with a differentiated " *
-                    "quantity (the quote, the curve or the shock). Its derivative is not defined there: any later, the payment " *
-                    "would belong to the next tenor's bump. A moving payment date must stay before its tenor."
+                "quote_shift: the quote at tenor $t pays at time $(__primal(s)), exactly on a tenor, on a date that moves " *
+                    "with a differentiated quantity (the quote, the curve or the shock). The bumps have a kink in time at " *
+                    "every tenor, so the derivative there depends on the direction of the move. A moving payment date " *
+                    "must stay off the tenors."
             )
         )
         __primal(s) > t && throw(
@@ -179,7 +181,9 @@ solved one tenor at a time, shortest first: the quote at a tenor depends only on
 - **Derivatives.** First-order ForwardDiff derivatives are exact, by the implicit function theorem
   at each solve. They flow through `curve`'s parameters and the rule's new quotes (including a
   quote's price), also when a shock's value is zero. The value of a dual result equals the
-  non-dual result exactly. Nested dual numbers throw an `ArgumentError`.
+  non-dual result exactly. Nested dual numbers throw an `ArgumentError`, as does a payment date
+  that moves with a differentiated quantity and sits exactly on a tenor: the bumps' zero rates
+  have a kink in time there, and the derivative would depend on the direction of the move.
 - **Accepted quotes.** Each quote is checked before its bump is solved. With `t₀ = 0` and the
   quote at `tₖ`, zero amounts ignored, it must:
   1. pay only at or before `tₖ`;
@@ -248,10 +252,9 @@ function quote_shift(rule::R, curve::AbstractYieldModel, family::F, tenors) wher
         t, t_prev = ts[k], k == 1 ? zero(ts[k]) : ts[k - 1]
         q, qp = targets[k], primal_targets[k]
         pb = map(__primal, bumps)
-        value(c, b, instrument) = FinanceCore.present_value(c + __trial_quote_bumps(b, ts), instrument)
         target = __primal(news[k])
         dual_payments = __quote_payments(q.instrument)
-        __check_late_payments(dual_payments, t, target)
+        __check_late_payments(dual_payments, ts, t, target)
         payments = __primal_payments(dual_payments)
         __check_quote_payments(payments, t_prev, t, target)
         solved = primal + __trial_quote_bumps(pb, ts)
@@ -262,35 +265,47 @@ function quote_shift(rule::R, curve::AbstractYieldModel, family::F, tenors) wher
                     "$fixed, the value of its payments at or before $t_prev, which its bump cannot move."
             )
         )
-        # Solve relative to the quote's size: the gross value of its payments, each in absolute
-        # value. The net value is no measure of size where payments offset one another, and a
-        # target price of zero would leave no tolerance at the root at all. The residual's own unit
-        # `σ` is the larger of that size before the bump and the target price: a price many orders
-        # above today's value, divided by today's value alone, overflows before the search starts.
-        sizes = [(s, abs(a)) for (s, a) in payments]
-        function magnitude(x)
-            c = primal + __trial_quote_bumps(__with_bump(pb, k, x), ts)
-            return sum(a * discount(c, s) for (s, a) in sizes; init = zero(qp.price))
+        # The residual is the quote's value, by the same valuation that gave the starting quote,
+        # less its price, in a unit taken at each trial bump: the mean of the sizes of that value,
+        # of the price, and of the value of the quote's last payment, which is positive and which
+        # the bump always moves. The first two bound the residual. A unit fixed before the solve
+        # does not: a large shock moves the value by hundreds of orders of magnitude, and against
+        # today's value a far smaller target price rounds to zero (a bump that discounts the quote
+        # to nothing would pass for its root) and a far larger one overflows. The third keeps the
+        # unit positive where a target price of zero meets a value of zero, at its root. A mean,
+        # taken term by term, is smooth in the bump and cannot overflow while its terms are finite.
+        # The unit carries no dual part: the slope is that of the value alone.
+        trial(c, b, y) = c + __trial_quote_bumps(__with_bump(b, k, y), ts)
+        s_last, a_last = payments[findlast(p -> !iszero(last(p)), payments)]
+        function priced(y)
+            c = trial(primal, pb, y)
+            net = FinanceCore.present_value(c, qp.instrument)
+            return net, __primal(abs(net) / 3 + abs(qp.price) / 3 + a_last * discount(c, s_last) / 3)
         end
-        s0 = max(magnitude(zero(t)), abs(qp.price))
-        σ = iszero(s0) ? one(s0) : s0
-        g(x) = (value(curve, __with_bump(bumps, k, x), q.instrument) - q.price) / σ
-        g_primal(x) = (value(primal, __with_bump(pb, k, x), qp.instrument) - qp.price) / σ
-        scale(x) = magnitude(x) / σ
-        # The slope is the bump's own effect, so it is measured against the payments the bump
-        # moves. Against all of them, large payments that offset one another before the previous
-        # tenor would make a sound slope look like none.
-        moved = [(s, a) for (s, a) in sizes if s > t_prev]
-        function slope_scale(x)
-            c = primal + __trial_quote_bumps(__with_bump(pb, k, x), ts)
-            return sum(a * discount(c, s) for (s, a) in moved; init = zero(qp.price)) / σ
+        function g_primal(y)
+            net, at_y = priced(y)
+            return (net - qp.price) / at_y
         end
-        # The root is solved inside its bracket. A secant search from zero stops where this
-        # residual is small in absolute terms, which a long quote under a large shock reaches far
-        # from its root: `exp(-x·t)` is below every absolute tolerance once `x·t` passes about 30.
+        # The root is solved inside its bracket. Far from the root this residual is flat, at about
+        # ±1 (the value or the price is nothing against the other), so a secant search from zero
+        # has no slope to follow under a large shock.
         residual = __PrimalResidual(g_primal, who, hint)
         lo, hi = __quote_bracket(residual, t)
         x = lo == hi ? lo : Roots.find_zero(residual, (lo, hi), Roots.A42())
+        # The residual with its dual parts, in the root's unit.
+        unit = last(priced(x))
+        g(y) = (FinanceCore.present_value(trial(curve, bumps, y), q.instrument) - q.price) / unit
+        # The checks at the root measure it against the quote's size: the gross value of its
+        # payments, each in absolute value. The net value is no measure of size where payments
+        # offset one another. The slope is the bump's own effect, so it is measured against the
+        # payments the bump moves: against all of them, large payments that offset one another
+        # before the previous tenor would make a sound slope look like none.
+        function gross(y, from)
+            c = trial(primal, pb, y)
+            return sum(abs(a) * discount(c, s) for (s, a) in payments if s > from; init = zero(qp.price)) / unit
+        end
+        scale(y) = gross(y, typemin(t))
+        slope_scale(y) = gross(y, t_prev)
         bumps[k] = __implicit_step(g, residual, x; scale, slope_scale, who)
     end
     return curve + __quote_bumps(bumps, ts)
