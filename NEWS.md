@@ -1,5 +1,22 @@
 # FinanceModels.jl release notes
 
+## v7.3.3
+
+### `Spline.Akima()`: the kink guard follows DataInterpolations 10.1.5
+
+An Akima knot whose slope weight is tiny against the largest takes a fallback slope. Through
+DataInterpolations 10.1.4 the slope switched at a cutoff of `1e-9` of the largest weight, and the
+curve's value jumped there. DataInterpolations 10.1.5 blends the two slopes between half the
+cutoff and the cutoff: the value is continuous, and its derivative jumps at each end of that band.
+
+FinanceModels throws when dual knot rates move an Akima kink, and it knew the cutoff only. On
+DataInterpolations 10.1.5 a derivative taken exactly at half the cutoff came back one-sided, with
+no error. The guard now covers both ends of the band, and a differentiated `fit` checks both.
+Curves and derivatives away from those two points are unchanged.
+
+FinanceModels now requires DataInterpolations 10.1.5 or later (it allowed 9.2 and up), so that it
+follows one Akima rule, and PrecompileTools 1.2.1, which that release requires.
+
 ## v7.3.2
 
 ### `implied_quote`: a root the first search only nearly reached
