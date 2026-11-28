@@ -17,6 +17,11 @@ Two concrete subtypes:
 
 Both subtypes implement the standard `AbstractYieldModel` interface (`zero`,
 `discount`, `forward`, `pv`).
+
+At `t = Inf` the rule is evaluated there: `rule(zero(base, Inf), Inf)` is taken as the limit of
+the shifted zero rate, and as the instantaneous forward at infinity. That is the limit for a rule
+that is continuous at the base curve's limiting rate and whose forward settles. A rule with a
+threshold exactly at that rate, or one that keeps oscillating, has no such limit to read.
 """
 abstract type AbstractYieldShift <: AbstractYieldModel end
 
@@ -141,3 +146,7 @@ FinanceCore.discount(s::AbstractYieldShift, t) = __discount_from_zero(s, t)
 force_of_interest(s::AbstractYieldShift, t) = __forward_from_zero(s, t)
 __log_discount(s::AbstractYieldShift, t) = __log_discount_from_zero(s, t)
 __log_native(::AbstractYieldShift) = true
+# A rule is opaque, so its tail is the fallback's: the rule at infinity, read at the caller's horizon
+# so that a rule which dispatches on the time's type sees that type. A shift type with a closed-form
+# tail defines the one-argument `__log_tail` instead.
+__log_tail(s::Union{TenorShift, ProjectedShift}, t) = __fallback_tail(__continuous(Base.zero(s, t)))

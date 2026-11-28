@@ -56,8 +56,10 @@ function Base.zero(cp::CairnsPritchard, t)
     return Continuous(cp.b₀ + cp.b₁ * exp(-cp.c₁ * t) + cp.b₂ * exp(-cp.c₂ * t))
 end
 FinanceCore.discount(cp::CairnsPritchard, t) = __discount_from_zero(cp, t)
-__log_discount(cp::CairnsPritchard, t) = __log_discount_from_zero(cp, t)
+@inline __log_discount(cp::CairnsPritchard, t) = __log_discount_from_zero(cp, t)
 __log_native(::CairnsPritchard) = true
+# L(t) = b₀·t + o(1): each exponential term's t·exp(-c·t) vanishes.
+__log_tail(cp::CairnsPritchard) = __LogTail(zero(cp.b₀), cp.b₀, zero(cp.b₀))
 
 """
     CairnsPritchardExtended(c₁, c₂, c₃, b₀, b₁, b₂, b₃)
@@ -120,7 +122,8 @@ function Base.zero(cp::CairnsPritchardExtended, t)
     return Continuous(cp.b₀ + cp.b₁ * exp(-cp.c₁ * t) + cp.b₂ * exp(-cp.c₂ * t) + cp.b₃ * exp(-cp.c₃ * t))
 end
 FinanceCore.discount(cp::CairnsPritchardExtended, t) = __discount_from_zero(cp, t)
-__log_discount(cp::CairnsPritchardExtended, t) = __log_discount_from_zero(cp, t)
+@inline __log_discount(cp::CairnsPritchardExtended, t) = __log_discount_from_zero(cp, t)
 __log_native(::CairnsPritchardExtended) = true
+__log_tail(cp::CairnsPritchardExtended) = __LogTail(zero(cp.b₀), cp.b₀, zero(cp.b₀))
 
 force_of_interest(c::Union{CairnsPritchard, CairnsPritchardExtended}, t) = __forward_from_zero(c, t)

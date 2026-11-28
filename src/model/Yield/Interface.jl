@@ -27,10 +27,11 @@
 #   `ForwardStarting` (from the base curve's interval), `HullWhite` (its initial curve's),
 #   `CompositeYield` and `ScaledYield` (their components' intervals, combined), `Blend` (by its
 #   space: a mixture's log-discount, or its components' intervals combined).
-# - `__log_tail`, exact: `Constant`, `Spline`, `MonotoneConvex`, and the wrappers `CompositeYield`,
-#   `ScaledYield`, `ForwardStarting`, `HullWhite` and `Blend` with number weights, which combine their
-#   components' tails. Every other curve uses the fallback, which knows only the growth rate its zero
-#   rate at infinity implies.
+# - `__log_tail`, exact: `Constant`, `NelsonSiegel(Svensson)`, `CairnsPritchard(Extended)`, `Spline`,
+#   `MonotoneConvex`, and the wrappers `CompositeYield`, `ScaledYield`, `ForwardStarting`,
+#   `HullWhite` and `Blend` with number weights, which combine their components' tails. Every other
+#   curve (the yield shifts among them) uses the fallback, which knows only the growth rate its
+#   zero rate at infinity implies.
 # - A curve that forwards to another (`HullWhite`, `__PrimalCurve`) forwards every capability in
 #   `__FORWARDED_CAPABILITIES` (at the end of this file), so the wrapped curve's own rules (its
 #   intervals, its closed-form forward) apply. `__log_native` is for leaf curves only.
@@ -67,10 +68,12 @@ end
 # curves has the same limit as the sum of their zero rates, and an exact cancellation of the slopes
 # is NaN (0·Inf). An infinite zero rate means L grows faster than t, at an order the curve doesn't
 # say; the forward slot then holds ±Inf, which the limit reads as that unknown growth.
-function __log_tail(c)
-    z = __continuous(Base.zero(c, Inf))
-    return __LogTail(zero(z), z, oftype(z, NaN))
-end
+__log_tail(c) = __fallback_tail(__continuous(Base.zero(c, Inf)))
+# The unknown intercept is NaN in its partials too.
+__fallback_tail(z) = __LogTail(zero(z), z, __undetermined(z))
+# The tail as an evaluation at the horizon `t` (+Inf, in the caller's time type) reads it. Only a
+# curve whose tail comes from a user's rule depends on that type (the yield shifts).
+__log_tail(c, t) = __log_tail(c)
 
 # Knot curves and wrappers evaluate L at t = +Inf from their tail (a wrapper's combines its
 # components'); a negative time still reaches the components, which reject it. The limits are out
@@ -99,14 +102,24 @@ end
 # Discount factor of the curves defined by their zero rate (NelsonSiegel(Svensson),
 # CairnsPritchard, the yield shifts), shared through the one-line `discount`
 # stubs at each curve definition. `exp(-L)` gives DF(0) = 1 exactly and keeps the promoted
-# curve/time numeric type.
-__discount_from_zero(c, t) = __at_infinity(t) ? __discount_at_infinity(c) : exp(-__zero_log_discount(c, t))
-__log_discount_from_zero(c, t) = __at_infinity(t) ? __log_discount_at_infinity(c) : __zero_log_discount(c, t)
+# curve/time numeric type. The limit at infinity is out of line and has that type as well, so a
+# time that carries partials infers. The helpers are `@inline`, with the one-line `__log_discount`
+# stubs of `Constant` and `CairnsPritchard(Extended)`: without it the infinity branch moves an
+# interval's two log-discounts out of line (12 → 28 ns for `discount(::CairnsPritchard, from, to)`).
+@inline __discount_from_zero(c, t) = __at_infinity(t) ? __limit_from_zero(__discount_at_infinity, c, t) :
+    exp(-__zero_log_discount(c, t))
+@inline __log_discount_from_zero(c, t) = __at_infinity(t) ? __limit_from_zero(__log_discount_at_infinity, c, t) :
+    __zero_log_discount(c, t)
+@noinline function __limit_from_zero(limit::F, c, t) where {F}
+    tail = __log_tail(c, __primal(t))
+    T = promote_type(typeof(tail.a0), typeof(t))
+    return limit(__LogTail(convert(T, tail.a2), convert(T, tail.a1), convert(T, tail.a0)))
+end
 
 # A forward differentiates the unbranched z(t)*t, not its parameter-sensitive tail limit.
 # At either endpoint its rate is the zero rate's limit; evaluating the product's derivative
 # at infinity would form 0*Inf even for exponentially decaying zero-rate loadings.
-__forward_from_zero(c, t) = (iszero(t) || __at_infinity(t)) ? FinanceCore.rate(Base.zero(c, t)) :
+@inline __forward_from_zero(c, t) = (iszero(t) || __at_infinity(t)) ? FinanceCore.rate(Base.zero(c, t)) :
     ForwardDiff.derivative(u -> __zero_log_discount(c, u), t)
 
 # Generic callable fallback: `curve(t) ≡ discount(curve, t)`. Covers every

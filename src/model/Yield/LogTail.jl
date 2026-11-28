@@ -23,11 +23,15 @@ __shift_tail(x::__LogTail, τ, L_τ) = __LogTail(x.a2, x.a1 + 2 * x.a2 * τ, x.a
 # positive, Inf when negative. When both are zero it is finite, exp(-a0), which z(Inf)·Inf = 0·Inf
 # would lose as NaN. The signs are those of the primal values. A deciding coefficient that is zero
 # there but carries partials has no derivative: a bump that moves it can move the limit to 0 or Inf.
+# An undetermined limit is NaN in its partials too, so a derivative never reads as zero.
 function __discount_at_infinity(tail::__LogTail)
     d = exp(-tail.a0)
     limit = __tail_limit_sign(tail)
-    return limit > 0 ? zero(d) : limit < 0 ? oftype(d, Inf) : limit == 0 ? d : oftype(d, NaN)
+    return limit > 0 ? zero(d) : limit < 0 ? oftype(d, Inf) : limit == 0 ? d : __undetermined(d)
 end
+
+# NaN of x's type, also in every partial of a dual number (0·NaN and p·NaN are both NaN).
+__undetermined(x) = x * oftype(float(__primal(x)), NaN)
 
 # The same limit as a cumulative log-discount: +Inf where the discount factor tends to 0, -Inf
 # where it tends to Inf, and a0 where it is finite. It is not formed as
@@ -35,7 +39,7 @@ end
 function __log_discount_at_infinity(tail::__LogTail)
     L = tail.a0
     limit = __tail_limit_sign(tail)
-    return limit > 0 ? oftype(L, Inf) : limit < 0 ? oftype(L, -Inf) : limit == 0 ? L : oftype(L, NaN)
+    return limit > 0 ? oftype(L, Inf) : limit < 0 ? oftype(L, -Inf) : limit == 0 ? L : __undetermined(L)
 end
 
 # +1 if the discount factor at infinity is 0, -1 if it is Inf, 0 if it is finite, NaN if the tail
