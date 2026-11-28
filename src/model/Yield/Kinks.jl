@@ -54,8 +54,8 @@ end
 
 # ── DataInterpolations' branch rules ───────────────────────────────────────────────────
 # PCHIP and Akima evaluate through DataInterpolations, which at these switches returns a
-# one-sided value, NaN, or the derivative of a fallback formula (and Akima's value can jump).
-# These copies of its internal branch conditions match DataInterpolations 9.2 through 10.1; the
+# one-sided value, NaN, or the derivative of a fallback formula.
+# These copies of its internal branch conditions match DataInterpolations 10.1.5; the
 # "DataInterpolations branch rules" tests in `test/kinks.jl` check them against the installed
 # version, and must be revisited with any change to that compat bound or upstream fix.
 
@@ -73,8 +73,10 @@ function __kink_quantities(::Sp.PCHIP, z, tenors)
 end
 
 # `_akima_init!`: node slopes weight the secant slopes (padded by linear extrapolation at each
-# end) by `abs` of their differences, and a node whose total weight is at most 1e-9 of the
-# largest takes a fallback slope instead: the curve's value jumps there.
+# end) by `abs` of their differences, and a node whose total weight is small against the largest
+# takes a fallback slope instead. The cutoff is 1e-9 of the largest weight, and the two slopes are
+# blended between half the cutoff and the cutoff: the value is continuous, and its derivative
+# jumps at each end of that band.
 function __kink_quantities(::Sp.Akima, z, tenors)
     m = diff(z) ./ diff(tenors)
     n = length(m)
@@ -82,5 +84,6 @@ function __kink_quantities(::Sp.Akima, z, tenors)
     mn = 2 * m[n] - m[n - 1]
     Δ = diff([2 * m2 - m[1]; m2; m; mn; 2 * mn - m[n]])
     w = [abs(Δ[i]) + abs(Δ[i + 2]) for i in 1:(n + 1)]
-    return [Δ; w .- 1.0e-9 * maximum(w)]
+    cutoff = 1.0e-9 * maximum(w)
+    return [Δ; w .- cutoff; w .- cutoff / 2]
 end

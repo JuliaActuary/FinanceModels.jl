@@ -1,16 +1,251 @@
 # FinanceModels.jl release notes
 
-## v7.3.0 (unreleased)
+## v7.4.0 (unreleased)
+
+### Quote shifts: `quote_shift`
+
+`quote_shift(rule, curve, family, tenors)` shifts quoted rates the way `curve + (z, t) -> …`
+shifts zero rates. It shifts par yields, CMT and OIS rates, swap rates or zero-coupon prices,
+with no refit. `rule(q, t)` receives each tenor's quote from `implied_quote` and returns the new
+quote. The result is a `CompositeYield`: the curve plus continuous zero-rate hats at the tenors
+(`ZeroRateCurve(bumps, tenors, Spline.Linear(); extrapolation = :flat_zero)`), solved one tenor
+at a time so that every shifted quote reprices.
+
+```julia
+up = quote_shift(curve, (y, t) -> ParYield(y, t; frequency = 2), [1, 2, 3, 5, 7, 10, 20, 30]) do q, t
+    q + 0.01   # every quoted par yield +100bp
+end
+```
+
+- **What is exact.** Each shifted quote reprices on the result, by `pv` of its instrument, within
+  `sqrt(eps)` of the quote's size, or the call throws. That holds at the tenors only: between
+  them quotes move approximately, and forwards jump at the tenors.
+- **Derivatives.** First-order ForwardDiff derivatives are exact, through the base curve and the
+  new quotes, so the gradient at a zero shock is quote key-rate risk. Nested dual numbers throw,
+  and so does a payment date that depends on a differentiated quantity.
+- **Accepted quotes.** Each quote must pay only up to its own tenor, every payment taken on its
+  own, and must have a price its bump can reach. Its value must respond to its bump: payments
+  that offset one another beyond the precision of the valuation, or that all fall just after
+  the previous tenor, would leave the bump to rounding. Every standard family
+  qualifies, including at negative rates, and a quote's instrument may be a portfolio of
+  fixed-cashflow contracts. Others throw an `ArgumentError` naming the tenor and the failed
+  condition.
+
+See "Quote shifts" in the models guide and "Quote shifts and quote risk" in Calibration
+sensitivities.
+
+FinanceModels now requires Roots 2.2.7 or later. The old floor, 2.0.2, was allowed only because it
+predates Roots' ForwardDiff extension; no release between the two can be installed with
+ForwardDiff 1.
 
 ### Zero-native curve limits at infinity
 
 - `discount` and the log-discount of zero-native curves (`Constant`, Nelson–Siegel/Svensson,
-  Cairns–Pritchard and yield shifts) at `t = Inf`
-  take their limit from the curve tail. Finite-time values are unchanged; the forwards at infinity
-  retain the limiting rate rather than differentiating the branched log-discount.
-  Derivatives of `discount(s, Inf)` are zero where the limit is 0 or Inf, rather than NaN, and
-  throw where a zero limiting rate carries partials. Intervals ending at infinity have zero
-  derivatives where the limit is 0.
+  Cairns–Pritchard and yield shifts) at `t = Inf` take their limit from the curve tail. Finite-time
+  values are unchanged. Derivatives of `discount(curve, Inf)` with respect to the curve's
+  parameters are zero where the limit is 0 or Inf, rather than NaN, and throw where a zero limiting
+  rate carries partials. Intervals ending at infinity have zero derivatives where the limit is 0.
+- Nelson–Siegel, Svensson and Cairns–Pritchard curves have their tail in closed form. With a zero
+  level (`β₀` or `b₀`) the discount factor at infinity is its finite limit, `exp(-τ₁(β₁ + β₂) - τ₂β₃)`
+  or 1, with its parameter sensitivities, where it was NaN. A composite that cancels the level
+  (`ns - ns`) keeps that limit.
+- The instantaneous forward at infinity is the limiting zero rate with its parameter sensitivities,
+  also for Cairns–Pritchard and shifted curves, where it was NaN.
+- A limit at infinity that the tail does not determine is NaN in its derivative as well as its
+  value, for every curve type; the derivative could read as zero before.
+- A yield shift's limits at infinity come from its rule evaluated there. That is the limit for a
+  rule that is continuous at the base curve's limiting rate and whose forward settles; a threshold
+  exactly at that rate, or a shift that keeps oscillating, is not detected.
+- Derivatives of intervals that end at infinity where the discount factor diverges, and of the
+  empty interval `discount(curve, Inf, Inf)` at a zero limiting rate, are tracked in #381.
+
+## v7.3.3
+
+### `Spline.Akima()`: the kink guard follows DataInterpolations 10.1.5
+
+An Akima knot whose slope weight is tiny against the largest takes a fallback slope. Through
+DataInterpolations 10.1.4 the slope switched at a cutoff of `1e-9` of the largest weight, and the
+curve's value jumped there. DataInterpolations 10.1.5 blends the two slopes between half the
+cutoff and the cutoff: the value is continuous, and its derivative jumps at each end of that band.
+
+FinanceModels throws when dual knot rates move an Akima kink, and it knew the cutoff only. On
+DataInterpolations 10.1.5 a derivative taken exactly at half the cutoff came back one-sided, with
+no error. The guard now covers both ends of the band, and a differentiated `fit` checks both.
+Curves and derivatives away from those two points are unchanged.
+
+FinanceModels now requires DataInterpolations 10.1.5 or later (it allowed 9.2 and up), so that it
+follows one Akima rule, and PrecompileTools 1.2.1, which that release requires.
+
+## v7.3.2
+
+### `implied_quote`: a root the first search only nearly reached
+
+`implied_quote` searches for its quote with the secant method and falls back to a bracketed search
+when that fails. The secant method can also stop without failing, on a relaxed test, where its
+steps have stalled beside the root. `implied_quote` then checked the point, found its residual too
+large, and threw `implied_quote did not converge`, although the root was inside the bracket.
+
+It now retries such a point with the bracketed search when the residual changes sign over the
+bracket. A 50-year `ZCBYield` on a flat curve between -4.338% and -4.330% (annual effective) was
+one such case: the first search stopped at a yield whose price was off by 9e-7 of the quote's size.
+The swaption critical rate uses the same search and gets the same retry. Results that did not throw
+are unchanged.
+
+## v7.3.1
+
+### `implied_quote`: derivatives when the quote moves a payment date
+
+`implied_quote` solves its quote on an internal view of the curve without the caller's dual
+numbers, and takes the slope of that solve with ForwardDiff. The view also dropped the slope's own
+dual number from every time it was read at. For a quote family whose payment dates depend on the
+quote, the slope then left out the date's effect, and each derivative of the implied quote with
+respect to the curve was off by that factor. The implied quote itself was right.
+
+For a unit payment at `t(1 + q)/3` priced `q` on a flat 10% continuous curve, at `t = 1`, the
+derivative with respect to the curve's rate was -0.6054. It is now -0.5871, the closed form
+`-qτ/(1 + q·r·t/3)` and the central difference.
+
+Families whose dates are fixed by the maturity, which includes every family FinanceModels defines,
+are unchanged.
+
+### `Spline.MonotoneConvex()`: the first and last knot intervals have no kink at equal forwards
+
+A MonotoneConvex curve switches formula where two adjacent discrete forwards are equal, and its
+derivatives with respect to the knot rates treated every interval beside such a pair as a kink:
+second derivatives threw, and a fit that ended there could not be differentiated. The first and
+the last knot interval do not switch there. The forward at the curve's end is set from its
+neighbor's, so the interval's two boundary deviations keep one ratio as the knot rates move, and
+one Hagan–West polynomial, linear in them, applies on both sides of equal forwards. This holds
+while the forwards at both ends of the interval are strictly inside their positivity bounds.
+
+- A curve with two knots has only those two intervals. `fit(Spline.MonotoneConvex(),
+  CMTYield.(0.04, [2, 4]), Fit.LeastSquares())` threw; it now returns the flat curve at
+  `2log(1 + 4%/2)` that reprices both bonds, and the fitted rates have derivatives with respect to
+  the quotes (as they now do after the default fit of the same quotes).
+- On a longer curve, values in the first and last intervals have second derivatives where the
+  neighboring discrete forwards are equal. Values in the interval between still throw there: that
+  kink is real.
+- Values and first derivatives are unchanged, up to rounding at the equal forwards.
+
+## v7.3.0
+
+This release adds `Fit.LeastSquares`, a least-squares calibration for any model, corrects
+Hull–White paths on curves whose forward has kinks, and prices Monte Carlo present values one
+scenario at a time. Hull–White path discount factors and `pv_mc` values computed from them change.
+
+### Least-squares fits with one solver for every model: `Fit.LeastSquares`
+
+`Fit.LeastSquares(; weights = nothing, maxiters = 200)` fits a model by weighted squared pricing
+residuals. It is opt-in: every fit without a method keeps `Fit.Loss(x -> x^2)`.
+
+```julia
+c0 = ZeroRateCurve(fill(0.05, length(knots)), knots, Spline.Cubic())
+curve = fit(c0, bond_quotes, Fit.LeastSquares())                 # ten knots, a thousand bonds
+curve = fit(c0, bond_quotes, Fit.LeastSquares(weights = w))
+start = Yield.NelsonSiegel(1.0, 0.05, 0.0, 0.0)                  # flat 5% starting curve
+ns = fit(start, bond_quotes, Fit.LeastSquares())
+```
+
+- **One solve.** All models use the same weighted pricing residuals
+  `√wᵢ (present_value(model, quoteᵢ.instrument) - quoteᵢ.price)`. The solver fits a knot curve's
+  knot rates or another model's `variables` for any contract whose price under the model
+  ForwardDiff can differentiate twice. Quote maturities may repeat, and a spline or knot curve
+  may have fewer knots than quotes. A model without `variables` (`Yield.SmithWilson`) or a pricer that is
+  differentiable only to first order (a Hull–White swaption) is not supported.
+- **Solver.** Levenberg–Marquardt on the residuals' ForwardDiff Jacobian, then Newton's method
+  with the exact Hessian of the sum of squares. A fit is returned only as a certified local
+  minimum, certified at the parameters returned: a positive definite Hessian, and a Newton
+  correction of any one parameter that moves no quote's price by more than `1e-10` of that
+  quote's size. The test is made parameter by parameter and quote by quote, so it does not depend
+  on the parameters' units or on quotes a parameter does not move. The solver checks pricing slopes across the correction and
+  refines the fit when those slopes change materially.
+- **Errors.** A parameter on which no quote's price depends throws an `ArgumentError` naming it. A
+  fit that cannot be certified throws a `FitConvergenceError`: quotes that do not determine the
+  parameters, a minimum on a formula switch of `Spline.MonotoneConvex()`, `Spline.PCHIP()` or
+  `Spline.Akima()`, or a minimum on, beyond or indistinguishably near the bound of a variable's
+  interval.
+- **Weights.** One finite, non-negative number per quote. A quote with a weight of zero is left
+  out: it is not priced, and gets no knot in a spline fit.
+- **FX.** A foreign spline or knot curve of `FX.Forwards` is fitted to the quotes' own pricing
+  residuals, so outrights and basis swaps in one quote set are weighted as given. (A loss fit
+  minimizes the residuals of the implied quotes, in which an outright's is divided by spot.)
+  For an outright the tolerance on the Newton correction in net PV is at least four
+  floating-point spacings at the size of the larger discounted leg.
+  Contracts without an implied quote, such as a `Composite` of forwards, are priced under the FX
+  model itself; the loss fit and the bootstrap do not accept them.
+- **Precision.** Refits preserve `BigFloat` knot rates with the same stopping tolerances. Where the prices cannot be resolved to the tolerance (quotes of very different
+  sizes sharing a parameter, or a price that is a small difference of large amounts), the fit
+  throws rather than stop short.
+- **Derivatives.** First-order ForwardDiff derivatives with respect to quote prices, the contract
+  numbers a spline fit differentiates, the weights and a `Yield.FlatForwardAt` forward, for any
+  supported model and any number of quotes. They are implicit derivatives evaluated at the fitted
+  parameters (the implicit function theorem with the full Hessian). Loss fits of models other than knot curves still differentiate
+  nothing.
+- **Speed.** A ten-knot cubic curve fitted to 1,000 synthetic bonds takes about 18 ms and to
+  10,000 about 160 ms on Julia 1.13, against 30 ms and 280 ms for the loss fit, and reaches the
+  same knot rates to `1e-13`. Its first call compiles second-order dual numbers, as the loss
+  fit's Newton optimizer does, and takes about as long.
+
+### Hull–White drift at the path's own times
+
+A simulated Hull–White rate is an Ornstein–Uhlenbeck process plus a deterministic drift `α(t)`,
+which contains the initial curve's instantaneous forward. `simulate` evaluated `α` at `j * timestep`
+while publishing the path on a grid whose aligned endpoint is the horizon itself. The two can
+differ by a rounding (`3 * 0.3` is `0.8999999999999999`), and where the initial curve's forward has
+a kink at the horizon they are on opposite sides of it. With linear zero rates `[0.01, 0.02, 0.08]`
+at tenors `[0.3, 0.9, 1.2]`, a zero-volatility path to a horizon of 0.9 in steps of 0.3 reported a
+short rate of 3.5% at 0.9, where the curve's forward is 20%.
+
+`α` is now evaluated at the path's published times
+(`FinanceModels.simulation_times(path)`), so the rate recorded at a time is the model's rate at that
+time. Only the last grid point of an aligned simulation can change, and only when
+`nsteps * timestep` is not the horizon in floating point: by a rounding on a smooth curve, and by
+the size of the forward's jump when a kink sits there. Random draws, the other models and unaligned
+grids are unchanged.
+
+### Hull–White paths discount on the initial curve
+
+A Hull–White path's discount integral was the trapezoid of its short rate. That rate contains the
+initial curve's instantaneous forward, which need not be continuous: linear zero rates give a
+forward that jumps at each knot. The rate at a grid time on a knot is the forward to its right, and
+the trapezoid charged half of the jump over the step before the knot. With zero rates
+`[0.02, 0.02, 0.08, 0.03]` at years 1, 2, 3 and 5 and half-year steps, a zero-volatility path
+discounted a payment at year 2 by 0.9324, where the curve's discount factor is 0.9608. Evaluating
+`α` at the published times alone would have brought the same error to an aligned horizon on a knot.
+
+The forward's part of the integral is now the curve's own log-discount over each step, which is
+exact for any curve. The rest of the rate, the Ornstein–Uhlenbeck process and the convexity term of
+`α`, is continuous and keeps the trapezoid. Without volatility a path's discount factors are the
+initial curve's at every grid time, and a payment's value no longer depends on which grid times fall
+on knots or on how far the simulation runs past it.
+
+`Yield.instantaneous_forward(path, t)`, the slope of a path's integral over a step, is accordingly
+the curve's average forward over the step plus the average of the two rates' excesses over the
+curve's forward, where it was the average of the step's two short rates. It still is that average
+for Vasicek, Cox–Ingersoll–Ross and custom models.
+
+Sensitivities to the curve now reach the integral through the curve's log-discount as well as its
+forward. A curve whose forward at 0 carries no derivative while its later values do, such as a
+spread that applies from a later time on, now simulates under ForwardDiff. Before, a spread lying
+between two grid times was missed in the price and its sensitivity was zero, and a spread covering
+a grid time threw a `MethodError`.
+
+The simulated short rates and the random draws are unchanged. Hull–White path discount factors, and
+`pv_mc` values computed from them, change: by rounding on a flat curve, by the trapezoid's error on
+the forward for a smooth curve (of order `timestep²`), and, where a grid time lies on a kink, by
+half the forward's jump times the timestep in the log-discount from there on. Vasicek and
+Cox–Ingersoll–Ross paths are unchanged.
+
+### Monte Carlo present values one scenario at a time
+
+`pv_mc` generated every path before pricing the first. For Vasicek, Cox–Ingersoll–Ross and
+Hull–White it now prices each path as it completes, so only one scenario's path is in memory. For
+a 30-year Vasicek projection with monthly steps and 100,000 scenarios, peak process memory fell
+from 1,138 MiB to 505 MiB on Julia 1.13. Custom stochastic models still supply their scenarios
+through `simulate`.
+
+Values and the order of random draws are unchanged. If pricing a scenario throws, the caller's
+random number generator has advanced through that scenario and no further.
 
 ## v7.2.0
 

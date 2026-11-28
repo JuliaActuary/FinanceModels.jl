@@ -1,12 +1,32 @@
 using Random
 using ForwardDiff
 
+include("helpers/black_reference.jl")   # `black_reference`, also used in Equity.jl
+
 struct TestStochasticModel <: AbstractStochasticModel
     initial::Float64
 end
 
 FinanceModels.__sim_initial_rate(m::TestStochasticModel) = m.initial
 FinanceModels.__step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) = r
+
+# A custom model whose cache is defined on the step length and count, and whose state is the calendar
+# time its step ends at: the step's start time, as the simulation passes it, plus the step length.
+struct ClockStochasticModel <: AbstractStochasticModel end
+
+FinanceModels.__sim_initial_rate(::ClockStochasticModel) = 0.0
+FinanceModels.__sim_cache(::ClockStochasticModel, dt, n_steps) = (; dt, n_steps)
+FinanceModels.__step(::ClockStochasticModel, r, dt, sqrt_dt, Z, t, cache, j) = t + cache.dt
+
+# A 2% curve with a spread that applies only between two times. Its forward is a plain number
+# outside them, whatever the spread's type; its discount factors past `from` carry the spread's.
+struct SpreadCurve{S} <: FinanceModels.Yield.AbstractYieldModel
+    spread::S
+    from::Float64
+    to::Float64
+end
+FinanceCore.discount(c::SpreadCurve, t) = exp(-(0.02 * t + c.spread * (clamp(t, c.from, c.to) - c.from)))
+FinanceModels.Yield.force_of_interest(c::SpreadCurve, t) = c.from <= t < c.to ? 0.02 + c.spread : 0.02
 
 @testset "Stochastic Models" begin
 
@@ -948,13 +968,14 @@ FinanceModels.__step(::TestStochasticModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) 
             dt = 1.0
             n_steps = round(Int, T / dt)
             sqrt_dt = sqrt(dt)
-            cache = FinanceModels.__sim_cache(hw, dt, n_steps)
+            grid = FinanceModels.__sim_grid(T, dt)
+            cache = FinanceModels.__sim_cache(hw, grid)
             rng = Random.MersenneTwister(42)
             rates = Vector{Float64}(undef, N)
             for i in 1:N
                 r = FinanceModels.__sim_initial_rate(hw)
                 for j in 1:n_steps
-                    r = FinanceModels.__step(hw, r, dt, sqrt_dt, randn(rng), (j - 1) * dt, cache, j)
+                    r = FinanceModels.__step(hw, r, dt, sqrt_dt, randn(rng), grid.times[j], cache, j)
                 end
                 rates[i] = r
             end
@@ -1748,12 +1769,164 @@ end
     @test length(q.interp.t) == FinanceModels.simulation_steps(0.9, 0.5).nsteps + 1
 end
 
+@testset "Hull-White drift on the published grid" begin
+    # Without volatility, a Hull-White path is the initial curve's instantaneous forward at every
+    # simulated time. The times are the path's own: an aligned grid ends at the horizon, while
+    # n·dt can round to either side of it, and at a kink of the forward the two sides differ.
+    forwards(curve, ts) = [rate(Yield.instantaneous_forward(curve, t)) for t in ts]
+    function zero_vol_path(curve, timestep, horizon)
+        hw = ShortRate.HullWhite(0.2, 0.0, curve)
+        p = only(simulate(hw; n_scenarios = 1, timestep, horizon, rng = Random.Xoshiro(1)))
+        ts = FinanceModels.simulation_times(p)
+        return ts, [rate(short_rate(p, t)) for t in ts]
+    end
+
+    # Linear zero rates have a forward that jumps at each knot. Three steps of 0.3 are
+    # 0.8999999999999999, left of the knot at 0.9, where the forward is 3.5%; the path ends at 0.9
+    # itself, where the right-hand forward is 20%.
+    curve = ZeroRateCurve([0.01, 0.02, 0.08], [0.3, 0.9, 1.2], Spline.Linear())
+    @test rate(Yield.instantaneous_forward(curve, 3 * 0.3)) ≈ 0.035
+    ts, rates = zero_vol_path(curve, 0.3, 0.9)
+    @test last(ts) == 0.9
+    @test last(rates) ≈ 0.2
+    @test rates ≈ forwards(curve, ts) rtol = 1.0e-14
+
+    # The other direction: three steps of 0.1 are 0.30000000000000004. With a knot there, the path
+    # ends at 0.3, left of the knot.
+    @test 3 * 0.1 == nextfloat(0.3)
+    late_knot = ZeroRateCurve([0.01, 0.02, 0.08], [nextfloat(0.3), 0.9, 1.2], Spline.Linear())
+    @test !(rate(Yield.instantaneous_forward(late_knot, 3 * 0.1)) ≈ rate(Yield.instantaneous_forward(late_knot, 0.3)))
+    ts, rates = zero_vol_path(late_knot, 0.1, 0.3)
+    @test last(ts) == 0.3
+    @test rates ≈ forwards(late_knot, ts) rtol = 1.0e-14
+
+    # An unaligned horizon is covered by an extra step, and its grid keeps its own multiples of the
+    # step: 0.8999999999999999 stays left of the knot at 0.9, and the path ends on the knot at 1.2.
+    ts, rates = zero_vol_path(curve, 0.3, 1.0)
+    @test ts == [0.0, 0.3, 0.6, 3 * 0.3, 4 * 0.3]
+    @test rates[4] ≈ 0.035
+    @test rates ≈ forwards(curve, ts) rtol = 1.0e-14
+
+    # Other grids through the same knots, aligned and not
+    for (timestep, horizon) in ((0.1, 0.9), (0.1, 1.2), (0.3, 1.2), (0.25, 1.1), (0.07, 0.9))
+        ts, rates = zero_vol_path(curve, timestep, horizon)
+        @test rates ≈ forwards(curve, ts) rtol = 1.0e-14
+    end
+
+    # With volatility, the path is that drift plus an Ornstein-Uhlenbeck process that does not
+    # depend on the curve: the same draws leave the same process around any initial curve.
+    function ou_part(curve)
+        hw = ShortRate.HullWhite(0.2, 0.015, curve)
+        p = only(simulate(hw; n_scenarios = 1, timestep = 0.3, horizon = 0.9, rng = Random.Xoshiro(5)))
+        ts = FinanceModels.simulation_times(p)
+        return [rate(short_rate(p, t)) for t in ts] .- FinanceModels.__hw_alpha.(Ref(hw), ts)
+    end
+    @test ou_part(curve) ≈ ou_part(Yield.Constant(Continuous(0.03))) atol = 1.0e-15
+    @test !iszero(last(ou_part(curve)))
+
+    # A custom model's cache defined on the step length and count is still built, and its step
+    # receives the grid's own start time.
+    for (timestep, horizon) in ((0.3, 0.9), (0.1, 0.3), (0.3, 1.0))
+        p = only(simulate(ClockStochasticModel(); n_scenarios = 1, timestep, horizon))
+        ts = FinanceModels.simulation_times(p)
+        @test [rate(short_rate(p, t)) for t in ts[2:end]] == ts[1:(end - 1)] .+ timestep
+        grid = FinanceModels.__sim_grid(horizon, timestep)
+        @test FinanceModels.__sim_cache(ClockStochasticModel(), grid) == (; dt = timestep, n_steps = length(ts) - 1)
+    end
+end
+
+@testset "Hull-White discounting follows the initial curve" begin
+    zero_vol(curve) = ShortRate.HullWhite(0.2, 0.0, curve)
+    path(hw, timestep, horizon) =
+        only(simulate(hw; n_scenarios = 1, timestep, horizon, rng = Random.Xoshiro(1)))
+
+    # A payment's value does not depend on how far the simulation runs past it. The curve is flat at
+    # 2% through 0.9, where its forward jumps to 20%. A path that ends at 0.9 records the 20% there,
+    # and discounts the step before it at the 2% the curve has over it.
+    curve = ZeroRateCurve([0.02, 0.02, 0.08], [0.3, 0.9, 1.2], Spline.Linear())
+    hw = zero_vol(curve)
+    payment = Cashflow(100.0, 0.9)
+    @test present_value(curve, payment) ≈ 100 * exp(-0.02 * 0.9)
+    for horizon in (0.9, 1.0, 1.2)
+        @test pv_mc(hw, payment; n_scenarios = 1, timestep = 0.3, horizon) ≈ 100 * exp(-0.02 * 0.9) rtol = 1.0e-14
+    end
+    p = path(hw, 0.3, 0.9)
+    @test rate(short_rate(p, 0.9)) ≈ 0.2
+    # inside the last step too, where the path interpolates its integral
+    @test all(t -> discount(p, t) ≈ exp(-0.02 * t), 0.6:0.05:0.9)
+    # The path's forward over that step is the curve's 2%, not the 11% average of the step's two
+    # short rates.
+    @test rate(Yield.instantaneous_forward(p, 0.6)) ≈ 0.02
+    @test (rate(short_rate(p, 0.6)) + rate(short_rate(p, 0.9))) / 2 ≈ 0.11
+
+    # A forward too large to add to: with the last knot one rounding past 0.9, the curve is still
+    # flat at 2% through 0.9 and its forward there is near 5e14. The last step keeps its discount.
+    steep = ZeroRateCurve([0.02, 0.02, 0.08], [0.3, 0.9, nextfloat(0.9)], Spline.Linear())
+    @test rate(Yield.instantaneous_forward(steep, 0.9)) > 1.0e14
+    @test present_value(steep, payment) ≈ 100 * exp(-0.02 * 0.9)
+    @test pv_mc(zero_vol(steep), payment; n_scenarios = 1, timestep = 0.3, horizon = 0.9) ≈ 100 * exp(-0.02 * 0.9) rtol = 1.0e-14
+
+    # Without volatility the path's discount factors are the curve's at every grid time, whichever
+    # grid times fall on knots. Knots at whole years lie exactly on a half-year grid.
+    yearly = ZeroRateCurve([0.02, 0.02, 0.08, 0.03], [1.0, 2.0, 3.0, 5.0], Spline.Linear())
+    for (c, timestep, horizon) in (
+            (yearly, 0.5, 5.0), (yearly, 0.25, 4.0), (yearly, 1.0, 5.0), (yearly, 0.3, 4.1),
+            (curve, 0.3, 0.9), (curve, 0.3, 1.2), (curve, 0.1, 1.2), (curve, 0.07, 0.9),
+        )
+        p = path(zero_vol(c), timestep, horizon)
+        ts = FinanceModels.simulation_times(p)
+        @test [discount(p, t) for t in ts] ≈ [discount(c, t) for t in ts] rtol = 1.0e-14
+    end
+
+    # With volatility, the expected path discount factor is the curve's: at the knots, where the
+    # forward jumps by as much as 25 points, and between them. The trapezoid on the rest of the rate
+    # leaves a relative bias of order σ²·t·dt²/8: 6e-6 here at t = 5, a fiftieth of the standard
+    # error.
+    vol = ShortRate.HullWhite(0.2, 0.01, yearly)
+    n = 20_000
+    paths = simulate(vol; n_scenarios = n, timestep = 0.5, horizon = 5.0, rng = Random.Xoshiro(7))
+    for t in (1.0, 1.5, 2.0, 3.0, 5.0)
+        d = [discount(p, t) for p in paths]
+        μ = sum(d) / n
+        se = sqrt(sum(abs2, d .- μ) / (n - 1) / n)
+        @test abs(μ - discount(yearly, t)) < 4se
+    end
+
+    # Sensitivities to the curve's rates flow through the same integral
+    tenors = [1.0, 2.0, 3.0, 5.0]
+    flows = [Cashflow(10.0, 1.0), Cashflow(10.0, 2.0), Cashflow(110.0, 3.0)]
+    on_curve(z) = sum(cf -> present_value(ZeroRateCurve(z, tenors, Spline.Linear()), cf), flows)
+    on_paths(z) = sum(flows) do cf
+        pv_mc(zero_vol(ZeroRateCurve(z, tenors, Spline.Linear())), cf; n_scenarios = 1, timestep = 0.5, horizon = 5.0)
+    end
+    z = [0.02, 0.02, 0.08, 0.03]
+    @test ForwardDiff.gradient(on_paths, z) ≈ ForwardDiff.gradient(on_curve, z) rtol = 1.0e-12
+
+    # A sensitivity that the curve's forward at 0 does not carry: a spread between 0.25 and 0.75.
+    # With one annual step it lies inside the step, and neither end's forward has it; with half-year
+    # steps the middle grid time's forward does. Each path discounts the payment at 1 by the spread
+    # for half a year, so the price's derivative is minus half the price, with volatility too.
+    payment = Cashflow(100.0, 1.0)
+    direct(s) = present_value(SpreadCurve(s, 0.25, 0.75), payment)
+    @test direct(0.01) ≈ 100 * exp(-0.025)
+    for timestep in (1.0, 0.5), (σ, n) in ((0.0, 1), (0.01, 50))
+        spread_pv(s) = pv_mc(
+            ShortRate.HullWhite(0.2, σ, SpreadCurve(s, 0.25, 0.75)), payment;
+            n_scenarios = n, timestep, horizon = 1.0, rng = Random.Xoshiro(3)
+        )
+        price = spread_pv(0.01)
+        iszero(σ) && @test price ≈ direct(0.01) rtol = 1.0e-14
+        @test ForwardDiff.derivative(spread_pv, 0.01) ≈ -price / 2 rtol = 1.0e-13
+    end
+    @test ForwardDiff.derivative(direct, 0.01) ≈ -direct(0.01) / 2
+end
+
 @testset "short_rate: the simulated rate at grid times" begin
     # The 7.0 simulation loop, which kept only the integral, replayed with the same internals
     function legacy(model, timestep, horizon, rng)
-        grid = FinanceModels.simulation_steps(horizon, timestep)
-        dt = Float64(timestep)
-        cache = FinanceModels.__sim_cache(model, dt, grid.nsteps)
+        grid = FinanceModels.__sim_grid(horizon, timestep)
+        dt = grid.dt
+        cache = FinanceModels.__sim_cache(model, grid)
         r0 = FinanceModels.__sim_initial_rate(model)
         T = FinanceModels.__sim_eltype(model, r0)
         cumulative = Vector{T}(undef, grid.nsteps + 1)
@@ -1761,7 +1934,7 @@ end
         observed = Any[FinanceModels.__observed_rate(model, r0)]
         r = r0
         for j in 1:grid.nsteps
-            r_new = FinanceModels.__step(model, r, dt, sqrt(dt), randn(rng), (j - 1) * dt, cache, j)
+            r_new = FinanceModels.__step(model, r, dt, sqrt(dt), randn(rng), grid.times[j], cache, j)
             cumulative[j + 1] = cumulative[j] +
                 0.5 * (FinanceModels.__observed_rate(model, r) + FinanceModels.__observed_rate(model, r_new)) * dt
             push!(observed, FinanceModels.__observed_rate(model, r_new))
@@ -1771,6 +1944,8 @@ end
     end
     bits(x::ForwardDiff.Dual) = (ForwardDiff.value(x), Tuple(ForwardDiff.partials(x)))
     bits(x) = x
+    parts(x::ForwardDiff.Dual) = [ForwardDiff.value(x); collect(ForwardDiff.partials(x))]
+    parts(x) = [x]
 
     curve = Yield.Constant(Continuous(0.03))
     dual = ForwardDiff.Dual{Nothing}(0.136, 1.0)
@@ -1791,7 +1966,14 @@ end
         cumulative, observed = legacy(m, 0.1, 3.0, rng_b)
         # the integral, its type and the draws are those of the 7.0 loop
         @test eltype(p.interp.u) == eltype(cumulative)
-        @test isequal(bits.(p.interp.u), bits.(cumulative))
+        if m isa ShortRate.HullWhite
+            # Hull-White integrates its curve's forward as the curve's log-discount and only the
+            # rest of the rate by the trapezoid. A flat curve's forward integrates the same either
+            # way, so here the two differ by rounding, in value and in the derivative.
+            @test reduce(vcat, parts.(p.interp.u)) ≈ reduce(vcat, parts.(cumulative)) rtol = 1.0e-13
+        else
+            @test isequal(bits.(p.interp.u), bits.(cumulative))
+        end
         @test rng_a == rng_b
         # the recorded rates are the observed states, at the precision they were integrated in (the
         # initial rate is a plain number in a model whose other parameters carry derivatives)
@@ -1936,7 +2118,7 @@ end
 
 @testset "Gaussian bond options at zero and tiny volatility (#291)" begin
     # 7.0.0 switched to intrinsic values below a bond-price volatility σ_P of 1e-15: at the money the
-    # σ-derivative dropped from 0.34 to 0 there, and was 0 at σ = 0. (`black_reference` is in Equity.jl.)
+    # σ-derivative dropped from 0.34 to 0 there, and was 0 at σ = 0.
     D(f, x) = ForwardDiff.derivative(f, x)
     a, T, S = 0.1, 1.0, 2.0
     curve = Yield.Constant(Continuous(0.03))
@@ -2057,8 +2239,8 @@ end
         # a swaption's critical rate takes first-order derivatives only
         c isa Option.Swaption || @test D(x -> D(y -> f((x - y)^2), 0.0), 0.0) ≈ -2D(f, 0.0) rtol = 1.0e-14 atol = 1.0e-16
     end
-    # Hull-White caps and floors against 256-bit references (`black_reference` is in Equity.jl): each
-    # caplet is (1 + Kτ) puts on the bond paying at T_pay, struck at 1/(1 + Kτ), expiring at T_reset
+    # Hull-White caps and floors against 256-bit references: each caplet is (1 + Kτ) puts on the bond
+    # paying at T_pay, struck at 1/(1 + Kτ), expiring at T_reset
     A = big(0.1)
     vP(T, S) = setprecision(() -> Float64((1 - exp(-A * (S - T))) / A * sqrt((1 - exp(-2A * T)) / (2A))), BigFloat, 256)
     for K in (0.02, fwd_rate, 0.04), σ in (1.0e-300, 1.0e-16, 1.0e-15, 3.0e-15, 1.0e-14, 0.01)

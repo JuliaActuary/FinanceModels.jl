@@ -280,11 +280,16 @@ Outright(pair::Pair, forward_rate, time) = Quote(zero(forward_rate), Forward(pai
 # NaNs inside a downstream curve fit, far from the offending quote.
 function __implied_zcb_quote(q::Quote{<:Any, <:Forward}, spot, domestic)
     c = q.instrument
-    df = (c.strike * discount(domestic, c.time) + q.price) / spot
-    if !(isfinite(df) && df > 0)
-        throw(ArgumentError("the FX forward quote at time $(c.time) implies a non-positive or non-finite base-currency discount factor ($df); check the quote's price, points scale, and spot"))
-    end
+    df = __implied_df(q, spot, c.strike * discount(domestic, c.time))
     return Quote(df, Cashflow(one(df), c.time))
+end
+
+function __implied_df(q, spot, discounted_strike)
+    df = (discounted_strike + q.price) / spot
+    if !(isfinite(df) && df > 0)
+        throw(ArgumentError("the FX forward quote at time $(q.instrument.time) implies a non-positive or non-finite base-currency discount factor ($df); check the quote's price, points scale, and spot"))
+    end
+    return df
 end
 
 """
@@ -547,19 +552,18 @@ end
 # primitive behind the `fit` methods for `FX.Forwards`, and is what lets a single
 # calibration mix instrument types: outright forwards for the short end, par basis
 # swaps for the long end.
+function __check_quote_pair(m, q)
+    q.instrument.pair == m.pair || throw(ArgumentError("quote is for $(q.instrument.pair) but the model prices $(m.pair)"))
+    return nothing
+end
+
 function __implied_foreign_quote(m::Forwards, q::Quote{<:Any, <:Forward})
-    if q.instrument.pair != m.pair
-        throw(ArgumentError("quote is for $(q.instrument.pair) but the model prices $(m.pair)"))
-    end
+    __check_quote_pair(m, q)
     return __implied_zcb_quote(q, m.spot, m.domestic)
 end
 
-# a par basis-swap leg is already denominated on the base-currency curve; only check
-# that it belongs to the model's pair
 function __implied_foreign_quote(m::Forwards, q::Quote{<:Any, <:BasisSwapLeg})
-    if q.instrument.pair != m.pair
-        throw(ArgumentError("quote is for $(q.instrument.pair) but the model prices $(m.pair)"))
-    end
+    __check_quote_pair(m, q)
     return q
 end
 

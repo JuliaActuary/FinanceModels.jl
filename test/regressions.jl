@@ -1,3 +1,5 @@
+using ForwardDiff
+
 # Test-only solver that deterministically exercises `fit`'s unsuccessful-retcode path.
 struct FailingFitOptimizer end
 function FinanceModels.Optimization.solve(

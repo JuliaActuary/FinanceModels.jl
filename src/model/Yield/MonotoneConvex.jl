@@ -52,7 +52,10 @@ the interpolated instantaneous forward, as a `Continuous` rate.
 The interpolant switches formula where two adjacent discrete forwards are equal (every flat
 stretch of the curve) and where a node forward meets its positivity bound, so it is only
 piecewise smooth in its knot rates. With ForwardDiff dual knot rates, derivatives are exact away
-from those points; at them, each partial is the limit of a centered bump in its direction. See
+from those points; at them, each partial is the limit of a centered bump in its direction. The
+first and the last interval do not switch at equal forwards while the node forwards at their ends
+are inside their positivity bounds: a one-knot curve has no kink, and a two-knot curve has none
+at equal forwards unless they are zero, where those bounds collapse. See
 "Sensitivities Through Calibration" in the documentation.
 
 # References
@@ -212,13 +215,30 @@ __mc_kernel(k, x, g0, g1, fᵈ) = __mc_negligible(g0, g1, fᵈ) ? k.flat(x, g0, 
 #   (g0, g1), so a bump in direction d moves them by the formula evaluated at d, equally up and
 #   down. This is not linear in d: sensitivities to single knots need not add up to the parallel
 #   sensitivity.
-__mc_kernel(k, x, g0, g1, fᵈ, ktol) = __mc_kernel(k, x, g0, g1, fᵈ)
-function __mc_kernel(k, x, g0::D, g1::D, fᵈ, ktol = nothing) where {D <: ForwardDiff.Dual}
+# Second derivatives do not exist at a kink, with one exception: where both deviations are exactly
+# zero in every seeded direction, to every order, no direction leaves the flat interval, and its
+# value has derivatives of every order. A one-knot curve is always there (its deviations are r - r);
+# a parallel shift of a flat curve is where rounding leaves its deviations exactly zero, and
+# otherwise throws as any kink does.
+#
+# An end interval between free node forwards (`__mc_free_end`, asked of `ends` only here, at a
+# kink) has no kink at all. Its deviations keep one ratio for every knot rate (g0 = -g1/2 on the
+# first interval, g1 = -g0/2 on the last), which is an edge of sector (i) on both sides of zero,
+# and sector (i) is linear in the deviations: its derivatives, of every order, are those of that
+# polynomial.
+__mc_kernel(k, x, g0, g1, fᵈ, ktol, ends = nothing) = __mc_kernel(k, x, g0, g1, fᵈ)
+function __mc_kernel(k, x, g0::D, g1::D, fᵈ, ktol = nothing, ends = nothing) where {D <: ForwardDiff.Dual}
     tol = max(__mc_tol(ForwardDiff.value(fᵈ)), something(ktol, zero(ForwardDiff.value(fᵈ))))
     v0, v1 = ForwardDiff.value(g0), ForwardDiff.value(g1)
     n0, n1 = abs(v0) <= tol, abs(v1) <= tol
     (n0 || n1) || return __mc_sector(k, x, g0, g1)
-    __ad_depth(D) == 1 || throw(
+    if ends !== nothing && __mc_free_end(ends...)
+        # The polynomial's derivatives of every order, in its own type (a dual time may carry a tag
+        # other than `D`'s), on the primal value.
+        polynomial = k.i(x, g0, g1)
+        return (polynomial - __primal(polynomial)) + __mc_kernel(k, __primal(x), __primal(v0), __primal(v1), __primal(fᵈ))
+    end
+    (__ad_depth(D) == 1 || (iszero(g0) && iszero(g1))) || throw(
         __mc_kink_error("second derivatives do not exist where adjacent discrete forwards are equal")
     )
     xv = x isa ForwardDiff.Dual ? ForwardDiff.value(x) : x
@@ -255,11 +275,32 @@ function __mc_kink_tol(mc, i)
     return eltype(rates) <: ForwardDiff.Dual ? __mc_kink_tol(rates, mc.tenors, i) : nothing
 end
 
+# Whether node forward `j` lies strictly inside its positivity collar: it is then the raw forward,
+# and stays so for nearby knot rates.
+function __mc_node_free(f, fᵈ, j)
+    m = __primal(j == 1 ? first(fᵈ) : j == lastindex(f) ? last(fᵈ) : min(fᵈ[j - 1], fᵈ[j]))
+    return min(zero(m), 2 * m) < __primal(f[j]) < max(zero(m), 2 * m)
+end
+# Whether interval `i` is the first or the last and lies between free node forwards. The end node
+# forward is then fᵈ - (f - fᵈ)/2 of its neighbor `f`, for every knot rate nearby: the interval's
+# deviations keep the ratio that the kernel describes. A collar that binds at either node breaks it
+# (the end forward was set from its neighbor's raw forward).
+__mc_free_end(f, fᵈ, i) = (i == 1 || i == lastindex(fᵈ)) && __mc_node_free(f, fᵈ, i) && __mc_node_free(f, fᵈ, i + 1)
+# Its arguments for interval `i` of a curve with dual knot rates, for the kernel to ask at a kink.
+function __mc_ends(mc, i)
+    rates = getfield(mc, :_rates)
+    return eltype(rates) <: ForwardDiff.Dual ? (mc._f, mc._fᵈ, i) : nothing
+end
+
+const __MC_KINK_ERROR = "Yield.MonotoneConvex cannot differentiate with respect to its knot rates here: "
 __mc_kink_error(why) = ArgumentError(
-    "Yield.MonotoneConvex cannot differentiate with respect to its knot rates here: $why. Use a " *
+    __MC_KINK_ERROR * "$why. Use a " *
         "smooth interpolation (e.g. Spline.Linear() or Spline.Cubic()), key-rate shifts added to the " *
         "curve (ActuaryUtilities `KeyRates`), or finite bumps."
 )
+# Whether `err` is that refusal, for a caller that knows more about how it came to stand on a kink
+# (a least-squares fit's certificate).
+__is_mc_kink_error(err) = err isa ArgumentError && startswith(err.msg, __MC_KINK_ERROR)
 
 """
     __g(x, f⁻, f, fᵈ)
@@ -269,7 +310,7 @@ rate at normalized position x ∈ [0, 1] within an interval. Following Hagan-Wes
 g(x) = f(x) - fᵈ with boundary conditions g₀ = f⁻ - fᵈ and g₁ = f - fᵈ that determine
 the sector-specific polynomial used for interpolation.
 """
-function __g(x, f⁻, f, fᵈ, ktol = nothing)
+function __g(x, f⁻, f, fᵈ, ktol = nothing, ends = nothing)
     g0 = f⁻ - fᵈ
     g1 = f - fᵈ
     # Interval-boundary deviations are exact: g(0) = g0 and g(1) = g1. Returning
@@ -282,7 +323,7 @@ function __g(x, f⁻, f, fᵈ, ktol = nothing)
     # interval position — a plain Float at the boundaries, never the AD variable.
     iszero(x) && return g0
     isone(x) && return g1
-    return __mc_kernel(__MC_DEVIATION, x, g0, g1, fᵈ, ktol)
+    return __mc_kernel(__MC_DEVIATION, x, g0, g1, fᵈ, ktol, ends)
 end
 
 """
@@ -293,7 +334,7 @@ instantaneous forward curve deviates from the discrete forward across an interva
 This quantity feeds into the zero-rate relation r(t) = fᵈ + (Δt / t) ⋅ G(x) used by
 the Hagan-West construction.
 """
-function __g_rate(x, f⁻, f, fᵈ, ktol = nothing)
+function __g_rate(x, f⁻, f, fᵈ, ktol = nothing, ends = nothing)
     g0 = f⁻ - fᵈ
     g1 = f - fᵈ
     # G(0) = ∫₀⁰ g = 0 and G(1) = ∫₀¹ g = 0 are both identities (the interpolated
@@ -303,17 +344,17 @@ function __g_rate(x, f⁻, f, fᵈ, ktol = nothing)
     # sector (ii) `/(1-η)²` at g0 == 0 (η == 1, last knot, x == 1). See `__g` for why
     # an `iszero(η)` guard is unsafe under ForwardDiff and `x` is the discriminator.
     (iszero(x) || isone(x)) && return zero(g0 * x)
-    return __mc_kernel(__MC_INTEGRAL, x, g0, g1, fᵈ, ktol)
+    return __mc_kernel(__MC_INTEGRAL, x, g0, g1, fᵈ, ktol, ends)
 end
 
 # The mean deviation G(x)/x over [0, x] (`__MC_MEAN`). Its boundary values are exact, as in `__g`
 # and `__g_rate`: g(0) = g0 at x = 0, and G(1) = 0 at x = 1.
-function __mc_mean_deviation(x, f⁻, f, fᵈ, ktol)
+function __mc_mean_deviation(x, f⁻, f, fᵈ, ktol, ends)
     g0 = f⁻ - fᵈ
     g1 = f - fᵈ
     iszero(x) && return g0
     isone(x) && return zero(g0 * x)
-    return __mc_kernel(__MC_MEAN, x, g0, g1, fᵈ, ktol)
+    return __mc_kernel(__MC_MEAN, x, g0, g1, fᵈ, ktol, ends)
 end
 
 # The knot-curve skeleton (InterpolatedCurves.jl) over the Hagan–West interpolant. Its forward is
@@ -325,7 +366,7 @@ function __interior_forward(mc::MonotoneConvex, t)
     i = __i_time(t, times)
     t_prev = i == 1 ? zero(first(times)) : times[i - 1]   # the first interval starts at 0
     x = (t - t_prev) / (times[i] - t_prev)
-    return fᵈ[i] + __g(x, f[i], f[i + 1], fᵈ[i], __mc_kink_tol(mc, i))
+    return fᵈ[i] + __g(x, f[i], f[i + 1], fᵈ[i], __mc_kink_tol(mc, i), __mc_ends(mc, i))
 end
 
 """
@@ -422,14 +463,20 @@ function __mc_raw_forwards(rates, times)
 end
 
 # Kinks in the knot rates `z`: the boundary deviations of each interval, and each node's raw
-# forward against its collar bounds. A single knot gives a flat curve for every `z`: no kink.
+# forward against its collar bounds. A single knot gives a flat curve for every `z`: no kink. Nor
+# has an end interval between free node forwards (`__mc_free_end`), whose deviations are replaced
+# by a constant; a step that takes either node to its collar shows in that node's bounds.
 function __kink_quantities(::Sp.MonotoneConvex, z, tenors)
     length(z) == 1 && return eltype(z)[]
     f, fᵈ = __monotone_convex_fs(z, tenors)
     raw, _ = __mc_raw_forwards(z, tenors)
     q = eltype(f)[]
     for i in eachindex(fᵈ)
-        push!(q, f[i] - fᵈ[i], f[i + 1] - fᵈ[i])
+        if __mc_free_end(f, fᵈ, i)
+            push!(q, one(eltype(f)), one(eltype(f)))
+        else
+            push!(q, f[i] - fᵈ[i], f[i + 1] - fᵈ[i])
+        end
     end
     for j in eachindex(raw)
         m = j == 1 ? fᵈ[1] : j == lastindex(raw) ? fᵈ[end] : min(fᵈ[j - 1], fᵈ[j])
@@ -468,7 +515,7 @@ __mc_from_origin(times, i) = i == 1 || iszero(times[i - 1])
 # derivative there is exact.
 @inline function __mc_origin_zero(mc::MonotoneConvex, t, i)
     f, fᵈ = mc._f, mc._fᵈ
-    return fᵈ[i] + __mc_mean_deviation(t / mc.tenors[i], f[i], f[i + 1], fᵈ[i], __mc_kink_tol(mc, i))
+    return fᵈ[i] + __mc_mean_deviation(t / mc.tenors[i], f[i], f[i + 1], fᵈ[i], __mc_kink_tol(mc, i), __mc_ends(mc, i))
 end
 
 # L over an interval after a knot: the knot's t·z, plus the discrete forward and the integrated
@@ -477,7 +524,7 @@ end
     f, fᵈ, rates, times = mc._f, mc._fᵈ, getfield(mc, :_rates), mc.tenors
     t_prev = times[i - 1]
     x = (t - t_prev) / (times[i] - t_prev)
-    G = __g_rate(x, f[i], f[i + 1], fᵈ[i], __mc_kink_tol(mc, i))
+    G = __g_rate(x, f[i], f[i + 1], fᵈ[i], __mc_kink_tol(mc, i), __mc_ends(mc, i))
     return t_prev * rates[i - 1] + (t - t_prev) * fᵈ[i] + (times[i] - t_prev) * G
 end
 

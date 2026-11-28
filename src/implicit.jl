@@ -59,9 +59,10 @@ end
 """
     __implicit_root(g, g_primal, x0; bracket = (-1.0, 1.0), who, hint = "", slope = nothing, scale)
 
-Solve `g_primal(x) = 0` from `x0`, falling back to a bracketed solve on `bracket`,
-and return the root with first-order ForwardDiff partials of `g` propagated by the
-implicit function theorem: `dx = -(∂g/∂θ) / (∂g/∂x)`.
+Solve `g_primal(x) = 0` from `x0`, falling back to a bracketed solve on `bracket` (also when
+the first search stops at a point that is not a root), and return the root with first-order
+ForwardDiff partials of `g` propagated by the implicit function theorem:
+`dx = -(∂g/∂θ) / (∂g/∂x)`.
 
 `g_primal` must be `g` evaluated without dual numbers, or `g` with its dual numbers
 stripped from the result. `slope(x)`, when given, is `∂g/∂x` on primal values in closed
@@ -79,10 +80,17 @@ function __implicit_root(g::G, g_primal::P, x0; bracket = (-1.0, 1.0), who, hint
     residual = __PrimalResidual(g_primal, who, hint)
     x = __solve_primal_root(residual, x0, bracket)
     # A solver can accept a point whose residual is small in absolute terms only.
-    tol = sqrt(eps(float(typeof(x)))) * scale(x)
-    abs(residual(x)) <= tol || throw(
-        ArgumentError("$who did not converge: the residual at $x is $(residual(x)), more than $tol")
-    )
+    tol(x) = sqrt(eps(float(typeof(x)))) * scale(x)
+    if !(abs(residual(x)) <= tol(x))   # also a residual that is not a number
+        # The secant search can also stop without failing, on a relaxed test, where its steps have
+        # stalled beside a root. Where the residual changes sign over `bracket`, or is zero at
+        # one end, the bracketed search finds that root.
+        lo, hi = bracket
+        sign(residual(lo)) * sign(residual(hi)) <= 0 && (x = Roots.find_zero(residual, bracket, Roots.A42()))
+        abs(residual(x)) <= tol(x) || throw(
+            ArgumentError("$who did not converge: the residual at $x is $(residual(x)), more than $(tol(x))")
+        )
+    end
     gx = g(x)
     depth = __ad_depth(gx)
     depth == 0 && return x

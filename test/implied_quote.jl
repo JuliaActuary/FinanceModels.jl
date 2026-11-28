@@ -78,6 +78,48 @@ using ForwardDiff
         end
     end
 
+    @testset "payment dates that depend on the quote" begin
+        # A unit payment at τ(q) = t(1 + q)/3, priced q, on a flat curve r: q = exp(-r τ(q)), so
+        # dq/dr = -q τ / (1 + q r t/3). The slope of the solve needs the date's own derivative in
+        # the quote; without it the denominator was 1 and the derivative -0.6054 instead of -0.5871.
+        dated(q, t) = Quote(q, Cashflow(1.0, t * (1 + q) / 3))
+        level(r) = Yield.Constant(Continuous(r))
+        q = implied_quote(level(0.1), dated, 1.0)
+        τ = (1 + q) / 3
+        @test q ≈ exp(-0.1τ) rtol = 1.0e-14
+        @test ForwardDiff.derivative(r -> implied_quote(level(r), dated, 1.0), 0.1) ≈ -q * τ / (1 + q * 0.1 / 3) rtol = 1.0e-12
+
+        # Coupons on quote-dependent dates, on a curve with a slope, against central differences
+        # in each knot rate.
+        coupons(q, t) = Quote(q, [Cashflow(0.05, t * (1 + q) / 6), Cashflow(1.05, t * (1 + q) / 3)])
+        knots = [0.5, 1.0, 2.0, 5.0]
+        sloped(z) = ZeroRateCurve(z, knots, Spline.Linear())
+        z0 = [0.02, 0.025, 0.03, 0.04]
+        price(z) = implied_quote(sloped(z), coupons, 4.0)
+        h = 1.0e-6
+        fd = map(eachindex(z0)) do i
+            e = zeros(length(z0))
+            e[i] = h
+            (price(z0 .+ e) - price(z0 .- e)) / 2h
+        end
+        @test ForwardDiff.gradient(price, z0) ≈ fd rtol = 1.0e-7
+    end
+
+    @testset "a secant search that stalls beside the root" begin
+        # For a 50-year zero-coupon yield near -4.335% the secant search stops on its relaxed
+        # test, at a yield whose price is off by 9e-7 of the quote's size. The root is inside the
+        # bracket, and the bracketed search finds it. (The call used to throw "did not converge".)
+        for r in -0.04338:0.00001:-0.0433
+            @test implied_quote(Yield.Constant(r), ZCBYield, 50.0) ≈ r atol = 1.0e-13
+        end
+        dr = ForwardDiff.derivative(r -> implied_quote(Yield.Constant(r), ZCBYield, 50.0), -0.04335)
+        @test dr ≈ 1 rtol = 1.0e-10
+        # A point whose residual is not a number is not a root, from either search: this
+        # family's price jumps from 0 to 2 at a quote of 2, where it is `NaN`.
+        gap(q, t) = ZCBPrice(q == 2 ? NaN : q < 2 ? 0.0 : 2.0, t)
+        @test_throws ArgumentError implied_quote(Yield.Constant(Continuous(0.0)), gap, 1.0; bracket = (1.0, 3.0))
+    end
+
     @testset "loud errors" begin
         @test_throws ArgumentError ForwardDiff.derivative(
             x -> ForwardDiff.derivative(y -> implied_quote(Yield.Constant(Continuous(x + y)), ZCBYield, 2.0), 0.0), 0.03

@@ -11,6 +11,44 @@ sample_std(x) = sqrt(sample_var(x))
 # a volatility that depends on strike or maturity has no single path volatility
 struct SmileVolatility <: FinanceModels.Volatility.AbstractVolatilityModel end
 
+# A custom model may supply scenarios through simulate alone.
+struct CustomScenarioModel <: AbstractStochasticModel end
+FinanceModels.simulate(::CustomScenarioModel; n_scenarios, timestep, horizon, rng) =
+    [Yield.Constant(0.01 * rand(rng)) for _ in 1:n_scenarios]
+
+@testset "Monte Carlo path pricing" begin
+    cf = Cashflow(big"100.0", 0.9)
+    kw = (; n_scenarios = 17, timestep = 0.3, horizon = 0.9)
+    curve = ZeroRateCurve([0.01, 0.02, 0.08], [0.3, 0.9, 1.2], Spline.Linear())
+    vasicek(σ) = ShortRate.Vasicek(0.1, 0.03, σ, 0.03)
+    function batch_price(model, rng)
+        paths = simulate(model; kw..., rng)
+        return sum(pv(path, cf) for path in paths) / length(paths)
+    end
+    for model in (
+            vasicek(0.01), ShortRate.CoxIngersollRoss(0.25, 0.04, 0.06, 0.03),
+            ShortRate.HullWhite(0.2, 0.01, curve), CustomScenarioModel(),
+        )
+        rng = Xoshiro(42)
+        reference_rng = copy(rng)
+        price = pv_mc(model, cf; kw..., rng)
+        @test price isa BigFloat
+        @test price ≈ batch_price(model, reference_rng)
+        @test rand(rng) == rand(reference_rng)
+    end
+    @test ForwardDiff.derivative(σ -> pv_mc(vasicek(σ), cf; kw..., rng = Xoshiro(42)), 0.01) ≈
+        ForwardDiff.derivative(σ -> batch_price(vasicek(σ), Xoshiro(42)), 0.01)
+
+    # An unpriceable payment fails on the first path, before the next path draws any shocks.
+    model = vasicek(0.01)
+    rng = Xoshiro(42)
+    reference_rng = copy(rng)
+    @test_throws FinanceModels.DataInterpolations.RightExtrapolationError pv_mc(model, Cashflow(1.0, 3.0); kw..., rng)
+    simulate(model; kw..., n_scenarios = 1, rng = reference_rng)
+    @test rand(rng) == rand(reference_rng)
+    @test_throws Exception pv_mc(model, cf; kw..., n_scenarios = 0)
+end
+
 @testset "Black–Scholes–Merton price paths" begin
     r, q, σ = 0.03, 0.01, 0.2
     m = Equity.BlackScholesMerton(r, q, σ)
@@ -130,8 +168,9 @@ FinanceModels.__step(::ConstantRateModel, r, dt, sqrt_dt, Z, t, ::Nothing, j) = 
     end
     function innovations(model::ShortRate.HullWhite, p)
         r = p._rates
-        c = FinanceModels.__sim_cache(model, dt, length(r) - 1)
-        return [(r[j + 1] - c.α[j + 1] - (r[j] - c.α[j]) * c.ou.ϕ) / c.ou.sd for j in 1:(length(r) - 1)]
+        ou = FinanceModels.__ou_step_params(model.a, model.σ, dt)
+        α = FinanceModels.__hw_alpha.(Ref(model), FinanceModels.simulation_times(p))
+        return [(r[j + 1] - α[j + 1] - (r[j] - α[j]) * ou.ϕ) / ou.sd for j in 1:(length(r) - 1)]
     end
     function innovations(model::Equity.BlackScholesMerton, p)
         x = log.(p.(FinanceModels.simulation_times(p)))

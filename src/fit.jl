@@ -58,6 +58,108 @@ module Fit
         # spline method
     end
 
+    """
+        Fit.LeastSquares(; weights = nothing, maxiters = 200)
+
+    Fit a model by weighted least squares: the parameters that minimize
+
+        Σᵢ wᵢ (present_value(model, qᵢ.instrument) - qᵢ.price)²
+
+    over the quotes `qᵢ`, with `wᵢ = 1` when `weights` is `nothing`. It applies to splines, knot
+    curves and every model with `variables`, and to the contracts whose prices under the model
+    ForwardDiff can differentiate twice:
+
+    ```julia
+    fit(model, quotes, Fit.LeastSquares())                     # the model's `variables`
+    fit(Spline.Cubic(), quotes, Fit.LeastSquares())            # one knot per quote maturity
+    fit(ZeroRateCurve(rates, knots, spline), quotes, Fit.LeastSquares())   # the curve's knots
+    ```
+
+    The last form fits a few knots to many quotes, whose maturities may repeat: ten knots to the
+    thousand bonds of an index, for example. Like every knot-curve fit it starts from FinanceModels'
+    standard initial rates, not the supplied curve's.
+
+    `weights` holds one finite, non-negative number per quote. A weight of zero leaves its quote
+    out: it is not priced, and in a spline fit it gets no knot. With
+    `D` a bond's modified duration, weights of `1 / (price * D)^2` make each weighted residual
+    approximately a yield error, so that long bonds do not dominate the fit.
+
+    The solve has two phases, neither specific to a model or a contract:
+
+    1. Levenberg–Marquardt on the Jacobian of the pricing residuals (ForwardDiff, first derivatives
+       only) takes the parameters to where a Gauss–Newton step is at rounding, or no longer shrinks.
+       `maxiters` limits its iterations.
+    2. Newton's method with the exact Hessian of the sum of squares, which includes the residuals'
+       curvature, goes on from there to a point it can certify as a local minimum, and that point
+       is the fit. Its Hessian is positive definite and well conditioned, and its Newton
+       correction is tested one parameter and one quote at a time. The estimated price move
+       must be at most `1e-10` times the larger of the absolute quoted and current model prices,
+       subject to the FX outright allowance below. A quote priced at zero also includes its
+       absolute starting value in that scale. Across the full correction, the change in each
+       quote's pricing gradient, multiplied by the square root of its weight, must have norm
+       at most `1e-8` in the inverse Hessian metric of half the weighted sum of squares.
+       The solver takes further Newton steps when the gradients change more than this.
+       These local tests estimate the accuracy of the returned parameters.
+
+    A fit that reprices its quotes is the zero-residual case of the same solve. A fit that cannot be
+    certified throws a [`FitConvergenceError`](@ref FinanceModels.FitConvergenceError):
+
+    - The quotes must determine every parameter. A parameter on which neither the prices nor their
+      curvature depend throws an `ArgumentError` naming it. At an exact fit the pricing
+      Jacobian must have full column rank. With nonzero residuals their curvature can also
+      identify parameters.
+    - `Spline.MonotoneConvex()`, `Spline.PCHIP()` and `Spline.Akima()` switch formulas as knot rates
+      change, and a minimum on a switch cannot be certified by derivatives. Prefer
+      `Spline.Linear()` or `Spline.Cubic()` for more quotes than knots.
+    - A model's variables stay strictly inside their intervals, and each needs an interval
+      (`lower .. upper`). A fit whose minimum is on or beyond a bound, or too near one to tell,
+      throws rather than return the bound.
+    - Where the prices cannot be resolved to that tolerance the fit throws rather than stop short:
+      quotes whose sizes differ by many orders of magnitude and share a parameter, a price that
+      is a small difference of large amounts, or a quote priced at zero that the starting model
+      also values at zero.
+    - The certificate takes second derivatives of the prices. A pricer that is differentiable only
+      to first order (a Hull–White swaption, or a model that runs a `fit` of its own) throws; use
+      `Fit.Loss`. A model without `variables` (`Yield.SmithWilson`, which has a closed-form
+      `fit(model, quotes)`) is a `MethodError`.
+
+    For `FX.Forwards` with a foreign spline or knot curve, the residuals are the quotes' own under
+    the FX model, whatever mix of contracts they are. Derivatives with respect to the domestic
+    curve are available for sets of outrights and par basis-swap legs. The tolerance on the
+    Newton correction in an outright's net present value is at least four floating-point
+    spacings at the size of the larger discounted leg. For a par outright the relative
+    tolerance based on its starting or current value can give a larger allowance.
+
+    The minimum is a local one, and need not be the best fit of all parameters. `optimizer` and
+    `solve_kwargs` belong to [`Fit.Loss`](@ref FinanceModels.Fit.Loss) and are not accepted. The
+    solve works in `Float64` at least: a model of `Float32` numbers is returned with `Float64`
+    variables. Refitting a curve with `BigFloat` knot rates preserves that precision and uses the same stopping tolerances.
+
+    Fits are differentiable with ForwardDiff with respect to quote prices, the contract numbers
+    listed under "Differentiating through a fit" in [`fit`](@ref FinanceModels.fit), the weights,
+    and a `Yield.FlatForwardAt` forward, for any such model and any number of quotes. The derivatives are
+    implicit ones, evaluated at the fitted parameters with the Hessian that certified them.
+    A differentiated fit can throw when a repriced quote is at a turning point and a two-sided
+    sensitivity cannot be resolved at the precision of the quoted price.
+
+    A subtype of FitMethod.
+
+    # Examples
+
+    ```julia
+    knots = [1.0, 2.0, 5.0, 10.0, 20.0]
+    c0 = ZeroRateCurve(fill(0.04, length(knots)), knots, Spline.Cubic())
+    curve = fit(c0, bond_quotes, Fit.LeastSquares())
+    weighted = fit(c0, bond_quotes, Fit.LeastSquares(weights = w))
+    ```
+    """
+    struct LeastSquares{W} <: FitMethod
+        weights::W
+        maxiters::Int
+        # Constructed by keyword only, so that options can be added without changing existing calls.
+        LeastSquares(; weights = nothing, maxiters::Integer = 200) = new{typeof(weights)}(weights, maxiters)
+    end
+
 
 end
 
@@ -262,6 +364,7 @@ Fit a model to a collection of quotes using a loss function and optimization met
 - `quotes`: A collection of quotes to fit the model to.
 - `method::F=Fit.Loss(x -> x^2)`: The loss function to use for fitting the model. Defaults to the squared loss function. 
   - `method` can also be `Bootstrap()` with `Spline.Linear()`. Other interpolation strategies require a full-curve `Fit.Loss`.
+  - [`Fit.LeastSquares()`](@ref FinanceModels.Fit.LeastSquares) minimizes the (weighted) squared pricing residuals of any model with a solver of its own, which certifies the minimum it returns. It takes `variables` (or, for a spline, `extrapolation`), not `optimizer` or `solve_kwargs`.
 - `variables=default_variables(model)`: The variables to optimize over. This is a tuple of optic => interval pairs specifying which parameters of the model can vary. See extended help for more. Spline and knot-curve fits vary the knot rates and do not take `variables`.
 - `optimizer=default_optimizer(model)`: The optimization algorithm to use. The default optimization for a given model is `LBFGS()` from Optim.jl (via OptimizationOptimJL), a quasi-Newton method with automatic differentiation via ForwardDiff. See extended help for more on customizing the solver.
 - `solve_kwargs=(;)`: Keyword arguments passed to `Optimization.solve` with the optimizer, such as
@@ -315,7 +418,9 @@ ForwardDiff.gradient(value, [0.03, 0.032, 0.035, 0.037])   # ∂value/∂quoted 
   distance to the exact solution.
 - A fitted `Spline.MonotoneConvex()`, `Spline.PCHIP()`, or `Spline.Akima()` curve that lies on a
   kink of its interpolation (flat quotes, for example) has no derivative there and throws.
-- Other models' `fit`s differentiate none of their inputs. Every solve checks its parameters
+- `Fit.LeastSquares()` fits differentiate the minimum itself rather than the repricing
+  equations: for any model, any number of quotes and knots, and also with respect to the weights.
+- Other models' loss `fit`s differentiate none of their inputs. Every solve checks its parameters
   and its loss (or residual) at each evaluation: a caller's dual number that reaches them, from
   the quotes, a contract type the fit does not strip, or a fixed model field, throws an
   `ArgumentError` instead of differentiating the solver's iterations.

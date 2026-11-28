@@ -35,18 +35,23 @@ table below).
 
 ## The contract at a glance
 
-- **First order only through solves.** Implicit derivatives through spline/FX `fit` and `implied_quote` are exact
-  first derivatives. Nested dual numbers (a Hessian, or convexity through these implicit solves) throw.
+- **First order only through solves.** Implicit derivatives through spline/FX `fit`, `implied_quote`, and
+  `quote_shift` are exact first derivatives. Nested dual numbers (a Hessian, or convexity through these implicit solves) throw.
   The closed-form Smith–Wilson fit is separate, as described below.
   `reconstruct` solves nothing: a curve rebuilt from dual knot rates has derivatives of any
   order, except at an interpolation kink, where nested dual numbers throw.
 - **With respect to what you differentiate.** Differentiating through `fit` gives risk to the
-  quotes passed to it: the original market inputs. Quotes implied from a fitted curve in another
-  family (for example `implied_quote` at the curve's knots) are a synthetic family. Risk to them
-  equals risk to the market quotes only when the curve was fitted to that family at those tenors.
-- **Exact fits only.** A differentiated fit must reprice its quotes. Bootstrap does; a loss fit
-  is accepted only when one Newton correction of its knot rates is at most `1e-6` in every
-  component (see "Accuracy" below).
+  quotes passed to it, refitted with that construction. It is risk to the original calibration
+  only when those quotes and that construction reproduce the curve. Quotes implied from a fitted
+  curve in another family (for example `implied_quote` at the curve's knots) are a synthetic
+  family. Risk to them equals risk to the market quotes only when the curve was fitted to that
+  family at those tenors. Differentiating `quote_shift` at a zero shock gives local quote risk on
+  a given curve, with no refit (see [Quote shifts and quote risk](@ref quote-shift-risk)).
+- **What is differentiated.** Bootstrap and loss fits differentiate the repricing equations, so
+  the fit must reprice its quotes. Bootstrap does; a loss fit is accepted only when one Newton
+  correction of its knot rates is at most `1e-6` in every component (see "Accuracy" below).
+  `Fit.LeastSquares()` differentiates the optimality condition of its minimum instead, with any
+  number of quotes and for any model it fits.
 - **Kinks.** Linear, quadratic, cubic, and B-spline interpolation are differentiable in their knot rates at fixed tenors. This does not imply smoothness in tenor at the knots.
   At a kink of `Spline.MonotoneConvex()` (a flat stretch of the curve, or two equal adjacent
   forwards), each partial is the centered response to a bump in its own direction. **On a flat
@@ -93,16 +98,33 @@ knot rates. The Jacobian ``\partial R/\partial z`` is computed on primal values,
 numbers enter only through one evaluation of ``R`` with ordinary arithmetic, so FinanceModels'
 internal derivatives never mix with yours.
 
+A least-squares fit (`Fit.LeastSquares`) need not reprice its quotes. Its parameters ``\theta``
+(knot rates, or any other model's variables) satisfy the optimality condition
+
+```math
+g(\theta, p) = J^\mathsf{T} W e(\theta, p) = 0 ,
+```
+
+where ``e`` holds the pricing errors, ``J = \partial e/\partial\theta`` is their Jacobian and
+``W`` the diagonal matrix of weights, so
+``\mathrm{d}\theta = -H^{-1} (\partial g/\partial p)\,\mathrm{d}p`` with
+``H = J^\mathsf{T} W J + \sum_i w_i e_i \nabla^2 e_i`` the Hessian of half the weighted sum of
+squares. The second term, the residuals' curvature, does not vanish when the residuals do not;
+without it the derivatives would be those of the Gauss–Newton approximation. Both derivatives of
+``g`` are taken under FinanceModels' own tags: your dual numbers are rewritten under one of them
+for the calculation and written back at the end, so they still never mix.
+
 ### What is supported
 
 | Calibration | Differentiable | Notes |
 |:------------|:---------------|:------|
 | `fit(spline, quotes)` (`Fit.Loss`), every interpolation method | yes | the fit must reprice its quotes; see below |
 | `fit(Spline.Linear(), quotes, Fit.Bootstrap())` | yes | exact to root-finder precision |
-| `fit(FX.Forwards(pair, spot, domestic, spline), quotes, …)` | yes | through the implied foreign quotes |
+| `fit(FX.Forwards(pair, spot, domestic, spline), quotes, …)` | yes | through the foreign-curve quotes for outrights and par basis swaps |
 | `fit(curve, quotes)`, refitting an existing knot curve | with one knot per quote | the spline fit on the curve's knots; another number of knots throws a `DimensionMismatch` |
+| `fit(model, quotes, Fit.LeastSquares(; weights))`, a spline, a knot curve or a model with `variables` | yes, with any number of quotes | the optimality condition at a certified local minimum; also with respect to the weights |
 | `fit(Yield.SmithWilson(…), quotes)` | quote prices and cashflow amounts (such as `Bond.Fixed` coupons) | differentiates the closed form directly; values match the primal fit to rounding, not bitwise |
-| other models (`Yield.NelsonSiegel`, `Yield.Constant`, short-rate models) | no | `fit` throws an `ArgumentError` |
+| other models (`Yield.NelsonSiegel`, `Yield.Constant`, short-rate models) with `Fit.Loss` | no | `fit` throws an `ArgumentError`; use `Fit.LeastSquares()` |
 
 Dual numbers may appear in quote prices, in the rates of `Bond.Fixed` and `Bond.Floating`, in
 the amounts of `Cashflow`, `Composite`, and `FX.BasisSwapLeg` instruments (which covers
@@ -118,6 +140,14 @@ exact fit is at most `1e-6`. The correction is a local estimate of the fit's err
 guaranteed distance to the exact solution; like the conditioning check, it does not depend on
 the quotes' notionals. To tighten a loss fit, pass solver settings through `fit`'s
 `solve_kwargs`, for example `fit(Spline.MonotoneConvex(), quotes; solve_kwargs = (; g_tol = 1e-12))`.
+A least-squares fit evaluates its implicit sensitivities with the Hessian at the fitted
+parameters. It checks both the price move from the Newton correction and the change in the
+pricing gradients across that correction. A nearly flat price can have a rapidly changing
+sensitivity, even when two candidate fits reprice equally well. The solver refines such fits
+using full Newton steps. Before returning derivatives, it checks whether price rounding could
+erase the positive curvature of the objective. A fit can therefore reprice an instrument at a
+turning point and still throw when asked for a two-sided sensitivity.
+
 Refitting with bumped quotes and taking finite differences is a much noisier check: optimizer
 noise of `1e-11` in the fitted rates becomes an error of order `1e-4` in a difference quotient.
 
@@ -156,11 +186,17 @@ of the knot *values*, not of the tenors:
 
 | Interpolation | Kinks |
 |:--------------|:------|
-| `Spline.MonotoneConvex()` | two adjacent discrete forwards equal (every flat stretch of the curve); a node forward exactly at its positivity bound |
+| `Spline.MonotoneConvex()` | two adjacent discrete forwards equal (every flat stretch of the curve), for values between the first and the last knot interval; a node forward exactly at its positivity bound |
 | `Spline.PCHIP()` | two adjacent knot rates equal (a flat segment) |
-| `Spline.Akima()` | three or more knots on a straight line; a knot whose slope weight is exactly `1e-9` of the largest, where the curve's value jumps |
+| `Spline.Akima()` | three or more knots on a straight line; a knot whose slope weight is exactly `1e-9` or `0.5e-9` of the largest, the two ends of the band where its slope changes over to a fallback |
 
 Flat curves sit on a kink, and repeated or rounded quotes can put a fitted curve on one.
+`Spline.MonotoneConvex()` has one exception: its first and last knot intervals do not switch
+formula at equal forwards while the forwards at their ends are inside their positivity bounds.
+A one-knot curve is therefore never on a kink, and a flat two-knot curve is not on one at any
+rate other than 0%, where the positivity bounds collapse to zero and derivatives with respect to
+the knot rates throw. Values in those two intervals of a longer curve have second derivatives at
+equal forwards.
 Away from a kink, every derivative on this page is exact. Close to one it is still exact, but a
 bump of one basis point may cross the kink and move the value differently.
 
@@ -176,7 +212,7 @@ At a kink, the derivative depends on the direction of the bump:
   exactly zero (a 0% curve).
 - **`Spline.PCHIP()`** and **`Spline.Akima()`** throw an `ArgumentError` when dual knot rates move
   a kink, since their implementation returns a one-sided value, `NaN`, or the derivative of a
-  fallback formula there, and Akima's value can jump. A parallel shift of a flat PCHIP or Akima curve is fine.
+  fallback formula there. A parallel shift of a flat PCHIP or Akima curve is fine.
 - **`fit`** throws when the fitted curve lies on a kink, or within the fit's precision of one:
   the refitted curve has no derivative with respect to the quotes there.
 
@@ -208,6 +244,43 @@ ForwardDiff.derivative(s -> implied_quote(bumped(s), OISYield, 7.0), 0.0)
 
 `implied_quote` agrees with [`par`](@ref FinanceModels.Yield.par) for par yields:
 `rate(par(curve, t; frequency = f)) ≈ implied_quote(curve, (r, T) -> ParYield(r, T; frequency = f), t)`.
+
+## [Quote shifts and quote risk](@id quote-shift-risk)
+
+[`quote_shift`](@ref FinanceModels.Yield.quote_shift) shifts a curve's quotes in one family at
+given tenors and returns the curve plus continuous zero-rate hats that reprice them. Its
+derivatives are exact first derivatives: each hat is solved by the implicit function theorem, and
+the partials flow through the base curve's parameters and the rule's new quotes, also at a shock
+whose value is zero. Nested dual numbers throw.
+
+Its gradient at a zero shock is the curve's **quote key-rate risk**:
+
+```julia
+tenors = [1, 2, 3, 5, 7, 10, 20, 30]
+par2(y, t) = ParYield(y, t; frequency = 2)
+curve = fit(Spline.MonotoneConvex(), par2.([0.045, 0.042, 0.04, 0.039, 0.04, 0.042, 0.046, 0.045], tenors))
+liability = Cashflow.(1.0, 1.0:0.5:25)
+
+quote_risk = ForwardDiff.gradient(zeros(length(tenors))) do s
+    shocked = quote_shift((q, t) -> q + s[findfirst(==(t), tenors)], curve, par2, tenors)
+    pv(shocked, liability)
+end
+```
+
+How it relates to other risks:
+
+- **Zero key rates on the same hats.** The quotes depend on the hats through a lower-triangular
+  Jacobian `J` (each quote moves only with the hats up to its tenor). With `K` the gradient with
+  respect to the hats themselves, `quote_risk == J' \ K`, to rounding.
+- **Differentiating through `fit`.** Refitting moves the curve as its construction dictates.
+  For a `Spline.Linear()` bootstrap of the same family at the same tenors, the two agree for
+  cashflows up to the last tenor: the refit moves the same hats. Beyond the last tenor they
+  differ, because the fit's default `:flat_forward` extrapolation holds the forward rate flat
+  and the hats hold the zero-rate bump flat. Other constructions redistribute the risk. For the
+  `Spline.MonotoneConvex()` curve above, the 10- and 20-year buckets are −53.0 and −195.6 by
+  refit, against −68.0 and −177.4 by `quote_shift`.
+- **Bucket sums.** The sum of the buckets is the response to a parallel shift of every quote in
+  the family's own units (here, semiannual par yield), not a parallel continuous-zero shift.
 
 ## Knot-rate sensitivities without refitting
 

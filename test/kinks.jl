@@ -84,9 +84,72 @@ using ForwardDiff
         @test_throws "positivity collar" ForwardDiff.gradient(f, zeros(3))
         # second derivatives do not exist at a kink
         @test_throws "second derivatives" ForwardDiff.hessian(f, fill(0.03, 3))
+        # nor where the knot rates move only at second order (a mixed partial alone)
+        @test_throws "second derivatives" ForwardDiff.hessian(p -> f(fill(0.03, 3) .+ p[1] * p[2] .* E(3, 1)), zeros(2))
         # the value is the primal value
         d = f(ForwardDiff.Dual.(fill(0.03, 3), 1.0))
         @test ForwardDiff.value(d) == f(fill(0.03, 3))
+    end
+
+    @testset "MonotoneConvex: one knot has no kink" begin
+        # One knot gives a flat curve for every rate: both deviations are r - r, zero in every
+        # direction and to every order, so the discount factor exp(-r t) has all its derivatives.
+        second(g, r) = ForwardDiff.derivative(a -> ForwardDiff.derivative(g, a), r)
+        for r in (-0.01, 0.0, 0.05), t in (0.5, 2.0, 3.0)
+            @test second(x -> discount(ZeroRateCurve([x], [2.0]), t), r) ≈ t^2 * exp(-r * t) rtol = 1.0e-13
+            @test ForwardDiff.derivative(x -> discount(ZeroRateCurve([x], [2.0]), t), r) ≈ -t * exp(-r * t) rtol = 1.0e-13
+        end
+        @test second(x -> rate(FinanceModels.Yield.instantaneous_forward(ZeroRateCurve([x], [2.0]), 0.5)), 0.05) == 0
+    end
+
+    @testset "MonotoneConvex: an end interval between free node forwards has no kink" begin
+        # An end node forward is set from its neighbor's, so the deviations of the first and of the last
+        # interval keep one ratio for every knot rate: an edge of sector (i), whose polynomial is linear
+        # in them, on both sides of equal discrete forwards. Its second derivatives exist there.
+        Y = FinanceModels.Yield
+        hessian_fd(f, z) = reduce(hcat, [centred(x -> ForwardDiff.gradient(f, x), z, E(length(z), j); h = 1.0e-5) for j in eachindex(z)])
+        # Two knots: both intervals are end intervals, and the log-discount is linear in the knot rates,
+        # so the Hessian of a discount factor D is ∇D ∇Dᵀ / D, also on a flat curve.
+        for r in (0.05, -0.01), t in (1.0, 3.0)
+            f = x -> discount(ZeroRateCurve(x, [2.0, 4.0]), t)
+            z = fill(r, 2)
+            H, g = ForwardDiff.hessian(f, z), ForwardDiff.gradient(f, z)
+            @test H ≈ g * g' / f(z) rtol = 1.0e-12
+            @test H ≈ hessian_fd(f, z) rtol = 1.0e-8
+        end
+        # Time and a knot rate differentiated one inside the other carry two ForwardDiff tags, which one
+        # `hessian` call does not. On one knot the discount factor is exp(-r t).
+        d = (r, t) -> discount(ZeroRateCurve([r], [2.0]), t)
+        r, t = 1 / 32, 1.0
+        @test ForwardDiff.derivative(s -> ForwardDiff.derivative(a -> d(a, s), r), t) ≈ (r * t - 1) * exp(-r * t) rtol = 1.0e-13
+        @test ForwardDiff.derivative(a -> ForwardDiff.derivative(s -> d(a, s), t), r) ≈ (r * t - 1) * exp(-r * t) rtol = 1.0e-13
+        # On a flat two-knot curve, in each interval: the time derivative of the knot-rate gradient.
+        for t in (1.0, 3.0)
+            z = fill(0.04, 2)
+            grad = s -> ForwardDiff.gradient(x -> discount(ZeroRateCurve(x, [2.0, 4.0]), s), z)
+            mixed = ForwardDiff.derivative(grad, t)
+            @test mixed ≈ centred(grad, t, 1.0; h = 1.0e-6) rtol = 1.0e-7
+            @test mixed ≈ ForwardDiff.gradient(x -> ForwardDiff.derivative(s -> discount(ZeroRateCurve(x, [2.0, 4.0]), s), t), z) rtol = 1.0e-13
+        end
+        # Three knots with two equal discrete forwards: the end interval beside them is smooth, and the
+        # interior interval has the kink.
+        for (z, smooth) in (([0.02, 0.02, 0.08 / 3], 0.5), ([0.02, 0.03, 0.03 + 0.01 / 3], 2.5))
+            f = x -> discount(ZeroRateCurve(x, ts), smooth)
+            @test ForwardDiff.hessian(f, z) ≈ hessian_fd(f, z) rtol = 1.0e-8
+            @test_throws "second derivatives" ForwardDiff.hessian(x -> discount(ZeroRateCurve(x, ts), 1.5), z)
+        end
+        # A collar that binds at either node of an end interval breaks that ratio. Here the node forward
+        # between the two intervals, (1% + 5%)/2, is cut to twice the smaller discrete forward.
+        f, fᵈ = Y.__monotone_convex_fs([0.01, 0.03], [1.0, 2.0])
+        @test f[2] == 2 * fᵈ[1]
+        @test !Y.__mc_free_end(f, fᵈ, 1) && !Y.__mc_free_end(f, fᵈ, 2)
+        # A fit's kink check follows: a flat two-knot curve is not on a kink, a flat three-knot curve is,
+        # and a correction that reaches a collar is seen in the collar's bounds.
+        flat2 = ZeroRateCurve(fill(0.02, 2), [1.0, 2.0])
+        @test !Y.__near_kink(flat2, fill(0.02, 2))
+        @test !Y.__near_kink(flat2, fill(0.02, 2), [1.0e-6, -1.0e-6])
+        @test Y.__near_kink(flat2, fill(0.02, 2), fill(0.02, 2) .- [0.01, 0.03])
+        @test Y.__near_kink(ZeroRateCurve(fill(0.02, 3), ts), fill(0.02, 3))
     end
 
     # These tests tie the copies of DataInterpolations' branch rules (`src/model/Yield/Kinks.jl`)
@@ -129,26 +192,39 @@ using ForwardDiff
 
         @testset "Akima: the fallback-slope cutoff" begin
             # Knot 3's slope weight is 3e and the largest weight about 0.019, so DataInterpolations
-            # switches knot 3 to its fallback slope near e = 0.019e-9/3, and the curve's value jumps.
+            # switches knot 3 to its fallback slope near e = 0.019e-9/3.
             t7 = collect(1.0:7.0)
             knots(e) = [0.02; 0.02 .+ cumsum([0.001, 0.001 + e, 0.01, 0.01 + 2e, 0.02, 0.022])]
-            cutoff(e) = FinanceModels.Yield.__kink_quantities(Spline.Akima(), knots(e), t7)[9 + 3]
-            lo, hi = 0.0, 1.0e-10
-            for _ in 1:200
-                mid = (lo + hi) / 2
-                (mid == lo || mid == hi) && break
-                cutoff(mid) > 0 ? (hi = mid) : (lo = mid)
+            # Adjacent floating-point e either side of the zero of the guard's quantity `i`.
+            function straddle(i)
+                below, above = 0.0, 1.0e-10
+                for _ in 1:200
+                    mid = (below + above) / 2
+                    (mid == below || mid == above) && break
+                    FinanceModels.Yield.__kink_quantities(Spline.Akima(), knots(mid), t7)[i] > 0 ? (above = mid) : (below = mid)
+                end
+                return below, above
             end
             f = x -> discount(ZeroRateCurve(x, t7, Spline.Akima()), 2.5)
-            # The guard's quantity changes sign exactly where the installed DataInterpolations switches
-            # formula: the value jumps between adjacent floating-point e. If this fails,
-            # DataInterpolations changed the rule `__kink_quantities(::Sp.Akima, ...)` mirrors.
-            @test abs(f(knots(hi)) - f(knots(lo))) > 1.0e-4
-            @test_throws "switches formula" ForwardDiff.gradient(f, knots(lo))
-            @test_throws "switches formula" ForwardDiff.gradient(f, knots(hi))
-            # Either side, clear of the cutoff (and of knot 1's, at 1.5 times it), the derivative is
-            # the local one: compare with a centered difference in high precision.
-            for e in (0.8lo, 1.2hi)
+            slope(e, h) = (f(knots(e + h)) - f(knots(e))) / h   # of the value in e, over (e, e + h)
+            lo, hi = straddle(9 + 3)                 # knot 3's weight at the cutoff
+            half_lo, half_hi = straddle(9 + 7 + 3)   # and at half of it
+            @test half_lo ≈ lo / 2 rtol = 1.0e-3   # the largest weight moves a little with e
+            # The guard's quantities change sign exactly where the installed DataInterpolations
+            # switches formula: the value is continuous, and its slope in e jumps at the cutoff and
+            # at half of it. If these fail, DataInterpolations changed the rule
+            # `__kink_quantities(::Sp.Akima, ...)` mirrors.
+            h = 1.0e-3 * lo
+            for (below, above) in ((lo, hi), (half_lo, half_hi))
+                @test abs(f(knots(above)) - f(knots(below))) < 1.0e-8
+                @test abs(slope(above + h, h) - slope(below - 2h, h)) > 1.0e6
+                @test_throws "switches formula" ForwardDiff.gradient(f, knots(below))
+                @test_throws "switches formula" ForwardDiff.gradient(f, knots(above))
+            end
+            # Below the band, inside it, and above it, clear of its ends (and of knot 1's band, from
+            # 0.75 to 1.5 times the cutoff), the derivative is the local one: compare with a
+            # centered difference in high precision.
+            for e in (0.4lo, 0.6lo, 0.8lo, 1.2hi)
                 z = knots(e)
                 ref = Float64.(centred(f, big.(z); h = big(1.0e-30)))
                 @test ForwardDiff.gradient(f, z) ≈ ref rtol = 1.0e-5
