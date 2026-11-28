@@ -42,9 +42,12 @@ ForwardDiff 1.
 
 - `discount` and the log-discount of zero-native curves (`Constant`, Nelson–Siegel/Svensson,
   Cairns–Pritchard and yield shifts) at `t = Inf` take their limit from the curve tail. Finite-time
-  values are unchanged. Derivatives of `discount(curve, Inf)` with respect to the curve's
-  parameters are zero where the limit is 0 or Inf, rather than NaN, and throw where a zero limiting
-  rate carries partials. Intervals ending at infinity have zero derivatives where the limit is 0.
+  values are unchanged, with two corrections to `Constant`, which now shares this path: an
+  unsigned-integer rate discounts correctly (it was negated before it was converted), and at
+  exactly `t = 0` the factor is 1 also for a non-finite rate. Derivatives of `discount(curve, Inf)`
+  with respect to the curve's parameters are zero where the limit is 0 or Inf, rather than NaN,
+  and throw where a zero limiting rate carries partials. Intervals ending at infinity have zero
+  derivatives where the limit is 0.
 - Nelson–Siegel, Svensson and Cairns–Pritchard curves have their tail in closed form. With a zero
   level (`β₀` or `b₀`) the discount factor at infinity is its finite limit, with its parameter
   sensitivities, where it was NaN: `exp(-τ₁(β₁ + β₂))` for Nelson–Siegel,
@@ -52,14 +55,15 @@ ForwardDiff 1.
   the level (`ns - ns`) keeps that limit.
 - The instantaneous forward at infinity is the limiting zero rate with its parameter sensitivities,
   also for Cairns–Pritchard and shifted curves, where it was NaN.
-- A limit at infinity that the tail does not determine is NaN in its derivative as well as its
-  value, for these curves and composites of them; the derivative could read as zero before. A
-  `Blend` whose weights vary with tenor is unchanged: a parameter held only by the weights still
-  reads as zero.
+- A limit at infinity that the tail does not determine is NaN in its parameter derivatives as well
+  as its value, for these curves and composites of them, under ForwardDiff's default settings; the
+  derivative could read as zero before. A `Blend` whose weights vary with tenor is unchanged: a
+  parameter held only by the weights still reads as zero.
 - A yield shift's limits at infinity come from its rule evaluated there. That is the limit for a
   rule whose value along the curve, `rule(zero(base, t), t)`, tends to its value at the endpoint,
   with a forward that settles there; a threshold exactly at the limiting rate, a shift that keeps
-  oscillating, or a rule built from a quantity that jumps at the endpoint is not detected.
+  oscillating, or a rule built from a quantity that jumps at the endpoint is not detected: the
+  endpoint value is returned whether or not it is the limit.
 - Derivatives of intervals that end at infinity where the discount factor diverges, and of the
   empty interval `discount(curve, Inf, Inf)` at a zero limiting rate, are tracked in #381.
 

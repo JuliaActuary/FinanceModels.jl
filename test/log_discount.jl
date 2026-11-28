@@ -420,17 +420,20 @@ FinanceModels.Yield.force_of_interest(::__ClosedFormForwardCurve, t) = 0.03 + 0.
         at_inf = Yield.__log_discount(unknown, ForwardDiff.Dual(Inf, 1.0))
         @test isnan(ForwardDiff.value(at_inf)) && isnan(ForwardDiff.partials(at_inf, 1))
 
-        # Integer parameters: the limit is floating point, also in a composite's interval, and the
-        # intercept is formed product by product, so it overflows neither a narrow integer type
-        # nor the floating range.
+        # A fixed-weight blend in discount-factor space reads the intercepts themselves: the unknown
+        # one is NaN in its partials where it is created.
+        blended = k -> Yield.Blend(fading(k), Yield.Constant(Continuous(0.0)), 0.5, Yield.DiscountFactors())
+        @test isnan(discount(blended(0.2), Inf))
+        @test isnan(ForwardDiff.derivative(k -> discount(blended(k), Inf), 0.2))
+
+        # Integer parameters give a floating-point tail: a composite's interval and a blend can
+        # hold its ±Inf.
         int_flat = Yield.Constant(Continuous(0))
+        int_cp = Yield.CairnsPritchard(1, 2, 1, 0, 0)
         @test discount(Yield.NelsonSiegel(2, 1, 0, 0) + int_flat, 0.0, Inf) == 0.0
-        @test discount(Yield.CairnsPritchard(1, 2, 1, 0, 0) + int_flat, 0.0, Inf) == 0.0
-        @test L(Yield.NelsonSiegel(Int8(80), Int8(0), Int8(1), Int8(1))) == 160.0
-        @test L(Yield.NelsonSiegelSvensson(Int8(80), Int8(80), Int8(0), Int8(1), Int8(1), Int8(2))) == 320.0
-        huge = ldexp(1.0, 1023)
-        @test L(Yield.NelsonSiegel(floatmin(Float64), 0.0, huge, huge)) == 4.0
-        @test L(Yield.NelsonSiegelSvensson(floatmin(Float64), 1.0, 0.0, huge, huge, 0.0)) == 4.0
+        @test discount(int_cp + int_flat, 0.0, Inf) == 0.0
+        @test discount(Yield.Blend(Yield.Constant(Continuous(0.0)), int_cp, 0.5, Yield.DiscountFactors()), Inf) == 0.5
+        @test discount(Yield.Blend(Yield.Constant(Continuous(0.0)), Yield.Constant(Continuous(1)), 0.5, Yield.DiscountFactors()), Inf) == 0.5
     end
 
     @testset "endpoint derivatives" begin

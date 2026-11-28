@@ -11,6 +11,9 @@ struct __LogTail{T}
     a0::T
 end
 __LogTail(a2, a1, a0) = __LogTail(promote(a2, a1, a0)...)
+# Integer curve parameters give a floating-point tail, as they give a floating-point L at a finite
+# time: an integer cannot hold the ±Inf that the limit and a blend's comparisons use.
+__LogTail(a2::T, a1::T, a0::T) where {T <: Integer} = __LogTail(float(a2), float(a1), float(a0))
 
 # Tails add, subtract and scale coefficientwise, as their log-discounts do.
 Base.:+(x::__LogTail, y::__LogTail) = __LogTail(x.a2 + y.a2, x.a1 + y.a1, x.a0 + y.a0)
@@ -36,12 +39,11 @@ __undetermined(x) = x * oftype(float(__primal(x)), NaN)
 # The same limit as a cumulative log-discount: +Inf where the discount factor tends to 0, -Inf
 # where it tends to Inf, and a0 where it is finite. It is not formed as
 # `-log(__discount_at_infinity(tail))`, so each result keeps its own numeric type and partials.
-# It is floating point, since an integer tail (integer curve parameters) cannot hold ±Inf. A finite
-# limit whose intercept is unknown is undetermined as well: the intercept can have gained ordinary
-# partials after it was marked, from another component of a composite or from the time. (`exp` of
-# a NaN already spreads it to the partials of the discount factor above.)
+# A finite limit whose intercept is unknown is undetermined as well: the intercept can have gained
+# ordinary partials after it was marked, from another component of a composite or from the time.
+# (`exp` of a NaN already spreads it to the partials of the discount factor above.)
 function __log_discount_at_infinity(tail::__LogTail)
-    L = float(tail.a0)
+    L = tail.a0
     limit = __tail_limit_sign(tail)
     return limit > 0 ? oftype(L, Inf) : limit < 0 ? oftype(L, -Inf) : (limit == 0 && !isnan(L)) ? L : __undetermined(L)
 end

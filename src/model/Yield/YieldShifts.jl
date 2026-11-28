@@ -21,10 +21,10 @@ Both subtypes implement the standard `AbstractYieldModel` interface (`zero`,
 At `t = Inf` the rule is evaluated there: `rule(zero(base, Inf), Inf)` is taken as the limit of
 the shifted zero rate, and as the instantaneous forward at infinity. That is the limit when the
 rule's value along the curve, `rule(zero(base, t), t)`, tends to its value at the endpoint as `t`
-grows, and the shifted forward settles there too. A rule with a threshold exactly at the limiting
-rate, one that keeps oscillating, or one built from a quantity that jumps at the endpoint (a
-discount factor `exp(-z)^t` of a rate tending to zero) has no such limit to read, and the result
-at `t = Inf` is then not the limit.
+grows, and the shifted forward settles there too. Evaluating at the endpoint misses the limit, or
+returns a number where there is none, for a rule with a threshold exactly at the limiting rate,
+one that keeps oscillating, or one built from a quantity that jumps at the endpoint (a discount
+factor `exp(-z)^t` of a rate tending to zero).
 """
 abstract type AbstractYieldShift <: AbstractYieldModel end
 
