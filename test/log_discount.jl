@@ -241,13 +241,15 @@ FinanceModels.Yield.force_of_interest(::__ClosedFormForwardCurve, t) = 0.03 + 0.
         @test ForwardDiff.derivative(net, 0.07) == 0.0
         # A negative time still reaches the components, which reject it.
         @test_throws DomainError discount(a + b, -Inf)
-        # Curves without a closed-form tail contribute their zero rate at infinity as the slope, as
-        # FinanceModels 6 combined zero rates; an exact cancellation of such slopes is still 0·Inf.
+        # Curves without a closed-form tail (the yield shifts) contribute their zero rate at infinity
+        # as the slope, as FinanceModels 6 combined zero rates; an exact cancellation of such slopes
+        # is still 0·Inf. Nelson–Siegel has its tail in closed form, intercept included.
         ns = Yield.NelsonSiegel(1.0, 0.05, -0.02, 0.01)
         @test discount(ns + b, Inf) == 0.0 == exp(-rate(zero(ns + b, Inf)) * Inf)
         ts = Yield.TenorShift(b, (z, t) -> z - Continuous(0.03))
         @test discount(ts + a, Inf) == Inf == exp(-rate(zero(ts + a, Inf)) * Inf)
-        @test isnan(discount(ns - ns, Inf))
+        @test discount(ns - ns, Inf) == 1.0
+        @test isnan(discount(ts - ts, Inf))
         # A fallback curve whose zero rate tends to ±Inf has L growing faster than t, at an order it
         # doesn't state. Here u has zero rate t/32 (L = t²/32) and q the `:linear` tail t/64
         # (L = t²/64), both exact in binary, so L(u − q) = t²/64 → +Inf; but the fallback can't
@@ -279,6 +281,159 @@ FinanceModels.Yield.force_of_interest(::__ClosedFormForwardCurve, t) = 0.03 + 0.
         @test isnan(lim(-1.0))
         @test_throws "no derivative" ForwardDiff.derivative(lim, 0.0)
         @test ForwardDiff.derivative(lim, 1.0) == 0.0
+        # A shift on its own takes its limit from the same fallback tail, so the derivative there is
+        # the limit's: exp(-z·t) at t = Inf has partials 0·Inf (NaN), and L = z·t has Inf.
+        flat3 = Yield.Constant(Continuous(0.03))
+        for shift in (
+                k -> Yield.TenorShift(flat3, (z, t) -> z + Continuous(k)),
+                k -> Yield.ProjectedShift(flat3, (τ, z, t) -> z + Continuous(k * τ / 2), 2.0),
+            )
+            @test discount(shift(0.01), Inf) === 0.0
+            @test discount(shift(-0.05), Inf) == Inf
+            @test isnan(discount(shift(-0.03), Inf))
+            @test ForwardDiff.derivative(k -> discount(shift(k), Inf), 0.01) == 0.0
+            @test ForwardDiff.derivative(k -> discount(shift(k), 5.0, Inf), 0.01) == 0.0
+            @test ForwardDiff.derivative(k -> Yield.__log_discount(shift(k), Inf), 0.01) == 0.0
+            @test ForwardDiff.derivative(k -> discount(shift(k), Inf), -0.05) == 0.0
+            @test_throws "no derivative" ForwardDiff.derivative(k -> discount(shift(k), Inf), -0.03)
+            # The forward differentiates z(t)·t in time, not the limit L takes at infinity, also
+            # where a composite or a blend reads it.
+            @test rate(Yield.instantaneous_forward(shift(0.01), Inf)) ≈ 0.04 rtol = 1.0e-15
+            @test rate(Yield.instantaneous_forward(shift(0.01) + flat3, Inf)) ≈ 0.07 rtol = 1.0e-15
+            low = Yield.Blend(shift(-0.02), flat3, 0.5, Yield.DiscountFactors())
+            @test rate(Yield.instantaneous_forward(low, Inf)) ≈ 0.01 rtol = 1.0e-14
+        end
+    end
+
+    @testset "zero-native tails share parameter and forward limits" begin
+        constructors = (
+            r -> Yield.Constant(Continuous(r)),
+            r -> Yield.NelsonSiegel(2.0, r, -0.01, 0.005),
+            r -> Yield.NelsonSiegelSvensson(2.0, 5.0, r, -0.01, 0.005, 0.002),
+            r -> Yield.CairnsPritchard(0.5, 1.5, r, -0.01, 0.005),
+            r -> Yield.CairnsPritchardExtended(0.5, 1.5, 3.0, r, -0.01, 0.005, 0.002),
+        )
+        for make in constructors, r in (0.03, -0.02)
+            @test discount(make(r), Inf) == (r > 0 ? 0.0 : Inf)
+            @test ForwardDiff.derivative(x -> discount(make(x), Inf), r) == 0.0
+            @test ForwardDiff.derivative(x -> Yield.__log_discount(make(x), Inf), r) == 0.0
+            @test rate(Yield.instantaneous_forward(make(r), Inf)) == r
+            @test ForwardDiff.derivative(x -> rate(Yield.instantaneous_forward(make(x), Inf)), r) == 1.0
+            t = 3.0
+            @test rate(Yield.instantaneous_forward(make(r), t)) ≈
+                ForwardDiff.derivative(u -> rate(zero(make(r), u)) * u, t) rtol = 1.0e-14
+        end
+        for make in constructors
+            @test_throws "no derivative" ForwardDiff.derivative(x -> discount(make(x), Inf), 0.0)
+        end
+    end
+
+    @testset "zero-native tails: intercepts, signs and undetermined limits" begin
+        L(c) = Yield.__log_discount(c, Inf)
+        far = 1.0e6   # every decay term is exactly 0 in Float64 by here
+        # With a zero level the discount factor has a finite limit exp(-a0), and so do its
+        # sensitivities to the other parameters: a0 = τ₁(β₁ + β₂) (+ τ₂β₃), and 0 for
+        # Cairns–Pritchard. The finite-time values far out are the independent reference.
+        level0 = (
+            (p -> Yield.NelsonSiegel(p[1], 0.0, p[2], p[3]), [2.0, 0.03, 0.01], 0.08),
+            (p -> Yield.NelsonSiegelSvensson(p[1], p[2], 0.0, p[3], p[4], p[5]), [2.0, 5.0, 0.03, 0.01, 0.004], 0.1),
+            (p -> Yield.CairnsPritchard(p[1], p[2], 0.0, p[3], p[4]), [1.0, 2.0, 0.03, 0.01], 0.0),
+            (p -> Yield.CairnsPritchardExtended(p[1], p[2], p[3], 0.0, p[4], p[5], p[6]), [1.0, 2.0, 3.0, 0.03, 0.01, 0.02], 0.0),
+        )
+        for (make, p, a0) in level0
+            @test L(make(p)) ≈ a0 atol = 1.0e-15
+            @test discount(make(p), Inf) ≈ exp(-a0) rtol = 1.0e-15
+            @test discount(make(p), Inf) ≈ discount(make(p), far) rtol = 1.0e-14
+            @test ForwardDiff.gradient(q -> discount(make(q), Inf), p) ≈
+                ForwardDiff.gradient(q -> discount(make(q), far), p) rtol = 1.0e-12 atol = 1.0e-15
+            @test ForwardDiff.gradient(q -> L(make(q)), p) ≈
+                ForwardDiff.gradient(q -> Yield.__log_discount(make(q), far), p) rtol = 1.0e-12 atol = 1.0e-15
+        end
+        # a known intercept survives an exact cancellation of the slopes
+        ns3 = Yield.NelsonSiegel(2.0, 0.03, 0.02, 0.01)
+        @test discount(ns3 - ns3, Inf) == 1.0
+        @test discount(0 * ns3, Inf) == 1.0
+        @test discount(ns3 - Yield.Constant(Continuous(0.03)), Inf) ≈ exp(-0.06) rtol = 1.0e-15
+
+        # The signed limit of L, and the zero rate and forward at infinity with every parameter's
+        # sensitivity, decay parameters included: their loadings are exactly 0 there, not 0·Inf.
+        full = (
+            (p -> Yield.NelsonSiegel(p...), [2.0, 0.03, -0.01, 0.005], 2),
+            (p -> Yield.NelsonSiegelSvensson(p...), [2.0, 5.0, 0.03, -0.01, 0.005, 0.002], 3),
+            (p -> Yield.CairnsPritchard(p...), [0.5, 1.5, 0.03, -0.01, 0.005], 3),
+            (p -> Yield.CairnsPritchardExtended(p...), [0.5, 1.5, 3.0, 0.03, -0.01, 0.005, 0.002], 4),
+        )
+        for (make, p, level) in full
+            unit = [i == level ? 1.0 : 0.0 for i in eachindex(p)]
+            negative = [i == level ? -0.02 : p[i] for i in eachindex(p)]
+            @test L(make(p)) == Inf
+            @test L(make(negative)) == -Inf
+            @test ForwardDiff.gradient(q -> rate(zero(make(q), Inf)), p) == unit
+            @test ForwardDiff.gradient(q -> rate(Yield.instantaneous_forward(make(q), Inf)), p) == unit
+            shifted = q -> Yield.TenorShift(make(q), (z, t) -> z + Continuous(0.01))
+            @test ForwardDiff.gradient(q -> rate(zero(shifted(q), Inf)), p) == unit
+            @test ForwardDiff.gradient(q -> discount(shifted(q), Inf), p) == zero(p)
+        end
+        @test L(Yield.Constant(Continuous(0.03))) == Inf
+        @test L(Yield.Constant(Continuous(-0.02))) == -Inf
+
+        # An undetermined limit is NaN in its derivative as well. A slope shock k·t on a flat 3% is
+        # 0·Inf in the shift's zero rate at k = 0, where the limit jumps from Inf (k < 0) to 0.
+        slope = k -> Yield.TenorShift(Yield.Constant(Continuous(0.03)), (z, t) -> z + Continuous(k * t))
+        @test isnan(discount(slope(0.0), Inf))
+        @test isnan(ForwardDiff.derivative(k -> discount(slope(k), Inf), 0.0))
+        @test isnan(ForwardDiff.derivative(k -> L(slope(k)), 0.0))
+        # So is a zero slope whose intercept the rule doesn't give: k/(1 + t) on a flat 0% has the
+        # limit exp(-k), which the rule at infinity can't show.
+        fading = k -> Yield.TenorShift(Yield.Constant(Continuous(0.0)), (z, t) -> Continuous(k / (1 + t)))
+        @test isnan(discount(fading(0.2), Inf))
+        @test isnan(ForwardDiff.derivative(k -> discount(fading(k), Inf), 0.2))
+        @test isnan(ForwardDiff.derivative(k -> L(fading(k)), 0.2))
+
+        # an integer continuous rate has a tail too
+        integer_rate = Yield.Constant(Continuous(1))
+        @test L(integer_rate) == Inf
+        @test discount(Yield.TenorShift(integer_rate, (z, t) -> z), Inf) == 0.0
+
+        # The limit has the type of a finite-time result: a time that carries partials infers, and
+        # a single-precision curve and time stay single precision, also through a rule that
+        # dispatches on the time's type.
+        for curve in (ns3, Yield.Constant(Continuous(0.03))), t in (ForwardDiff.Dual(3.0, 1.0), ForwardDiff.Dual(Inf, 1.0))
+            @test (@inferred discount(curve, t)) isa ForwardDiff.Dual
+            @test (@inferred Yield.__log_discount(curve, t)) isa ForwardDiff.Dual
+        end
+        @test ForwardDiff.derivative(t -> discount(ns3, t), Inf) == 0.0
+        ns32 = Yield.NelsonSiegel(2.0f0, 0.03f0, 0.02f0, 0.01f0)
+        flat32 = Yield.Constant(Continuous(0.03f0))
+        @test (@inferred discount(ns32, 3.0f0)) isa Float32
+        @test discount(ns32, Inf32) === 0.0f0
+        @test discount(Yield.TenorShift(flat32, (z, t::Float32) -> z), Inf32) === 0.0f0
+        @test discount(Yield.ProjectedShift(flat32, (τ, z, t::Float32) -> z, 2.0), Inf32) === 0.0f0
+
+        # An unknown intercept stays unknown in every partial when something else brings its own
+        # derivative afterwards: the other component of a composite, or the time.
+        unknown = Yield.TenorShift(Yield.Constant(Continuous(0.0)), (z, t) -> Continuous(inv(sqrt(1 + t))))
+        with_ns = x -> unknown + Yield.NelsonSiegel(2.0, 0.0, x, 0.0)
+        @test isnan(L(with_ns(0.03)))
+        @test isnan(ForwardDiff.derivative(x -> L(with_ns(x)), 0.03))
+        @test isnan(ForwardDiff.derivative(x -> discount(with_ns(x), Inf), 0.03))
+        at_inf = Yield.__log_discount(unknown, ForwardDiff.Dual(Inf, 1.0))
+        @test isnan(ForwardDiff.value(at_inf)) && isnan(ForwardDiff.partials(at_inf, 1))
+
+        # A fixed-weight blend in discount-factor space reads the intercepts themselves: the unknown
+        # one is NaN in its partials where it is created.
+        blended = k -> Yield.Blend(fading(k), Yield.Constant(Continuous(0.0)), 0.5, Yield.DiscountFactors())
+        @test isnan(discount(blended(0.2), Inf))
+        @test isnan(ForwardDiff.derivative(k -> discount(blended(k), Inf), 0.2))
+
+        # Integer parameters give a floating-point tail: a composite's interval and a blend can
+        # hold its ±Inf.
+        int_flat = Yield.Constant(Continuous(0))
+        int_cp = Yield.CairnsPritchard(1, 2, 1, 0, 0)
+        @test discount(Yield.NelsonSiegel(2, 1, 0, 0) + int_flat, 0.0, Inf) == 0.0
+        @test discount(int_cp + int_flat, 0.0, Inf) == 0.0
+        @test discount(Yield.Blend(Yield.Constant(Continuous(0.0)), int_cp, 0.5, Yield.DiscountFactors()), Inf) == 0.5
+        @test discount(Yield.Blend(Yield.Constant(Continuous(0.0)), Yield.Constant(Continuous(1)), 0.5, Yield.DiscountFactors()), Inf) == 0.5
     end
 
     @testset "endpoint derivatives" begin

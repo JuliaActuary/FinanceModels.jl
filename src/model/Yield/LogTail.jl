@@ -11,6 +11,9 @@ struct __LogTail{T}
     a0::T
 end
 __LogTail(a2, a1, a0) = __LogTail(promote(a2, a1, a0)...)
+# Integer curve parameters give a floating-point tail, as they give a floating-point L at a finite
+# time: an integer cannot hold the ±Inf that the limit and a blend's comparisons use.
+__LogTail(a2::T, a1::T, a0::T) where {T <: Integer} = __LogTail(float(a2), float(a1), float(a0))
 
 # Tails add, subtract and scale coefficientwise, as their log-discounts do.
 Base.:+(x::__LogTail, y::__LogTail) = __LogTail(x.a2 + y.a2, x.a1 + y.a1, x.a0 + y.a0)
@@ -23,19 +26,26 @@ __shift_tail(x::__LogTail, τ, L_τ) = __LogTail(x.a2, x.a1 + 2 * x.a2 * τ, x.a
 # positive, Inf when negative. When both are zero it is finite, exp(-a0), which z(Inf)·Inf = 0·Inf
 # would lose as NaN. The signs are those of the primal values. A deciding coefficient that is zero
 # there but carries partials has no derivative: a bump that moves it can move the limit to 0 or Inf.
+# An undetermined limit is NaN in its partials too, so a derivative never reads as zero.
 function __discount_at_infinity(tail::__LogTail)
     d = exp(-tail.a0)
     limit = __tail_limit_sign(tail)
-    return limit > 0 ? zero(d) : limit < 0 ? oftype(d, Inf) : limit == 0 ? d : oftype(d, NaN)
+    return limit > 0 ? zero(d) : limit < 0 ? oftype(d, Inf) : limit == 0 ? d : __undetermined(d)
 end
+
+# NaN of x's type, also in every partial of a dual number (0·NaN and p·NaN are both NaN).
+__undetermined(x) = x * oftype(float(__primal(x)), NaN)
 
 # The same limit as a cumulative log-discount: +Inf where the discount factor tends to 0, -Inf
 # where it tends to Inf, and a0 where it is finite. It is not formed as
 # `-log(__discount_at_infinity(tail))`, so each result keeps its own numeric type and partials.
+# A finite limit whose intercept is unknown is undetermined as well: the intercept can have gained
+# ordinary partials after it was marked, from another component of a composite or from the time.
+# (`exp` of a NaN already spreads it to the partials of the discount factor above.)
 function __log_discount_at_infinity(tail::__LogTail)
     L = tail.a0
     limit = __tail_limit_sign(tail)
-    return limit > 0 ? oftype(L, Inf) : limit < 0 ? oftype(L, -Inf) : limit == 0 ? L : oftype(L, NaN)
+    return limit > 0 ? oftype(L, Inf) : limit < 0 ? oftype(L, -Inf) : (limit == 0 && !isnan(L)) ? L : __undetermined(L)
 end
 
 # +1 if the discount factor at infinity is 0, -1 if it is Inf, 0 if it is finite, NaN if the tail

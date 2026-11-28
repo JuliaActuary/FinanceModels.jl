@@ -17,6 +17,14 @@ Two concrete subtypes:
 
 Both subtypes implement the standard `AbstractYieldModel` interface (`zero`,
 `discount`, `forward`, `pv`).
+
+At `t = Inf` the rule is evaluated there: `rule(zero(base, Inf), Inf)` is taken as the limit of
+the shifted zero rate, and as the instantaneous forward at infinity. That is the limit when the
+rule's value along the curve, `rule(zero(base, t), t)`, tends to its value at the endpoint as `t`
+grows, and the shifted forward settles there too. Evaluating at the endpoint misses the limit, or
+returns a number where there is none, for a rule with a threshold exactly at the limiting rate,
+one that keeps oscillating, or one built from a quantity that jumps at the endpoint (a discount
+factor `exp(-z)^t` of a rate tending to zero).
 """
 abstract type AbstractYieldShift <: AbstractYieldModel end
 
@@ -138,10 +146,10 @@ function Base.zero(s::ProjectedShift, t)
     return convert(Continuous(), s.rule(s.time, z, t)::FinanceCore.Rate)
 end
 FinanceCore.discount(s::AbstractYieldShift, t) = __discount_from_zero(s, t)
-# At t = 0 the forward is the zero rate's limit: the rule applied to the base curve's `zero(base, 0)`,
-# with every parameter's derivative. Differentiating L there would need the base's zero rate at a dual
-# time of 0, which a curve without its own zero rate refuses. Elsewhere, the derivative of L.
-force_of_interest(s::AbstractYieldShift, t) =
-    iszero(t) ? FinanceCore.rate(Base.zero(s, t)) : __log_discount_derivative(s, t)
-__log_discount(s::AbstractYieldShift, t) = __zero_log_discount(s, t)
+force_of_interest(s::AbstractYieldShift, t) = __forward_from_zero(s, t)
+__log_discount(s::AbstractYieldShift, t) = __log_discount_from_zero(s, t)
 __log_native(::AbstractYieldShift) = true
+# A rule is opaque, so its tail is the fallback's: the rule at infinity, read at the caller's horizon
+# so that a rule which dispatches on the time's type sees that type. A shift type with a closed-form
+# tail defines the one-argument `__log_tail` instead.
+__log_tail(s::Union{TenorShift, ProjectedShift}, t) = __fallback_tail(__continuous(Base.zero(s, t)))

@@ -51,12 +51,15 @@ end
 CairnsPritchard(c₁ = 0.5, c₂ = 3.0) = CairnsPritchard(c₁, c₂, 0.05, -0.01, -0.01)
 
 function Base.zero(cp::CairnsPritchard, t)
+    __at_infinity(t) && return Continuous(cp.b₀ + zero(t))
     # At t=0 the formula is already well-defined: exp(0) = 1, so z(0) = b₀ + b₁ + b₂
     return Continuous(cp.b₀ + cp.b₁ * exp(-cp.c₁ * t) + cp.b₂ * exp(-cp.c₂ * t))
 end
 FinanceCore.discount(cp::CairnsPritchard, t) = __discount_from_zero(cp, t)
-__log_discount(cp::CairnsPritchard, t) = __zero_log_discount(cp, t)
+@inline __log_discount(cp::CairnsPritchard, t) = __log_discount_from_zero(cp, t)
 __log_native(::CairnsPritchard) = true
+# L(t) = b₀·t + o(1): each exponential term's t·exp(-c·t) vanishes.
+__log_tail(cp::CairnsPritchard) = __LogTail(zero(cp.b₀), cp.b₀, zero(cp.b₀))
 
 """
     CairnsPritchardExtended(c₁, c₂, c₃, b₀, b₁, b₂, b₃)
@@ -114,9 +117,13 @@ end
 CairnsPritchardExtended(c₁ = 0.5, c₂ = 2.0, c₃ = 5.0) = CairnsPritchardExtended(c₁, c₂, c₃, 0.05, -0.01, -0.01, -0.01)
 
 function Base.zero(cp::CairnsPritchardExtended, t)
+    __at_infinity(t) && return Continuous(cp.b₀ + zero(t))
     # At t=0 the formula is already well-defined: exp(0) = 1, so z(0) = b₀ + b₁ + b₂ + b₃
     return Continuous(cp.b₀ + cp.b₁ * exp(-cp.c₁ * t) + cp.b₂ * exp(-cp.c₂ * t) + cp.b₃ * exp(-cp.c₃ * t))
 end
 FinanceCore.discount(cp::CairnsPritchardExtended, t) = __discount_from_zero(cp, t)
-__log_discount(cp::CairnsPritchardExtended, t) = __zero_log_discount(cp, t)
+@inline __log_discount(cp::CairnsPritchardExtended, t) = __log_discount_from_zero(cp, t)
 __log_native(::CairnsPritchardExtended) = true
+__log_tail(cp::CairnsPritchardExtended) = __LogTail(zero(cp.b₀), cp.b₀, zero(cp.b₀))
+
+force_of_interest(c::Union{CairnsPritchard, CairnsPritchardExtended}, t) = __forward_from_zero(c, t)

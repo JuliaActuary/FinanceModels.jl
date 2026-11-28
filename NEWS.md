@@ -38,6 +38,36 @@ FinanceModels now requires Roots 2.2.7 or later. The old floor, 2.0.2, was allow
 predates Roots' ForwardDiff extension; no release between the two can be installed with
 ForwardDiff 1.
 
+### Zero-native curve limits at infinity
+
+- `discount` and the log-discount of zero-native curves (`Constant`, Nelson–Siegel/Svensson,
+  Cairns–Pritchard and yield shifts) at `t = Inf` take their limit from the curve tail. Finite-time
+  values are unchanged, with two corrections to `Constant`, which now shares this path: an
+  unsigned-integer rate discounts correctly (it was negated before it was converted), and at
+  exactly `t = 0` the factor is 1 also for a non-finite rate. Derivatives of `discount(curve, Inf)`
+  with respect to the curve's parameters are zero where the limit is 0 or Inf, rather than NaN,
+  and throw where a zero limiting rate carries partials. Intervals ending at infinity have zero
+  derivatives where the limit is 0.
+- Nelson–Siegel, Svensson and Cairns–Pritchard curves have their tail in closed form. With a zero
+  level (`β₀` or `b₀`) the discount factor at infinity is its finite limit, with its parameter
+  sensitivities, where it was NaN: `exp(-τ₁(β₁ + β₂))` for Nelson–Siegel,
+  `exp(-τ₁(β₁ + β₂) - τ₂β₃)` for Svensson and 1 for Cairns–Pritchard. A composite that cancels
+  the level (`ns - ns`) keeps that limit.
+- The instantaneous forward at infinity is the limiting zero rate with its parameter sensitivities,
+  also for Cairns–Pritchard and shifted curves, where it was NaN.
+- A limit at infinity that the tail does not determine is NaN in its parameter derivatives as well
+  as its value, for these curves and composites of them, under ForwardDiff's default settings; the
+  derivative could read as zero before. Two cases still read as zero, as before: a parameter held
+  only by the tenor-varying weights of a `Blend`, and a parameter that a shift's rule drops at the
+  endpoint (a rule that skips its bump where a tenor weight is zero).
+- A yield shift's limits at infinity come from its rule evaluated there. That is the limit for a
+  rule whose value along the curve, `rule(zero(base, t), t)`, tends to its value at the endpoint,
+  with a forward that settles there; a threshold exactly at the limiting rate, a shift that keeps
+  oscillating, or a rule built from a quantity that jumps at the endpoint is not detected: the
+  endpoint value is returned whether or not it is the limit.
+- Derivatives of intervals that end at infinity where the discount factor diverges, and of the
+  empty interval `discount(curve, Inf, Inf)` at a zero limiting rate, are tracked in #381.
+
 ## v7.3.3
 
 ### `Spline.Akima()`: the kink guard follows DataInterpolations 10.1.5
