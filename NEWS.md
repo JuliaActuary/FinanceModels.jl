@@ -46,16 +46,20 @@ ForwardDiff 1.
   parameters are zero where the limit is 0 or Inf, rather than NaN, and throw where a zero limiting
   rate carries partials. Intervals ending at infinity have zero derivatives where the limit is 0.
 - Nelson–Siegel, Svensson and Cairns–Pritchard curves have their tail in closed form. With a zero
-  level (`β₀` or `b₀`) the discount factor at infinity is its finite limit, `exp(-τ₁(β₁ + β₂) - τ₂β₃)`
-  or 1, with its parameter sensitivities, where it was NaN. A composite that cancels the level
-  (`ns - ns`) keeps that limit.
+  level (`β₀` or `b₀`) the discount factor at infinity is its finite limit, with its parameter
+  sensitivities, where it was NaN: `exp(-τ₁(β₁ + β₂))` for Nelson–Siegel,
+  `exp(-τ₁(β₁ + β₂) - τ₂β₃)` for Svensson and 1 for Cairns–Pritchard. A composite that cancels
+  the level (`ns - ns`) keeps that limit.
 - The instantaneous forward at infinity is the limiting zero rate with its parameter sensitivities,
   also for Cairns–Pritchard and shifted curves, where it was NaN.
 - A limit at infinity that the tail does not determine is NaN in its derivative as well as its
-  value, for every curve type; the derivative could read as zero before.
+  value, for these curves and composites of them; the derivative could read as zero before. A
+  `Blend` whose weights vary with tenor is unchanged: a parameter held only by the weights still
+  reads as zero.
 - A yield shift's limits at infinity come from its rule evaluated there. That is the limit for a
-  rule that is continuous at the base curve's limiting rate and whose forward settles; a threshold
-  exactly at that rate, or a shift that keeps oscillating, is not detected.
+  rule whose value along the curve, `rule(zero(base, t), t)`, tends to its value at the endpoint,
+  with a forward that settles there; a threshold exactly at the limiting rate, a shift that keeps
+  oscillating, or a rule built from a quantity that jumps at the endpoint is not detected.
 - Derivatives of intervals that end at infinity where the discount factor diverges, and of the
   empty interval `discount(curve, Inf, Inf)` at a zero limiting rate, are tracked in #381.
 

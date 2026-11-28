@@ -100,8 +100,13 @@ end
 FinanceCore.discount(ns::NelsonSiegel, t) = __discount_from_zero(ns, t)
 __log_discount(ns::NelsonSiegel, t) = __log_discount_from_zero(ns, t)
 __log_native(::NelsonSiegel) = true
-# L(t) = β₀·t + τ₁(β₁ + β₂) + o(1): both loadings times t tend to τ₁.
-__log_tail(ns::NelsonSiegel) = __LogTail(zero(ns.β₀), ns.β₀, ns.τ₁ * (ns.β₁ + ns.β₂))
+# L(t) = β₀·t + τ₁(β₁ + β₂) + o(1): both loadings times t tend to τ₁. Each product is taken on
+# its own in floating point, as at a finite time, so narrow integer parameters and a sum β₁ + β₂
+# beyond the floating range do not overflow.
+function __log_tail(ns::NelsonSiegel)
+    τ₁ = float(ns.τ₁)
+    return __LogTail(zero(ns.β₀), ns.β₀, τ₁ * ns.β₁ + τ₁ * ns.β₂)
+end
 Base.zero(ns::NelsonSiegel, ts::AbstractArray) = zero.(Ref(ns), ts)
 FinanceCore.discount(ns::NelsonSiegel, ts::AbstractArray) = discount.(Ref(ns), ts)
 
@@ -182,9 +187,11 @@ end
 FinanceCore.discount(nss::NelsonSiegelSvensson, t) = __discount_from_zero(nss, t)
 __log_discount(nss::NelsonSiegelSvensson, t) = __log_discount_from_zero(nss, t)
 __log_native(::NelsonSiegelSvensson) = true
-# L(t) = β₀·t + τ₁(β₁ + β₂) + τ₂·β₃ + o(1)
-__log_tail(nss::NelsonSiegelSvensson) =
-    __LogTail(zero(nss.β₀), nss.β₀, nss.τ₁ * (nss.β₁ + nss.β₂) + nss.τ₂ * nss.β₃)
+# L(t) = β₀·t + τ₁(β₁ + β₂) + τ₂·β₃ + o(1), product by product as for `NelsonSiegel`.
+function __log_tail(nss::NelsonSiegelSvensson)
+    τ₁, τ₂ = float(nss.τ₁), float(nss.τ₂)
+    return __LogTail(zero(nss.β₀), nss.β₀, τ₁ * nss.β₁ + τ₁ * nss.β₂ + τ₂ * nss.β₃)
+end
 function force_of_interest(nss::NelsonSiegelSvensson, t)
     __at_infinity(t) && return nss.β₀ + zero(t)
     q₁, q₂ = t / nss.τ₁, t / nss.τ₂

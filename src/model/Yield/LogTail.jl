@@ -36,10 +36,14 @@ __undetermined(x) = x * oftype(float(__primal(x)), NaN)
 # The same limit as a cumulative log-discount: +Inf where the discount factor tends to 0, -Inf
 # where it tends to Inf, and a0 where it is finite. It is not formed as
 # `-log(__discount_at_infinity(tail))`, so each result keeps its own numeric type and partials.
+# It is floating point, since an integer tail (integer curve parameters) cannot hold ±Inf. A finite
+# limit whose intercept is unknown is undetermined as well: the intercept can have gained ordinary
+# partials after it was marked, from another component of a composite or from the time. (`exp` of
+# a NaN already spreads it to the partials of the discount factor above.)
 function __log_discount_at_infinity(tail::__LogTail)
-    L = tail.a0
+    L = float(tail.a0)
     limit = __tail_limit_sign(tail)
-    return limit > 0 ? oftype(L, Inf) : limit < 0 ? oftype(L, -Inf) : limit == 0 ? L : __undetermined(L)
+    return limit > 0 ? oftype(L, Inf) : limit < 0 ? oftype(L, -Inf) : (limit == 0 && !isnan(L)) ? L : __undetermined(L)
 end
 
 # +1 if the discount factor at infinity is 0, -1 if it is Inf, 0 if it is finite, NaN if the tail
