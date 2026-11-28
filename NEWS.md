@@ -57,8 +57,9 @@ ForwardDiff 1.
   also for Cairns–Pritchard and shifted curves, where it was NaN.
 - A limit at infinity that the tail does not determine is NaN in its parameter derivatives as well
   as its value, for these curves and composites of them, under ForwardDiff's default settings; the
-  derivative could read as zero before. A `Blend` whose weights vary with tenor is unchanged: a
-  parameter held only by the weights still reads as zero.
+  derivative could read as zero before. Two cases still read as zero, as before: a parameter held
+  only by the tenor-varying weights of a `Blend`, and a parameter that a shift's rule drops at the
+  endpoint (a rule that skips its bump where a tenor weight is zero).
 - A yield shift's limits at infinity come from its rule evaluated there. That is the limit for a
   rule whose value along the curve, `rule(zero(base, t), t)`, tends to its value at the endpoint,
   with a forward that settles there; a threshold exactly at the limiting rate, a shift that keeps
